@@ -82,17 +82,19 @@ export abstract class EngineRigs extends EngineScenes {
     if (this.showCorkscrew) return this.watchCorkscrew();
     if (this.showCompactor) {
       this.stepCompactor(h);
-      this.carA.afterContacts(h, this.bounceWorld);
+      this.carA.afterContacts(h);
     } else if (this.showPistons) {
       this.stepPistons(h);
-      this.carA.afterContacts(h, this.bounceWorld);
+      this.carA.afterContacts(h);
     } else {
       this.stepDoors(h);
     }
     return true;
   };
   private stepCompactor(dt: number): void {
+    const faceWas = this.compactor.face;
     const hit = this.compactor.step(dt);
+    this.rigs.syncPlates(this.compactor.face, (faceWas - this.compactor.face) / dt);
     this.press.sync(this.compactor.face);
     if (this.carA.deform.massActive) {
       if (hit.hits > 0 && this.elapsedWall > this.compactFxAt) {
@@ -201,7 +203,7 @@ export abstract class EngineRigs extends EngineScenes {
   private stepDoors(dt: number): void {
     const rig = this.doorRig;
     const was = rig.phase;
-    this.carA.integrate(dt, this.bounceWorld);
+    this.carA.integrate(dt);
     rig.step(dt);
     this.doorRam.sync(rig);
     if (rig.touched && !this.doorFx) {

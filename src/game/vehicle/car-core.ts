@@ -38,6 +38,7 @@ import { CAR_STYLES, type BodyStyle, type CarStyleId } from "./car-variants.ts";
 import { anchorOnSkin, poseOnSkin, type GlowKind, type SkinAnchor } from "./lamp-lights.ts";
 import { panelRegions, type PanelName, type PanelRegion } from "./car-panels.ts";
 import { newDentState, type DentState } from "./loose-dent.ts";
+import { newLooseShape } from "./loose-step.ts";
 const _p = new THREE.Vector3();
 const _inv = new THREE.Quaternion();
 const _lampQ = new THREE.Quaternion();
@@ -71,7 +72,6 @@ export interface CarPaint {
   name: string;
 }
 
-export type WorldBounce = (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void;
 type GlassBurst = (origin: THREE.Vector3, velocity: THREE.Vector3, count: number) => void;
 
 /** G-key hull overlay: each 2D contact hull drawn as a box over this height band (m, display only). */
@@ -147,8 +147,6 @@ export interface PartNetState {
   readonly flags: Uint8Array;
   /** Per part × 3: hingeT, swing theta (rad), swing mirrorFold (rad); 0 without a swing. */
   readonly hinge: Float32Array;
-  /** Per part × 7: world position xyz and quaternion xyzw, while detached. */
-  readonly pose: Float32Array;
   /** Bit i: lamp i intact. */
   lamps: number;
   /** 2 bits per pane: 0 intact, 1 cracked, 2 shattered. */
@@ -236,6 +234,25 @@ export interface DetachPart {
   posed: number;
   /** The bounces this part has taken (`loose-dent.ts`). */
   dent: DentState;
+  /** The box it flies as (`stepLoose`), preallocated; measured when it first flies. */
+  shape: LooseShape;
+}
+
+/**
+ * A loose body's points and inertia (`loose-step.ts`): `count` points (0: not measured yet) as offsets from its middle `centre`, in
+ * the object's own axes, and its inverse inertia per unit mass about those axes.
+ */
+export interface LooseShape {
+  readonly points: Float64Array;
+  count: number;
+  readonly centre: THREE.Vector3;
+  readonly invI: THREE.Vector3;
+  /** The farthest a point is from `centre` (m): the body's bounding radius. */
+  reach: number;
+  /** At rest with nothing near that could change what it rests on: `stepLoose` leaves it be until something does. */
+  asleep: boolean;
+  /** The last step found no contact at any point: a box then tests its eight corners first (its twelve edge middles only once a corner touches). */
+  airborne: boolean;
 }
 
 /** What `stepLoose` moves: a detached part, or a wheel off its hub. */
@@ -244,6 +261,7 @@ export interface LooseBody {
   velocity: THREE.Vector3;
   angular: THREE.Vector3;
   radius: number;
+  shape: LooseShape;
 }
 
 /**
@@ -443,7 +461,7 @@ export abstract class CarCore {
       w.position.set(x, y, z);
       this.group.add(w);
       this.wheels.push(w);
-      this.looseWheels.push({ object: w, velocity: new THREE.Vector3(), angular: new THREE.Vector3(), radius: TYRE_R, loose: false });
+      this.looseWheels.push({ object: w, velocity: new THREE.Vector3(), angular: new THREE.Vector3(), radius: TYRE_R, shape: newLooseShape(), loose: false });
     }
     this.group.castShadow = true;
   }
@@ -572,6 +590,7 @@ export abstract class CarCore {
         open: false,
         posed: -1,
         dent: newDentState(),
+        shape: newLooseShape(),
       };
       this.parts.push(p);
       return p;

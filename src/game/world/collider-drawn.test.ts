@@ -7,7 +7,7 @@ import { Mesher } from "../present/track-mesh.ts";
 import { addWalls } from "../present/track-structures.ts";
 import { PREFAB_IDS, PREFABS, type PrefabId } from "./catalog.ts";
 import { BAND, gap, meshGap, prefabGap, triangles, type P3 } from "./collider-drawn.test-util.ts";
-import { placeProps, propColliders } from "./placements.ts";
+import { placeProps, propColliders, solidsOf } from "./placements.ts";
 import { Track } from "./track.ts";
 import { parseTrack } from "./track-schema.ts";
 import { wallColliders } from "./track-sections.ts";
@@ -127,7 +127,7 @@ describe("given the colliders the cars meet and the solids the cosmetic Rapier w
       const R = await loadRapier();
       const track = new Track(course.json);
       const placed = placeProps(track);
-      const colliders = [...propColliders(placed).filter((c) => c.body === "solid"), ...wallColliders(track)];
+      const colliders = [...wallColliders(track), ...propColliders(placed).filter((c) => c.body === "solid")];
       const solids = courseSolids(track, placed);
       assert.ok(solids.length >= colliders.length, `${solids.length} solids for ${colliders.length} colliders`);
       for (const [k, c] of colliders.entries()) {
@@ -151,9 +151,9 @@ describe("given the colliders the cars meet and the solids the cosmetic Rapier w
 });
 
 describe("given the Rapier solids of a prop piece list", () => {
-  it("when colliderSolids is given knock pieces, then it builds none of them (a knocked prop is a body of its own)", () => {
+  it("when colliderSolids is given a store holding knock pieces, then it builds none of them (a knocked prop is a body of its own)", () => {
     const pieces = propColliders([{ prefab: "cone", x: 0, y: 0, z: 0, yaw: 0, sx: 1, sy: 1, sz: 1 }]);
     assert.equal(pieces.length, 3);
-    assert.deepEqual(colliderSolids(pieces, []), []);
+    assert.deepEqual(colliderSolids(solidsOf([], pieces), []), []);
   });
 });

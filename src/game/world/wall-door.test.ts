@@ -2,8 +2,8 @@ import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { setGround } from "./ground.ts";
-import type { PropCollider } from "./placements.ts";
-import { courseContact, solidGrid, type PropHits } from "../contact/prop-contact.ts";
+import { solidsOf, type PropCollider } from "./placements.ts";
+import { propContact, type PropHits } from "../contact/prop-contact.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import { DeformableCar, DOOR } from "../vehicle/car.ts";
@@ -94,7 +94,7 @@ type Solids = { walls: PropCollider[]; props: PropCollider[] };
 
 /** A sedan with its left door open (jammed by `jam`, 0 for free) driven at `speed` along the line past the end of `shape`, through `solids`; the car, and how deep the door's skin was ever drawn into `shape`. */
 function driveBy(jam: number, speed: number, shape: PropCollider, solids: Solids): { car: Probe; deepest: number } {
-  const grid = solidGrid(solids.walls, solids.props);
+  const prisms = solidsOf(solids.walls, solids.props);
   const car = new Probe(paint(), new THREE.Scene(), null, CLASSES.sedan.style);
   assignClass(car, "sedan");
   car.spawnFacing(0, -8, 0, speed);
@@ -102,7 +102,7 @@ function driveBy(jam: number, speed: number, shape: PropCollider, solids: Solids
   car.door(-1).hingeT = jam;
   const world = newWorld([car]);
   world.fine = 1 / 240;
-  world.collide = (c, i, h) => courseContact(c, i, grid, solids.walls, solids.props, new Uint8Array(0), NO_HITS, h);
+  world.collide = (c, i, h) => propContact(c, i, prisms, new Uint8Array(0), NO_HITS, h);
   let acc = 0;
   let deepest = 0;
   for (let f = 0; f < 8 / FRAME && car.group.position.z < WALL.cornerAhead + 3; f++) {
@@ -165,7 +165,7 @@ describe("given a parked sedan with its left door swinging free at its stop, and
     const open = car.doorAngle(-1);
     const tip = doorTip(car, -1);
     const post: PropCollider = { index: 0, prefab: "lamp", body: "solid", x: tip.x, z: tip.z, yaw: 0, kind: "circle", r: POST_RADIUS, hx: POST_RADIUS, hz: POST_RADIUS, mass: 0, base: -1, top: 3, ends: 3 };
-    courseContact(car, 0, solidGrid([], [post]), [], [post], new Uint8Array(0), NO_HITS, FRAME);
+    propContact(car, 0, solidsOf([], [post]), new Uint8Array(0), NO_HITS, FRAME);
     const shut = doorTip(car, -1);
     assert.ok(car.doorAngle(-1) < open, `the door stayed open at ${car.doorAngle(-1).toFixed(2)} rad`);
     assert.ok(Math.hypot(shut.x - post.x, shut.z - post.z) >= POST_RADIUS, `the door's tip is ${Math.hypot(shut.x - post.x, shut.z - post.z).toFixed(3)} m from the post's middle, inside its ${POST_RADIUS} m radius`);

@@ -6,7 +6,8 @@ import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { EjectionWatch } from "../vehicle/ejection.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import { physicsSlice, sliceSpeed, BARRIER_HALF } from "../contact/sat.ts";
-import { WALL_HALF_L } from "../contact/pair-contact.ts";
+import { FOOT_HALF_L } from "../vehicle/car-mesh.ts";
+import { HULL } from "../vehicle/car-air.ts";
 import { launch, makeWorld as barrierWorld, relaunchDamaged, strikeReach, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { makeWorld as raceWorld } from "./race-world.test-util.ts";
 import { activeGround, setGround } from "./ground.ts";
@@ -29,7 +30,7 @@ const SETTLE = 2.5;
 /** Nose-to-face gap (m) a car is sent from. */
 const RUN_IN = 3;
 /** How far out (m) from the face the ground under the car's run is read: the run-in and a car's length. */
-const APPROACH = RUN_IN + 2 * WALL_HALF_L;
+const APPROACH = RUN_IN + 2 * FOOT_HALF_L;
 
 /** What one hit left of the car. */
 export type Outcome = {
@@ -43,6 +44,8 @@ export type Outcome = {
   ejected: boolean;
   /** The car's speed (m/s) when the hit has played out: a solid that stops a car leaves none. */
   speed: number;
+  /** How far (rad) the car's heading turned over the hit, positive toward the side the face's aim point was on (its right, for a positive offset). */
+  turn: number;
 };
 
 /** A car class as a race car has it: its body, durability and the kill travel the default realism gives. */
@@ -58,8 +61,10 @@ export function armedCar(cls: VehicleClassId): DeformableCar {
 
 type Rig = {
   car: DeformableCar;
-  /** Car-local reach (m) of the nose from the group origin: how far from the face the origin starts. */
-  aim(car: DeformableCar, speed: number): void;
+  /** The face the car is sent at. */
+  face: Face;
+  /** Sends the car at the face at `speed` m/s, the face's aim point `offset` m to the car's right of its middle. */
+  aim(car: DeformableCar, speed: number, offset: number): void;
   /** One 1/60 s frame of the world. */
   frame(): void;
   ejections(): number;
@@ -71,10 +76,11 @@ function barrierRig(car: DeformableCar): Rig {
   const w = barrierWorld([car], true, false);
   return {
     car,
-    aim: (c, speed) => {
+    face: { x: BARRIER_HALF.x, z: 0, nx: 1, nz: 0 },
+    aim: (c, speed, offset) => {
       const x = BARRIER_HALF.x + RUN_IN + strikeReach(c, "front");
-      if (c.crashed) relaunchDamaged(c, x, 0, -Math.PI / 2, -speed, 0);
-      else launch(c, x, 0, -Math.PI / 2, -speed, 0);
+      if (c.crashed) relaunchDamaged(c, x, -offset, -Math.PI / 2, -speed, 0);
+      else launch(c, x, -offset, -Math.PI / 2, -speed, 0);
     },
     frame: () => tickWorld(w),
     ejections: () => w.ejections.length,
@@ -100,10 +106,12 @@ function courseRig(car: DeformableCar, id: string, face: (track: Track, collider
   let acc = 0;
   return {
     car,
-    aim: (c, speed) => {
+    face: f,
+    aim: (c, speed, offset) => {
       const reach = strikeReach(c, "front");
-      const x = f.x + f.nx * (RUN_IN + reach);
-      const z = f.z + f.nz * (RUN_IN + reach);
+      // The car starts `offset` m to its left of the face's aim point, so that point is that far to its right.
+      const x = f.x + f.nx * (RUN_IN + reach) + f.nz * offset;
+      const z = f.z + f.nz * (RUN_IN + reach) - f.nx * offset;
       const yaw = Math.atan2(-f.nx, -f.nz);
       if (c.crashed) relaunchDamaged(c, x, z, yaw, -f.nx * speed, -f.nz * speed);
       else launch(c, x, z, yaw, -f.nx * speed, -f.nz * speed);
@@ -160,7 +168,7 @@ function straightWall(track: Track): Face {
  * arm is met on its flank). Of equally far pieces (a star's five arms) the one with the most level ground before it: a wreck rolls
  * off a slope by itself, and the slab it is held to stands on a flat range.
  */
-function propFace(colliders: readonly PropCollider[], prefab: PrefabId): Face {
+function propFace(colliders: readonly PropCollider[], prefab: PrefabId, end = false): Face {
   const gap = (c: PropCollider): number => Math.min(...colliders.filter((o) => o.index !== c.index).map((o) => Math.hypot(o.x - c.x, o.z - c.z) - o.r - c.r));
   const ground = (c: PropCollider): boolean => colliders.every((o) => o.index !== c.index || o.base >= c.base);
   const lead = colliders.filter((o) => o.prefab === prefab && ground(o)).reduce((a, b) => (gap(b) > gap(a) ? b : a));
@@ -171,7 +179,8 @@ function propFace(colliders: readonly PropCollider[], prefab: PrefabId): Face {
   const farthest = Math.max(...own.map(reach));
   const faceOf = (c: PropCollider): Face => {
     // A box is met on the face of its thin axis (a block: its local x), a circle on its x side: the car comes along the prop's own axis.
-    const thinZ = c.kind === "box" && c.hz < c.hx;
+    // `end`: a box is met on the end of its long axis (a star's arm at its tip, the car coming along the arm).
+    const thinZ = c.kind === "box" && (end ? c.hz > c.hx : c.hz < c.hx);
     const nx = thinZ ? Math.sin(c.yaw) : Math.cos(c.yaw);
     const nz = thinZ ? Math.cos(c.yaw) : -Math.sin(c.yaw);
     const depth = c.kind === "circle" ? c.r : thinZ ? c.hz : c.hx;
@@ -184,11 +193,13 @@ function propFace(colliders: readonly PropCollider[], prefab: PrefabId): Face {
     .reduce((a, b) => (rise(b) < rise(a) ? b : a));
 }
 
-export type Target = "barrier" | "oval" | "rally" | "stucco" | "wall" | "monument" | "palm";
+export type Target = "barrier" | "oval" | "rally" | "stucco" | "wall" | "monument" | "monument-tip" | "palm";
 
 function rigFor(target: Target, car: DeformableCar): Rig {
   if (target === "barrier") return barrierRig(car);
   if (target === "oval" || target === "rally") return courseRig(car, target, (t) => straightWall(t));
+  // The monument's arm met end-on, along its own axis, at its tip (what a car driving at the star does), as the course places it.
+  if (target === "monument-tip") return courseRig(car, "havana", (_t, cols) => propFace(cols, "monument", true));
   return courseRig(car, "havana", (_t, cols) => propFace(cols, target));
 }
 
@@ -196,19 +207,77 @@ function rigFor(target: Target, car: DeformableCar): Rig {
  * `class` at `speed` m/s square into `target`, `hits` times (a wreck sent back at the same speed, its damage kept):
  * what each hit left of it.
  */
-export function strike(target: Target, cls: VehicleClassId, speed: number, hits = 1): Outcome[] {
+export function strike(target: Target, cls: VehicleClassId, speed: number, hits = 1, offset = 0): Outcome[] {
   const car = armedCar(cls);
   const rig = rigFor(target, car);
   const out: Outcome[] = [];
   try {
     for (let k = 0; k < hits; k++) {
-      rig.aim(car, speed);
+      rig.aim(car, speed, offset);
+      const heading = car.yaw;
       for (let f = 0; f < SETTLE / FRAME; f++) rig.frame();
       const d = car.deform;
-      out.push({ alive: d.drivetrainAlive, health: d.drivetrainHealth, travel: d.engineTravel, wheels: d.wheelsOn, ejected: rig.ejections() > 0, speed: car.velocity.length() });
+      out.push({ alive: d.drivetrainAlive, health: d.drivetrainHealth, travel: d.engineTravel, wheels: d.wheelsOn, ejected: rig.ejections() > 0, speed: car.velocity.length(), turn: car.yaw - heading });
     }
   } finally {
     rig.done();
   }
   return out;
+}
+
+/** How far (m) the car's points are past a face's plane, along the face's inward normal: its rigid hull points (bumper, beltline and roof corners, stock) and its drawn body's vertices. */
+export type Sink = { hull: number; mesh: number };
+const _p = new THREE.Vector3();
+
+function sinkPast(car: DeformableCar, f: Face): Sink {
+  const into = (): number => -((_p.x - f.x) * f.nx + (_p.z - f.z) * f.nz);
+  const q = car.group.quaternion;
+  let hull = -Infinity;
+  for (let k = 4; k < HULL.length; k++) {
+    _p.set(HULL[k]![0], HULL[k]![1], HULL[k]![2]).applyQuaternion(q).add(car.group.position);
+    hull = Math.max(hull, into());
+  }
+  car.updateSkin();
+  car.group.updateMatrixWorld(true);
+  const wheels = new Set<THREE.Object3D>();
+  for (const w of car.wheels) w.traverse((o) => wheels.add(o));
+  let mesh = -Infinity;
+  car.group.traverse((o) => {
+    if (!(o instanceof THREE.Mesh) || wheels.has(o) || !o.visible) return;
+    const at = o.geometry.attributes.position;
+    if (!at || at.count > 30000) return;
+    for (let i = 0; i < at.count; i++) {
+      _p.fromBufferAttribute(at, i).applyMatrix4(o.matrixWorld);
+      mesh = Math.max(mesh, into());
+    }
+  });
+  return { hull, mesh };
+}
+
+/**
+ * `cls` at `speed` m/s square into `target` after `before` earlier hits of the same speed (a wreck sent back, its damage kept), then the
+ * sim's `SETTLE` seconds: the deepest the car's points ever were past the face (`peak`), and how deep they stand when the hit has
+ * played out (`rest`), with the speed (m/s) the car has by then.
+ */
+export function strikeSink(target: Target, cls: VehicleClassId, speed: number, before = 0, watch?: (frame: number, sink: Sink, car: DeformableCar) => void): { peak: Sink; rest: Sink; speed: number } {
+  const car = armedCar(cls);
+  const rig = rigFor(target, car);
+  const peak: Sink = { hull: -Infinity, mesh: -Infinity };
+  let rest: Sink = peak;
+  try {
+    for (let hit = 0; hit <= before; hit++) {
+      rig.aim(car, speed, 0);
+      for (let f = 0; f < SETTLE / FRAME; f++) {
+        rig.frame();
+        if (hit < before) continue;
+        rest = sinkPast(car, rig.face);
+        peak.hull = Math.max(peak.hull, rest.hull);
+        peak.mesh = Math.max(peak.mesh, rest.mesh);
+        watch?.(f, rest, car);
+      }
+    }
+    return { peak, rest, speed: car.velocity.length() };
+  } finally {
+    rig.done();
+  }
 }

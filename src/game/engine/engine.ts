@@ -274,7 +274,7 @@ export class CrashEngine extends EngineGarage {
     this.highlights = new ReelDirector({
       carsOf: (clip) => clip.cars.map((c) => this.cars[c.slot]!),
       live: () => this.live(),
-      scene: { dress: (car) => this.dressCar(car), collide: (car, slot, h) => this.race.courseHit(car, slot, h), restore: (slot, mem, at) => this.race.remember(slot, mem, at), knocks: (bits) => this.race.knockTo(bits), bounce: this.bounceWorld, blend: this.blend },
+      scene: { dress: (car) => this.dressCar(car), collide: (car, slot, h) => this.race.courseHit(car, slot, h), restore: (slot, mem, at) => this.race.remember(slot, mem, at), knocks: (bits) => this.race.knockTo(bits), blend: this.blend },
       resetProps: () => this.race.resetProps(),
       clear: () => this.clearLocal(),
       sight: (focus) => this.sceneSight(focus, true),
@@ -442,9 +442,9 @@ export class CrashEngine extends EngineGarage {
       const fxDt = simDt;
       // The bits land on the ground and the cars' tops of the world this frame stepped, the replay's while a clip plays (`landOn`).
       armTops(this.highlights.surfaces ?? this.world.surfaces);
-      this.debris.update(fxDt, this.bounceWorld);
-      this.sparks.update(fxDt, this.bounceWorld);
-      this.glassDots.update(fxDt, this.bounceWorld);
+      this.debris.update(fxDt);
+      this.sparks.update(fxDt);
+      this.glassDots.update(fxDt);
       armTops(null);
       this.smoke.update(fxDt, this.camera);
       const sandbox = !this.race.active && !this.derbyMode;
@@ -587,17 +587,14 @@ export class CrashEngine extends EngineGarage {
     w.cars = cars;
     w.barrier = this.barrierUp ? this.barrier : null;
     w.barrierHits = this.barrierHits;
-    w.bounce = this.bounceWorld;
     w.beforeSlice = this.rigScene && !this.showStack ? this.rigSlice : this.showLab ? this.lab.slice : null;
     w.pairHit = this.derbyMode ? this.derbyHit : this.race.active ? this.race.pairHit : this.showLab ? this.lab.pairHit : null;
     w.partTouch = this.race.active ? this.race.partTouch : null;
-    w.ballHit = this.ballsUp ? this.ballHit : null;
-    // The corkscrew hides the lamp posts its run passes through; the Lab has none.
-    w.poleHit = this.derbyMode || this.race.active || this.showCorkscrew || this.showLab ? null : this.poleHit;
     w.afterCar = this.derbyMode ? this.clipDerby : null;
-    // The rig scenes put the ramps away (`SCENE_PROPS`), like the slab and the balls: their faces must not stand in for
-    // the corkscrew's walls (a 6 m/s car slid off the bank onto its roof) or wall in a parked car.
-    w.collide = this.race.active ? this.raceCollide : this.showCorkscrew ? this.corkCollide : this.rampsUp ? this.rampCollide : this.showLab ? this.lab.collide : null;
+    // The corkscrew's walls hold its car on its floor: the ramps are put away there (`SCENE_PROPS`), like the slab and the balls, so
+    // their faces cannot stand in for them (a 6 m/s car slid off the bank onto its roof) or wall in a parked car.
+    w.collide = this.race.active ? this.raceCollide : this.showCorkscrew ? this.corkCollide : this.showLab ? this.lab.collide : this.rigCollide;
+    if (!this.race.active && !this.showLab) this.syncRigs();
     this.ejection.ctx = this.derbyMode ? "derby" : "default";
     w.fine = this.pace.fine;
     stepWorld(w, dt);

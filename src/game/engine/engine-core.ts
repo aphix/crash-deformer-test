@@ -34,6 +34,7 @@ import type { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { ChaseCamera } from "../present/engine-camera.ts";
 import { CompactorPress, JerseyBarrier, buildRampBalls, type LampPole, type RampBall } from "../scenes/engine-props.ts";
 import type { FleetRamps } from "../scenes/fleet-ramps.ts";
+import { RIG_BALL_FIRST, RIG_BALLS, RigSolids } from "../scenes/rig-solids.ts";
 import type { Corkscrew } from "../scenes/corkscrew.ts";
 import { TraceRecorder, type TraceClock, type TraceSetup } from "./engine-trace.ts";
 import { DerbyMatch } from "../match/derby.ts";
@@ -249,6 +250,9 @@ export abstract class EngineCore {
   protected speedMax = INITIAL_HUD.speedMax;
   protected balls: RampBall[] = [];
   protected poles: LampPole[] = [];
+  /** The fleet's rigs as prisms of one store (`RigSolids`), and which of its knockable ones a car has knocked. */
+  protected readonly rigs = new RigSolids();
+  protected readonly rigKnocked = new Uint8Array(RIG_BALL_FIRST + RIG_BALLS);
   protected smokeUntil: number[] = [];
   protected readonly compactor = new CompactorRig();
   protected compactFxAt = 0;

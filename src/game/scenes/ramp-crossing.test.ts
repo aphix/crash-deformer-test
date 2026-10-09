@@ -7,6 +7,7 @@ import { UNDERSIDE } from "../vehicle/car-suspension.ts";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { JerseyBarrier } from "./engine-props.ts";
 import { FleetRamps, RAMP } from "./fleet-ramps.ts";
+import { collideOn } from "./ramp-collide.test-util.ts";
 import { setGround } from "../world/ground.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "../vehicle/test-support.ts";
@@ -146,7 +147,7 @@ function cross(v: number, thDeg: number, e: number, mirrored = false): Result {
   const car = new DeformableCar(paint(), three);
   assignClass(car, "sedan");
   const w = newWorld([car], slab);
-  w.collide = (c, _i, h) => void ramps.contact(c, h);
+  w.collide = collideOn(ramps);
   const yaw = mirrored ? Math.PI - thDeg / DEG : Math.PI + thDeg / DEG;
   const dx = Math.sin(yaw);
   const dz = Math.cos(yaw);

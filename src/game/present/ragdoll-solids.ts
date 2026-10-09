@@ -2,7 +2,9 @@ import * as THREE from "three";
 import type { ColliderDesc } from "@dimforge/rapier3d-simd";
 import type { Rapier } from "../kernel/rapier.ts";
 import { hypot2 } from "../kernel/physics-core.js";
-import { propColliders, type Placed, type PropCollider } from "../world/placements.ts";
+import { propColliders, solidsOf, type Placed } from "../world/placements.ts";
+import { KNOCK, P_STRIDE, PRISM, Q_KIND, Q_STRIDE, type Surface } from "../world/surfaces.ts";
+import { PR_BASE, PR_COS, PR_GU, PR_GW, PR_HX, PR_HZ, PR_R, PR_SIN, PR_TOP, PR_WALL, PR_X, PR_YAW, PR_Z, topAt } from "../world/prism.ts";
 import { blankPoint, pointOn, type Track, type TrackPath } from "../world/track.ts";
 import { ARCH_STEPS, DECK_LIP, DECK_THICK, GANTRY_BEAM, RoadIndex, TUNNEL_GAP, TUNNEL_SHELL, TUNNEL_SIDE } from "./track-mesh.ts";
 import { levelAt, sampleStep, sections, surfY, wallColliders } from "../world/track-sections.ts";
@@ -164,30 +166,66 @@ function structures(track: Track, out: Solid[]): void {
   }
 }
 
+/** Corners' signs across and along a box prism's plan, the four corners of its footprint. */
+const CORNERS = [
+  [-1, -1],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+] as const;
+
 /**
- * Every collider but the knockable props' (each of those is its own body, `PropBodies`) as a solid standing from its
- * base to its top, at the footprint the cars hit, so a dummy meets exactly what a car does. Appended to `out`.
+ * Prism `k` of `s` as a solid standing from its base to its top, at the footprint the cars hit: a circle a cylinder, a flat-topped
+ * box a cuboid, a tilted top (a wedge's face) the convex hull of its eight corners. Null while the prism is out of play (moved
+ * away), and for a knockable prop (each of those is its own body, `PropBodies`).
  */
-export function colliderSolids(colliders: readonly PropCollider[], out: Solid[]): Solid[] {
-  for (const c of colliders) {
-    if (c.body === "knock") continue;
-    const y0 = c.base;
-    const h = c.top - y0;
-    if (c.kind === "circle") out.push({ x: c.x, z: c.z, r: c.r, make: (R) => R.ColliderDesc.cylinder(h / 2, c.r).setTranslation(c.x, y0 + h / 2, c.z) });
-    else {
-      _q.setFromAxisAngle(UP, c.yaw);
-      out.push(box(c.x, y0 + h / 2, c.z, c.hx, h / 2, c.hz));
-    }
+export function prismSolid(s: Surface, k: number): Solid | null {
+  const P = s.p;
+  const o = k * P_STRIDE;
+  if (s.q[k * Q_STRIDE + Q_KIND] !== PRISM || P[o + PR_WALL] === KNOCK || !s.inPlay(k)) return null;
+  const x = P[o + PR_X]!;
+  const z = P[o + PR_Z]!;
+  const base = P[o + PR_BASE]!;
+  const radius = P[o + PR_R]!;
+  if (radius > 0) {
+    const h = P[o + PR_TOP]! - base;
+    return { x, z, r: radius, make: (R) => R.ColliderDesc.cylinder(h / 2, radius).setTranslation(x, base + h / 2, z) };
+  }
+  const hx = P[o + PR_HX]!;
+  const hz = P[o + PR_HZ]!;
+  const cs = P[o + PR_COS]!;
+  const sn = P[o + PR_SIN]!;
+  if (P[o + PR_GU] === 0 && P[o + PR_GW] === 0) {
+    const h = P[o + PR_TOP]! - base;
+    _q.setFromAxisAngle(UP, P[o + PR_YAW]!);
+    return box(x, base + h / 2, z, hx, h / 2, hz);
+  }
+  const pts = new Float32Array(CORNERS.length * 2 * 3);
+  for (let c = 0; c < CORNERS.length; c++) {
+    const u = CORNERS[c]![0] * hx;
+    const w = CORNERS[c]![1] * hz;
+    const wx = x + u * cs + w * sn;
+    const wz = z - u * sn + w * cs;
+    pts.set([wx, base, wz, wx, Math.max(base, topAt(P, o, u, w)), wz], c * 6);
+  }
+  return { x, z, r: hypot2(hx, hz), make: (R) => R.ColliderDesc.convexHull(pts) };
+}
+
+/** Every prism of `s` but the knockable props' (`prismSolid`) as a solid, so a dummy meets exactly what a car does. Appended to `out`. */
+export function colliderSolids(s: Surface, out: Solid[]): Solid[] {
+  for (let k = 0; k < s.count; k++) {
+    const solid = prismSolid(s, k);
+    if (solid) out.push(solid);
   }
   return out;
 }
 
 /**
- * Every solid of `track` a dummy can hit that the ground heightfield does not already give: the props and the road walls
- * (`colliderSolids`: the very colliders the cars meet), the start gantry's legs, bridge decks and bents, and the tunnels' shell.
+ * Every solid of `track` a dummy can hit that the ground heightfield does not already give: the props and the road walls (the
+ * prisms of `solidsOf`, the very ones the cars meet), the start gantry's legs, bridge decks and bents, and the tunnels' shell.
  */
 export function courseSolids(track: Track, placed: readonly Placed[]): Solid[] {
-  const out = colliderSolids(wallColliders(track), colliderSolids(propColliders(placed), []));
+  const out = colliderSolids(solidsOf(wallColliders(track), propColliders(placed)), []);
   structures(track, out);
   return out;
 }

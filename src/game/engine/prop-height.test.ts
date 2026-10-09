@@ -8,7 +8,7 @@ import { makeWorld } from "../world/race-world.test-util.ts";
 import { Track } from "../world/track.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { OFF_MENU, TRACKS } from "../world/tracks/index.ts";
-import { WALL_PROBES } from "../contact/pair-contact.ts";
+import { FOOT_HALF_L, FOOT_HALF_W } from "../vehicle/car-mesh.ts";
 import { lowestY, propContact } from "../contact/prop-contact.ts";
 import { frame, makeCar, worldOf } from "../vehicle/ground-probe.test-util.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
@@ -31,7 +31,7 @@ function course(id: string) {
   const colliders = propColliders(placed);
   const hits: number[] = [];
   w.race.onWallHit = (i) => hits.push(i);
-  const props = (car: DeformableCar): void => propContact(car, 0, w.race["colliders"], w.race["knocked"], w.race["propHits"], 1 / 120);
+  const props = (car: DeformableCar): void => propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / 120);
   // A prop's top is its highest piece's (a palm's fronds), its foot where it stands.
   const top = (c: PropCollider): number => Math.max(...colliders.filter((o) => o.index === c.index).map((o) => o.top));
   return { w, colliders, placed, hits, props, top, foot: (c: PropCollider) => placed[c.index]!.y };
@@ -47,7 +47,7 @@ const pick = (colliders: readonly PropCollider[], prefab: PrefabId): PropCollide
 /** A car facing +z with its front-right wall probe 0.1 m off the middle of `c` (a circle has no normal at its middle), its lowest point at height `low` and `pitch` (rad, + nose down). */
 function carOn(c: PropCollider, low: number, pitch = 0): DeformableCar {
   const car = makeCar("sedan");
-  const [ox, oz] = WALL_PROBES[1]!;
+  const [ox, oz] = [FOOT_HALF_W, FOOT_HALF_L];
   car.spawnFacing(c.x + 0.1 - ox, c.z - oz, 0, 8);
   car.group.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitch);
   car.refreshBasis();
@@ -122,7 +122,7 @@ describe("given a sedan flying a ballistic arc at 12 m/s over a wall or palm on 
     // Along the prop's local x, 7.2 m out, a ballistic arc whose apex is over it; the right probe runs through its middle.
     const yaw = c.yaw + Math.PI / 2;
     const d = SPEED * TC;
-    const lat = -WALL_PROBES[1]![0];
+    const lat = -FOOT_HALF_W;
     car.spawnFacing(c.x - Math.sin(yaw) * d + Math.cos(yaw) * lat, c.z - Math.cos(yaw) * d - Math.sin(yaw) * lat, yaw, 0);
     const vy = 9.6 * TC;
     car.group.position.y = top + clear - (vy * TC - 4.8 * TC * TC);

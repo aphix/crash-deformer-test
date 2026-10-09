@@ -99,7 +99,17 @@ type PrefabSpec = {
   size: [number, number, number];
   /** kg, for knock bodies. */
   mass: number;
+  /** Share of a hit's crush energy the struck car takes (`ContactBox.hardness`): 1 when omitted, a rigid solid; `SOFT_WOOD` for a trunk that gives. */
+  hardness?: number;
 };
+
+/**
+ * Hardness of a living trunk (a tree, a palm): the share of the reduced-mass energy the car takes, the piston rig's calibrated
+ * soft value (`scenes/piston-rig.test.ts`: the honeycomb at 0.5) taken because the palm-tree note (`.extraResearch/perplexity/
+ * 2026-10-07-palm-tree-offcentre-impact.md`) gives no figure: it calls palms stiff fixed hazards that crack or snap at high energy,
+ * the owner's rule is that wood damps more than metal and still crushes the car at speed.
+ */
+const SOFT_WOOD = 0.5;
 
 /** Half the 0.44 m footing (m) the `wall` prefab's 0.4 m wall stands on. */
 const WALL_FOOTING_HALF = 0.22;
@@ -157,6 +167,7 @@ export const PREFABS: Record<PrefabId, PrefabSpec> = {
     foot: 0.35,
     size: [3.2, 7, 3.2],
     mass: 0,
+    hardness: SOFT_WOOD,
   },
   building: { body: "solid", collider: [{ kind: "box", hx: 5.95, hz: 5.95 }], foot: hypot2(6, 6), size: [12, 14, 12], mass: 0 },
   grandstand: {
@@ -238,6 +249,7 @@ export const PREFABS: Record<PrefabId, PrefabSpec> = {
     foot: 0.3,
     size: [4.4, 8.5, 4.4],
     mass: 0,
+    hardness: SOFT_WOOD,
   },
   wall: {
     body: "solid",

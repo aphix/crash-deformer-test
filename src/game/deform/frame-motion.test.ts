@@ -147,33 +147,45 @@ describe("given a crashed car in flight, hit off-centre by a 14 m/s push so that
   });
 });
 
-/** A plateau `TOP` m up under every body point within `KERB` of it, the road (0) under the rest: a wedge's high end (`FleetRamps.heightAt`). */
+/**
+ * A plateau `TOP` m up under the wreck over the road (0): a wedge's high end. Walled: one prism a body falls beside (`WALLED_HALF`
+ * either side of the wreck's anchor, so its sides are nearer than its top for a point 0.25 m under it); not walled: a plane within
+ * `KERB` of every body point, with no sides.
+ */
 const TOP = 1.2;
 const KERB = 0.35;
+const WALLED_HALF = 0.2;
 class Plateau extends Ground {
-  constructor(walls: boolean) {
+  constructor(walled: boolean) {
     super();
-    this.walls = walls;
     this.addPlane(0, -1e4, 1e4, -1e4, 1e4, Infinity);
-    this.addPlane(TOP, -1e4, 1e4, -1e4, 1e4, KERB);
+    if (walled) this.addPrism({ x: 0, z: 0, yaw: 0, hx: WALLED_HALF, hz: WALLED_HALF, base: 0, top: TOP, id: 0 });
+    else this.addPlane(TOP, -1e4, 1e4, -1e4, 1e4, KERB);
   }
+}
+
+/** Where the frame's ground is read (a wreck's anchor, the middle of its masses) stands this far over the frame's origin. */
+function anchorHeight(): number {
+  const probe = wreck();
+  return probe.d["at"].cell.world.y - probe.group.position.y;
 }
 
 const plateauLandingCases = [
   { it: "when the same car is over a plateau with no walls, then its frame rises over 0.24 m, landing on it", walls: false, depth: 0.25, minFrameRise: 0.24 },
-  { it: "when its origin is 0.05 m under the top of a walled plateau (a settled car's sag), then its frame rises over 0.04 m, landing on it", walls: true, depth: 0.05, minFrameRise: 0.04 },
+  { it: "when its anchor is 0.05 m under the top of a walled plateau (a settled car's sag), then its frame rises over 0.04 m, landing on it", walls: true, depth: 0.05, minFrameRise: 0.04 },
 ] as const;
 
 describe("given a crashed car in flight beside a raised plateau (the high end of a ramp)", () => {
   // The frame is where the masses are, within the band over the ground under the wreck's anchor. Under a wedge's end that ground is a
   // wall to a body falling beside it: the frame stepped up onto the top (0.24-0.27 m in one call, fleet-ramps D1) and `clampLocal`
-  // shoved the masses after it (0.18-0.29 m), with no speed to show for it. Here the setup gives 0.250 / 0.221 m on main.
+  // shoved the masses after it (0.18-0.29 m), with no speed to show for it. A prism answers by the face a point leaves it by, so the
+  // wall is a point under the top that is nearer a side than the top (the walled cases put the anchor there); the unwalled plateau is the same car over a plane with no sides.
   afterEach(() => setGround(null));
 
-  /** A wreck in flight with its origin `depth` m under the plateau's top, middle over it: how far the frame and the highest-moved mass rose in its first read. */
+  /** A wreck in flight with its anchor (walled) or its origin (not) `depth` m under the plateau's top, middle over it: how far the frame and the highest-moved mass rose in its first read. */
   function rise(walls: boolean, depth: number): { frame: number; mass: number } {
     setGround(new Plateau(walls));
-    const s = wreck({ pitch: 0, roll: 0, y: TOP - depth });
+    const s = wreck({ pitch: 0, roll: 0, y: TOP - depth - (walls ? anchorHeight() : 0) });
     s.d.aloft = true;
     const y0 = s.group.position.y;
     const before = s.d.masses.map((m) => m.world.y);
@@ -181,9 +193,9 @@ describe("given a crashed car in flight beside a raised plateau (the high end of
     return { frame: s.group.position.y - y0, mass: Math.max(...s.d.masses.map((m, i) => m.world.y - before[i]!)) };
   }
 
-  it("when its origin is 0.25 m under the top of a walled plateau, then its frame and parts stay put (under 2 cm) instead of climbing onto the plateau", () => {
+  it("when its anchor is 0.25 m under the top of a walled plateau, nearer its side than its top, then its frame and parts stay put (under 2 cm) instead of climbing onto the plateau", () => {
     const r = rise(true, 0.25);
-    assert.ok(r.frame < 0.02 && r.mass < 0.02, `the frame rose ${r.frame.toFixed(3)} m and a mass ${r.mass.toFixed(3)} m onto a top 0.25 m above the wreck`);
+    assert.ok(r.frame < 0.02 && r.mass < 0.02, `the frame rose ${r.frame.toFixed(3)} m and a mass ${r.mass.toFixed(3)} m onto a top 0.25 m above the wreck's anchor`);
   });
 
   for (const testCase of plateauLandingCases) {

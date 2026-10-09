@@ -6,6 +6,8 @@ import { leftoverCrumple, cancelClosing, satPushCap, hypot2, CRASH } from "../de
 import { carCrushHulls, satCars, shareHeight } from "./sat.ts";
 import { bodyContact, faceOverlap, type ContactBox } from "./external-contact.ts";
 import { TYRE_HALF_W } from "../deform/deform-contact.ts";
+import { FOOT_HALF_L } from "../vehicle/car-mesh.ts";
+import { SOLID_AT_REST } from "../world/constants.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
 
@@ -62,20 +64,8 @@ export function pushCar(car: DeformableCar, nx: number, ny: number, nz: number, 
 const WALL_E = 0.15;
 const WALL_HOLD = 0.4;
 const WALL_REACH = 1.2;
-/** The closing speed (m/s) under which a wreck on a solid has stopped driving into it, and how deep (m) its crush hulls may then sit in it. */
-const WALL_TOUCH = 0.2;
+/** How deep (m) a wreck's crush hulls may sit in a solid it has stopped driving into (the speed it has stopped at is `SOLID_AT_REST`). */
 const WALL_SKIN = 0.015;
-/** Car footprint half extents (m) for wall contact, and its probes (car-local x, z): corners and side midpoints. */
-const WALL_HALF_W = 0.95;
-export const WALL_HALF_L = 2.3;
-export const WALL_PROBES: readonly (readonly [number, number])[] = [
-  [-WALL_HALF_W, WALL_HALF_L],
-  [WALL_HALF_W, WALL_HALF_L],
-  [-WALL_HALF_W, -WALL_HALF_L],
-  [WALL_HALF_W, -WALL_HALF_L],
-  [-WALL_HALF_W, 0],
-  [WALL_HALF_W, 0],
-];
 
 /**
  * Seconds of travel ahead of a car driving hard into a fixed solid or another car at which its step is a hit step (`nearHit`): two
@@ -104,8 +94,8 @@ export function markApproaches(cars: readonly DeformableCar[], pairs: Int32Array
     if (d2 === 0 || !shareHeight(ca, cb) || ca.falling || cb.falling) continue;
     const d = Math.sqrt(d2);
     const closing = ((ca.velocity.x - cb.velocity.x) * dx + (ca.velocity.z - cb.velocity.z) * dz) / d;
-    markApproach(ca, d - 2 * WALL_HALF_L, closing);
-    markApproach(cb, d - 2 * WALL_HALF_L, closing);
+    markApproach(ca, d - 2 * FOOT_HALF_L, closing);
+    markApproach(cb, d - 2 * FOOT_HALF_L, closing);
   }
 }
 
@@ -131,6 +121,8 @@ export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz:
   const v = car.velocity;
   const pos = car.group.position;
   const fx = detSin(face.yaw);
+  // `solidFace`'s box is a plan face with no height of its own: it stands at the car's.
+  face.y = pos.y + 0.48;
   const fz = detCos(face.yaw);
   const into = -(v.x * fx + v.z * fz);
   if (into > WALL_CRUSH || car.deform.massActive) {
@@ -142,7 +134,7 @@ export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz:
       // The crush hulls reach past the masses held on the face (a hull is wider than the mass it sits round) and are pushed out as the slab
       // pushes them: while the car drives in as far as the crumple left allows (`0.4 · leftover`), at rest to the skin, so a wreck a
       // car pins against the solid is never left in it.
-      const drive = Math.max(0, Math.min(1, (into - WALL_TOUCH) / (WALL_CRUSH - WALL_TOUCH)));
+      const drive = Math.max(0, Math.min(1, (into - SOLID_AT_REST) / (WALL_CRUSH - SOLID_AT_REST)));
       const room = WALL_SKIN + (0.4 * leftoverCrumple(car.deform.crumpleTravelCorner()) - WALL_SKIN) * drive;
       const sunk = faceOverlap(car, face, _p) - room;
       if (sunk > 0) shoveWreck(car, fx, fz, Math.min(sunk + 0.004, Math.max(pen, satPushCap(dt))));

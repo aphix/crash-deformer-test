@@ -120,7 +120,7 @@ function record(): Recorded {
 function replayWorst({ clip, cars, trace, dress }: Recorded): Map<number, number> {
   // The recorder's clock sums `H` as the record loop did, so the clip's first step is the trace step at `t0`.
   const s0 = Math.round(clip.t0 / H);
-  const sim = new ClipSim(clip, clip.cars.map((c) => cars[c.slot]!), { dress, collide: () => {}, bounce: undefined, blend: new PoseBlend() });
+  const sim = new ClipSim(clip, clip.cars.map((c) => cars[c.slot]!), { dress, collide: () => {}, blend: new PoseBlend() });
   sim.restart();
   const worst = new Map<number, number>();
   while (!sim.done) {
@@ -170,7 +170,7 @@ describe("given a flat-field head-on recorded as a highlight with 19 bystander c
   it("when the clip is restored, then a car with a torn mirror and no crash gets back its own hit direction, not the zeroed one of its network state", () => {
     const { clip, cars, dress } = run;
     assert.ok(clip.cars.some((c) => c.slot === MIRROR), "the mirror car (45 m from the hit) is in the clip");
-    const sim = new ClipSim(clip, clip.cars.map((c) => cars[c.slot]!), { dress, collide: () => {}, bounce: undefined, blend: new PoseBlend() });
+    const sim = new ClipSim(clip, clip.cars.map((c) => cars[c.slot]!), { dress, collide: () => {}, blend: new PoseBlend() });
     sim.restart();
     assert.deepEqual(cars[MIRROR]!.deform.impactInward.toArray(), [0, 0, -1]);
   });
@@ -188,7 +188,6 @@ describe("given a flat-field head-on recorded as a highlight with 19 bystander c
       knocks: (bits) => {
         for (let p = 0; p < bits.length * 8; p++) if ((bits[p >> 3]! >> (p & 7)) & 1) heard.push({ step: sim.step, prop: p });
       },
-      bounce: undefined,
       blend: new PoseBlend(),
     });
     sim.restart();

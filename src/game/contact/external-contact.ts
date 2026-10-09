@@ -119,7 +119,8 @@ export function faceOverlap(car: DeformableCar, box: ContactBox, point: THREE.Ve
       lat = THREE.MathUtils.clamp(side, -box.hx, box.hx);
     }
   }
-  point.set(box.x + fx * box.hz + rx * lat, Math.min(box.y, 0.48), box.z + fz * box.hz + rz * lat);
+  // The point rides at the car's own height (a solid stands where the car does: a monument on its embankment is 4 m up).
+  point.set(box.x + fx * box.hz + rx * lat, Math.min(box.y, p.y + 0.48), box.z + fz * box.hz + rz * lat);
   return best;
 }
 

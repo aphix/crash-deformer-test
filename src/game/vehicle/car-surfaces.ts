@@ -271,11 +271,11 @@ export class CarSurfaces extends Surface {
   }
 
   /**
-   * A query at plan (`x`, `z`) asked by car `skip` tests the roofs within reach of that car's plan, whoever's slice is under way: a wreck's
-   * masses read the ground under their hubs at the end of the slice. A point farther than REACH from car `skip` (a part off it, an FX bit:
-   * -1) is a free body's: the roofs within reach of the point, car `skip`'s left out, in a list of their own.
+   * A query at plan (`x`, `z`) and up to `span` (m) about it, asked by car `skip`, tests the roofs within reach of that car's plan, whoever's slice
+   * is under way: a wreck's masses read the ground under their hubs at the end of the slice. A point farther than REACH from car `skip` (a part
+   * off it, an FX bit: -1) is a free body's: the roofs within reach of the point, car `skip`'s left out, in a list of their own.
    */
-  override near(skip: number, x: number, z: number): void {
+  override near(skip: number, x: number, z: number, span = 0): void {
     const m = this.cars.length;
     if (this.carList.length < m) {
       this.carList = new Int32Array(m);
@@ -283,7 +283,7 @@ export class CarSurfaces extends Surface {
       this.nearOf = -1;
     }
     const p = skip >= 0 && skip < m ? this.cars[skip]!.group.position : null;
-    if (p !== null && Math.abs(p.x - x) < REACH && Math.abs(p.z - z) < REACH) {
+    if (p !== null && Math.abs(p.x - x) < REACH - span && Math.abs(p.z - z) < REACH - span) {
       if (skip !== this.nearOf) {
         this.carCount = this.reach(p.x, p.z, skip, this.carList);
         this.nearOf = skip;
@@ -293,13 +293,13 @@ export class CarSurfaces extends Surface {
       return;
     }
     this.always = this.freeList;
-    this.nAlways = this.reach(x, z, skip, this.freeList);
+    this.nAlways = this.reach(x, z, skip, this.freeList, span);
   }
 
-  /** Into `list`: the roofs but car `skip`'s that may meet a point within REACH of plan (`x`, `z`), while their plans are within 2·REACH (a hull point sits up to REACH from its car's origin); returns their count. */
-  private reach(x: number, z: number, skip: number, list: Int32Array): number {
+  /** Into `list`: the roofs but car `skip`'s that may meet a point within REACH + `span` of plan (`x`, `z`), while their plans are within 2·REACH (a hull point sits up to REACH from its car's origin); returns their count. */
+  private reach(x: number, z: number, skip: number, list: Int32Array, span = 0): number {
     const m = this.cars.length;
-    const r = 2 * REACH + NEAR_SLACK;
+    const r = 2 * REACH + NEAR_SLACK + span;
     let k = 0;
     for (let i = 0; i < m && i < this.count; i++) {
       const o = this.cars[i]!;

@@ -1,29 +1,14 @@
 import * as THREE from "three";
 import { bleedAfterSlide, DeformableCar } from "../vehicle/car.ts";
-import type { WorldBounce } from "../vehicle/car-core.ts";
 import { StrongestContact, type ContactHit, type JerseyBarrier } from "../scenes/engine-props.ts";
-import { PLATE as COMPACTOR_PLATE } from "../scenes/compactor.ts";
 import { partContactPair } from "../contact/external-contact.ts";
 import { markApproaches, resolveCarPair } from "../contact/pair-contact.ts";
 import { shareHeight } from "../contact/sat.ts";
-import { leftoverCrumple, separateSphereFromAabb } from "../deform/physics-util.ts";
+import { leftoverCrumple } from "../deform/physics-util.ts";
 import type { EjectionWatch } from "../vehicle/ejection.ts";
 import { contactHz } from "../vehicle/car-air.ts";
 import { CarSurfaces } from "../vehicle/car-surfaces.ts";
 import { armTops } from "../world/surfaces.ts";
-
-/**
- * The scene's rigs a loose part or an FX bit bounces off (`World.bounce`): the compactor's plates with their faces `face` m either
- * side of z = 0 (NaN: no compactor) and the jersey slab. The ground and the cars' tops they meet as a tyre does (`landOn`).
- */
-export function bounceRigs(pos: THREE.Vector3, vel: THREE.Vector3, r: number, face: number, barrier: JerseyBarrier | null): void {
-  if (!Number.isNaN(face)) {
-    const z = face + COMPACTOR_PLATE.hz;
-    separateSphereFromAabb(pos, vel, r, 0, COMPACTOR_PLATE.y, z, COMPACTOR_PLATE.hx, COMPACTOR_PLATE.hy, COMPACTOR_PLATE.hz);
-    separateSphereFromAabb(pos, vel, r, 0, COMPACTOR_PLATE.y, -z, COMPACTOR_PLATE.hx, COMPACTOR_PLATE.hy, COMPACTOR_PLATE.hz);
-  }
-  barrier?.bounce(pos, vel, r);
-}
 
 /**
  * Everything one physics step touches besides the cars. The engine fills it per scene; a headless harness
@@ -36,8 +21,6 @@ export type World = {
   barrier: JerseyBarrier | null;
   /** Per car index, set when the slab took a hit from it. */
   barrierHits: boolean[];
-  /** Loose parts bounce off the scene's rigs (`bounceRigs`; `afterContacts`). */
-  bounce: WorldBounce | undefined;
   /** Cleared each step, then offered every hit: the strongest one is the step's impact. */
   readonly strongest: StrongestContact;
   /** Before each slice; true when it stepped the slice itself (a rig scene drives its car). */
@@ -46,10 +29,6 @@ export type World = {
   pairHit: ((a: number, b: number, hit: ContactHit, first: boolean) => void) | null;
   /** A door, mirror or panel of one car met the other (`partContactPair`), a mass of one met a mass of the other (`collideWith`), or one stood on or touched the other's top (`CarSurfaces.met`): they touched without a SAT hit. */
   partTouch: ((a: number, b: number) => void) | null;
-  /** Ramp balls against one car: its hit, if any. */
-  ballHit: ((car: DeformableCar) => ContactHit | null) | null;
-  /** Lamp poles against one car: whether one moved it. */
-  poleHit: ((car: DeformableCar) => boolean) | null;
   /** Each car right after its `afterContacts` (the derby bowl). */
   afterCar: ((car: DeformableCar, h: number) => void) | null;
   /** Each car at the end of a slice of `h` s (race walls and props). */
@@ -80,13 +59,10 @@ export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier 
     cars,
     barrier,
     barrierHits: [],
-    bounce: undefined,
     strongest: new StrongestContact(),
     beforeSlice: null,
     pairHit: null,
     partTouch: null,
-    ballHit: null,
-    poleHit: null,
     afterCar: null,
     collide: null,
     ejection,
@@ -193,7 +169,7 @@ export function stepWorld(w: World, dt: number): void {
       // and left at that, it lost the slice's motion.
       if (car.deform.massActive) car.syncPose(h);
       if (!car.deform.massActive) {
-        car.integrate(h, w.bounce);
+        car.integrate(h);
         if (car.deform.massActive) car.syncPose(h);
         else car.refreshBasis();
       }
@@ -260,19 +236,6 @@ export function stepWorld(w: World, dt: number): void {
         }
       }
 
-      if (w.ballHit) {
-        for (let ci = 0; ci < n; ci++) {
-          const ballHit = w.ballHit(cars[ci]!);
-          if (ballHit) {
-            moved = true;
-            strongest.offer(ballHit);
-          }
-        }
-      }
-      if (w.poleHit) {
-        for (let ci = 0; ci < n; ci++) if (w.poleHit(cars[ci]!)) moved = true;
-      }
-
       if (barrier) {
         for (let ci = 0; ci < n; ci++) {
           if (barrier.resolve(cars[ci]!, false, false, h)) moved = true;
@@ -287,7 +250,7 @@ export function stepWorld(w: World, dt: number): void {
       if (car.deform.massActive) car.deform.stepStructure(h);
       if (car.deform.massActive) car.syncPose(h);
       if (barrier) barrier.clip(car);
-      car.afterContacts(h, w.bounce);
+      car.afterContacts(h);
       w.afterCar?.(car, h);
     }
     if (w.collide) for (let ci = 0; ci < n; ci++) w.collide(cars[ci]!, ci, h);

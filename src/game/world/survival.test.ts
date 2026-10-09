@@ -302,19 +302,31 @@ function ringTour(): [number, number][] {
 }
 
 /**
- * The scripted player's speed (m/s). It was 22: the ring's 90° corner is more than the car turns at that speed, so it ran off the road into a stucco block
+ * The scripted player's speeds (m/s), one per run in turn. It was 22: the ring's 90° corner is more than the car turns at that speed, so it ran off the road into a stucco block
  * at 18 m/s closing (65 km/h), which a solid now crushes and ejects the driver from as the range's slab does, wrecking the player at the same spot every
  * run; the runs ended 14.5 s apart and too few cops dropped in to check anything (1 drop-in against the 12 the guard needs). Measured at 16: 46 drop-ins.
+ * A Retry puts the run back exactly on this tree (the same cops, the same start: run after run is bit-identical; on main a retry differs from the first run from the
+ * first second, 0.3 m at 1 s), and at 16 m/s the player rams a cop slowed ahead of it at 6.6 s (main wrecks the same way at the same place in its first run, and at
+ * 5.3-5.5 s in the next three), so on this tree every retry at one speed ended there. A human does not repeat a run to the digit: each run takes the next speed.
+ * Measured from the start over 45 s: 15.5, 16.5, 16.75 and 17.5 m/s survive here (main: 15.25 and 17-17.5 survive, 16.5 wrecks at 31 s, 16.75 at 40 s); 16 is the 6.6 s wreck on both.
  */
-const TOUR_SPEED = 16;
+const TOUR_SPEEDS = [16, 16.5, 15.5, 17.5, 16.75];
 
-/** The scripted player: round the ring at `TOUR_SPEED`, steering at the next waypoint, starting with the waypoint nearest to where it is (waypoint 0 lies across a stucco block from the start: the car drove into it and sat there until the cops finished it). */
+/** The scripted player: round the ring at the run's speed (`TOUR_SPEEDS`), steering at the next waypoint, starting with the waypoint nearest to where it is (waypoint 0 lies across a stucco block from the start: the car drove into it and sat there until the cops finished it). */
 function tour(pts: readonly (readonly [number, number])[]): (w: World) => void {
   let i = -1;
+  let run = 0;
+  let lastTime = 0;
   return (w) => {
     const car = w.cars[0]!.group.position;
+    // A Retry starts the clock over: the next run, from the waypoint nearest to where the car stands now.
+    if (w.race.time < lastTime - 1) {
+      run++;
+      i = -1;
+    }
+    lastTime = w.race.time;
     if (i < 0) i = pts.reduce((best, q, k) => (Math.hypot(q[0] - car.x, q[1] - car.z) < Math.hypot(pts[best]![0] - car.x, pts[best]![1] - car.z) ? k : best), 0);
     if (Math.hypot(pts[i]![0] - car.x, pts[i]![1] - car.z) < 14) i = (i + 1) % pts.length;
-    steerAt(w, pts[i]![0], pts[i]![1], TOUR_SPEED);
+    steerAt(w, pts[i]![0], pts[i]![1], TOUR_SPEEDS[run % TOUR_SPEEDS.length]!);
   };
 }

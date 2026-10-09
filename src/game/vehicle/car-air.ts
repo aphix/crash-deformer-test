@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
-import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_HIT, edgeCross, groundWalls, HIT_SIZE, MU_TYRE, patchOf, pointContact, PQ_SIZE, PQ_X, PQ_Y, PQ_Z, ridgeCross, staticTop, topsTop, wheelContact } from "../world/surfaces.ts";
+import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_HIT, edgeCross, HIT_SIZE, MU_TYRE, patchOf, pointContact, PQ_SIZE, PQ_X, PQ_Y, PQ_Z, ridgeCross, staticTop, topsTop, wheelContact } from "../world/surfaces.ts";
 import { HUB_FLOOR, TYRE_R } from "../deform/deform-state.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
@@ -101,8 +101,8 @@ const BODY_W = Float64Array.from({ length: HULL.length * FACES }, (_, k) => {
 export const TOUCH = 0.03;
 /** Restitution of a body point closing faster than `BOUNCE_V` (m/s); slower contacts and tyres (their springs,
  *  `Suspension`, take a landing) don't bounce. */
-const RESTITUTION = 0.25;
-const BOUNCE_V = 1.5;
+export const RESTITUTION = 0.25;
+export const BOUNCE_V = 1.5;
 /** The closing speed (m/s) from which a contact is a crash, not a touch: into a fixed solid's face (`wallBounce`), or onto another car's top (`CLOSING`). */
 export const WALL_CRUSH = 5.5;
 /** Friction: the body scraping (the rigid step's and a fixed solid's face, `wallBounce`), a tyre across its tread (it rolls freely along it). */
@@ -115,13 +115,12 @@ const STAND_SLOP = 0.005;
 const CLIMB_NY = 0.34;
 
 /**
- * Whether a body point `sink` m in a face (along the face's normal), moving at `vn` m/s along that normal (closing < 0), reached
- * it from the side in a slice of `dt` s: deeper than its own approach explains, it crossed the face's wall (a wedge's end or
- * flank), it did not come down onto the face. Over a ground with walls, `stepFree` takes no contact from such a hull point and
- * the wall (`FleetRamps.contact`) parts it: lifted out by its depth, a front bumper crossing a wedge's end 0.117 m under its top
- * raised the body 0.113 m in one slice (fleet-ramps D1).
+ * Whether a body point `sink` m in another car's top (along the top's normal), moving at `vn` m/s along that normal (closing < 0),
+ * reached it from the side in a slice of `dt` s: deeper than its own approach explains, it crossed the car's flank, it did not come
+ * down onto the top, and `stepFree` takes no contact from it (the pair's SAT parts it). The prisms' rule, by the face a point entered
+ * (`exitFace`), answers the same for every solid of the store; this is the car tops' until the cage makes them prisms (Stage 3).
  */
-export function fromSide(sink: number, vn: number, dt: number): boolean {
+function fromSide(sink: number, vn: number, dt: number): boolean {
   return sink > STAND_SLOP + Math.max(0, -vn) * dt;
 }
 
@@ -637,7 +636,6 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   const within = spring + TOUCH;
   const stop = 2 * spring;
   const lift = CLASSES[cls].lift;
-  const walls = groundWalls();
   // A driven car with a wheel on a surface, the world's ground or another car's top alike, rolls on it: the drive owns its travel along
   // the road, so the world's faces neither drag it nor grip its tyres along their tread (a rear tyre meeting a ramp's toe at 30° with the
   // front in the air turned its travel 2-3° through the face's slope and the tyre's friction against the body's spin).
@@ -768,9 +766,10 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       }
       continue;
     }
-    // A hull point deeper in a face than its own approach came from the side (over a ground with walls, or under another car's top
-    // edge: a car's nose into a flank at belt height, 0.1 m under its roof's shoulder): the wall or the car pair's SAT parts it.
-    if (i < HULL.length && (walls || HIT[C_OWNER]! >= 0)) {
+    // A hull point deeper in another car's top than its own approach came from the side (under its top edge: a car's nose into a flank
+    // at belt height, 0.1 m under its roof's shoulder): the car pair's SAT parts it. A prism answers this by the face a point entered
+    // (`pointContact`); a car's top is not a prism until the cage (Stage 3), so this one rule stays for tops.
+    if (i < HULL.length && HIT[C_OWNER]! >= 0) {
       _vp.crossVectors(w, r).add(v);
       if (fromSide(pen * HIT[C_NY]!, _vp.x * HIT[C_NX]! + _vp.y * HIT[C_NY]! + _vp.z * HIT[C_NZ]!, dt)) continue;
     }

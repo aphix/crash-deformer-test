@@ -9,7 +9,8 @@ import type { ContactHit } from "../scenes/engine-props.ts";
 import { BENCH, BOARD, BRACKET_T, FLOOR, heldPose, labColliders, labGround, labPlaced, labSurfaces, LAB_LAYOUTS, type LabItem, type LabLayout, type LabPresetId, type LabSurface } from "../scenes/lab.ts";
 import type { CarType } from "../scenes/fleet.ts";
 import type { Ground } from "../world/ground.ts";
-import type { Placed, PropCollider } from "../world/placements.ts";
+import { solidsOf, type Placed, type PropCollider } from "../world/placements.ts";
+import { armSolids, type Surface } from "../world/surfaces.ts";
 import { PREFABS } from "../world/catalog.ts";
 import { detSin, detCos, hypot2, hypot3 } from "../kernel/physics-core.js";
 
@@ -113,8 +114,8 @@ const LAB_GROUND: readonly Solid[] = [
   { x: 0, z: 0, r: FLOOR_HALF * Math.SQRT2, make: (R) => R.ColliderDesc.cuboid(FLOOR_HALF, 0.5, FLOOR_HALF).setTranslation(0, FLOOR - 0.5, 0) },
 ];
 
-/** What a dummy meets in the Lab besides the cars: the bench and floor, the props and the wall as the cars meet them (`colliderSolids`), and every bracket and shelf plate. */
-function labSolids(colliders: readonly PropCollider[], surfaces: readonly LabSurface[]): Solid[] {
+/** What a dummy meets in the Lab besides the cars: the bench and floor, the props and the wall as the cars meet them (the `prisms`, `colliderSolids`), and every bracket and shelf plate. */
+function labSolids(prisms: Surface, surfaces: readonly LabSurface[]): Solid[] {
   const plates = surfaces.map((s): Solid => {
     const hx = (s.x1 - s.x0) / 2;
     const hz = (s.z1 - s.z0) / 2;
@@ -122,7 +123,7 @@ function labSolids(colliders: readonly PropCollider[], surfaces: readonly LabSur
     const z = (s.z0 + s.z1) / 2;
     return { x, z, r: hypot2(hx, hz), make: (R) => R.ColliderDesc.cuboid(hx, BRACKET_T / 2, hz).setTranslation(x, s.top - BRACKET_T / 2, z) };
   });
-  return [...LAB_GROUND, ...colliderSolids(colliders, []), ...plates];
+  return [...LAB_GROUND, ...colliderSolids(prisms, []), ...plates];
 }
 
 /**
@@ -137,6 +138,8 @@ export class Lab {
   surfaces: LabSurface[] = [];
   placed: Placed[] = [];
   colliders: PropCollider[] = [];
+  /** The props and the room's walls as prisms (`solidsOf`): what a car meets. */
+  prisms: Surface = solidsOf([], []);
   /** Per placed prop (and the wall after them): knocked off its spot. */
   knocked = new Uint8Array(1);
   /** Layout index of each car slot, of each placed prop, and the slot of each layout item (-1: not a car). */
@@ -200,7 +203,7 @@ export class Lab {
   };
 
   /** Car `i` against the props and the wall over a slice of `h` s (`World.collide`). */
-  readonly collide = (car: DeformableCar, i: number, h: number): void => propContact(car, i, this.colliders, this.knocked, this.hits, h);
+  readonly collide = (car: DeformableCar, i: number, h: number): void => propContact(car, i, this.prisms, this.knocked, this.hits, h);
 
   /** A car pair met (`World.pairHit`): the thrown car's first. `hit.normal` points from `b` to `a`. */
   readonly pairHit = (a: number, b: number, hit: ContactHit): void => {
@@ -220,6 +223,8 @@ export class Lab {
     this.placed = placed;
     this.propItems = items;
     this.colliders = labColliders(placed);
+    this.prisms = solidsOf([], this.colliders);
+    armSolids(this.prisms);
     this.knocked = new Uint8Array(placed.length + 1);
     this.carItems = [...this.layout.keys()].filter((k) => this.layout[k]!.kind === "car");
     this.types = this.layout.flatMap((item) => (item.kind === "car" ? [item.type] : []));
@@ -231,7 +236,7 @@ export class Lab {
     this.propOf = new Int16Array(this.layout.length).fill(-1);
     for (const [n, k] of items.entries()) this.propOf[k] = n;
     this.things = new Int16Array(this.carItems.length + this.dummyItems.length + items.length);
-    this.solids = labSolids(this.colliders, this.surfaces);
+    this.solids = labSolids(this.prisms, this.surfaces);
     this.rest = new Float64Array(this.carItems.length * 4);
     // Halfway from the thrower to the middle of the rest; a lone thrower looks 12 m down its own line.
     const first = heldPose(this.layout[0]!);

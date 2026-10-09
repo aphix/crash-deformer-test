@@ -9,7 +9,7 @@ import { OFF_MENU, TRACKS } from "../world/tracks/index.ts";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { bodyPoints } from "../vehicle/body-points.test-util.ts";
 import { makeCar } from "../vehicle/ground-probe.test-util.ts";
-import { WALL_HALF_L, WALL_PROBES } from "../contact/pair-contact.ts";
+import { FOOT_HALF_L, FOOT_HALF_W } from "../vehicle/car-mesh.ts";
 import { propContact } from "../contact/prop-contact.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
@@ -62,9 +62,9 @@ describe("given a panel of the Havana alley wall (0.44 m thick) and a car with o
       const w = alley();
       const car = makeCar(cls);
       // Nose to +x, tail toward the wall, the tail at x = −40.45: 0.5 m into the panel, 0.2 m past its middle plane.
-      const x0 = -40.45 + WALL_HALF_L;
+      const x0 = -40.45 + FOOT_HALF_L;
       car.spawnFacing(x0, PANEL.z, 90 * D, 0);
-      propContact(car, 0, w.race["colliders"], w.race["knocked"], w.race["propHits"], 1 / 120);
+      propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / 120);
       assert.ok(car.group.position.x > x0, `pushed east, to x=${car.group.position.x.toFixed(3)}`);
       const { past, inside } = reach(car);
       assert.equal(past, 0, "no corner past the far face");
@@ -74,9 +74,9 @@ describe("given a panel of the Havana alley wall (0.44 m thick) and a car with o
     it(`when a ${cls}'s flank corner is 0.2 m past the middle plane, then it is pushed out the near face too, with no corner past the far face`, () => {
       const w = alley();
       const car = makeCar(cls);
-      const x0 = -40.45 + WALL_PROBES[1]![0];
+      const x0 = -40.45 + FOOT_HALF_W;
       car.spawnFacing(x0, PANEL.z, 0, 0);
-      propContact(car, 0, w.race["colliders"], w.race["knocked"], w.race["propHits"], 1 / 120);
+      propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / 120);
       assert.ok(car.group.position.x > x0, `pushed east, to x=${car.group.position.x.toFixed(3)}`);
       assert.equal(reach(car).past, 0);
     });

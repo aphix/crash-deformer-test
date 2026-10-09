@@ -272,7 +272,7 @@ export abstract class DeformContact extends DeformState {
     // away: `LIFT_OFF` clear of the band with a wheel off its ground, the band's top that far under the frame's last
     // measured height (a crushed cell pushed up over four planted hubs stays clamped: switching there flipped road
     // wrecks between the rules, 2.3 m off a replay's record; a frontal hit or the compactor pushing the masses up off
-    // a level road lofted the body 0.21–0.25 m). It lands back into the band, but not from inside a wall (`Ground.walls`; `LIFT_OFF`): a hit in flight starts it aloft.
+    // a level road lofted the body 0.21–0.25 m). It lands back into the band; from inside a prism's side the ground reads no floor (`pointContact`), so it never lands there.
     const was = this.aloft;
     this.aloft = false;
     let lift = 0;
@@ -280,7 +280,7 @@ export abstract class DeformContact extends DeformState {
       // The band's top over what holds the body up (`pose[11]`); its bottom (`pose[8]`) is never above the ground under the
       // anchor, so a hub on a higher edge (a ramp's side) never lifts the frame.
       const band = pose[11]! + (pose[9]! - floor > 0.5 ? 0.12 : 0.08);
-      this.aloft = (gy > band || (was && activeGround().walls === true && floor - gy > LIFT_OFF + Math.max(0, -this.frameVy) * dt)) && (was || (gy > band + LIFT_OFF && pose[10] === 0 && band < this.frameY - LIFT_OFF));
+      this.aloft = gy > band && (was || (gy > band + LIFT_OFF && pose[10] === 0 && band < this.frameY - LIFT_OFF));
       if (!this.aloft) gy = Math.max(floor, Math.min(band, gy));
       else if (!was) {
         // Leaving the ground: the masses sat off the frame the ground held, and the ground's lift never fed their

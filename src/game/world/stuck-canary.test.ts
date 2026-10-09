@@ -179,18 +179,12 @@ function derby(seed: number): string[] {
 
 describe(`given the game's own AI-driven fields (police races on the campaign's courses, the Survival pursuit, a derby heat), watched for a live car that asks for drive (mean |throttle| ≥ ${DRIVE}) yet moves under ${MOVE} m in ${WINDOW} s while fewer than ${PILE} other cars touch it`, () => {
   /**
-   * Measured on main 9b188a4d (Stage 1 landed): city seed 3, car 11 from race second 57.4 at (178.5, −52.0) moves 0.20 m in 10 s at mean
-   * throttle 0.79 with one car touching: a car held against one other car (and what it sits against) for 10 s at the gas, so not a pile.
-   * Every other course, the pursuit and the derby read 0. Closes with Stage 2 (walls and props on the one top/side query) and Stage 4 (car
-   * against car through one response); re-measured at each.
+   * Measured on main 9b188a4d (Stage 1 landed): city seed 3, car 11 from race second 57.4 at (178.5, −52.0) moved 0.20 m in 10 s at mean
+   * throttle 0.79 with one car touching. Measured on lane/uc2-solids (Stage 2, walls and props on the one top/side query): city seeds 1-8
+   * 0 stuck windows, and every other course, the pursuit and the derby 0 as well.
    */
-  const OPEN: Record<string, string> = { city: "city seed 3: car 11 held 10 s at throttle 0.79 against one car (0.20 m moved)" };
   for (const course of COURSES) {
     const title = `when the default field races ${course} with the police on, ${RACE_LAPS} laps, field seeds ${RACE_SEEDS[0]}-${RACE_SEEDS[RACE_SEEDS.length - 1]}, then no car is stuck`;
-    if (OPEN[course]) {
-      it.todo(`${title} (open, Stage 2 then Stage 4: ${OPEN[course]})`);
-      continue;
-    }
     it(title, (t) => {
       const stuck = RACE_SEEDS.flatMap((seed) => policeRace(course, seed));
       t.diagnostic(`${course}: ${stuck.length} stuck windows${stuck.length ? `\n${stuck.join("\n")}` : ""}`);

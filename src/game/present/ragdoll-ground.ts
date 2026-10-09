@@ -2,9 +2,9 @@ import * as THREE from "three";
 import type { Collider, ColliderDesc, World } from "@dimforge/rapier3d-simd";
 import type { Rapier } from "../kernel/rapier.ts";
 import { activeGround } from "../world/ground.ts";
-import { GRID, P_AX, P_BX, P_CX, P_OX, P_OY, P_OZ, P_RAD2, P_STEP, P_STEPV, P_STRIDE, P_U0, P_V0, Q_KIND, Q_NU, Q_NV, Q_SOLID, Q_STRIDE, type Surface } from "../world/surfaces.ts";
+import { GRID, P_AX, P_BX, P_CX, P_OX, P_OY, P_OZ, P_RAD2, P_STEP, P_STEPV, P_STRIDE, P_U0, P_V0, PRISM, Q_KIND, Q_NU, Q_NV, Q_SOLID, Q_STRIDE, type Surface } from "../world/surfaces.ts";
 import type { Track } from "../world/track.ts";
-import type { Solid } from "./ragdoll-solids.ts";
+import { prismSolid, type Solid } from "./ragdoll-solids.ts";
 import { hypot2 } from "../kernel/physics-core.js";
 
 /** The course under a throw: `track` gives its ground (none for a scene's own solids, the Lab's), `solids` its walls and every other solid (`courseSolids`). */
@@ -115,6 +115,12 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
   const size = n * PATCH_CELL;
   let terrain = false;
   for (let k = 0; k < ground.count; k++) {
+    // A scene's own prisms (the fleet's ramps and slab, the press plates) as the cars meet them, where they stand now.
+    if (ground.q[k * Q_STRIDE + Q_KIND] === PRISM) {
+      const desc = prismSolid(ground, k)?.make(R);
+      if (desc) add(desc);
+      continue;
+    }
     if (ground.q[k * Q_STRIDE + Q_SOLID] === 0) continue;
     if (!oneCell(ground, k)) {
       terrain = true;

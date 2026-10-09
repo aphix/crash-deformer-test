@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { hypot3, round4, snapshotPoints } from "../deform/physics-util.ts";
 import { GRAVITY } from "../kernel/constants.ts";
-import type { WorldBounce } from "../vehicle/car-core.ts";
 import { landOn } from "../vehicle/loose-step.ts";
 
 const _pv = new THREE.Vector3();
@@ -15,9 +14,8 @@ const FX_GROUND_MU = 0.6;
 /** FX particles rest no lower than this (m) above what they land on. */
 const FX_FLOOR = 0.04;
 
-/** An FX bit of radius `r` meets the world: the rigs (`bounce`), then the ground and the cars' tops (`landOn`, no car's own: -1). */
-function landBit(pos: THREE.Vector3, vel: THREE.Vector3, r: number, dt: number, bounce: WorldBounce): void {
-  bounce(pos, vel, r);
+/** An FX bit of radius `r` meets the world (`landOn`: the ground, the scene's prisms and the cars' tops, no car's own: -1). */
+function landBit(pos: THREE.Vector3, vel: THREE.Vector3, r: number, dt: number): void {
   landOn(pos, vel, Math.max(r, FX_FLOOR), FX_GROUND_MU, dt, -1);
 }
 
@@ -120,7 +118,7 @@ export class DebrisSystem {
     this.mesh.setMatrixAt(i, d.matrix);
   }
 
-  update(dt: number, bounce: WorldBounce): void {
+  update(dt: number): void {
     if (this.mesh.count === 0) return;
     let any = false;
     const p = this.dummy.position;
@@ -138,7 +136,7 @@ export class DebrisSystem {
       p.y += this.vy[i]! * dt;
       p.z += this.vz[i]! * dt;
       this.vel.set(this.vx[i]!, this.vy[i]!, this.vz[i]!);
-      landBit(p, this.vel, 0.03, dt, bounce);
+      landBit(p, this.vel, 0.03, dt);
       p.toArray(this.pos, i * 3);
       this.vx[i] = this.vel.x;
       this.vy[i] = this.vel.y;
@@ -254,7 +252,7 @@ class DotPoints {
     (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
   }
 
-  update(dt: number, bounce: WorldBounce): void {
+  update(dt: number): void {
     if (!this.anyAlive) return;
     let any = false;
     for (let i = 0; i < this.n; i++) {
@@ -269,7 +267,7 @@ class DotPoints {
       this.vel.set(this.vx[i]!, this.vy[i]!, this.vz[i]!);
       this.tmp.addScaledVector(this.vel, dt);
       this.vel.y -= this.gravity * dt;
-      landBit(this.tmp, this.vel, this.radius, dt, bounce);
+      landBit(this.tmp, this.vel, this.radius, dt);
       this.pos[i * 3] = this.tmp.x;
       this.pos[i * 3 + 1] = this.tmp.y;
       this.pos[i * 3 + 2] = this.tmp.z;
@@ -330,8 +328,8 @@ export class SparkSystem extends DotPoints {
     this.streaks.visible = on;
   }
 
-  override update(dt: number, bounce: WorldBounce): void {
-    super.update(dt, bounce);
+  override update(dt: number): void {
+    super.update(dt);
     if (!this.streaks.visible) return;
     const p = this.streakPos;
     const c = this.streakCol;

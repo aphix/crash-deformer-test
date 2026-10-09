@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { strike, type Outcome, type Target } from "./solid-parity.test-util.ts";
+import { strike, strikeSink, type Outcome, type Target } from "./solid-parity.test-util.ts";
+import { PREFABS } from "./catalog.ts";
 import type { VehicleClassId } from "../vehicle/vehicle-classes.ts";
 
 /**
@@ -57,6 +58,8 @@ describe("given a fixed solid (a course wall, a solid box prop, the flank of a m
     ["stucco", ["sedan", "monster"]],
     ["wall", ["sedan", "truck"]],
     ["monument", ["sedan", "truck"]],
+    // The arm's tip met end-on along the arm's own axis, on its embankment as Havana places it (the thin end of a 0.5 m wide piece, 4 m up).
+    ["monument-tip", ["sedan", "truck"]],
     ["palm", ["sedan", "truck"]],
   ];
   describe("when a car drives into it once", () => {
@@ -86,5 +89,91 @@ describe("given a fixed solid (a course wall, a solid box prop, the flank of a m
         assert.ok(tap!.travel < 0.002 && tap!.health > 0.99 && !tap!.ejected, JSON.stringify(tap));
       });
     }
+  });
+});
+
+/**
+ * Owner: "hitting a wall should be like crushing in to a jersey barrier ... a building, like any hard surface". Every hardness-1 solid at
+ * a sedan's top speed: the same health band (`HEALTH_BAND`) and the same block travel within that band's share of the slab's kill travel
+ * (0.45 m), each against the slab's at the same speed. The monument's tip stands on an embankment: a contact point left at ground level
+ * fed the crush nothing, and the car stopped dead at health 1 with no travel (mutation: the point at 0.48 m -> this row fails).
+ */
+describe("given a sedan at 55 m/s square into each hard surface and the slab as the reference", () => {
+  const KILL_TRAVEL = 0.45;
+  const slab = strike("barrier", "sedan", LETHAL)[0]!;
+  for (const target of ["oval", "rally", "stucco", "wall", "monument", "monument-tip"] as const) {
+    it(`when it hits the ${target}, then its health and block travel are the slab's within the band, and it stops`, () => {
+      const o = strike(target, "sedan", LETHAL)[0]!;
+      const at = `${JSON.stringify(o)} against the slab's ${JSON.stringify(slab)}`;
+      assert.ok(Math.abs(o.health - slab.health) <= HEALTH_BAND, `health: ${at}`);
+      assert.ok(Math.abs(o.travel - slab.travel) <= HEALTH_BAND * KILL_TRAVEL, `block travel: ${at}`);
+      assert.ok(o.speed <= slab.speed + 1, `speed after: ${at}`);
+    });
+  }
+});
+
+/**
+ * Owner clip E96S-X08F (113 km/h into a Havana stucco building, seen on main 8771b8ef): the drawn body went 0.95 m into the building, its rigid
+ * hull points 1.10 m, and 0.35 s later still stood 0.30 m (hull points 0.58 m) inside it. The staged hit measures it from the same speed: how
+ * far past the face the car's drawn vertices (and the rigid step's stock hull points) reach, at their deepest and when the hit has played out.
+ * A wreck is the car that has been hit once (its first touch starts the crash), so a second and third hit are a wreck sent back.
+ */
+const CLIP_SPEED = 113 / 3.6;
+/** Past the face the wall suite lets a car stand once the hit has played out (engine/prop-wall.test.ts: 2 cm past the far face, 5 cm in the wall). */
+const LEFT_IN = 0.05;
+/** The rest depth a solid may stand beyond the barrier's: the 2 cm the wall suite allows a body point past a face. */
+const REST_SLACK = 0.02;
+
+describe("given a sedan hitting a flat solid at the clip's 113 km/h and the jersey barrier as the reference", () => {
+  for (const target of ["stucco", "wall", "oval"] as const) {
+    for (const before of [0, 1, 2]) {
+      it(`when a sedan hits the ${target}${before ? ` as a wreck sent back ${before} time${before > 1 ? "s" : ""}` : ""}, then, when the hit has played out, its drawn body stands no further inside than the barrier leaves it plus ${REST_SLACK} m`, () => {
+        const solid = strikeSink(target, "sedan", CLIP_SPEED, before).rest.mesh;
+        const ref = strikeSink("barrier", "sedan", CLIP_SPEED, before).rest.mesh;
+        assert.ok(solid <= ref + REST_SLACK, `${solid.toFixed(3)} m past the ${target}'s face, the barrier's ${ref.toFixed(3)} m`);
+      });
+    }
+  }
+  it(`when a sedan hits the stucco for the first time, then it stands at most ${LEFT_IN} m inside it when the hit has played out`, () => {
+    const { rest } = strikeSink("stucco", "sedan", CLIP_SPEED);
+    assert.ok(rest.mesh <= LEFT_IN, `${rest.mesh.toFixed(3)} m`);
+  });
+  // Measured on this lane (sedan, stucco, second hit): the drawn body 0.58 m past the face at its deepest and 0.44 m past it 0.3 s later; the barrier's
+  // 0.07 m short of it (satCarBarrier holds the masses on its face). A wreck's pose is its masses' (`syncPose`) and a hit makes every car a wreck,
+  // so the wreck's own response (`wallBounce` -> `bodyContact`, masses held on the face, the skin 0.3-0.6 m ahead of them) decides it, not the query.
+  it.todo("when a wreck is sent back at 113 km/h into the stucco, then its drawn body never goes more than 5 cm past the face (0.58 m deep today, the clip's 0.95 m; closes in Stage 3 (the drawn body is the contact shape) and Stage 4 (the wreck is a rigid body on the one kernel))", () => {
+    const { peak } = strikeSink("stucco", "sedan", CLIP_SPEED, 1);
+    assert.ok(peak.mesh <= LEFT_IN, `${peak.mesh.toFixed(3)} m`);
+  });
+  // Measured: after a tap at 8 m/s (the drawn nose 0.111 m short of the face) the stock hull points stand 0.144 m past it: `HULL`'s bumper points are
+  // the nominal box (CAR_HALF.z 2.22), 0.255 m ahead of the drawn nose. A crushed car's rigid step moves them in by its crush; its footprint is 2.3 m.
+  it.todo("when a sedan taps the stucco at 8 m/s, then its rigid hull points stand no further than 1 cm past the face (0.144 m today: the nominal hull is 0.255 m ahead of the drawn nose; closes in Stage 3, where the hull points are the drawn body's cage)", () => {
+    const { rest } = strikeSink("stucco", "sedan", SURVIVABLE);
+    assert.ok(rest.hull <= 0.01, `${rest.hull.toFixed(3)} m`);
+  });
+});
+
+/**
+ * A palm's trunk gives (`PrefabSpec.hardness`): the struck car takes only its hardness share of the hit's energy, so its crush speed is the
+ * closing speed times the square root of that share (`strikeEbs`). A palm at v therefore does what a rigid wall does at v·√hardness: the
+ * block travels as far (measured: the sedan at 30 m/s 0.341 m against the wall's 0.33 at 21.2 m/s).
+ */
+describe("given a palm's trunk that gives (its hardness share of the energy) and the wall as the reference", () => {
+  const share = Math.sqrt(PREFABS.palm.hardness!);
+  for (const cls of ["sedan", "truck"] as const) {
+    for (const speed of [22, 30]) {
+      it(`when a ${cls} drives into the palm at ${speed} m/s, then the crush block travels as far as at the wall at ${speed} times the square root of the palm's hardness, with health within ${HEALTH_BAND}`, () => {
+        const [palm] = strike("palm", cls, speed);
+        const [wall] = strike("wall", cls, speed * share);
+        assert.ok(Math.abs(palm!.health - wall!.health) <= HEALTH_BAND, `palm ${JSON.stringify(palm)} against the wall at ${(speed * share).toFixed(1)} m/s ${JSON.stringify(wall)}`);
+      });
+    }
+  }
+  // Measured (sedan, 30 m/s, the trunk 0.6 m off the car's middle): the heading turns 3.2 degrees away from the trunk, the wall's 5.5 degrees the other way. A
+  // rigid solid at a lever arm turns the car about it (the owner's "a car wrapping around a phone pole"); the response gives no yaw from the contact point.
+  it.todo("when a sedan hits a palm's trunk 0.6 m off its middle at 30 m/s, then its heading turns toward the trunk, further than the wall at the same offset turns it (3.2 degrees away today; closes in Stage 4, where the kernel's impulse at the contact point has its lever)", () => {
+    const [palm] = strike("palm", "sedan", 30, 1, 0.6);
+    const [wall] = strike("wall", "sedan", 30, 1, 0.6);
+    assert.ok(palm!.turn > wall!.turn, `palm ${palm!.turn.toFixed(3)} rad, wall ${wall!.turn.toFixed(3)} rad`);
   });
 });

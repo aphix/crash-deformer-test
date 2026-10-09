@@ -11,7 +11,7 @@ import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { bodyPoints } from "../vehicle/body-points.test-util.ts";
 import { makeCar } from "../vehicle/ground-probe.test-util.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
-import { WALL_HALF_L, WALL_PROBES } from "../contact/pair-contact.ts";
+import { FOOT_HALF_L, FOOT_HALF_W } from "../vehicle/car-mesh.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 
@@ -184,7 +184,7 @@ describe("given a lone car in the city race on a walled stretch of the loop with
       const free = (j: number) =>
         [-2, -0.9, 2.8].every((d) => {
           const lat = p.half[j]! + p.runL[j]! + d;
-          return props.every((c) => Math.hypot(c.x - (p.x[j]! + p.tz[j]! * lat), c.z - (p.z[j]! - p.tx[j]! * lat)) > c.r + 2 * WALL_HALF_L);
+          return props.every((c) => Math.hypot(c.x - (p.x[j]! + p.tz[j]! * lat), c.z - (p.z[j]! - p.tx[j]! * lat)) > c.r + 2 * FOOT_HALF_L);
         });
       let k = 20;
       while (k < p.count && !(free(k) && Array.from({ length: 21 }, (_, d) => p.wallL[(k + d - 10 + p.count) % p.count]).every(Boolean))) k++;
@@ -247,12 +247,12 @@ const ROAD_SIDE = CITY_WALLS.map((c) => {
 });
 
 /**
- * How deep (m) the car's contact footprint (the rectangle `WALL_PROBES` span) stands in the city's drawn wall from its road
+ * How deep (m) the car's contact footprint (the rectangle `FOOT_HALF_W` by `FOOT_HALF_L` span) stands in the city's drawn wall from its road
  * face: its outline sampled every centimetre (on a bend the deepest point of a flank is between its corners).
  */
 function footDepth(car: DeformableCar): number {
   const p = car.group.position;
-  const [fw, fl] = WALL_PROBES[1]!;
+  const [fw, fl] = [FOOT_HALF_W, FOOT_HALF_L];
   let depth = 0;
   for (let q = 0; q <= 400; q++) {
     // Round the outline: t in [0, 1) per side, sides +x, −x (flanks) and +z, −z (ends).
@@ -274,18 +274,20 @@ function footDepth(car: DeformableCar): number {
 
 /**
  * How far the body reaches past the far face of any wall piece it is over (m), and how deep it is inside one from the face it
- * came at (m). `from`: per piece, the side (±1 along its local x) the car came from.
+ * came at (m). `from`: per piece, the side (±1 along its local x) the car came from. A piece counts only while some point of the
+ * body is inside its bounding circle (`PropCollider.r`): a car that got through a piece has points beside it, and a point
+ * across a short piece's band metres from it (the band `|along| ≤ hz` runs on past the piece for ever) is a car passing by.
  */
 function reachWall(car: DeformableCar, walls: readonly PropCollider[], from: (c: PropCollider) => number): { past: number; inside: number } {
   let past = 0;
   let inside = 0;
-  const p = car.group.position;
+  const points = bodyPoints(car);
   for (const c of walls) {
-    if (Math.hypot(c.x - p.x, c.z - p.z) > c.r + 4) continue;
+    if (!points.some(([x, z]) => Math.hypot(x - c.x, z - c.z) <= c.r)) continue;
     const s = from(c);
     const cs = Math.cos(c.yaw);
     const sn = Math.sin(c.yaw);
-    for (const [x, z] of bodyPoints(car)) {
+    for (const [x, z] of points) {
       const u = (x - c.x) * cs - (z - c.z) * sn;
       const along = (x - c.x) * sn + (z - c.z) * cs;
       if (Math.abs(along) > c.hz) continue;

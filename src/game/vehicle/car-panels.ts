@@ -308,19 +308,3 @@ export function setPrimer(r: PanelRegion, body: THREE.BufferGeometry, on: boolea
   for (const v of r.verts) attr.setX(v, on ? 1 : 0);
   attr.needsUpdate = true;
 }
-
-const _axis = new THREE.Vector3();
-const _up = new THREE.Vector3();
-const _turn = new THREE.Quaternion();
-const _step = new THREE.Quaternion();
-/** Rad/s a torn panel turns to lie flat. */
-const FLAT_RATE = 7;
-
-/** A torn panel's thin axis is its local x: turn it toward straight up (or down) so the sheet lies on the road. */
-export function layFlat(object: THREE.Object3D, dt: number): void {
-  _axis.set(1, 0, 0).applyQuaternion(object.quaternion);
-  const angle = Math.acos(Math.min(1, Math.abs(_axis.y)));
-  if (angle < 1e-3) return;
-  _turn.setFromUnitVectors(_axis, _up.set(0, _axis.y < 0 ? -1 : 1, 0));
-  object.quaternion.premultiply(_step.identity().slerp(_turn, Math.min(1, (FLAT_RATE * dt) / angle)));
-}

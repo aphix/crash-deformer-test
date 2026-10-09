@@ -1,8 +1,8 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { setGround } from "./ground.ts";
-import type { PropCollider } from "./placements.ts";
-import { courseContact, solidGrid, type PropHits } from "../contact/prop-contact.ts";
+import { solidsOf, type PropCollider } from "./placements.ts";
+import { propContact, type PropHits } from "../contact/prop-contact.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import { bodyPoints } from "../vehicle/body-points.test-util.ts";
@@ -102,7 +102,7 @@ describe("given a wall of two pieces bending at a joint, and a sedan aimed at th
   for (const testCase of jointCases) {
     it(testCase.it, (t) => {
       const walls = bentWall(testCase.bend);
-      const grid = solidGrid(walls, []);
+      const prisms = solidsOf(walls, []);
       const knocked = new Uint8Array(0);
       const car = makeCar("sedan");
       const side = testCase.fromRoad ? 1 : -1;
@@ -114,7 +114,7 @@ describe("given a wall of two pieces bending at a joint, and a sedan aimed at th
       world.fine = 1 / 240;
       let hardest = 0;
       const hits: PropHits = { ...NO_HITS, wall: (_k, _i, closing) => (hardest = Math.max(hardest, closing)) };
-      world.collide = (c, i, h) => courseContact(c, i, grid, walls, [], knocked, hits, h);
+      world.collide = (c, i, h) => propContact(c, i, prisms, knocked, hits, h);
       let acc = 0;
       let past = 0;
       for (let f = 0; f < 3 / FRAME; f++) {

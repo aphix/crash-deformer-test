@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { beginFakeFall, FLIGHT, FLIGHT_EULER, FLIGHT_POSITION, FLIGHT_VELOCITY, type DeformableCar } from "../vehicle/car.ts";
 import { PART_STATE } from "../vehicle/part-state.ts";
-import { EXIT_PANES, type WorldBounce } from "../vehicle/car-core.ts";
+import { EXIT_PANES } from "../vehicle/car-core.ts";
 import { applyDrive, BRAKE_STEPS, idleDrive, THROTTLE_STEPS, type DriveInput } from "../vehicle/car-drive.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
 import { countsAsImpact, INPUT_BYTES, MEMORY, type HighlightClip } from "../match/highlights.ts";
@@ -25,7 +25,6 @@ export type ReplayScene = {
   collide(car: DeformableCar, slot: number, h: number): void;
   restore?(slot: number, mem: Float64Array, at: number): void;
   knocks?(bits: Uint8Array): void;
-  bounce: WorldBounce | undefined;
   /** The blend the cars are drawn with, live play's (`PoseBlend`): the sim brackets its steps with it and draws between them. */
   blend: PoseBlend;
 };
@@ -146,7 +145,6 @@ export class ClipSim {
     const w = newWorld(cars);
     const slots = clip.cars.map((c) => c.slot);
     w.collide = (car, k, h) => scene.collide(car, slots[k]!, h);
-    w.bounce = scene.bounce;
     w.pairHit = (a, b, hit, first) => this.noteHit(a, b, hit.impulse, first);
     this.world = w;
     this.dress = scene.dress;

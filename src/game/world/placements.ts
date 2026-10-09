@@ -1,5 +1,6 @@
 import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { PREFABS, type PrefabId } from "./catalog.ts";
+import { KNOCK, PROP, Surface, WALL } from "./surfaces.ts";
 import { blankPoint, blankProjection, blankSegment, pointOn, projectPath, segmentAt, type Projection, type Track, type TrackPath } from "./track.ts";
 
 /**
@@ -41,6 +42,8 @@ export type PropCollider = {
    * course wall, never met on its own: the wall there goes on. Every prop has both.
    */
   ends: number;
+  /** Share of a hit's crush energy the struck car takes: 1 (the default) a rigid solid, less where the solid gives (`PrefabSpec.hardness`). */
+  hardness?: number;
 };
 
 /** Scatter points closer than this (m) beyond a corridor's wall line, plus the prop's radius, are rejected. */
@@ -294,8 +297,29 @@ export function propColliders(placed: readonly Placed[]): PropCollider[] {
         base: p.y + (c.y0 ?? 0) * p.sy,
         top: p.y + (c.y1 ?? spec.size[1]) * p.sy,
         ends: 3,
+        hardness: spec.hardness,
       });
     }
   }
   return out;
+}
+
+/**
+ * Collider `c` as a prism of `solids` in the given role (`PROP`, `WALL`, `KNOCK`): the one builder every static solid goes
+ * through, whatever made the collider (a placed prop, a wall piece, a rig's plate, the Lab's room). Returns its patch index.
+ */
+function addCollider(solids: Surface, c: PropCollider, role: number, moves = false): number {
+  return solids.addPrism({ x: c.x, z: c.z, yaw: c.yaw, hx: c.hx, hz: c.hz, circle: c.kind === "circle", base: c.base, top: c.top, ends: c.ends, hardness: c.hardness, mass: c.mass, id: c.index, role, moves });
+}
+
+/**
+ * A scene's solids as one sealed surface (`armSolids` makes the scene's point queries read it, `propContact` the cars'
+ * footprints): the course's wall pieces first, so patch `i` is wall piece `i`, then its props.
+ */
+export function solidsOf(walls: readonly PropCollider[], props: readonly PropCollider[]): Surface {
+  const solids = new Surface();
+  for (const c of walls) addCollider(solids, c, WALL);
+  for (const c of props) addCollider(solids, c, c.body === "knock" ? KNOCK : PROP);
+  solids.seal();
+  return solids;
 }

@@ -6,9 +6,10 @@ import { layOnGround } from "../vehicle/car-air.ts";
 import { blankAiCar, type AiCar } from "../ai/derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { setGround } from "../world/ground.ts";
-import { solidGrid, type PropHits, type SolidGrid } from "../contact/prop-contact.ts";
+import type { PropHits } from "../contact/prop-contact.ts";
 import { Campaign } from "../match/campaign.ts";
-import { placeProps, propColliders, type Placed, type PropCollider } from "../world/placements.ts";
+import { placeProps, propColliders, solidsOf, type Placed, type PropCollider } from "../world/placements.ts";
+import { armSolids, Surface } from "../world/surfaces.ts";
 import { wallColliders } from "../world/track-sections.ts";
 import { RaceBrain } from "../ai/race-ai.ts";
 import { POLICE_CAP, PoliceBrain } from "../ai/police.ts";
@@ -166,9 +167,9 @@ export abstract class RaceField {
   protected art: TrackArt | null = null;
   private placed: Placed[] = [];
   protected colliders: PropCollider[] = [];
-  /** The course's walls, piece by piece (`wallColliders`), and its walls and props by cell (`solidGrid`): what a car meets. */
+  /** The course's walls, piece by piece (`wallColliders`), and its walls and props as one surface of prisms (`solidsOf`): what a car meets. */
   protected walls: PropCollider[] = [];
-  protected solids: SolidGrid = solidGrid([], []);
+  protected solids: Surface = solidsOf([], []);
   protected knocked = new Uint8Array(0);
   protected session: RaceSession | null = null;
   /** NPC world traffic (courses with `traffic`); its cars follow the racers in car index order. */
@@ -418,7 +419,8 @@ export abstract class RaceField {
     this.placed = placeProps(tr);
     this.colliders = propColliders(this.placed);
     this.walls = wallColliders(tr);
-    this.solids = solidGrid(this.walls, this.colliders);
+    this.solids = solidsOf(this.walls, this.colliders);
+    armSolids(this.solids);
     this.knocked = new Uint8Array(this.placed.length);
     this.art = this.host.buildArt(tr, this.placed);
     if (this.art) this.host.scene.add(this.art.group);
@@ -446,7 +448,8 @@ export abstract class RaceField {
     this.placed = [];
     this.colliders = [];
     this.walls = [];
-    this.solids = solidGrid([], []);
+    this.solids = solidsOf([], []);
+    armSolids(null);
     setGround(null);
     this.host.markBounds(-48, -48, 48, 48);
   }

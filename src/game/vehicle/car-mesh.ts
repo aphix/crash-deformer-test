@@ -12,6 +12,13 @@ export const WHEEL_POS: [number, number, number][] = [
 
 export const CAR_HALF = { x: 0.88, y: 0.68, z: 2.22 };
 
+/**
+ * The plan rectangle (half width, half length; m) a car meets a solid with: the drawn body with its mirrors and a margin, wider
+ * and longer than `CAR_HALF` (the body's own box). The look-ahead of a hard-driving car reads it too (`markApproaches`).
+ */
+export const FOOT_HALF_W = 0.95;
+export const FOOT_HALF_L = 2.3;
+
 /** Shared-platform hardpoints (8e2dc49, five styles on one platform): arch opening radius about the hub (m), floor pan height (m). */
 export const ARCH_R = 0.38;
 const WHEEL_Y = WHEEL_POS[0]![1];

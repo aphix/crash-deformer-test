@@ -6,17 +6,12 @@ import { TYRE_R } from "./deform-state.ts";
 import type { DeformMode } from "./deform-rig.ts";
 import { DeformableCar } from "../vehicle/car.ts";
 import { leftoverCrumple, snapshotPoints } from "./physics-util.ts";
+import { GRAVITY } from "../kernel/constants.ts";
 import { DT, dummyGeom, forModes, mass, paint } from "../vehicle/test-support.ts";
 import { makeCar, makeWorld, runPair, runWall, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { sliceSpeed } from "../contact/sat.ts";
 import { fleetStyle } from "../scenes/fleet.ts";
 import { DebrisSystem } from "../present/engine-fx.ts";
-import { bounceRigs } from "../engine/world-step.ts";
-import type { WorldBounce } from "../vehicle/car-core.ts";
-
-/** The engine's `bounceWorld` in a scene with no rigs up (no compactor plates, no jersey slab), as `CrashEngine` hands it to the FX. */
-const sceneBounce: WorldBounce = (pos, vel, r) => bounceRigs(pos, vel, r, NaN, null);
-
 type PartRow = { name: string; hingeT: number; detached: boolean };
 
 function spawnOffset(impactX: number, speed = 14, mode: DeformMode = "lattice") {
@@ -287,8 +282,11 @@ forModes("given a freshly built car", () => {
   });
 });
 
+/** A rolling 16-sided rim's contact point jumps by one facet of its turn: the slip it shows is at most this share of its speed. */
+const FACET_SLIP = 1 - Math.cos(Math.PI / 16);
+
 forModes("given a car whose wheel hubs all pop off after a 2 m/s nose knock", (mode) => {
-  it("when it runs for 5 s, then each wheel leaves the car as its own body, lands on its tyre at ground level and stops sliding, and the drivetrain is dead with no wheels left", () => {
+  it("when it runs for 10 s, then each wheel leaves the car as its own body, rolls on its tyre at ground level without sliding at 5 s, is at rest by 10 s, and the drivetrain is dead with no wheels left", () => {
     const scene = new THREE.Scene();
     const car = new DeformableCar(paint(), scene);
     car.deform.setMode(mode);
@@ -298,17 +296,26 @@ forModes("given a car whose wheel hubs all pop off after a 2 m/s nose knock", (m
     car.applyImpact(hit, car.forward.clone().negate(), 2, 2);
     for (const m of car.deform.masses) if (m.hub) car.deform.popHub(m);
     const before = car.wheels.map((w) => w.position.clone());
-    for (let i = 0; i < 300; i++) {
-      if (i === 299) for (const [k, w] of car.wheels.entries()) before[k]!.copy(w.position);
+    const bodies = car["looseWheels"];
+    const toContact = new THREE.Vector3(0, -TYRE_R, 0);
+    const slide = new THREE.Vector3();
+    for (let i = 0; i < 600; i++) {
+      if (i === 599) for (const [k, w] of car.wheels.entries()) before[k]!.copy(w.position);
       car.syncPose(DT);
       car.afterContacts(DT);
+      if (i !== 299) continue;
+      // 5 s in: the rim's point on the road moves with the road (centre velocity + spin × lever = 0), to a facet's jump and one slice's gravity.
+      assert.equal(car.deform.drivetrainAlive, false, "no wheels and the drivetrain still runs");
+      for (const [k, w] of car.wheels.entries()) {
+        const body = bodies[k]!;
+        const slip = slide.crossVectors(body.angular, toContact).add(body.velocity).setY(0).length();
+        const speed = body.velocity.length();
+        assert.equal(w.parent, scene, `wheel ${k} still rides the car`);
+        assert.ok(Math.abs(w.position.y - TYRE_R) <= TYRE_R * FACET_SLIP + 0.02, `wheel ${k} rolls at y ${w.position.y.toFixed(3)}, not on its tyre`);
+        assert.ok(slip <= speed * FACET_SLIP + GRAVITY * DT, `wheel ${k} slides at 5 s: ${slip.toFixed(3)} m/s at the road at ${speed.toFixed(2)} m/s`);
+      }
     }
-    assert.equal(car.deform.drivetrainAlive, false, "no wheels and the drivetrain still runs");
-    for (const [k, w] of car.wheels.entries()) {
-      assert.equal(w.parent, scene, `wheel ${k} still rides the car`);
-      assert.ok(Math.abs(w.position.y - TYRE_R) < 0.01, `wheel ${k} rests at y ${w.position.y.toFixed(3)}, not on its tyre`);
-      assert.ok(w.position.distanceTo(before[k]!) < 1e-3, `wheel ${k} still sliding after 5 s`);
-    }
+    for (const [k, w] of car.wheels.entries()) assert.ok(w.position.distanceTo(before[k]!) < 1e-3, `wheel ${k} still moving after 10 s`);
   });
 });
 
@@ -665,7 +672,7 @@ describe("given a debris piece sliding along the ground at 6 m/s", () => {
       debris["vy"][0] = 0;
       debris["vz"][0] = 0;
       debris["life"][0] = 10;
-      for (let i = 0; i < hz * 0.5; i++) debris.update(1 / hz, sceneBounce);
+      for (let i = 0; i < hz * 0.5; i++) debris.update(1 / hz);
       return debris.snapshot().items[0]!.x;
     };
     const x60 = slide(60);
@@ -678,7 +685,7 @@ describe("given a debris system with room for 16 pieces, after a burst of 10 pie
   it("when a second burst of 3 pieces is fired, then 13 pieces are live and the first burst's 10 pieces stay where they flew instead of being cut or teleported", () => {
     const debris = new DebrisSystem(new THREE.Scene(), 16);
     debris.burst(new THREE.Vector3(5, 0, 0), new THREE.Vector3(0, 0, -1), 10);
-    debris.update(0.1, sceneBounce);
+    debris.update(0.1);
     debris.burst(new THREE.Vector3(-5, 0, 0), new THREE.Vector3(0, 0, -1), 3);
     const items = debris.snapshot().items;
     assert.equal(items.length, 13, "live pieces after a 10 then a 3 burst");
@@ -691,7 +698,7 @@ describe("given a debris system of 8 pieces whose first piece is nearly spent", 
     const debris = new DebrisSystem(new THREE.Scene(), 8);
     debris.burst(new THREE.Vector3(), new THREE.Vector3(0, 0, -1), 8);
     debris["life"][0] = 0.05;
-    for (let i = 0; i < 6; i++) debris.update(1 / 60, sceneBounce);
+    for (let i = 0; i < 6; i++) debris.update(1 / 60);
     const m = new THREE.Matrix4();
     const col = new THREE.Vector3();
     const qs = [0, 1, 2].map(() => new THREE.Quaternion());

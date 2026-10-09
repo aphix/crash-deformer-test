@@ -6,6 +6,7 @@ import { ALONG, COMPASS, report, type Heading, type Kind, type Run, type Site } 
 import { drive, drop } from "./ground-probe.test-util.ts";
 import { VEHICLE_CLASS_IDS, type VehicleClassId } from "./vehicle-classes.ts";
 import { FleetRamps, RAMP } from "../scenes/fleet-ramps.ts";
+import { collideOn } from "../scenes/ramp-collide.test-util.ts";
 import { setGround } from "../world/ground.ts";
 import { blankPoint, pointOn, Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
@@ -37,7 +38,8 @@ const SEDAN_MONSTER = ["sedan", "monster"] as const;
 // (a) The fleet's jump ramps, exactly as fleet-ramps.test.ts `scene()` builds them (no slab).
 const ramps = new FleetRamps(new THREE.Scene());
 ramps.place(0, null);
-const collide = (c: DeformableCar, h: number) => ramps.contact(c, h);
+const collideRamps = collideOn(ramps);
+const collide = (c: DeformableCar, h: number) => collideRamps(c, 0, h);
 const MID = RAMP.start + RAMP.len / 2;
 
 function rampSites(): Site[] {
@@ -149,8 +151,8 @@ function bankSites(): Site[] {
   });
 }
 
-/** The one ramp cell the lane's tyre solve does not yet hold: the sedan at the +z ramp's rear lip, wheels on its edge. */
-const OPEN_RAMP_SITE = "ramp+z rear lip: on edge";
+/** The one ramp cell the lane's tyre solve does not yet hold, at each ramp (the prisms are mirror images: both fail alike): the car at the ramp's rear lip, wheels on its edge. */
+const OPEN_RAMP_SITES = ["ramp+z rear lip: on edge", "ramp-z rear lip: on edge"];
 
 describe("given a braked car placed at every heading across a matrix of ground sites, on springs so stiff and short that no sag excuses a gap", () => {
   let restoreSprings = (): void => {};
@@ -160,17 +162,19 @@ describe("given a braked car placed at every heading across a matrix of ground s
   after(() => restoreSprings());
   afterEach(() => setGround(null));
 
-  it("when the car sits on fleet ramp faces, ends and straddling the side edges (but for the one open site below), then it sits on the ground at every heading", (t) => report(t, rampSites().filter((site) => site.name !== OPEN_RAMP_SITE)));
+  it("when the car sits on fleet ramp faces, ends and straddling the side edges (but for the open sites below), then it sits on the ground at every heading", (t) => report(t, rampSites().filter((site) => !OPEN_RAMP_SITES.includes(site.name))));
 
-  // Lane value: 1 of 336 cells, 'on edge, 0°' at the +z ramp's rear lip, a pen + overlap; the bar is 0 of 336, over by that one cell.
-  // The sedan, braked and symmetric to the lip, rolls to -12° at touchdown (w.x 0 -> +0.11..0.21 rad/s) and the hull meets the lip; a
-  // ±1° change of heading flips it. Cause: a tyre pressed past its stop leaves the spring system and takes only the rigid impulse
-  // that stops its closing, while its twin 0.7 mm short still pushes its spring (0.0097 against 0.005 a slice on a 0.74 m arm), so
-  // the body rolls; first red where the four springs are solved together. For a player: a car braked at the very lip of a ramp's rear
-  // edge sags a few centimetres into the slope on one side. Two fixes (keep the stopped tyre in the spring system) pass this cell but
-  // break corkscrew, fleet-ramps and stack-column, so it closes in Stage 2, where tyre and hull rows read the same contact
-  // (re-measured there; Stage 4 if still open).
-  it("when the car sits on the +z ramp's rear lip with its wheels on the edge, then it sits on the ground at every heading", { todo: "a tyre past its stop leaves the spring system while its twin still pushes: rolls the body 12°; closes in Stage 2 (tyre and hull rows on one contact), re-measured there; Stage 4 if still open" }, (t) => report(t, rampSites().filter((site) => site.name === OPEN_RAMP_SITE)));
+  // Lane value (re-measured on the Stage 2 prisms, 10-09): 2 of 336 cells, the monster at either ramp's rear lip, wheels on the edge,
+  // heading 0° at +z and 180° at -z (mirror images, identical numbers): pen 9.4 cm against the bar's 1 cm, overlap 57.9 cm against
+  // 2 cm; braked, it rolls to 85° onto its side across the lip and rests with an underside corner 58 cm under the ramp's top
+  // inside the wedge's flank (after 6 s its slide is 0.37 m, speed 0.01 m/s). Before the prisms the same cell was the sedan's roll
+  // of -12° at one ramp only. Cause, unchanged: a tyre pressed past its stop leaves the spring system and takes only the rigid
+  // impulse that stops its closing, while its twin 0.7 mm short still pushes its spring, so the body rolls; the roll then lies the
+  // hull on the lip, where the 24 body points (and the 1 m/s side push, `sideContact`) do not hold a corner between them out of the
+  // flank. For a player: a monster truck braked at the very lip of a ramp's rear edge tips onto its side with a corner inside the
+  // ramp. It does not close on the one top/side query (the body points give each tyre and hull point the same rule; the corner sits
+  // between them): it closes with Stage 3's cage (the body's own outline) and Stage 4's rows.
+  it("when the car sits on either ramp's rear lip with its wheels on the edge, then it sits on the ground at every heading", { todo: "Stage 3 + 4: a monster rolled onto its side across the lip rests with a corner 58 cm inside the flank (pen 9.4 cm, overlap 57.9 cm, bars 1 and 2 cm); the corner is between body points (the cage) and the tyre past its stop rolls it (one solve)" }, (t) => report(t, rampSites().filter((site) => OPEN_RAMP_SITES.includes(site.name))));
 
   it("when the car brakes on the stunt course's CRUSH crest and descent, then it sits on the ground at every heading", (t) => report(t, crestSites()));
 

@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { ContactHit } from "../scenes/engine-props.ts";
-import { courseContact } from "../contact/prop-contact.ts";
+import { propContact } from "../contact/prop-contact.ts";
 import { carGauge } from "../match/car-view.ts";
 import { snapshotAiCar } from "../match/derby.ts";
 import { clamp } from "../kernel/scalar.ts";
@@ -463,14 +463,14 @@ export class RaceDirector extends RaceWatch {
 
   /**
    * Car `i` against the course's walls and props over a slice of `h` s (a highlight replay runs it for put-away traffic too):
-   * every wall piece and prop near it is a solid it meets from any side (`courseContact`). The road projection hint follows it.
+   * every wall piece and prop near it is a solid it meets from any side (`propContact`). The road projection hint follows it.
    */
   courseHit(car: DeformableCar, i: number, h: number): void {
     const tr = this.track;
     if (!tr) return;
     const p = car.group.position;
     this.seg[i] = tr.project(p.x, p.z, this.seg[i]!, this.proj).k;
-    courseContact(car, i, this.solids, this.walls, this.colliders, this.knocked, this.propHits, h);
+    propContact(car, i, this.solids, this.knocked, this.propHits, h);
   }
 
   /** End of a physics step of `dt` s, which the world ran on the schedule `shape` (`World.shape`): rules step, deaths, respawns. */

@@ -358,35 +358,6 @@ export class JerseyBarrier {
     return eta;
   }
 
-  /** Push an FX particle out of the slab box. */
-  bounce(pos: THREE.Vector3, vel: THREE.Vector3, r: number): void {
-    _bRight.set(detCos(this.yaw), 0, -detSin(this.yaw));
-    _bFwd.set(detSin(this.yaw), 0, detCos(this.yaw));
-    const oxp = pos.x - this.group.position.x;
-    const ozp = pos.z - this.group.position.z;
-    const lx = oxp * _bRight.x + ozp * _bRight.z;
-    const lz = oxp * _bFwd.x + ozp * _bFwd.z;
-    const ox = this.hx() + r - Math.abs(lx);
-    const oz = BARRIER_HALF.z + r - Math.abs(lz);
-    if (ox <= 0 || oz <= 0 || pos.y > 1.45) return;
-    if (ox < oz) {
-      const s = lx >= 0 ? 1 : -1;
-      pos.addScaledVector(_bRight, s * ox);
-      const vn = vel.x * _bRight.x * s + vel.z * _bRight.z * s;
-      if (vn < 0) {
-        vel.x -= _bRight.x * s * vn * 1.5;
-        vel.z -= _bRight.z * s * vn * 1.5;
-      }
-    } else {
-      const s = lz >= 0 ? 1 : -1;
-      pos.addScaledVector(_bFwd, s * oz);
-      const vn = vel.x * _bFwd.x * s + vel.z * _bFwd.z * s;
-      if (vn < 0) {
-        vel.x -= _bFwd.x * s * vn * 1.5;
-        vel.z -= _bFwd.z * s * vn * 1.5;
-      }
-    }
-  }
 
   private indent(contact: THREE.Vector3, normal: THREE.Vector3, amount: number): void {
     this.crush = Math.min(0.55, this.crush + amount * 0.7);
@@ -452,93 +423,6 @@ export function scatterRampBalls(balls: readonly RampBall[], visible: boolean, r
   }
 }
 
-/** Into `_hb`: the point of hull `h` nearest a round prop centred at `c` (plan view, car at px, pz), at height `y`. */
-function nearestHullPoint(car: DeformableCar, h: Hull, c: THREE.Vector3, px: number, pz: number, y: number): void {
-  const relx = (c.x - px) * car.rightFlat.x + (c.z - pz) * car.rightFlat.z;
-  const relz = (c.x - px) * car.fwdFlat.x + (c.z - pz) * car.fwdFlat.z;
-  const qx = THREE.MathUtils.clamp(relx, h.cx - h.hx, h.cx + h.hx);
-  const qz = THREE.MathUtils.clamp(relz, h.cz - h.hz, h.cz + h.hz);
-  _hb.set(px + car.rightFlat.x * qx + car.fwdFlat.x * qz, y, pz + car.rightFlat.z * qx + car.fwdFlat.z * qz);
-}
-
-/** A prop broke at `at` (outward `normal`) under a hit closing at `closing` m/s: the scene's debris and sparks. */
-type PropBreak = (at: THREE.Vector3, normal: THREE.Vector3, closing: number) => void;
-
-/**
- * Half-buried ramp balls: ramp the car up a little, pop the nearest hub on a hard kick (a shattered ball
- * calls `onBreak`), and log each first kick per car into `log` stamped with wall time `t`.
- */
-export function resolveRampBalls(
-  balls: readonly RampBall[],
-  car: DeformableCar,
-  t: number,
-  log: Record<string, unknown>[],
-  onBreak: PropBreak,
-): ContactHit | null {
-  let hit: ContactHit | null = null;
-  const px = car.group.position.x;
-  const pz = car.group.position.z;
-  const id = car.paint.name;
-  for (const ball of balls) {
-    if (!ball.intact) continue;
-    const c = ball.mesh.position;
-    for (const h of car.hulls()) {
-      nearestHullPoint(car, h, c, px, pz, 0.28);
-      const dx = _hb.x - c.x;
-      const dz = _hb.z - c.z;
-      const distXz = hypot2(dx, dz);
-      const ringR = Math.sqrt(Math.max(1e-6, ball.radius * ball.radius * (1 - (1 - BALL_EXPOSE) * (1 - BALL_EXPOSE))));
-      if (distXz > ringR + hypot2(h.hx, h.hz)) continue;
-      const overlap = ringR + 0.22 - distXz;
-      if (overlap <= 0) continue;
-      if (distXz < 1e-4) continue;
-      // Ramp: mostly planar, a little up — not a vertical rocket off the buried center.
-      _mtv.set(dx / distXz, 0.18, dz / distXz).normalize();
-      const push = Math.min(overlap * 0.35, 0.018);
-      pushCar(car, _mtv.x, 0, _mtv.z, push);
-      car.deform.notifyContact();
-
-      const vn = car.velocity.x * _mtv.x + car.velocity.z * _mtv.z;
-      const closing = -vn;
-      if (!ball.kicked.has(id) && closing > 0.4) {
-        ball.kicked.add(id);
-        if (!car.deform.massActive) {
-          car.deform.armMasses(car.group, car.velocity, car.angular);
-        }
-        // Ramp: bleed a little closing into up/side, keep most of the heading.
-        const dv = Math.min(closing * 0.08, 3.2);
-        car.velocity.x += _mtv.x * dv;
-        car.velocity.z += _mtv.z * dv;
-        car.velocity.y += Math.min(1.6, closing * 0.035);
-        const jUp = THREE.MathUtils.clamp(closing * 1.6, 3, 14);
-        const hub = car.deform.kickNearestHub(_hb, jUp);
-        const broken = closing > 7.5 || overlap > 0.22;
-        if (broken) {
-          ball.intact = false;
-          ball.mesh.visible = false;
-          onBreak(_hb, _mtv, closing);
-          if (hub) {
-            const node = car.deform.masses.find((m) => m.name === hub);
-            if (node) car.deform.popHub(node);
-          }
-        }
-        log.push({
-          t: round4(t),
-          car: id,
-          hub,
-          closing: round4(closing),
-          lift: round4(jUp / 26),
-          overlap: round4(overlap),
-          broken,
-          pos: vec3(_hb),
-          n: { x: round4(_mtv.x), y: round4(_mtv.y), z: round4(_mtv.z) },
-        });
-      }
-      hit = { impulse: Math.max(closing, 2), contact: _hb.clone(), normal: _mtv.clone() };
-    }
-  }
-  return hit;
-}
 
 /** Stand the six lamp posts back up on the 16 m ring (shown or hidden as they were). */
 export function resetLampPoles(poles: readonly LampPole[]): void {
@@ -552,47 +436,6 @@ export function resetLampPoles(poles: readonly LampPole[]): void {
   }
 }
 
-/** Thin lamp posts: shove the car, dent it on a hard hit, and fold over above 3.5 m/s (calling `onBreak`). */
-export function resolveLampPoles(poles: readonly LampPole[], car: DeformableCar, onBreak: PropBreak): ContactHit | null {
-  let hit: ContactHit | null = null;
-  const px = car.group.position.x;
-  const pz = car.group.position.z;
-  const id = car.paint.name;
-  for (const pole of poles) {
-    if (!pole.intact) continue;
-    const c = pole.group.position;
-    for (const h of car.hulls()) {
-      nearestHullPoint(car, h, c, px, pz, 0.4);
-      _mtv.set(_hb.x - c.x, 0, _hb.z - c.z);
-      const dist = hypot2(_mtv.x, _mtv.z);
-      if (dist >= pole.radius + 0.04 || dist < 1e-5) continue;
-      _mtv.multiplyScalar(1 / dist);
-      const overlap = pole.radius + 0.04 - dist;
-      pushCar(car, _mtv.x, 0, _mtv.z, Math.min(overlap, 0.04));
-      car.deform.notifyContact();
-      const vn = car.velocity.x * _mtv.x + car.velocity.z * _mtv.z;
-      const closing = -vn;
-      if (!pole.kicked.has(id) && closing > 0.8) {
-        pole.kicked.add(id);
-        const j = THREE.MathUtils.clamp(closing * 40, 80, 400);
-        impulseCar(car, _mtv.x, 0, _mtv.z, j);
-        if (!car.deform.massActive && closing > 4) {
-          car.applyImpact(_hb, _mtv, closing, closing);
-        } else if (car.deform.massActive) {
-          car.deform.kickNearest(_hb, _mtv.x, 0.15, _mtv.z, closing * 8);
-        }
-        if (closing > 3.5) {
-          pole.intact = false;
-          pole.group.rotation.z = Math.atan2(_mtv.x, _mtv.z) ? 1.15 * Math.sign(_mtv.x || 1) : 1.15;
-          pole.group.rotation.x = _mtv.z > 0 ? -1.05 : 1.05;
-          onBreak(_hb, _mtv, closing);
-        }
-      }
-      hit = { impulse: Math.max(closing, 2), contact: _hb.clone(), normal: _mtv.clone() };
-    }
-  }
-  return hit;
-}
 
 /** Two steel plates closing on the parked car along ±Z. */
 export class CompactorPress {

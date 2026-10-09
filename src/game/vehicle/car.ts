@@ -4,7 +4,7 @@ import { applyGroundFriction, CRASH, hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, DOOR, WHEEL_POS } from "./car-mesh.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
-import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "./car-core.ts";
+import { END_WINDOW, type PartNetState, REARM_QUIET_S } from "./car-core.ts";
 import { COM_Y, pressing, readContact, stepFree, wreckContact } from "./car-air.ts";
 import { bodyLift, Suspension, UNDERSIDE, UPRIGHT_UP_Y } from "./car-suspension.ts";
 import { C_GRIP, C_NY, C_OWNER, HIT_SIZE } from "../world/surfaces.ts";
@@ -318,7 +318,7 @@ export class DeformableCar extends CarParts {
     readContact(this);
   }
 
-  afterContacts(dt: number, bounce?: WorldBounce): void {
+  afterContacts(dt: number): void {
     this.flewDt = 0;
     this.endAgo[0] += dt;
     this.endAgo[1] += dt;
@@ -336,7 +336,7 @@ export class DeformableCar extends CarParts {
     if (!d.massActive) return;
     this.nudgeWheels(dt);
     this.ride(dt);
-    this.stepLooseParts(dt, this.slot, bounce);
+    this.stepLooseParts(dt, this.slot);
   }
 
   /**
@@ -362,21 +362,21 @@ export class DeformableCar extends CarParts {
     this.updateSkin();
   }
 
-  /** `bounce`: the world's rigs for this car's loose parts (`stepLooseParts`), on every path it takes. */
-  integrate(dt: number, bounce?: WorldBounce): void {
+  /** One step of the rigid body, its wheels' and its loose parts' flight (`stepLooseParts`, on every path it takes). */
+  integrate(dt: number): void {
     if (this.vaporized) return;
     if (this.deform.massActive) {
       this.syncPose(dt);
       this.nudgeWheels(dt);
       this.ride(dt);
-      this.stepLooseParts(dt, this.slot, bounce);
+      this.stepLooseParts(dt, this.slot);
       return;
     }
     if (!this.falling) this.spinWheels(dt, !this.airborne);
     this.flewDt = dt;
     const landed = stepFree(this, dt);
     if (this.falling) {
-      this.stepLooseParts(dt, this.slot, bounce);
+      this.stepLooseParts(dt, this.slot);
       return;
     }
     // The drive turns the stored pose each slice (`applyDrive`): it is what the rigid body is now, or the turn undoes its tumble.
@@ -387,7 +387,7 @@ export class DeformableCar extends CarParts {
     this.refreshBasis();
     this.ride(dt);
     if (!this.crashed) this.deform.bindKinematic(this.group, this.velocity, this.angular);
-    this.stepLooseParts(dt, this.slot, bounce);
+    this.stepLooseParts(dt, this.slot);
   }
 
   /**
@@ -527,14 +527,18 @@ export class DeformableCar extends CarParts {
       const loose = (f & 1) !== 0;
       p.hingeT = parts.hinge[i * 3]!;
       if (loose !== p.detached) {
-        if (p.region && loose) this.tearPanel(p);
-        p.object.removeFromParent();
-        if (loose) this.world.add(p.object);
-        else if (p.region) this.closePanel(p);
-        else if (p.name === "mirrorL") this.doorL.add(p.object);
-        else if (p.name === "mirrorR") this.doorR.add(p.object);
-        else this.group.add(p.object);
-        p.detached = loose;
+        // The host tore it off: this client throws its own copy (debris is per player; the host's pose is not sent).
+        if (loose) {
+          if (p.region) this.shellPose(p);
+          this.detachPart(p, 0);
+        } else {
+          p.object.removeFromParent();
+          if (p.region) this.closePanel(p);
+          else if (p.name === "mirrorL") this.doorL.add(p.object);
+          else if (p.name === "mirrorR") this.doorR.add(p.object);
+          else this.group.add(p.object);
+          p.detached = false;
+        }
       }
       p.folding = (f & 2) !== 0;
       if (p.swing) {
@@ -546,9 +550,6 @@ export class DeformableCar extends CarParts {
         p.fatigue = parts.hinge[i * 3 + 1]!;
         p.hingeMax = 1 - parts.hinge[i * 3 + 2]!;
       }
-      if (!loose) continue;
-      p.object.position.fromArray(parts.pose, i * 7);
-      p.object.quaternion.fromArray(parts.pose, i * 7 + 3);
     }
     // Mirrors pose on their door, which shares their swing: every swing is set before any pose.
     for (const p of this.parts) if (!p.detached) this.posePart(p);
@@ -598,11 +599,12 @@ export class DeformableCar extends CarParts {
     if (this.hullHelper?.visible) this.updateHullHelper();
   }
 
-  /** Netplay client, every frame: wheels spin and ride their hubs as `afterContacts` does on the host. */
+  /** Netplay client, every frame: wheels spin and ride their hubs as `afterContacts` does on the host; the torn parts fly in the client's own world (the wheels' poses come on the wire). */
   netFrame(dt: number): void {
     this.nudgeWheels(dt, false);
     this.ride(dt);
     this.flutterParts(dt);
+    this.stepLooseParts(dt, this.slot, false);
   }
 
   /**

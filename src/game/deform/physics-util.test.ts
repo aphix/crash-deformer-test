@@ -9,7 +9,6 @@ import {
   snapshotPoints,
   vec3,
   clampSpeed,
-  separateSphereFromAabb,
   regionSoftness,
   crushGate,
   dtImpulseScale,
@@ -186,7 +185,7 @@ describe("given snapshotPoints (turns particle position and life arrays into the
   });
 });
 
-describe("given separateSphereFromBounds and separateSphereFromAabb (push a sphere out of a wall limit or a box on one axis, the same response for plates, cars and ground)", () => {
+describe("given separateSphereFromBounds (push a sphere out of a wall limit on one axis)", () => {
   it("when a 0.2 m sphere past the +0.62 wall limit is moving in at 3 m/s, then it is pushed back inside the limit, its inbound speed is cancelled and a hit is reported", () => {
     const pos = new THREE.Vector3(0, 0.4, 0.9);
     const vel = new THREE.Vector3(0, 0, 3);
@@ -208,22 +207,6 @@ describe("given separateSphereFromBounds and separateSphereFromAabb (push a sphe
     assert.equal(separateSphereFromBounds(pos, vel, 0.2, "z", -0.62, 0.62), false);
     assert.equal(pos.z, 0);
     assert.equal(vel.z, -1);
-  });
-
-  it("when a sphere overlaps a box mostly along z, then it is pushed out past the box's edge along that smallest-overlap axis and its z speed stops", () => {
-    const pos = new THREE.Vector3(0, 0.4, 0.7);
-    const vel = new THREE.Vector3(0, 0, -2);
-    separateSphereFromAabb(pos, vel, 0.1, 0, 0.4, 0.5, 1, 1, 0.2);
-    assert.ok(pos.z >= 0.5 + 0.2 + 0.1 - 1e-6 || pos.z <= 0.5 - 0.2 - 0.1 + 1e-6);
-    assert.equal(vel.z, 0);
-  });
-
-  it("when a sphere grazes the +z face of a plate, then it is not also shoved sideways along x", () => {
-    const pos = new THREE.Vector3(0.05, 0.4, 0.71);
-    const vel = new THREE.Vector3(1, 0, -1);
-    const x0 = pos.x;
-    separateSphereFromAabb(pos, vel, 0.1, 0, 0.4, 0.5, 1.8, 1, 0.2);
-    assert.equal(pos.x, x0);
   });
 });
 

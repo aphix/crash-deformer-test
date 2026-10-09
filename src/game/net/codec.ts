@@ -45,8 +45,9 @@ carries the peer's own meter (a sixth byte), so every browser shows any viewed c
 17: a reel keyframe's course memory is 1 double, not 4 (race walls are solid colliders).
 18: MSG.look (11) carries a player's car and driver colour picks and their two spray bitmaps, sent once at seating.
 19: Stage 1 of the one-motion-path physics: a reel's keyframes and a snapshot's cars carry the trajectories of the one rigid step (derived rest and wreck contact; debris poses on one ground law), so peers on 18 would replay and mirror them differently.
+20: Stage 2 of the one-motion-path physics: a loose part's world pose is no longer on the wire (torn parts are rigid bodies each player's own world steps, `stepLoose`), a snapshot's parts are their flags and hinge values alone, so peers on 19 would read a different layout.
 */
-export const NET_VERSION = 19;
+export const NET_VERSION = 20;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;
@@ -181,7 +182,6 @@ export function makeCarFrame(L: NetLayout): CarFrame {
     parts: {
       flags: new Uint8Array(L.parts),
       hinge: new Float32Array(L.parts * 3),
-      pose: new Float32Array(L.parts * 7),
       lamps: 0,
       glass: 0,
       wheelLoose: 0,
@@ -325,9 +325,9 @@ export class Reader {
   }
 }
 
-/** Most bytes `writeSnapshot` writes for `n` cars: each with a wreck section, every part and wheel loose. */
+/** Most bytes `writeSnapshot` writes for `n` cars: each with a wreck section, every part (a flag byte and 3 hinge values of 2 bytes: 7) and wheel (20) loose. */
 export function snapshotMaxBytes(n: number, L: NetLayout): number {
-  const wreck = L.masses * 12 + L.clusters * 18 + L.sensors * 2 + IMPACT * 2 + 13 + L.parts * 27 + 4 + L.wheels * 20;
+  const wreck = L.masses * 12 + L.clusters * 18 + L.sensors * 2 + IMPACT * 2 + 13 + L.parts * 7 + 4 + L.wheels * 20;
   return 17 + n * (29 + wreck);
 }
 
@@ -353,10 +353,6 @@ export function writeWreck(w: Writer, f: CarFrame, L: NetLayout): void {
     const flags = p.flags[i]!;
     w.u8(flags);
     w.q16s(p.hinge, 3, Q_PER.fine, i * 3);
-    if ((flags & 1) === 0) continue;
-    const o = i * 7;
-    w.f32s(p.pose, 3, o);
-    w.q16s(p.pose, 4, Q_PER.quat, o + 3);
   }
   w.u8(p.lamps);
   w.u16(p.glass);
@@ -388,12 +384,6 @@ function readWreck(r: Reader, f: CarFrame, L: NetLayout): void {
     p.hinge[i * 3] = r.q16(Q.fine);
     p.hinge[i * 3 + 1] = r.q16(Q.fine);
     p.hinge[i * 3 + 2] = r.q16(Q.fine);
-    if ((flags & 1) === 0) continue;
-    const o = i * 7;
-    p.pose[o] = r.fin32();
-    p.pose[o + 1] = r.fin32();
-    p.pose[o + 2] = r.fin32();
-    for (let k = 3; k < 7; k++) p.pose[o + k] = r.q16(Q.quat);
   }
   p.lamps = r.u8();
   p.glass = r.u16();

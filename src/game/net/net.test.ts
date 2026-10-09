@@ -126,7 +126,6 @@ describe("given a two-car network snapshot with every field filled in", () => {
       const p = f.parts;
       p.flags.set([1, 0, 2, 3, 5, 4, 1, 0]);
       for (let i = 0; i < p.hinge.length; i++) p.hinge[i] = (i % 3) * 0.37;
-      for (let i = 0; i < L.parts; i++) p.pose.set([3.5 + i, 0.12, -7.25, 0.5, -0.5, 0.5, 0.5], i * 7);
       p.lamps = 0b1010;
       p.glass = 0b10_01_00_10_01_00;
       p.wheelLoose = 0b0101;
@@ -184,13 +183,8 @@ describe("given a two-car network snapshot with every field filled in", () => {
       for (let k = 0; k < 3; k++) assert.equal(b.parts.wheels[i * 7 + k], Math.fround(a.parts.wheels[i * 7 + k]!));
       for (let k = 3; k < 7; k++) assert.ok(Math.abs(b.parts.wheels[i * 7 + k]! - a.parts.wheels[i * 7 + k]!) <= Q.quat);
     }
-    for (let i = 0; i < L.parts; i++) {
-      if ((a.parts.flags[i]! & 1) === 0) continue;
-      for (let k = 0; k < 3; k++) assert.equal(b.parts.pose[i * 7 + k], Math.fround(a.parts.pose[i * 7 + k]!));
-      for (let k = 3; k < 7; k++) assert.ok(Math.abs(b.parts.pose[i * 7 + k]! - a.parts.pose[i * 7 + k]!) <= Q.quat);
-    }
-    // 17-byte header, 29-byte poses (body, meter, pose), a 667-byte wreck (its impact block is 12 numbers of 2 bytes) with 20 more per loose part (4) and per loose wheel (2).
-    assert.equal(w.off, 17 + 29 + (667 + 20 * 4 + 20 * 2) + 29);
+    // 17-byte header, 29-byte poses (body, meter, pose), a 667-byte wreck (its impact block is 12 numbers of 2 bytes) with 20 more per loose wheel (2): a loose part's pose is not sent.
+    assert.equal(w.off, 17 + 29 + (667 + 20 * 2) + 29);
   });
 });
 
@@ -288,7 +282,7 @@ describe("given a client car that applies the host car's state from the wire", (
     assert.ok(maxDiff(hv, client.body.geometry.getAttribute("position").array) < 0.002);
   });
 
-  it("when a body panel is torn off and another hinged loose, then the client shows the same hole, shell and loose pose, and the next wreck clears them", () => {
+  it("when a body panel is torn off and another hinged loose, then the client shows the same hole and shell, throws its own loose panel, and the next wreck clears them", () => {
     type Row = { name: string; detached: boolean; hingeT: number; pos: { x: number; y: number; z: number } };
     const panels = (c: DeformableCar) => (c.snapshot().parts as Row[]).filter((p) => /^(quarter|arch)/.test(p.name));
     const primer = (c: DeformableCar) => (c.body.geometry.getAttribute("primer").array as Float32Array).reduce((a, b) => a + b, 0);
@@ -302,7 +296,7 @@ describe("given a client car that applies the host car's state from the wire", (
     for (const [i, p] of h.entries()) {
       assert.equal(c[i]!.detached, p.detached, `${p.name} torn on the client`);
       assert.ok(Math.abs(c[i]!.hingeT - p.hingeT) < 1e-3, `${p.name} hinge ${c[i]!.hingeT} vs ${p.hingeT}`);
-      if (p.detached) assert.ok(Math.hypot(c[i]!.pos.x - p.pos.x, c[i]!.pos.y - p.pos.y, c[i]!.pos.z - p.pos.z) < 1e-3, `${p.name} lies where the host's does`);
+      if (p.detached) assert.ok(Math.hypot(c[i]!.pos.x - client.group.position.x, c[i]!.pos.y, c[i]!.pos.z - client.group.position.z) < 20, `${p.name} is loose in the client's own world, near its car (the host's pose is not sent: debris is per player)`);
     }
     assert.ok(primer(host) > 20 && Math.abs(primer(client) - primer(host)) < 0.5, `primer under the panels: host ${primer(host)}, client ${primer(client)}`);
 
@@ -419,7 +413,6 @@ describe("given snapshots and derby boards of values a host never sends", () => 
       f.crashed = true;
       f.wreck = true;
       f.parts.flags[0] = 1;
-      f.parts.pose.set([1, 0.2, 3, 0, 0, 0, 1], 0);
     }
     edit(s);
     const w = new Writer(1 << 17);
@@ -431,7 +424,7 @@ describe("given snapshots and derby boards of values a host never sends", () => 
     readBack(() => {})();
   });
 
-  it("when the snapshot has an empty or oversized field or a non-finite clock, pose or loose-part position, then reading refuses it as a RangeError", () => {
+  it("when the snapshot has an empty or oversized field or a non-finite clock or pose, then reading refuses it as a RangeError", () => {
     assert.throws(readBack((s) => (s.count = 0)), RangeError);
     assert.throws(
       readBack((s) => {
@@ -442,7 +435,6 @@ describe("given snapshots and derby boards of values a host never sends", () => 
     );
     assert.throws(readBack((s) => (s.time = Number.NaN)), RangeError);
     assert.throws(readBack((s) => (s.cars[1]!.z = Number.POSITIVE_INFINITY)), RangeError);
-    assert.throws(readBack((s) => (s.cars[0]!.parts.pose[1] = Number.NaN)), RangeError);
   });
 
   it("when a derby board is larger than any field, names a winner outside it, or has a non-finite clock or bowl, then reading refuses it as a RangeError, and a well-formed board reads fine", () => {

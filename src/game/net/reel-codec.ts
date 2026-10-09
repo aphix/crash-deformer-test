@@ -79,10 +79,13 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * wreck contact is derived in one place, a wreck's shape fit keeps its roll, debris rests and slides on the ground and car tops by
  * one query, so a replayed clip's cars, wrecks and parts move differently; 50: every sine and cosine the sim takes, its own and
  * three's quaternion from Euler angles or an axis and angle, is the kernel's engine-identical one, so a replayed clip starts from
- * different last bits and replays to the same bits in every browser).
+ * different last bits and replays to the same bits in every browser;
+ * 51: Stage 2 of the one-motion-path physics: props, race walls, ramps and the press's plates are prisms of one store met by the face a
+ * body entered, torn parts and wheels are rigid bodies that topple and slide by their points, a loose part's pose leaves the wire, so a
+ * replayed clip's cars near a solid and its debris move differently).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 50;
+const REPLAY_VERSION = 51;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

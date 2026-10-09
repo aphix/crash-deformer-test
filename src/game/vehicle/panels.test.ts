@@ -9,6 +9,7 @@ import { makeShell, PANEL_NAMES, panelRegions, poseShell } from "./car-panels.ts
 import { DENT_MAX, newDentState, recordDent } from "./loose-dent.ts";
 import { runWall, type CrashResult } from "../contact/crash-scenarios.test-util.ts";
 import { assertSameNumbers, DT, paint } from "./test-support.ts";
+import { LIES_FLAT, lowest, RESTS, thinAxisUp } from "./loose-step.test-util.ts";
 
 /** The car with its parts and its hood readable, and a part tearable at a chosen impulse. */
 class Probe extends DeformableCar {
@@ -138,15 +139,15 @@ describe("given the standard crashes into a wall, body panels hinge, then tear",
 });
 
 describe("given a car whose quarter panels and arch flares are torn off", () => {
-  it("when the car steps on, then a torn quarter panel and arch settle flat on the road, a car shows at most two torn shells, and a reset brings every shell back and the body to paint", () => {
+  it("when the car steps on, then a torn quarter panel and arch lie flat on the road (lowest point within a centimetre, thin axis up, as a torn hood does), a car shows at most two torn shells, and a reset brings every shell back and the body to paint", () => {
     const car = probe();
     for (const n of ["quarterL", "quarterR", "archFL", "archFR"]) car.tear(n, 20);
     for (let i = 0; i < 240; i++) car.step(DT);
-    const axis = new THREE.Vector3();
     for (const n of ["archFL", "archFR"]) {
-      const o = car.part(n).object;
-      axis.set(1, 0, 0).applyQuaternion(o.quaternion);
-      assert.ok(Math.abs(axis.y) > 0.98 && o.position.y < 0.08, `${n} thin axis y=${axis.y}, centre ${o.position.y} m`);
+      const part = car.part(n);
+      const up = thinAxisUp(part);
+      const low = lowest(part);
+      assert.ok(up > LIES_FLAT && low >= -1e-9 && low <= RESTS, `${n} thin axis ${up.toFixed(3)} up, lowest point ${low.toFixed(4)} m over the road`);
     }
     assert.equal(car.allParts.filter((p) => p.region && p.detached && p.object.visible).length, 2, "drawn torn shells");
     car.resetVisual();

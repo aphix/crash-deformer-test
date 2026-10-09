@@ -171,7 +171,7 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
   const host: ReelHost = {
     carsOf: (clip) => clip.cars.map((c) => w.cars[c.slot]!),
     live: () => w.live(),
-    scene: { dress: w.dress, collide: (car, slot, h) => w.race.courseHit(car, slot, h), restore: (slot, mem, at) => w.race.remember(slot, mem, at), knocks: (bits) => w.race.knockTo(bits), bounce: undefined, blend: new PoseBlend() },
+    scene: { dress: w.dress, collide: (car, slot, h) => w.race.courseHit(car, slot, h), restore: (slot, mem, at) => w.race.remember(slot, mem, at), knocks: (bits) => w.race.knockTo(bits), blend: new PoseBlend() },
     resetProps: () => w.race.resetProps(),
     clear: () => ragdolls.reset(),
     sight,

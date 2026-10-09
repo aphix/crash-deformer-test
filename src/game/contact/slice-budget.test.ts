@@ -84,12 +84,12 @@ describe("given a slice whose contact corrections (pair pushes, structure step, 
     restoreAlongPush(wreck);
     const w = makeWorld([wreck], false, false).world;
     let pass = 0;
-    w.ballHit = (car) => {
-      if (car === wreck && pass++ === 0) {
+    w.beforeSlice = () => {
+      if (pass++ === 0) {
         // The pair solver's four pushes of a slice (`pushPair`), two of them at the cap already.
         for (const amount of [0.0168, 0.0214, 0.0215, 0.0215]) pushCar(wreck, PUSH_N[0], 0, PUSH_N[1], wreck.deform.takePush(PUSH_N[0], PUSH_N[1], amount, H, TOUCH));
       }
-      return null;
+      return false;
     };
     w.afterCar = (car) => {
       if (car !== wreck) return;

@@ -63,7 +63,7 @@ const HOT = {
   "src/game/deform/deform-solve.ts": ["stepMassSlice", "stepShapeMatch", "stepBeams", "stepSuspension"],
   "src/game/contact/sat.ts": ["physicsSlice", "sliceSpeed", "satCars", "satTwoHulls", "satCarBarrier", "clipCarToBarrier"],
   "src/game/contact/pair-contact.ts": ["resolveCarPair", "impulseCar", "pushCar"],
-  "src/game/contact/prop-contact.ts": ["propContact", "courseContact", "solidContact", "measure", "approach", "jointFace", "coplanar", "footprintOverlap", "lowestY"],
+  "src/game/contact/prop-contact.ts": ["propContact", "solidContact", "sideContact", "measure", "coplanar", "lowestY"],
   "src/game/contact/external-contact.ts": ["partContactPair", "partContact", "faceOverlap", "shiftVelocities"],
   "src/game/vehicle/car-drive.ts": ["applyDrive", "input"],
   "src/game/vehicle/drive-input.ts": ["readIntent", "shapeDrive"],

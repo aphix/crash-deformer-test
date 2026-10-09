@@ -5,10 +5,10 @@ import { DOOR } from "./car-mesh.ts";
 import { LIGHT_BAR_FOOT } from "./car-materials.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { MASS_SPECS } from "../kernel/rig-spec.ts";
-import { flutterShell, layFlat, makeShell, poseShell, recentre, setPrimer, shellBox } from "./car-panels.ts";
+import { flutterShell, makeShell, poseShell, recentre, setPrimer, shellBox } from "./car-panels.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { applyDents } from "./loose-dent.ts";
-import { stepLoose } from "./loose-step.ts";
+import { stepLoose, wheelShape } from "./loose-step.ts";
 import { CarGlass } from "./car-glass-break.ts";
 import {
   BUMPER_TEAR_MPS,
@@ -23,7 +23,6 @@ import {
   type Lamp,
   type PartNetState,
   SLAM_TEAR_J,
-  type WorldBounce,
 } from "./car-core.ts";
 import {
   DOOR_ACC_MAX,
@@ -78,10 +77,10 @@ const PANEL_TEAR = 0.8;
 const PANEL_TEAR_MPS = 50 / 3.6;
 /** A panel's shell stands from this hinge value. */
 const PANEL_OPEN = 0.03;
-/** A torn part rests this high (m, its origin) over what it lies on; a torn sheet this high (its centre). At most `LIVE_SHELLS` of a car's torn shells are drawn: the oldest vanish (each is a draw). */
-const PART_FLOOR = 0.12;
-const PANEL_FLOOR = 0.03;
+/** At most `LIVE_SHELLS` of a car's torn shells are drawn: the oldest vanish (each is a draw). */
 const LIVE_SHELLS = 2;
+/** A tyre's width (m) at wheel scale 1: a popped wheel flies as a disk this wide (`wheelShape`). */
+const TYRE_WIDTH = 0.24;
 /** The light bar's tilt on its far mount at full load (rad). */
 const BAR_ROLL = 0.5;
 /** A bumper hung by one corner rolls about it this much at full hinge and full asymmetry (rad), and sags this far (m). */
@@ -634,6 +633,7 @@ export abstract class CarParts extends CarGlass {
     // torn off by `swingDoors` finds none pending).
     this.posePart(p);
     p.detached = true;
+    p.shape.count = 0;
     this.group.updateMatrixWorld();
     const wpos = new THREE.Vector3();
     const wquat = new THREE.Quaternion();
@@ -687,13 +687,6 @@ export abstract class CarParts extends CarGlass {
     p.posed = p.hingeT;
   }
 
-  /** Netplay client: the host tore this panel off. Its shell as it hung (on this client's skin), centred as the host's is; the host's pose follows. */
-  protected tearPanel(p: DetachPart): void {
-    this.shellPose(p);
-    recentre((p.object as THREE.Mesh).geometry, _c);
-    this.trackShell(p);
-  }
-
   /** A torn shell counts against the car's cap: past `LIVE_SHELLS` the oldest stops being drawn. */
   private trackShell(p: DetachPart): void {
     this.liveShells.push(p);
@@ -720,17 +713,19 @@ export abstract class CarParts extends CarGlass {
     setPrimer(p.region!, this.body.geometry, false);
   }
 
-  /** This car's torn parts and popped wheels (`stepLoose`): they land on the ground and the other cars' tops, never this car's (`slot`). */
-  protected stepLooseParts(dt: number, slot: number, bounce?: WorldBounce): void {
+  /**
+   * This car's torn parts and popped wheels (`stepLoose`): rigid bodies that land on the ground, the prisms and the other cars' tops, never this car's (`slot`).
+   * `wheels` false: the parts only (a netplay client's wheels ride the host's poses on the wire; its parts are its own, debris is per player).
+   */
+  protected stepLooseParts(dt: number, slot: number, wheels = true): void {
     for (let k = 0; k < this.parts.length; k++) {
       const p = this.parts[k]!;
       // A torn shell past `LIVE_SHELLS` is hidden for good (until the reset): nothing to see, nothing to move.
       if (!p.detached || !p.object.visible) continue;
-      const clearance = stepLoose(p, dt, p.region ? PANEL_FLOOR : PART_FLOOR, slot, bounce, p.dent);
-      if (p.region && clearance < 0.3) layFlat(p.object, dt);
+      stepLoose(p, dt, slot, p.dent);
       applyDents(p.dent, p.object);
     }
-    for (let k = 0; k < this.looseWheels.length; k++) if (this.looseWheels[k]!.loose) stepLoose(this.looseWheels[k]!, dt, TYRE_R, slot, bounce);
+    if (wheels) for (let k = 0; k < this.looseWheels.length; k++) if (this.looseWheels[k]!.loose) stepLoose(this.looseWheels[k]!, dt, slot);
   }
 
   /** Into `out` from index `n` on: the objects this car has put in the world instead of on its group, torn parts and popped wheels (`stepLooseParts` moves them). Returns the count past the last one written. */
@@ -757,6 +752,7 @@ export abstract class CarParts extends CarGlass {
     // Rolls on about its axle (the car's x) at the hub's ground speed.
     _n.set(1, 0, 0).applyQuaternion(this.group.quaternion);
     w.angular.copy(_n).multiplyScalar(hypot2(w.velocity.x, w.velocity.z) / TYRE_R);
+    wheelShape(w.shape, TYRE_R * w.object.scale.x, TYRE_WIDTH * w.object.scale.x);
   }
 
   /** Netplay: array sizes for a `PartNetState`; parts are `PART_SLOTS` on every style (one shared layout). */
@@ -776,9 +772,6 @@ export abstract class CarParts extends CarGlass {
       // and old data reads as before), which a headless replay re-simulating from a keyframe needs to tear the same parts at the same time.
       out.hinge[i * 3 + 1] = s ? s.theta : p.fatigue;
       out.hinge[i * 3 + 2] = s ? s.mirrorFold : 1 - p.hingeMax;
-      if (!p.detached) continue;
-      p.object.position.toArray(out.pose, i * 7);
-      p.object.quaternion.toArray(out.pose, i * 7 + 3);
     }
     let lamps = 0;
     for (let i = 0; i < this.lamps.length; i++) if (this.lamps[i]!.intact) lamps |= 1 << i;

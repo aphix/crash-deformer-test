@@ -15,9 +15,11 @@ import { pickedLook } from "../present/driver-look.ts";
 import type { LabPresetId } from "../scenes/lab.ts";
 import { CORKSCREW } from "../scenes/corkscrew.ts";
 import { stackShot } from "../scenes/stack-rig.ts";
-import { bounceRigs } from "./world-step.ts";
 import { activeGround, DISC_GROUND, setGround } from "../world/ground.ts";
-import { type ContactHit, resolveLampPoles, resolveRampBalls, scatterRampBalls } from "../scenes/engine-props.ts";
+import { armSolids } from "../world/surfaces.ts";
+import { type ContactHit, scatterRampBalls } from "../scenes/engine-props.ts";
+import { foldPole, RIG_BALL_FIRST, RIG_POLE_FIRST, shatterBall } from "../scenes/rig-solids.ts";
+import { propContact, sideContact, type PropHits } from "../contact/prop-contact.ts";
 import { clipDerbyCar, DERBY_RADIUS, derbyRadius } from "../scenes/derby-arena.ts";
 import type { RaceCommand } from "../match/types.ts";
 import { SOLO_SCENES, type SceneId } from "../scenes/scene-id.ts";
@@ -384,6 +386,8 @@ export abstract class EngineScenes extends EngineDerby {
     // and the range keep the endless pad; the corkscrew's channel is the ground over a pad drawn three times wider for
     // its far landings; the Lab's is its bench, brackets, shelves and the workshop floor, and its art replaces the pad.
     setGround(this.showCorkscrew ? this.corkscrew : this.showLab ? this.lab.ground : this.derbyMode || this.rigScene || this.showRange || this.showGarage ? null : this.showRamps ? this.ramps : DISC_GROUND);
+    // What stands on it: the Lab's props and wall, else the fleet's rigs (slab, press plates, lamp posts, ramp balls), as prisms of one store.
+    armSolids(this.showLab ? this.lab.prisms : this.rigs);
     this.stage.ground.scale.setScalar(this.showCorkscrew ? 3 : 1);
     // The Lab's and the garage's art replace the pad.
     for (const o of this.studio) o.visible = !this.showLab && !this.showGarage;
@@ -664,30 +668,49 @@ export abstract class EngineScenes extends EngineDerby {
     this.derby.noteHit(a, b, -(ca.velocity.x * n.x + ca.velocity.z * n.z), cb.velocity.x * n.x + cb.velocity.z * n.z, hit.impulse);
   };
 
-  protected readonly ballHit = (car: DeformableCar): ContactHit | null =>
-    resolveRampBalls(this.balls, car, this.elapsedWall, this.trace.ballHits, this.ballBreak);
-
-  private readonly ballBreak = (at: THREE.Vector3, n: THREE.Vector3, closing: number): void => {
-    this.debris.burst(at, n, Math.min(48, 14 + closing * 1.2) * this.fxDensity);
-    this.sparks.poof(at, n, Math.min(28, 8 + closing * 0.6) * this.fxDensity);
-  };
-
-  protected readonly poleHit = (car: DeformableCar): boolean => resolveLampPoles(this.poles, car, this.poleBreak) !== null;
-
-  private readonly poleBreak = (at: THREE.Vector3, n: THREE.Vector3, closing: number): void => {
-    this.debris.burst(at, n, Math.min(40, 10 + closing) * this.fxDensity);
-    this.sparks.poof(at, n, Math.min(22, 6 + closing * 0.5) * this.fxDensity);
-  };
-
   protected readonly clipDerby = (car: DeformableCar): void => clipDerbyCar(car, this.derbyR);
 
   protected readonly raceCollide = (car: DeformableCar, i: number, h: number): void => this.race.collide(car, i, h);
 
   /** The fleet ramps' side and back faces; a hit can start the crash cinematic like any other. */
-  protected readonly rampCollide = (car: DeformableCar, _i: number, h: number): void => {
-    const hit = this.ramps.contact(car, h);
-    if (hit) this.world.strongest.offer(hit);
+  private readonly rampHits: PropHits = {
+    knock: () => {},
+    fx: () => {},
+    wall: (_index, _car, closing, x, z, nx, nz) =>
+      this.world.strongest.offer({ impulse: Math.max(closing, 0.5), contact: new THREE.Vector3(x, 0.4, z), normal: new THREE.Vector3(nx, 0, nz) }),
   };
+
+  protected readonly rampCollide = (car: DeformableCar, _i: number, h: number): void => {
+    this.ramps.sync();
+    sideContact(car, this.ramps, this.rampHits, h);
+  };
+
+  /** Car `i` against the fleet's rigs: the ramps' sides while they are up, and the lamp posts and ramp balls (prisms of `rigs`, met by the one prop rule). */
+  protected readonly rigCollide = (car: DeformableCar, i: number, h: number): void => {
+    if (this.rampsUp) this.rampCollide(car, i, h);
+    propContact(car, i, this.rigs, this.rigKnocked, this.rigHits, h);
+  };
+
+  /** What the fleet's rig prisms do when a car meets them: a lamp post folds over, a ramp ball shatters from `BALL_BREAK_CLOSING` m/s, any hit has its sparks and debris. */
+  private readonly rigHits: PropHits = {
+    knock: (index, _car, vx, _vy, vz) => foldPole(this.poles[index - RIG_POLE_FIRST]!, vx, vz),
+    fx: (at, n, closing) => {
+      this.debris.burst(at, n, Math.min(48, 10 + closing) * this.fxDensity);
+      this.sparks.poof(at, n, Math.min(28, 6 + closing * 0.5) * this.fxDensity);
+    },
+    wall: (index, carIndex, closing, x, z, nx, nz) => {
+      this.world.strongest.offer({ impulse: Math.max(closing, 0.5), contact: new THREE.Vector3(x, 0.4, z), normal: new THREE.Vector3(nx, 0, nz) });
+      if (index < RIG_BALL_FIRST || !shatterBall(this.balls[index - RIG_BALL_FIRST]!, this.world.cars[carIndex]!, closing)) return;
+      this.trace.ballHits.push({ t: this.elapsedWall, ball: index - RIG_BALL_FIRST, closing, broken: true });
+    },
+  };
+
+  /** Put the slab, the lamp posts and the ramp balls where they are now, before a step's contacts read them (`rigs`). */
+  protected syncRigs(): void {
+    this.rigs.syncSlab(this.barrierUp ? this.barrier : null);
+    this.rigs.syncPoles(this.poles, this.rigKnocked);
+    this.rigs.syncBalls(this.balls, this.ballsUp);
+  }
 
   /** The corkscrew's walls hold a car on its floor. */
   protected readonly corkCollide = (car: DeformableCar): void => this.corkscrew.contact(car);
@@ -788,10 +811,5 @@ export abstract class EngineScenes extends EngineDerby {
     this.dressCar(car);
     this.emitHud();
   }
-
-  /** The scene's rigs as they stand at each call (`bounceRigs`): the compactor's plates in the press scene, the jersey slab while it is up. */
-  protected bounceWorld = (pos: THREE.Vector3, vel: THREE.Vector3, r: number): void => {
-    bounceRigs(pos, vel, r, this.showCompactor ? this.compactor.face : NaN, this.barrierUp ? this.barrier : null);
-  };
 
 }
