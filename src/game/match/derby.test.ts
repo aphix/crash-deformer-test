@@ -566,6 +566,10 @@ describe("given derby matches between AI cars", () => {
     // position corrections (`clampLocal`, `stepStructure`): 0.033 m in 8.8 ms at 0.4 m/s on the owner's capture, 0.051 m on spawn 12.15
     // with the planted hubs' frame charge. The wreck split goes in Stage 4 (a wreck is a rigid body on the one solve, no position
     // corrections); that stage turns this back on as it stands.
+    // Same family in the browser derby (10 cars, 20 s, every step of every car against 3·v·h + 2 cm, the smoke scan): a wreck at 0.04-1 m/s
+    // with no pair hit and no car within 3.3 m moves its masses 2-5.6 cm a step for 1-7 steps (seed 1: 4.3, 4.7, 4.9 cm at t = 7.83 s,
+    // mass velocity 0.17-0.52 m/s; seed 2: 5.6 cm at 11.75 s): seeds 1/2/3/default give 3/4/1/7 events, max 4.9/5.6/2.1/2.7 cm on the lane
+    // against 0/0/1/6, max 0/0/5.0/5.4 cm on da39401. Closes with the above.
     it(`when a car crashes, then its body never moves more than 3 times its speed times the slice length plus 2 cm in one slice, from each of ${SPAWN_SPEEDS.length} spawn speeds nudged around the capture's`, { todo: "wreck position corrections (clampLocal, stepStructure) pop a re-touched planted wreck: closes in Stage 4 with the wreck split" }, () => {
       for (const mps of SPAWN_SPEEDS) {
         const run = ownerDerby(15, ARCADE, mps);
