@@ -69,7 +69,7 @@ export function PeerName({ voice, peer }: { voice: Voice; peer: VoicePeerStatus 
   return (
     <button
       type="button"
-      className={cn("inline-flex min-w-0 items-baseline gap-1 rounded px-0.5 text-left hover:bg-fg/10", peer.muted ? "text-muted line-through" : "font-display")}
+      className={cn("inline-flex min-h-11 min-w-11 items-center gap-1 rounded px-0.5 text-left hover:bg-fg/10 sm:min-h-0 sm:min-w-0 sm:items-baseline", peer.muted ? "text-muted line-through" : "font-display")}
       aria-pressed={peer.muted}
       aria-label={peer.muted ? `Unmute ${who}` : `Mute ${who}`}
       title={peer.muted ? `${who} is muted for you. Click to unmute.` : `Click to mute ${who} for you.`}

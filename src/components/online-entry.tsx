@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { ChevronDown, ChevronUp, Globe, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useCoarsePointer } from "@/components/use-coarse-pointer";
 import { PrivateRoomForm } from "@/components/online-private-room";
 import { SessionDetails } from "@/components/online-session";
 import { useLiveRooms, useNetStatus } from "@/components/use-live-rooms";
@@ -18,6 +19,8 @@ import { cn } from "@/lib/utils";
 const TAP = "h-11 sm:h-8";
 /** What the open panel leaves free at the screen edge and between it and the pill. */
 const PANEL_GAP_PX = 8;
+/** The thumb pad's reach up the screen (px) on a phone held upright (the Camera view button's top edge stands 180 px above the bottom on a 390 x 844 screen): the panel ends above it. */
+const THUMB_PAD_PX = 180;
 const keepFocus = (e: { preventDefault: () => void }): void => e.preventDefault();
 
 const STAGE: Record<string, string> = { lobby: "Starting soon", over: "Results", running: "Racing" };
@@ -93,6 +96,7 @@ export function OnlineEntry({ engine, race }: { engine: RefObject<CrashEngine | 
   const [tx, setTx] = useState<NetTx>(NET_TX.rtc);
   const [panelMaxHeight, setPanelMaxHeight] = useState<number | undefined>(undefined);
   const anchor = useRef<HTMLDivElement>(null);
+  const coarse = useCoarsePointer();
   const status = useNetStatus(engine);
   const online = status !== null && (status.role !== "off" || status.finding);
   const rooms = useLiveRooms(race !== null && !online, open);
@@ -109,17 +113,19 @@ export function OnlineEntry({ engine, race }: { engine: RefObject<CrashEngine | 
     setTx(link.tx);
   }, []);
 
-  // The panel hangs from the pill and scrolls inside the space left below it, so it never runs off a short screen (a phone on its side).
+  // The panel hangs from the pill and scrolls inside the space left below it, so it never runs off a short screen (a phone on its side) or over the thumb pad (a phone held upright).
   useEffect(() => {
     if (!open) return;
     const fitBelowPill = (): void => {
       const pill = anchor.current;
-      if (pill) setPanelMaxHeight(Math.max(0, window.innerHeight - pill.getBoundingClientRect().bottom - 2 * PANEL_GAP_PX));
+      if (!pill) return;
+      const padReach = coarse && window.innerHeight > window.innerWidth ? THUMB_PAD_PX : 0;
+      setPanelMaxHeight(Math.max(0, window.innerHeight - pill.getBoundingClientRect().bottom - 2 * PANEL_GAP_PX - padReach));
     };
     fitBelowPill();
     window.addEventListener("resize", fitBelowPill);
     return () => window.removeEventListener("resize", fitBelowPill);
-  }, [open, online]);
+  }, [open, online, coarse]);
 
   const act = (run: (e: CrashEngine) => void): void => {
     const e = engine.current;
