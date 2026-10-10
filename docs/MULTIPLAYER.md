@@ -382,6 +382,30 @@ and the deterministic `RaceSession` (agreed with RaceLead):
   (order and laps of all 4 cars) agree on both pages in 21/21 samples every 2 s, and the final results
   are identical (place, laps, status).
 
+## Co-op (race, Survival, campaign)
+
+The humans of a room (cars no AI drives: the host's and every seated peer's) are one team against the AI and the police. The host decides
+everything; `RaceSession.team()` reads the team's state from the session on the host and from the snapshot it restores on a guest, so the
+two agree. With one human there is no team (`RaceHud.team` is null) and every rule is as it was.
+
+- **Race:** each player keeps its own place. The team's place is the best human place; the team won when a human finished first.
+  Nobody has to finish: the finish and DNF rules end the race as ever.
+- **Survival:** a private room's host picks the Survival scene and every peer seated at that moment starts it (`setSeats` before
+  `enter`), abreast on the start anchor (`humanSlot`). Each cop hunts the nearest human still free (`HunterBrain`), each human is
+  busted or wrecked by the per-car rules, a fallen human spectates, and the run ends when none is free: its time is the team's.
+  The pack scales with the humans (`HUNT.perHuman`, docs/SURVIVAL.md). A peer who joins mid-run spectates; Retry seats the peers
+  the room has now.
+- **Campaign:** the host owns the one `Campaign`; its table rides the race snapshot (`campaign`, `standings`: a guest follows the
+  host's standings screen). The round counts, and the table moves on, when the event's team result is a win; otherwise Next
+  replays the round with nothing scored. The field is the peers seated when the campaign starts: a later peer spectates, and
+  joins with the next campaign. Progress is in the host's memory only, as before.
+- **Wire:** no new message and no new type byte. `MSG.race`'s JSON snapshot gained `survival` (`{ bustTime }`, null in a race), `pack`
+  (`{ cops, wrecked }`, Survival, host-filled), `campaign` (the table or null) and `standings`. `codec.ts` validates them (`RACE_SNAP`,
+  `CAMPAIGN_SNAP`: bounded arrays, every campaign entry has its row); a guest enters Survival when the snapshot says so
+  (`NetGame.enterRace(survival)`).
+- **Host leaves:** no migration. A guest that hears no race message for `RACE_GONE_MS` leaves race mode (Survival and campaign with
+  it) and is back in the fleet; the event ends with the host.
+
 ## Derby mode
 
 Derby multiplayer runs through the same controller-slot path as race (agreed with DerbyAI2):

@@ -106,9 +106,12 @@ export class CrashEngine extends EngineGarage {
       this.clock.targetScale = timeScale;
     },
     race: () => (this.race.active ? this.race : null),
-    enterRace: () => {
-      if (this.race.active) return;
-      this.setRace(true);
+    enterRace: (survival) => {
+      if (this.race.active) {
+        if (this.race.survival === survival) return;
+        this.setRace(false);
+      }
+      this.setRace(true, survival);
       this.emitHud();
     },
     exitRace: () => {

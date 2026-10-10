@@ -308,13 +308,16 @@ const DETOUR_SPEED = 15;
 /**
  * One race with the PLAYER slot driven through the real seat (analog wheel and gas → `shapeDrive`
  * → `applyDrive`), as a pad would, along `line`. Every 30 frames the HUD's lap and place are
- * checked against a rules snapshot.
+ * checked against a rules snapshot. `begin` "campaign" starts the campaign's first round instead of a single race; null drives
+ * the round or race already on (a campaign round the host has just replayed), with no command sent.
  */
-export function playerRace(w: World, track: Track, line: PlayerLine, laps: number, aiCount: number, bound: number): PlayerOutcome {
+export function playerRace(w: World, track: Track, line: PlayerLine, laps: number, aiCount: number, bound: number, begin: "start" | "campaign" | null = "start"): PlayerOutcome {
   const r = w.race;
-  r.command({ type: "quit" });
-  r.command({ type: "options", options: { trackId: track.id, laps, aiCount, noReset: false } });
-  r.command({ type: "start" });
+  if (begin !== null) {
+    r.command({ type: "quit" });
+    r.command({ type: "options", options: { trackId: track.id, laps, aiCount, noReset: false } });
+    r.command({ type: begin });
+  }
   const seat = w.seat;
   const car = w.cars[0]!;
   const proj = blankProjection();

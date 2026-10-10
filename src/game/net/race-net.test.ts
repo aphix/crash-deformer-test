@@ -99,3 +99,80 @@ describe("given a host race with no network peers seated", () => {
     late.race.exit();
   });
 });
+
+/** A client world in Survival that adopted the host's rules state as car `self`, through the race message a client decodes. */
+function survivalClientOf(host: World, self: number): World {
+  const c = makeWorld();
+  c.race.enter(true);
+  const wire = readRace(writeRace({ lobby: null, trackId: host.race.snapshot()!.trackId, look: 0, snap: host.race.snapshot() }));
+  assert.ok(wire?.snap, "the host's Survival state passes the client's checks");
+  assert.ok(wire.snap.survival, "the snapshot says Survival");
+  c.race.applySnapshot(wire.snap, self);
+  return c;
+}
+
+describe("given a hosted Survival run with the host and a peer Zed seated on car 1, both sitting still", () => {
+  it("when the run ends and a client adopts the host's state as car 1, then the client reads the run's pack, its time and its team as the host does, and its own cause", (t) => {
+    t.after(() => setGround(null));
+    const host = makeWorld();
+    host.race.setSeats(new Map([[1, "Zed"]]));
+    host.race.enter(true);
+    const state = { acc: 0 };
+    const sit = { throttle: 0, steer: 0, brake: 0, ebrake: true, boost: false };
+    for (let n = 0; n < 60 * 120 && host.race.phase !== "finished"; n++) {
+      host.seat.mode = "drive";
+      host.seat.carIndex = 0;
+      host.seat.intent.analogGas = true;
+      host.seat.intent.gas = 0;
+      host.seat.intent.handbrake = true;
+      host.race.setRemoteInput(1, sit);
+      frame(host, state);
+    }
+    assert.equal(host.race.phase, "finished", "both humans were held and busted");
+    const hostHud = host.race.hud();
+    const client = survivalClientOf(host, 1);
+    const hud = client.race.hud();
+    assert.equal(hud.phase, "finished");
+    assert.equal(hud.team!.humans, hostHud.team!.humans);
+    assert.equal(hud.team!.free, hostHud.team!.free);
+    assert.equal(hud.team!.won, hostHud.team!.won);
+    assert.equal(hud.survival!.cops, hostHud.survival!.cops, "the pack's cops ride the snapshot");
+    assert.equal(hud.survival!.wrecked, hostHud.survival!.wrecked);
+    assert.equal(hud.survival!.result!.time, hostHud.survival!.result!.time, "the team's time");
+    assert.equal(hud.survival!.result!.cause, "busted", "the client's own car was busted");
+    host.race.exit();
+    client.race.exit();
+  });
+});
+
+describe("given a hosted campaign with the host and a peer seated", () => {
+  it("when a client adopts the host's state, then it shows the host's campaign table, round and tracks, and the standings screen follows the host's flag", (t) => {
+    t.after(() => setGround(null));
+    const host = makeWorld();
+    host.race.setSeats(new Map([[1, "Zed"]]));
+    host.race.enter();
+    host.race.command({ type: "options", options: { trackId: "oval", aiCount: 3, laps: 1 } });
+    host.race.command({ type: "campaign" });
+    const client = clientOf(host, 1);
+    const hostTable = host.race.hud().campaign!;
+    const table = client.race.hud().campaign!;
+    assert.equal(table.round, hostTable.round);
+    assert.equal(table.tracks.join(), hostTable.tracks.join());
+    assert.equal(table.standings.map((r) => `${r.id} ${r.name}`).join(), hostTable.standings.map((r) => `${r.id} ${r.name}`).join());
+    assert.equal(table.standings.find((r) => r.kind === "player")?.id, 1, "the table marks this browser's own car as the player, the host's as remote");
+    assert.equal(client.race.hud().mode, "campaign");
+    // Host on its standings screen: a client whose results are up follows; one still racing does not.
+    const snap = host.race.snapshot()!;
+    assert.equal(snap.standings, false);
+    client.race.applySnapshot({ ...structuredClone(snap), standings: true }, 1);
+    assert.equal(client.race.hud().menu, null, "a client not yet at its results stays where it is");
+    const over = { ...structuredClone(snap), phase: "finished" as const };
+    client.race.applySnapshot(over, 1);
+    for (let n = 0; n < 200 && client.race.hud().menu !== "results"; n++) client.race.frame(1 / 60);
+    assert.equal(client.race.hud().menu, "results", "its own results come first");
+    client.race.applySnapshot({ ...structuredClone(over), standings: true }, 1);
+    assert.equal(client.race.hud().menu, "standings", "then it follows the host to the standings");
+    host.race.exit();
+    client.race.exit();
+  });
+});

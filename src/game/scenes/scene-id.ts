@@ -8,8 +8,8 @@ export type SceneId = (typeof SCENE_IDS)[number];
  */
 export const SEEDED_SCENES: Readonly<Partial<Record<SceneId, true>>> = { fleet: true, corkscrew: true, derby: true };
 
-/** Single-player scenes: a netplay room (hosted or joined) cannot be in them, and a room's link never opens one. */
-export const SOLO_SCENES: Readonly<Partial<Record<SceneId, true>>> = { survival: true, lab: true, garage: true };
+/** Single-player scenes: a netplay room (hosted or joined) cannot be in them, and a room's link never opens one. Survival is not one: a hosted room runs it as a team (docs/SURVIVAL.md). */
+export const SOLO_SCENES: Readonly<Partial<Record<SceneId, true>>> = { lab: true, garage: true };
 
 /**
  * The fleet props (jersey barrier, ramp balls, jump ramps) a scene sets for itself. The user's own choice (`showBarrier`

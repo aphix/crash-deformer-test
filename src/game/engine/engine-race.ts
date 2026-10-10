@@ -45,6 +45,8 @@ const SUN_UP = SUN_OFFSET.clone().cross(SUN_RIGHT).normalize();
  * at the end of every physics slice, `frame` once per rendered frame.
  */
 export class RaceDirector extends RaceWatch {
+  /** A netplay client's race is its host's: `applySnapshot` has fed it (cleared on `enter` and `exit`). A run this browser started itself is not mirrored. */
+  mirrored = false;
   /** Per car id: the drafting bonuses (`CarRecord.drafts`) already put on a meter. */
   private readonly drafted = new Int32Array(MAX_CARS);
   /** The chasing police units handed to the rules each step (`BUST`; `PoliceBrain.chasers` fills it). */
@@ -84,6 +86,7 @@ export class RaceDirector extends RaceWatch {
     if (this.active) return;
     this.active = true;
     this.survival = survival;
+    this.mirrored = false;
     const scene = this.host.scene;
     this.saved = { background: scene.background as THREE.Color | null, fog: scene.fog, far: this.host.camera.far };
     this.host.seat.drivable = (i) => this.entrants[i]?.kind === "player" && this.session != null && !this.spectating;
@@ -97,6 +100,7 @@ export class RaceDirector extends RaceWatch {
     if (!this.active) return;
     this.active = false;
     this.survival = false;
+    this.mirrored = false;
     this.menu = null;
     this.session = null;
     this.brain = null;
@@ -166,7 +170,12 @@ export class RaceDirector extends RaceWatch {
         this.start(this.campaign.trackId!, this.campaign.grid());
         return;
       case "retry":
-        if (this.track && this.session) this.start(this.track.id, this.grid);
+        if (!this.track || !this.session) return;
+        // A hosted Survival run takes in the peers who joined (or lets go of those who left) since the last one: between runs, never in one.
+        if (this.survival && this.seatsChanged()) {
+          this.entrants = this.field();
+          this.start(this.track.id, this.defaultGrid());
+        } else this.start(this.track.id, this.grid);
         return;
       case "fullUi":
         this.fullUi = cmd.on;
@@ -305,12 +314,26 @@ export class RaceDirector extends RaceWatch {
 
   /** Host: the whole rules state as plain JSON (null outside a race). */
   snapshot(): RaceSnapshot | null {
-    return this.session ? this.session.snapshot() : null;
+    const s = this.session;
+    if (!s) return null;
+    const snap = s.snapshot();
+    if (this.police instanceof HunterBrain) snap.pack = { cops: this.police.hunting, wrecked: this.police.stats.disabled };
+    if (this.campaign) {
+      snap.campaign = this.campaign.snapshot();
+      snap.standings = this.menu === "standings";
+    }
+    return snap;
   }
 
   /** Netplay host: the cars network peers drive, with their names. The next field (start, setup) seats them as `remote`. */
   setSeats(seats: ReadonlyMap<number, string>): void {
     this.seats = seats;
+  }
+
+  /** Peers are seated, or gone, since the field was made (`field` seats the network peers it finds). */
+  private seatsChanged(): boolean {
+    for (const id of this.seats.keys()) if (this.entrants[id]?.kind !== "remote") return true;
+    return this.entrants.some((e) => e.kind === "remote" && !this.seats.has(e.id));
   }
 
   /** The rules phase (null outside a race), without a snapshot. */
@@ -332,6 +355,7 @@ export class RaceDirector extends RaceWatch {
    */
   applySnapshot(snap: RaceSnapshot, self: number): void {
     const prev = this.session;
+    this.mirrored = true;
     const fresh = !prev || prev.track.id !== snap.trackId || snap.time < prev.time;
     const tr = this.load(snap.trackId);
     const entrants: Entrant[] = [];
@@ -349,6 +373,22 @@ export class RaceDirector extends RaceWatch {
     this.self = self;
     for (const [k, c] of snap.cars.entries()) this.rowOf[c.id] = k;
     this.credit(this.session);
+    this.pack = snap.pack;
+    // The table's rows as this browser sees them: its own car the player, the host's a remote one, every name cleaned as untrusted.
+    this.campaign = snap.campaign
+      ? Campaign.restore({
+          ...snap.campaign,
+          standings: snap.campaign.standings.map((r) => ({
+            ...r,
+            kind: r.id === self && r.kind === "remote" ? "player" : r.kind === "player" ? "remote" : r.kind,
+            name: cleanName(r.name) || `Player ${r.id}`,
+          })),
+        })
+      : null;
+    // The host's standings screen is up: this one follows, once its own results are.
+    if (snap.standings && this.menu === "results") this.menu = "standings";
+    // A Survival run the host has just ended: the same result card the host reads.
+    if (this.survival && snap.phase === "finished" && prev?.phase !== "finished") this.settle(this.session);
     if (!fresh) return;
     this.menu = null;
     this.overFor = 0;
@@ -545,9 +585,10 @@ export class RaceDirector extends RaceWatch {
         this.auto = false;
       }
     }
-    // Busted: the banner shows, then the camera follows the field the way it does after a DNF.
     const me = s && this.entrants[this.self]?.kind === "player" ? s.cars[this.rowOf[this.self]!]! : null;
-    if (s && me?.bustedAt != null && this.menu == null && !this.spectating && s.time - me.bustedAt >= RESULTS_DELAY) {
+    // Busted or wrecked out of the race: the banner shows, then the camera follows the field (a host's wreck has its dead menu instead).
+    const fell = me?.bustedAt ?? (me?.status === "out" ? me.outTime : null);
+    if (s && fell != null && this.menu == null && !this.spectating && s.time - fell >= RESULTS_DELAY) {
       this.spectating = true;
       this.watchLeader();
     }
@@ -663,12 +704,18 @@ export class RaceDirector extends RaceWatch {
       nextCourse: this.nextCourseName(),
       fullUi: this.fullUi,
       survival: this.survivalHud(),
+      team: s ? s.team() : null,
     };
   }
 
   private next(): void {
     if (this.menu === "results") {
       if (this.campaign) {
+        // A team that did not win its event plays it again: the round counts once a human finishes first.
+        if (this.session?.team()?.won === false) {
+          this.start(this.campaign.trackId!, this.campaign.grid());
+          return;
+        }
         if (this.session) this.campaign.record(this.session.results());
         this.menu = "standings";
         return;

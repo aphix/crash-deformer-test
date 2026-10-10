@@ -36,11 +36,35 @@ export const HUNT = {
   clear: 12,
   /** Most `hidden` tests a drop-in beat spends (each may sight-line the camera against the course's solids). */
   tests: 16,
+  /**
+   * Cops (the formation, the cap and the units built) added per human beyond the first, as a share of one human's pack: a hosted run
+   * with several humans hunts them in proportion (`packScale`). Measured (docs/SURVIVAL.md, Co-op): 1 holds two humans' median fall at the lone
+   * player's (16.0 s against 17.2 s), 0.5 does not (19.7 s), and more than 1 adds nothing (drop-ins are one per `gap`).
+   */
+  perHuman: 1,
 } as const;
 
-/** The cops the run wants `time` s after the green, from the `formation` at the start: one more every `HUNT.every` s up to the cap. */
-export function copsWanted(time: number, formation: number): number {
-  return Math.min(HUNT.cap, formation + Math.floor(Math.max(0, time) / HUNT.every));
+/**
+ * The pack a run grows for `humans` free humans: `perHuman` more of everything (the cops wanted, the cap, the units built) for each human
+ * beyond the first, so a team of any size is pressed per head as one human is.
+ */
+function packScale(humans: number): number {
+  return 1 + HUNT.perHuman * Math.max(0, humans - 1);
+}
+
+/** Units built for a run that starts with `humans` humans, in a car list with `room` cars free for them: a pack never needs more cars than the room has. */
+export function huntUnits(humans: number, room: number): number {
+  return Math.min(room, Math.ceil(HUNT.units * packScale(humans)));
+}
+
+/** The most cops hunting at once with `humans` free humans and `units` units built: the cap scaled, the wrecks' share of the units kept. */
+export function huntCap(humans: number, units: number): number {
+  return Math.min(units - (HUNT.units - HUNT.cap), Math.ceil(HUNT.cap * packScale(humans)));
+}
+
+/** The cops the run wants `time` s after the green for `humans` free humans (`units` built), from the `formation` at the start: one more every `HUNT.every` s up to the cap. */
+export function copsWanted(time: number, formation: number, humans = 1, units: number = HUNT.units): number {
+  return Math.min(huntCap(humans, units), Math.ceil((formation + Math.floor(Math.max(0, time) / HUNT.every)) * packScale(humans)));
 }
 
 const STORED = 0;
@@ -164,7 +188,12 @@ export class HunterBrain extends CopBrain {
   private readonly spotZ: number[] = [];
   private readonly spotTx: number[] = [];
   private readonly spotTz: number[] = [];
-  private target = -1;
+  /** The free-human flags of the last patrol (`update`), by car id; null before the first. */
+  private hunted: Uint8Array | null = null;
+  /** Per unit: the car id of the human it is after (the nearest free one; −1 none). */
+  private readonly aim: Int16Array;
+  /** The distance (m) `nearestHunted` found. */
+  private nearGap = Infinity;
   private go = false;
   private nextDrop = 0;
   /** Per unit: the lane it last queued in (−1 / +1; 0 none). Scratch: the queue place `slot` found, and the last drop-in spot found. */
@@ -182,6 +211,7 @@ export class HunterBrain extends CopBrain {
     this.formation = spec.formation;
     this.obstacles = new Obstacles(colliders);
     this.state = new Uint8Array(count);
+    this.aim = new Int16Array(count).fill(-1);
     this.lost = new Float64Array(count);
     this.queued = new Int8Array(count);
     this.side = new Int8Array(count).fill(1);
@@ -206,7 +236,7 @@ export class HunterBrain extends CopBrain {
   /** The run starts: the formation takes its slots, held until the green (`update` sees time ≥ 0). */
   launch(world: HunterWorld): void {
     this.go = false;
-    this.target = -1;
+    this.aim.fill(-1);
     this.nextDrop = 0;
     for (let u = 0; u < this.count; u++) this.state[u] = STORED;
     for (const [k, f] of this.formation.entries()) {
@@ -216,8 +246,11 @@ export class HunterBrain extends CopBrain {
     }
   }
 
+  /** Cops after racer `id` now: the units hunting that have it as the nearest free human. */
   copsOn(id: number): number {
-    return id === this.target ? this.hunting : 0;
+    let n = 0;
+    for (let u = 0; u < this.count; u++) if (this.state[u] === HUNTING && this.aim[u] === id) n++;
+    return n;
   }
 
   protected chasing(u: number): boolean {
@@ -237,11 +270,15 @@ export class HunterBrain extends CopBrain {
     out.ebrake = false;
     out.boost = false;
     const u = self.id - this.first;
-    if (u < 0 || u >= this.count || !self.alive || this.state[u] !== HUNTING || !this.go || this.target < 0) return out;
+    if (u < 0 || u >= this.count) return out;
+    // Each cop hunts the nearest human still free; the one it is after now is its `aim`.
+    const target = this.nearestHunted(self.x, self.z, cars);
+    this.aim[u] = target;
+    if (!self.alive || this.state[u] !== HUNTING || !this.go || target < 0) return out;
     out.brake = 0;
     if (this.wedge.backing(u, dt, out)) return out;
     const speed = hypot2(self.vx, self.vz);
-    const tg = cars[this.target]!;
+    const tg = cars[target]!;
     const dx = tg.x - self.x;
     const dz = tg.z - self.z;
     const dist = hypot2(dx, dz);
@@ -282,7 +319,7 @@ export class HunterBrain extends CopBrain {
     this.lane = lane;
     this.row = 0;
     for (let v = 0; v < this.count; v++) {
-      if (v === u || this.state[v] !== HUNTING || this.queued[v] !== lane) continue;
+      if (v === u || this.state[v] !== HUNTING || this.queued[v] !== lane || this.aim[v] !== this.aim[u]) continue;
       const c = cars[this.first + v]!;
       if (c.alive && hypot2(c.x - tg.x, c.z - tg.z) < dist) this.row++;
     }
@@ -338,14 +375,9 @@ export class HunterBrain extends CopBrain {
 
   update(time: number, dt: number, cars: readonly AiCar[], hunt: Uint8Array, _lead: number, world: HunterWorld): void {
     this.go = time >= 0;
-    this.target = -1;
-    for (let i = 0; i < this.racers; i++) {
-      if (hunt[i] === 1) {
-        this.target = i;
-        break;
-      }
-    }
-    const tg = this.target >= 0 ? cars[this.target]! : null;
+    this.hunted = hunt;
+    let humans = 0;
+    for (let i = 0; i < this.racers; i++) humans += hunt[i]!;
     let hunting = 0;
     for (let u = 0; u < this.count; u++) {
       const st = this.state[u]!;
@@ -364,8 +396,8 @@ export class HunterBrain extends CopBrain {
         this.stats.disabled++;
         continue;
       }
-      // Lost: far from the player and nobody to see it go.
-      const far = tg !== null && hypot2(car.x - tg.x, car.z - tg.z) > HUNT.far;
+      // Lost: far from every free human and nobody to see it go.
+      const far = this.nearestHunted(car.x, car.z, cars) >= 0 && this.nearGap > HUNT.far;
       this.lost[u] = far && world.hidden(car.x, car.z) ? this.lost[u]! + dt : 0;
       if (this.lost[u]! > HUNT.farTime) {
         this.store(u, world);
@@ -375,13 +407,48 @@ export class HunterBrain extends CopBrain {
       hunting++;
     }
     this.stats.peak = Math.max(this.stats.peak, hunting);
-    if (!this.go || tg === null || time < this.nextDrop || hunting >= copsWanted(time, this.formation.length)) return;
+    if (!this.go || humans === 0 || time < this.nextDrop || hunting >= copsWanted(time, this.formation.length, humans, this.count)) return;
     const u = this.free();
+    const tg = this.dropTarget(cars);
     if (u < 0 || !this.dropSpot(tg, cars, world)) return;
     world.park(this.first + u, this.at.x, 0, this.at.z, this.at.yaw);
     this.deploy(u, world);
     this.stats.drops++;
     this.nextDrop = time + HUNT.gap;
+  }
+
+  /** The free human with the fewest cops after it (the lowest car id on a tie): where the next drop-in is aimed. */
+  private dropTarget(cars: readonly AiCar[]): AiCar {
+    let best = -1;
+    let fewest = Infinity;
+    for (let i = 0; i < this.racers; i++) {
+      if (this.hunted![i] !== 1) continue;
+      const n = this.copsOn(i);
+      if (n < fewest) {
+        fewest = n;
+        best = i;
+      }
+    }
+    return cars[best]!;
+  }
+
+  /** The nearest free human (`hunt` flags of the last patrol) to (x, z): its car id, −1 when none. Sets `nearGap` to the distance (m). */
+  private nearestHunted(x: number, z: number, cars: readonly AiCar[]): number {
+    const hunted = this.hunted;
+    let best = -1;
+    let gap = Infinity;
+    if (hunted !== null) {
+      for (let i = 0; i < this.racers; i++) {
+        if (hunted[i] !== 1) continue;
+        const d = hypot2(cars[i]!.x - x, cars[i]!.z - z);
+        if (d < gap) {
+          gap = d;
+          best = i;
+        }
+      }
+    }
+    this.nearGap = gap;
+    return best;
   }
 
   /** Unit `u` is parked and starts hunting. */
@@ -423,7 +490,7 @@ export class HunterBrain extends CopBrain {
         if (d > HUNT.dropMax || (ahead && dx * fx + dz * fz < d * 0.3)) continue;
         const t = v2 > 0 ? clamp((dx * tg.vx + dz * tg.vz) / v2, 0, HUNT.lag) : 0;
         if (hypot2(dx - tg.vx * t, dz - tg.vz * t) < HUNT.dropMin) continue;
-        if (this.crowded(this.spotX[i]!, this.spotZ[i]!, cars)) continue;
+        if (this.crowded(this.spotX[i]!, this.spotZ[i]!, cars) || this.nearHuman(this.spotX[i]!, this.spotZ[i]!, tg.id, cars)) continue;
         if (tests++ >= HUNT.tests) return false;
         if (!world.hidden(this.spotX[i]!, this.spotZ[i]!)) continue;
         // Along the road, the way that points at the player.
@@ -439,6 +506,14 @@ export class HunterBrain extends CopBrain {
 
   private crowded(x: number, z: number, cars: readonly AiCar[]): boolean {
     for (const c of cars) if (hypot2(c.x - x, c.z - z) < HUNT.clear) return true;
+    return false;
+  }
+
+  /** Whether (x, z) is nearer than `dropMin` to a free human other than `except`: a cop does not drop in on a teammate's side. */
+  private nearHuman(x: number, z: number, except: number, cars: readonly AiCar[]): boolean {
+    const hunted = this.hunted;
+    if (hunted === null) return false;
+    for (let i = 0; i < this.racers; i++) if (i !== except && hunted[i] === 1 && hypot2(cars[i]!.x - x, cars[i]!.z - z) < HUNT.dropMin) return true;
     return false;
   }
 }

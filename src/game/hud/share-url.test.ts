@@ -161,13 +161,14 @@ describe("given a share link that may carry a netplay room", () => {
     assert.equal(decodeShare("tx=udp").tx, "rtc");
   });
 
-  it("when scene=survival is written, then it round-trips in the # when alone, a link that names a room never opens it (Survival is single player), and the other scenes still pass through a room link", () => {
+  it("when scene=survival is written, then it round-trips in the # alone and with a room (a hosted run is a team's), while a link that names a room never opens a single-player scene, the Lab", () => {
     const alone: ShareState = { ...DEFAULTS, scene: "survival" };
     assert.equal(encodeShare(alone), "scene=survival");
     assert.equal(decodeShare("#scene=survival").scene, "survival");
     assert.equal(json(decodeShare(`#${encodeShare(alone)}`)), json(alone));
-    assert.equal(decodeShare("#room=K7M2QX9P&scene=survival").scene, "fleet", "a room's link with Survival in it joins the host's scene");
-    assert.equal(decodeShare("#room=K7M2QX9P&scene=survival").room, "K7M2QX9P");
+    assert.equal(decodeShare("#room=K7M2QX9P&scene=survival").scene, "survival", "Survival is a room's to carry");
+    assert.equal(decodeShare("#room=K7M2QX9P&scene=lab").scene, "fleet", "a room's link with the Lab in it joins the host's scene");
+    assert.equal(decodeShare("#room=K7M2QX9P&scene=lab").room, "K7M2QX9P");
     // The other scenes are still a room's to carry.
     assert.equal(decodeShare("#room=K7M2QX9P&scene=range").scene, "range");
   });

@@ -113,7 +113,8 @@ export abstract class EngineScenes extends EngineDerby {
    * presentation only; a pick mid-transition retargets it.
    */
   protected setScene(next: SceneId): void {
-    if (this.net.client || (SOLO_SCENES[next] && this.net.role !== "off")) return;
+    // A room refuses the single-player scenes; a public room, which runs the race or derby its name says, refuses Survival too (a private room's host may run it as a team).
+    if (this.net.client || (this.net.role !== "off" && (SOLO_SCENES[next] || (next === "survival" && this.net.status().public !== null)))) return;
     if (next === (this.sceneFade.pending ?? this.sceneId)) next = "fleet";
     if (this.fadeScenes && !this.warming) {
       this.sceneFade.request(next);
@@ -124,8 +125,8 @@ export abstract class EngineScenes extends EngineDerby {
   /** Per wall frame: advances the transition, makes the switch on its black frame and feeds the cel pass and the veil. */
   protected stepSceneFade(wallDt: number): void {
     const fade = this.sceneFade;
-    // Survival, the Lab and the garage are single player: a room (hosted or joined) takes the player back to the fleet.
-    if (SOLO_SCENES[this.sceneId] && this.net.role !== "off") {
+    // The Lab and the garage are single player: a room (hosted or joined) takes the player back to the fleet. So does a guest's own Survival run: a hosted one is the host's.
+    if ((SOLO_SCENES[this.sceneId] || (this.sceneId === "survival" && this.net.client && !this.race.mirrored)) && this.net.role !== "off") {
       this.setRace(false);
       if (this.showLab || this.showGarage) {
         this.sceneId = "fleet";
@@ -332,8 +333,9 @@ export abstract class EngineScenes extends EngineDerby {
     for (const o of this.studio) o.visible = !on;
     for (const p of this.poles) p.group.visible = !on;
     if (on) {
-      this.race.enter(survival);
+      // The seats first: a Survival run starts at `enter`, with whoever is seated.
       this.race.setSeats(this.netSeats);
+      this.race.enter(survival);
     } else {
       this.stopReel();
       this.sceneId = "fleet";

@@ -584,6 +584,11 @@ function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; on
           {race.winnerName} wins{race.winBy === "survival" ? ", last car running" : ""}
         </p>
       ) : null}
+      {race.team ? (
+        <p className="mt-1 text-sm text-muted">
+          {[race.team.won === null ? null : race.team.won ? "Team wins" : "Team loses", `${race.team.won === null ? "Team: " : ""}best place ${race.team.place ?? "–"}`].filter(Boolean).join(" · ")}
+        </p>
+      ) : null}
       <table className="mt-3 w-full font-display text-sm tabular-nums">
         <thead>
           <tr className="hud-label text-left">
@@ -612,8 +617,8 @@ function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; on
       <div className={race.reel ? "mt-3 grid grid-cols-2 gap-1.5" : NAV_ROW}>
         {campaign ? (
           <NavButton className={race.reel ? "col-span-2" : undefined} onClick={() => onCommand({ type: "next" })}>
-            <Trophy />
-            Standings
+            {race.team?.won === false ? <RotateCcw /> : <Trophy />}
+            {race.team?.won === false ? "Retry round" : "Standings"}
           </NavButton>
         ) : race.nextCourse !== null ? (
           <NavButton className={race.reel ? "col-span-2" : undefined} onClick={() => onCommand({ type: "next" })}>

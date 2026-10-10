@@ -168,6 +168,14 @@ export type RaceSnapshot = {
   order: number[];
   /** First crossing time per (lap × gates + gate), null until someone crosses (split timing). */
   firstAt: (number | null)[];
+  /** A Survival run (no laps, no gates), with the hold the police need for the bust; null in a race. */
+  survival: { bustTime: number } | null;
+  /** Survival, host only: the pack as the HUD shows it (cops chasing now, cops wrecked this run); null elsewhere and in a session on its own. */
+  pack: { cops: number; wrecked: number } | null;
+  /** The host's campaign table (a campaign running), null otherwise: clients draw the standings from it. */
+  campaign: CampaignSnapshot | null;
+  /** The host is on the campaign's standings screen: its clients follow. */
+  standings: boolean;
 };
 
 export type RaceResultRow = {
@@ -343,6 +351,21 @@ export type RaceView = {
 /** Why a Survival run ended: the police held the car slow (`BUST`), it was wrecked (`judge`), or the player ended it. */
 export type SurvivalCause = "busted" | "wrecked" | "ended";
 
+/**
+ * Co-op (two or more humans in one event): the humans race, or survive, as one team against the AI and the police.
+ * The host's rules decide it (`RaceSession.team`); a client derives the same read from the snapshot it restores.
+ */
+export type TeamHud = {
+  /** Cars no AI drives (this browser's, the network peers'). */
+  humans: number;
+  /** Of them, still in the event (racing or waiting to respawn). */
+  free: number;
+  /** Race: the best place any human holds (final once the event is over); null in Survival. */
+  place: number | null;
+  /** Race, once the event is over: a human finished first (the team won); Survival: always false, a run only ends in a loss; null while the event runs. */
+  won: boolean | null;
+};
+
 /** Survival's HUD read: the stopwatch is `RaceHud.time`; the rest is here. */
 export type SurvivalHud = {
   /** Cops chasing now. */
@@ -415,4 +438,6 @@ export type RaceHud = {
   saved: SavedHud[];
   /** Survival mode's panel (docs/SURVIVAL.md); null in a race. */
   survival: SurvivalHud | null;
+  /** Co-op (two or more humans in the event); null when one human plays. */
+  team: TeamHud | null;
 };

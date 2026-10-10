@@ -16,6 +16,7 @@ export type NetRace = Pick<
   | "options"
   | "look"
   | "phase"
+  | "survival"
   | "setRemoteInput"
   | "requestRespawn"
   | "holdReset"
@@ -48,8 +49,8 @@ export interface NetGame {
   mirrorClock(phase: CrashPhase, timeScale: number): void;
   /** Race mode's director, null outside race mode. */
   race(): NetRace | null;
-  /** Race mode on / off, and (host) start a race with the current seats. */
-  enterRace(): void;
+  /** Race mode on (Survival when `survival`) / off, and (host) start a race with the current seats. A race already on in the other kind is left for the asked one. */
+  enterRace(survival: boolean): void;
   exitRace(): void;
   startRace(): void;
   /** Host: network peers' cars and names. A race seats them at its next start, a derby at its next match. */

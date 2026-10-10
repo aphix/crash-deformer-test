@@ -48,8 +48,9 @@ carries the peer's own meter (a sixth byte), so every browser shows any viewed c
 19: Stage 1 of the one-motion-path physics: a reel's keyframes and a snapshot's cars carry the trajectories of the one rigid step (derived rest and wreck contact; debris poses on one ground law), so peers on 18 would replay and mirror them differently.
 20: Stage 2 of the one-motion-path physics: a loose part's world pose is no longer on the wire (torn parts are rigid bodies each player's own world steps, `stepLoose`), a snapshot's parts are their flags and hinge values alone, so peers on 19 would read a different layout.
 21: `MSG.roster` (12): the host's table of which peer drives which car, so voice finds each peer's range; peers on 20 would drop it.
+22: co-op: a race snapshot carries the survival run (`survival`: bust time, pack count and wrecked), the campaign table and its standings flag, and a race HUD the team result, so peers on 21 would not follow a shared Survival run or campaign.
 */
-export const NET_VERSION = 21;
+export const NET_VERSION = 22;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;
@@ -651,6 +652,31 @@ export interface RaceNetState {
 const RACE_MSG = z.object({ lobby: z.number().nullable(), trackId: z.string().max(64), look: z.number().int().min(0).max(0xffffffff), snap: z.unknown() });
 
 /**
+ * A campaign table as the host's race message carries it: bounded, and every car id of `entry` has its row (`Campaign.restore` needs that).
+ * The names are cleaned where they are taken in (`RaceDirector.applySnapshot`).
+ */
+const CAMPAIGN_SNAP = z
+  .object({
+    tracks: z.array(z.string().max(64)).min(1).max(32),
+    round: z.number().int().min(0).max(32),
+    entry: z.array(z.number().int().min(0).max(MAX_NET_CARS - 1)).max(MAX_NET_CARS),
+    standings: z
+      .array(
+        z.object({
+          id: z.number().int().min(0).max(MAX_NET_CARS - 1),
+          name: z.string().max(64),
+          kind: z.enum(["player", "ai", "remote"]),
+          aggression: z.number().finite().min(0).max(1),
+          points: z.number().int().min(0).max(10_000),
+          wins: z.number().int().min(0).max(32),
+          places: z.array(z.number().int().min(0).max(MAX_NET_CARS)).max(32),
+        }),
+      )
+      .max(MAX_NET_CARS),
+  })
+  .refine((c) => c.entry.every((id) => c.standings.some((r) => r.id === id)), "every entry has a standings row");
+
+/**
  * The parts of a `RaceSnapshot` that size what `RaceSession.restore` builds: a lap count far above any
  * race the host can set up (engine-race clamps to 9) and at most a full field. The rest is applied as is.
  */
@@ -660,6 +686,10 @@ const RACE_SNAP = z.looseObject({
   cars: z.array(z.looseObject({ id: z.number().int().min(0).max(MAX_NET_CARS - 1) })).max(MAX_NET_CARS),
   order: z.array(z.number().int()).max(MAX_NET_CARS),
   firstAt: z.array(z.number().nullable()).max(100 * 256),
+  survival: z.object({ bustTime: z.number().finite().min(0).max(600) }).nullable().default(null),
+  pack: z.object({ cops: z.number().int().min(0).max(MAX_NET_CARS), wrecked: z.number().int().min(0).max(10_000) }).nullable().default(null),
+  campaign: CAMPAIGN_SNAP.nullable().default(null),
+  standings: z.boolean().default(false),
 });
 
 /** A whole race message: the type byte, then the state as UTF-8 JSON. */

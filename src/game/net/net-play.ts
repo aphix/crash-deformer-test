@@ -262,7 +262,7 @@ export class NetPlay {
     this.publicKind = kind;
     this.derbyField = weak ? WEAK_DERBY_FIELD : PUBLIC_DERBY_FIELD;
     if (kind === "race") {
-      this.game.enterRace();
+      this.game.enterRace(false);
       const race = this.game.race();
       // The weak device's smaller field is the room's own rules; the player's options stay as they were.
       if (weak && race) race.command({ type: "program", options: { aiCount: WEAK_AI } });
@@ -754,7 +754,7 @@ export class NetPlay {
     if (!s) return;
     this.lobbyLeft = s.lobby;
     this.raceSilentFor = 0;
-    this.game.enterRace();
+    this.game.enterRace(s.snap?.survival != null);
     const race = this.game.race();
     if (!race) return;
     race.look = s.look;

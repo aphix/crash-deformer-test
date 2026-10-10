@@ -10,6 +10,7 @@ import type {
   RacePhase,
   RaceResultRow,
   RaceSnapshot,
+  TeamHud,
   WinBy,
 } from "./types.ts";
 
@@ -157,6 +158,8 @@ export class RaceSession {
       const slot = track.gridSlot(i);
       return newRecord(e, i, slot.x, slot.z);
     });
+    // An AI car of a Survival run is nobody's: the humans' places the room did not seat (a peer left) stay where they were put.
+    if (this.endless) for (const c of this.cars) if (c.kind === "ai") c.status = "out";
     this.rank = this.cars.map((_, i) => i);
     this.firstAt = new Float64Array((this.laps + 1) * track.gates.length).fill(NaN);
     for (let i = 0; i < this.cars.length; i++) this.measure(i);
@@ -168,7 +171,7 @@ export class RaceSession {
     const s = new RaceSession(
       track,
       snap.cars.map((c) => ({ id: c.id, name: c.name, kind: c.kind, aggression: 0 })),
-      { laps: snap.laps, noReset: snap.noReset },
+      { laps: snap.laps, noReset: snap.noReset, survival: snap.survival ?? undefined },
     );
     s.phase = snap.phase;
     s.time = snap.time;
@@ -336,7 +339,32 @@ export class RaceSession {
       cars: structuredClone(this.cars),
       order: this.order(),
       firstAt: Array.from(this.firstAt, (t) => (Number.isNaN(t) ? null : t)),
+      survival: this.endless ? { bustTime: this.bustTime } : null,
+      pack: null,
+      campaign: null,
+      standings: false,
     };
+  }
+
+  /**
+   * Co-op: the humans (cars no AI drives) of an event, as one team. Null with fewer than two. Race: `place` is the best human place,
+   * `won` once the event is over says a human finished first; nobody has to finish, the finish and DNF rules end the event as ever.
+   * Survival: the run ends when no human is free (`settle`), so it is only ever lost.
+   */
+  team(): TeamHud | null {
+    let humans = 0;
+    let free = 0;
+    let place = Infinity;
+    for (const c of this.cars) {
+      if (c.kind === "ai") continue;
+      humans++;
+      if (c.status === "racing" || c.status === "respawning") free++;
+      if (c.place < place) place = c.place;
+    }
+    if (humans < 2) return null;
+    const winner = this.winnerId == null ? undefined : this.cars.find((c) => c.id === this.winnerId);
+    const won = this.phase !== "finished" ? null : !this.endless && winner !== undefined && winner.kind !== "ai";
+    return { humans, free, place: this.endless ? null : place, won };
   }
 
   /** Final (or live) classification in position order. */
@@ -764,7 +792,8 @@ export class RaceSession {
       running++;
       last = i;
     }
-    if (this.noReset && this.winnerId == null && this.cars.length > 1 && running <= 1) {
+    // A Survival run has no last-alive winner: it ends when no human is free (`running` 0, below).
+    if (!this.endless && this.noReset && this.winnerId == null && this.cars.length > 1 && running <= 1) {
       const champ = running === 1 ? this.cars[last]! : this.cars[this.rank[0]!]!;
       if (running === 1) {
         champ.status = "finished";

@@ -130,6 +130,7 @@ function fakeGame(raceApplied?: number[], playerName = "") {
         options: { ...DEFAULT_RACE_OPTIONS },
         look: 0,
         phase: null as RacePhase | null,
+        survival: false,
         /** Every `command` the session sent; an `options` one also applies, as the director does. */
         commands: [] as RaceCommand[],
         program: null as Partial<RaceOptions> | null,
@@ -173,7 +174,11 @@ function fakeGame(raceApplied?: number[], playerName = "") {
     race(): typeof race {
       return this.raceOn ? race : null;
     },
-    enterRace(): void {},
+    /** What each `enterRace` asked for: Survival (true) or a race (false). */
+    raceEntered: [] as boolean[],
+    enterRace(survival: boolean): void {
+      this.raceEntered.push(survival);
+    },
     /** How many times the session left race mode. */
     raceExits: 0,
     exitRace(): void {
@@ -515,6 +520,25 @@ describe("given a guest connected to its host, with other peers in the room", ()
     s.hub.flush();
     assert.deepEqual(applied, [3]);
   });
+
+  it("when a race state carries a campaign table whose entry has no standings row, or a hundred tracks, then it is not applied, while a sound table is", () => {
+    const applied: number[] = [];
+    const s = session({ raceApplied: applied });
+    const row = { id: 0, name: "Ann", kind: "player", aggression: 0, points: 10, wins: 1, places: [1] };
+    const sound = { tracks: ["oval", "rally"], round: 1, entry: [0], standings: [row] };
+    const send = (campaign: unknown): void => {
+      const snap = { trackId: "oval", laps: 3, noReset: false, phase: "racing", time: 1, lights: 3, winnerId: null, winBy: null, cars: [], order: [], firstAt: [], campaign, standings: true };
+      const body = new TextEncoder().encode(JSON.stringify({ lobby: null, trackId: "oval", look: 0, snap }));
+      s.hub.sendAs(s.hostId(), s.clientId(), new Uint8Array([codec.MSG.race, ...body]));
+      s.hub.flush();
+    };
+    send({ ...sound, entry: [0, 5] });
+    send({ ...sound, tracks: Array.from({ length: 100 }, () => "oval") });
+    assert.deepEqual(applied, []);
+    // Control: the sound table is applied, so the empty list above is the table check's.
+    send(sound);
+    assert.deepEqual(applied, [3]);
+  });
 });
 
 describe("given a host and a peer running another build", () => {
@@ -578,26 +602,26 @@ describe("given a guest connected to a host whose tab is hidden", () => {
   });
 });
 
-const hostModeCases = [{ mode: "race" }, { mode: "derby" }] as const;
+const hostModeCases = [{ mode: "race" }, { mode: "survival" }, { mode: "derby" }] as const;
 const FRAMES_PER_SECOND = 30;
 
-/** What a host in race (or derby) mode sends its guests every few frames. */
-function hostModeMessage(mode: "race" | "derby"): Uint8Array {
+/** What a host in race, Survival (a race state whose snapshot has the run's hold time) or derby mode sends its guests every few frames. */
+function hostModeMessage(mode: "race" | "survival" | "derby"): Uint8Array {
   if (mode === "derby") {
     const w = new codec.Writer();
     codec.writeDerby(w, { round: 1, active: true, time: 3, hold: 0, radius: 18, winnerId: null, winnerName: null, decided: null, lobby: null, seats: 0, board: [] });
     return w.done();
   }
-  const snap = { trackId: "oval", laps: 3, noReset: false, phase: "racing", time: 1, lights: 3, winnerId: null, winBy: null, cars: [], order: [], firstAt: [] };
+  const snap = { trackId: "oval", laps: 3, noReset: false, phase: "racing", time: 1, lights: 3, winnerId: null, winBy: null, cars: [], order: [], firstAt: [], survival: mode === "survival" ? { bustTime: 12 } : null };
   return new Uint8Array([codec.MSG.race, ...new TextEncoder().encode(JSON.stringify({ lobby: null, trackId: "oval", look: 0, snap }))]);
 }
 
 /** A guest that has just heard its host's race (or derby) message. */
-function guestInHostMode(mode: "race" | "derby") {
+function guestInHostMode(mode: "race" | "survival" | "derby") {
   const s = session({ raceApplied: [] });
   s.hub.sendAs(s.hostId(), s.clientId(), hostModeMessage(mode));
   s.hub.flush();
-  const exits = () => (mode === "race" ? s.cg.raceExits : s.cg.derbyExits);
+  const exits = () => (mode === "derby" ? s.cg.derbyExits : s.cg.raceExits);
   return { s, exits };
 }
 
@@ -628,6 +652,15 @@ for (const testCase of hostModeCases) {
     });
   });
 }
+
+describe("given a guest following its host", () => {
+  it("when the host's race state carries a Survival run, then the guest enters Survival; when it carries a race, then it enters a race", () => {
+    const survival = guestInHostMode("survival");
+    assert.deepEqual(survival.s.cg.raceEntered, [true]);
+    const race = guestInHostMode("race");
+    assert.deepEqual(race.s.cg.raceEntered, [false]);
+  });
+});
 
 describe("given a client whose scene is cleared when the host's clear count changes (a scene change, loop or reset)", () => {
   const torn = (car: DeformableCar): number => car["parts"].filter((p) => p.detached).length;

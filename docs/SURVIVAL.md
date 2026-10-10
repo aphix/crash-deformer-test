@@ -7,9 +7,10 @@ stopwatch that is the score. Survive as long as possible while more and more cop
 
 - **Entry:** the scene bar's **Survival** button (desktop dock and phone picker), the **S** key from the whole-field view
   (S is the brake once a car is driven), the **Survival** button in the Race "Pick a course" menu, or `#scene=survival`.
-- **Single player.** A netplay room never offers it: the button is hidden while hosting or joined, `setScene` refuses it, a
-  link that names a room drops `scene=survival` (`decodeShare`), and a room opened while in Survival sends the player back to
-  the fleet (`EngineScenes.stepSceneFade`).
+- **Single player or a team.** A private room's host may run it: the button stays on while hosting, and every peer seated at the
+  run's start plays it as one team (see **Co-op** below). A public room refuses it (`EngineScenes.setScene`: it runs the race or
+  derby its name says), a guest cannot pick it (it follows its host's scene), and a guest's own run ends when it joins a room
+  (`EngineScenes.stepSceneFade`).
 - **A run:** the player starts at `survival.start` of the course file, four to six cops in `survival.formation` behind it.
   The race's grid and red-yellow-green countdown run first (`RaceSession`); the cops are held on the brake until the green.
   The stopwatch counts up from the green. The best time per course is kept in `localStorage` (`crush.survival.best.<course>`,
@@ -77,15 +78,43 @@ than 20 m behind).
 - **Queueing.** A target faster than `PIT_MAX` = 20 m/s is queued behind (a lane `TAIL_LANE` = 2.6 m either side, a row every
   `ROW` = 8 m), and a unit closing faster than it can brake goes straight on.
 - **Beyond `ATTACK`** it aims at where the player will be, bent round solid props on a 16 m grid.
-- **Escalation:** `copsWanted(time, formation)` = the formation plus one every `HUNT.every` = 12 s, up to `HUNT.cap` = 12
-  hunting at once. `HUNT.units` = 16 cars are built; the rest are wrecks waiting to be put away. One drop-in per `HUNT.gap`
-  = 1.5 s.
+- **Escalation:** `copsWanted(time, formation, humans)` = the formation plus one every `HUNT.every` = 12 s, up to `HUNT.cap` = 12
+  hunting at once, for one human (more humans scale it: see **Co-op**). `HUNT.units` = 16 cars are built; the rest are wrecks
+  waiting to be put away. One drop-in per `HUNT.gap` = 1.5 s.
 - **Drop-in:** a cop wrecked (`judge`) or lost (more than `HUNT.far` = 140 m from the player and hidden for `HUNT.farTime` =
   5 s) is put away, and a new one is dropped onto a road 70–120 m from the player, ahead of its travel first, 12 m clear of
   every car, where the camera cannot see it (outside the view frustum by 8 m, or behind a solid). The spot must stay
   `HUNT.dropMin` = 70 m from the player's straight-on path over the next `HUNT.lag` = 0.07 s. A wreck is put away only after
   `HUNT.wreckStore` = 6 s and only while hidden.
 - Cops are as tough as the race's police (`police` class, durability 1.3).
+
+## Co-op
+
+A private room's host may run Survival (`docs/MULTIPLAYER.md`, Co-op). Everything is the host's: it seats the humans, simulates the
+cops, decides the busts. Rules, all in the existing per-car machinery:
+
+- **Spawn:** every human the room has seated at the run's start, abreast on the start anchor (`humanSlot`: 4 m apart, four to a
+  row, a row 8 m ahead of the last; the cops' formation stays behind the anchor).
+- **Targets:** each cop hunts the nearest human still free (`HunterBrain`: `aim` per unit, recomputed every step). A drop-in aims
+  at the free human with the fewest cops after it, and lands at least `HUNT.dropMin` from every free human, not only its target.
+- **Busted or wrecked:** by today's per-car rules (`RaceSession.busting`, `judge`). A fallen human spectates (the camera follows the
+  field after the banner); the rest play on.
+- **The team loses when no human is free.** The run time is the team's: the race clock at the last fall. A lone player's run is as it was.
+- **Pack size:** `HUNT.perHuman` = 1 more of everything (the cops wanted, the cap, the units) per human beyond the first, so each
+  human meets the pack a lone player meets, within the car list (`MAX_CARS` = 32: units are at most the cars left after the humans,
+  and the cap keeps the 4 wrecks' share; 4 humans hunt at most 24 cops, 6 each). More cops, not stronger ones.
+- **Joining and leaving:** a peer who joins mid-run spectates; Retry seats the peers the room has then. A car whose peer is gone
+  (the room's seats have a hole) is nobody's: it is parked off the course and never hunted or counted.
+- **Host leaves:** no migration; the guests' run ends with the host.
+
+Measured (probe `scratch-CoopModes/probe.ts`: the scripted fleers straight, flee, ring and held on seeds 1–6, two humans each driving a
+script from the start slots, 200 s cap; fall = race second a human was busted or wrecked, 200 for one still free). One human: mean fall
+18.8 s, median 17.2 s. Two humans: `perHuman` 0 → mean 41.1 s, median 20.4 s; 0.5 → 43.8 s, 19.7 s; **1 → 33.7 s, 16.0 s**; 1.5 and 2 →
+27.3 s, 16.1 s each (the same runs: the pack is limited by one drop-in per `HUNT.gap` = 1.5 s, not by what it wants, so more than 1 adds
+nothing). Four humans at 1: mean 42.0 s, median 18.1 s. The median is the pressure on a typical human: 1 is the least that holds
+it at the lone player's. The means carry the runs where one human escapes while the pack is busy with the other.
+
+Not built: rescue (ramming the cop that is busting a teammate cancels the bust) is a second pass.
 
 ## Tests
 
@@ -100,6 +129,8 @@ than 20 m behind).
 | a fleeing player's run ends (straight, flee, ring, held: busted or wrecked within 300 s). In the closed arena, with the formation held to a race second spread evenly from 8.1 to 12.1 s over seeds 1–24, the pack ends at least 22 of 24 fleeing runs within 120 s with a cop touching; hunters that never steer miss the bar; a player cornered at 3 m/s is busted in at least 14 of 24 runs and by cops that never move in none | `world/survival-chase.test.ts` |
 | the opening set piece on the real course: the cops reach the foot behind the player and leave the ground at the crest | `world/survival-setpiece.test.ts` |
 | wheels on the grass and the crest: drop matrix and drive matrix over the face, plaza, crest and alley | `vehicle/havana-fit.test.ts` |
+| a team's pack: the cops wanted, the cap and the units grow with the humans (1, 2, 4), never past the car list; each cop's quarry is the nearest free human; no drop-in within `dropMin` of any human | `ai/hunter-team.test.ts` |
+| a hosted run with several humans: they start on their own slots, the run goes on while one is free and ends when none is, its time is the last fall, a car nobody drives is parked, Retry seats the peers the room has now; a client reads the pack, the team and the run's time as the host does | `world/survival-coop.test.ts`, `net/race-net.test.ts` |
 
 Harnesses: `world/survival-run.test-util.ts` (the director in survival mode, a scripted player, the chase camera),
 `world/survival-players.test-util.ts` (the scripted fleeing players and `chase(...)`), `world/survival-arena.test-util.ts`

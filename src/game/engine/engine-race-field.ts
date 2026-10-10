@@ -14,10 +14,10 @@ import { wallColliders } from "../world/track-sections.ts";
 import { RaceBrain } from "../ai/race-ai.ts";
 import { POLICE_CAP, PoliceBrain } from "../ai/police.ts";
 import type { CopBrain, HunterWorld } from "../ai/cop-brain.ts";
-import { HUNT, HunterBrain } from "../ai/hunter.ts";
+import { HUNT, HunterBrain, huntUnits } from "../ai/hunter.ts";
 import { fieldAggression } from "../ai/ai-aggression.ts";
 import { RaceSession } from "../match/session.ts";
-import { SURVIVAL, settleRun } from "../match/survival.ts";
+import { SURVIVAL, humanSlot, settleRun } from "../match/survival.ts";
 import { loadBest, saveBest } from "./survival-store.ts";
 import { DORMANT, TrafficBrain } from "../ai/traffic.ts";
 import type { TrackArt } from "../present/track-art.ts";
@@ -27,7 +27,7 @@ import { Track, blankProjection } from "../world/track.ts";
 import { OFF_MENU, TRACKS } from "../world/tracks/index.ts";
 import { HAVANA } from "../world/tracks/havana.ts";
 import { carClass, classStats, HANDLING } from "../vehicle/vehicle-classes.ts";
-import { DEFAULT_RACE_OPTIONS, type CarPose, type Entrant, type RaceMenu, type RaceOptions, type SurvivalHud } from "../match/types.ts";
+import { DEFAULT_RACE_OPTIONS, type CarPose, type Entrant, type RaceMenu, type RaceOptions, type RaceSnapshot, type SurvivalHud } from "../match/types.ts";
 import { CrashRecorder } from "./engine-record.ts";
 import { makeCarFrame, type CarFrame } from "../net/codec.ts";
 import { carLayout } from "../net/car-pose.ts";
@@ -182,6 +182,8 @@ export abstract class RaceField {
   /** This course's best Survival time before this run (s, null: none), and the run's result once it is over. */
   protected bestBefore: number | null = null;
   protected run: SurvivalHud["result"] = null;
+  /** A netplay client's Survival pack read, as the host's snapshot gave it (cops chasing, cops wrecked); null on the host and outside Survival. */
+  protected pack: RaceSnapshot["pack"] = null;
   /** Per racer id: still racing (the police's quarry), refreshed each patrol. */
   private readonly hunt = new Uint8Array(MAX_CARS);
   private readonly patrolWorld: HunterWorld = {
@@ -298,7 +300,7 @@ export abstract class RaceField {
     const tcount = traffic ? Math.min(traffic.count, MAX_CARS - racers) : 0;
     this.traffic = tcount > 0 ? traffic : null;
     this.policeFrom = racers + tcount;
-    const pcount = sv ? HUNT.units : this.rules.police ? Math.min(POLICE_CAP, MAX_CARS - this.policeFrom) : 0;
+    const pcount = sv ? huntUnits(this.entrants.filter((e) => e.kind !== "ai").length, MAX_CARS - this.policeFrom) : this.rules.police ? Math.min(POLICE_CAP, MAX_CARS - this.policeFrom) : 0;
     this.host.setPolice(this.policeFrom, pcount);
     this.host.setCarCount(this.policeFrom + pcount);
     this.grid = [...grid];
@@ -327,10 +329,16 @@ export abstract class RaceField {
       this.putAway(i, cars[i]!);
       this.police!.setClass(i, classStats(carClass(cars[i]!)));
     }
+    // A Survival run seats its humans abreast at the start (`humanSlot`); a car no human drives (a peer left its place) is put away.
+    let human = 0;
     for (const [k, id] of this.grid.entries()) {
       this.rowOf[id] = k;
-      const slot = sv ? { ...sv.start, y: 0 } : tr.gridSlot(k);
       const car = cars[id]!;
+      if (sv && this.entrants[id]!.kind === "ai") {
+        this.putAway(id, car);
+        continue;
+      }
+      const slot = sv ? { ...humanSlot(sv.start, human++), y: 0 } : tr.gridSlot(k);
       this.place(car, slot.x, slot.z, slot.yaw, slot.y);
       this.brain!.setAggression(id, this.entrants[id]!.aggression);
       this.brain!.setClass(id, classStats(carClass(car)));
@@ -339,6 +347,7 @@ export abstract class RaceField {
       this.police.launch(this.patrolWorld);
       this.bestBefore = loadBest(tr.id);
       this.run = null;
+      this.pack = null;
     }
     this.seg.fill(-1);
     this.flipFor.fill(0);
@@ -576,13 +585,14 @@ export abstract class RaceField {
   }
 
   /** A Survival run is over: its time, the best (kept when beaten) and why it ended. */
-  private settle(s: RaceSession): void {
+  protected settle(s: RaceSession): void {
     const me = s.cars[this.rowOf[this.self]!]!;
-    const time = me.outTime ?? s.time;
+    // The team's run lasts until its last human falls; a lone player's is its own.
+    const time = s.team() ? s.time : (me.outTime ?? s.time);
     const { best, isNew } = settleRun(this.bestBefore, time);
     if (isNew) saveBest(s.track.id, time);
     const cause = me.bustedAt != null ? "busted" : me.status === "out" ? "wrecked" : "ended";
-    this.run = { time, best, isNew, cause, wrecked: this.police instanceof HunterBrain ? this.police.stats.disabled : 0 };
+    this.run = { time, best, isNew, cause, wrecked: this.pack?.wrecked ?? (this.police instanceof HunterBrain ? this.police.stats.disabled : 0) };
   }
 
   /** Survival's part of the HUD read model (null in a race). */
@@ -591,8 +601,8 @@ export abstract class RaceField {
     if (!this.survival || !s) return null;
     const hunter = this.police instanceof HunterBrain ? this.police : null;
     return {
-      cops: hunter?.hunting ?? 0,
-      wrecked: hunter?.stats.disabled ?? 0,
+      cops: this.pack?.cops ?? hunter?.hunting ?? 0,
+      wrecked: this.pack?.wrecked ?? hunter?.stats.disabled ?? 0,
       best: this.bestBefore,
       result: this.run,
     };
