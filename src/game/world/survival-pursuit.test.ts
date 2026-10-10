@@ -28,7 +28,8 @@ describe(`given the closed arena (Havana's plaza inside a square of its own stuc
     assert.ok(bad.length <= SEEDS.length - BAR, `${bad.length} of ${ran} runs were not ended by the pack:\n${bad.join("\n")}`);
   });
   it(`when the hunters never steer, then the pack misses that bar (seeds ${CONTROL_SEEDS.join(", ")})`, (t) => {
-    const controlBar = CONTROL_SEEDS.length - 1;
+    // The pursuit's share (`BAR` of `SEEDS`) over the control's seeds, rounded up: at three seeds every run must end to meet it.
+    const controlBar = Math.ceil((CONTROL_SEEDS.length * BAR) / SEEDS.length);
     const { ran, bad } = arena("evade", CONTROL_SEEDS, controlBar, (input) => void (input.steer = 0));
     t.diagnostic(`${ran} runs, ${bad.length} not ended by the pack\n${bad.join("\n")}`);
     assert.ok(bad.length > CONTROL_SEEDS.length - controlBar, `${ran - bad.length} of ${ran} runs were ended by hunters that never steer: the bar is met without steering`);
