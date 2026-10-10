@@ -2,20 +2,17 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { frame } from "./race-world.test-util.ts";
 import { placeProps, propColliders } from "./placements.ts";
-import { FLEERS, chase, type Chase, type CopTamper, type Fleer } from "./survival-players.test-util.ts";
-import { ARENA } from "./survival-arena.test-util.ts";
+import { chase } from "./survival-players.test-util.ts";
 import { leaveSurvival, survivalWorld } from "./survival-run.test-util.ts";
 import { Track } from "./track.ts";
 import { HAVANA } from "./tracks/havana.ts";
 
 /**
- * Survival is a closed city and the pack can win (docs/SURVIVAL.md): a player who holds the throttle and runs never gets away,
- * because there is nowhere to run to. Measured on the real stack with scripted players (`survival-players.test-util.ts`).
+ * Survival is a closed city (docs/SURVIVAL.md): there is nowhere to run to. The pack's side, that it catches a player who keeps running,
+ * is `survival-pursuit.test.ts` (pursuit in the closed arena) and `survival-bust.test.ts` (the bust of a cornered player).
  */
 
 const track = new Track(HAVANA);
-/** The longest a fleeing player may last (s from the green). */
-const END_BY = 300;
 /** The rim: the course file's own stucco blocks (the explicit props), one row on each side, edge to edge. */
 const RIM = track.json.props.filter((p) => p.prefab === "stucco");
 
@@ -131,105 +128,5 @@ describe("given Havana's Survival course, a closed city with a ring of stucco bl
     t.diagnostic(`reach x ${c.reach.minX.toFixed(0)}…${c.reach.maxX.toFixed(0)}, z ${c.reach.minZ.toFixed(0)}…${c.reach.maxZ.toFixed(0)}; ended ${c.cause} at ${c.time.toFixed(1)} s`);
     assert.ok(c.reach.minX > b.minX && c.reach.maxX < b.maxX, `drove to x ${c.reach.minX.toFixed(0)}…${c.reach.maxX.toFixed(0)}`);
     assert.ok(c.reach.minZ > b.minZ && c.reach.maxZ < b.maxZ, `drove to z ${c.reach.minZ.toFixed(0)}…${c.reach.maxZ.toFixed(0)}`);
-  });
-});
-
-describe("given the Survival pack chasing a scripted player who never stops", () => {
-  /** Why `c` is not a run the pack ended (null: it is): still running, ended by something else (or by anything but `only`), or, when `packWins`, a run that ended itself with no powered cop touching. */
-  const miss = (c: Chase, packWins: boolean, by = END_BY, only: string | null = null): string | null => {
-    if (!c.ended) return `still running after ${by} s (${c.touches} cop contacts, the last at ${c.lastTouch.toFixed(0)} s)`;
-    if (c.cause !== "busted" && c.cause !== "wrecked") return `ended by ${c.cause}`;
-    if (only !== null && c.cause !== only) return `ended ${c.cause}, not ${only}`;
-    if (packWins && c.time - c.lastTouch >= 2) return `no cop touched the player in the last ${(c.time - c.lastTouch).toFixed(1)} s: it ended itself`;
-    return null;
-  };
-  describe("when each scripted player flees on Havana's open map", () => {
-    for (const fleer of FLEERS) {
-      it(`then the ${fleer} player's run ends within ${END_BY} s, busted or wrecked`, (t) => {
-        const c = chase(fleer, 1, END_BY);
-        t.diagnostic(`${c.cause} at ${c.time.toFixed(1)} s; ${c.touches} cop contacts, the last at ${c.lastTouch.toFixed(1)} s; ${c.speed.toFixed(1)} m/s at the end; peak ${c.peak} cops`);
-        const why = miss(c, false);
-        assert.ok(why === null, why ?? "");
-      });
-    }
-  });
-
-  const FROZEN: CopTamper = (input) => Object.assign(input, { throttle: 0, steer: 0, brake: 1, ebrake: false, boost: false });
-
-  describe("given the closed arena (Havana's plaza inside a square of its own stucco, 160 m across) with the formation held until a race second from 8.1 to 12.1, a different one per seed, pooled over seeds 1 to 24", () => {
-    /**
-     * The closed arena (`survival-arena.test-util.ts`: Havana's plaza inside a square of its own stucco, 160 m across): the player runs
-     * from the nearest cop, bends round solids and cops, never stops, and cannot leave, so the pack has to catch it. The formation is held
-     * until `release(seed)` (`chase`'s `release`), spread evenly from `RELEASE_FIRST` to `RELEASE_LAST` over the seeds: the player drives
-     * 8 to 12 s clear, the nearest cop is `ARENA_GAP` m or more off when the hunters are let go (114 to 131 m measured; 11 m held only to the
-     * green), and the real pack and rules run from there. A run counts when it ends busted or wrecked within `ARENA_T` s of the start with a
-     * powered cop touching in the last 2 s (a wall the player hit itself, or a parked cop it drove into, does not count). The pool stops once
-     * its verdict is settled: the bar met, or out of reach. Measured (docs/SURVIVAL.md): 24 of 24 end, 7.8 to 104.9 s after the release, and
-     * the bar leaves two runs of slack for a trajectory a seed away; hunters whose steering is zeroed end 1 of 24: the proof the count can fail.
-     * (With one release second for every seed, 12 of 24 seeds replayed the same 14.4 s trajectory.)
-     */
-    const ARENA_T = 120;
-    const ARENA_BAR = 22;
-    const POOLED_SEEDS = 24;
-    const RELEASE_FIRST = 8.1;
-    const RELEASE_LAST = 12.1;
-    const ARENA_GAP = 100;
-    /** The race second seed `seed`'s formation is let go, so each seed's pack meets the player somewhere else. */
-    const release = (seed: number): number => RELEASE_FIRST + ((RELEASE_LAST - RELEASE_FIRST) * (seed - 1)) / (POOLED_SEEDS - 1);
-    /** `ARENA_BAR`-style pool of `fleer`'s runs: how many ran, and why each that the pack did not end (as `only`, when given) was not. */
-    const arena = (fleer: Fleer, bar: number, tamper?: CopTamper, only: string | null = null): { ran: number; bad: string[] } => {
-      const bad: string[] = [];
-      let seed = 1;
-      for (; seed <= POOLED_SEEDS && seed - 1 - bad.length < bar && bad.length <= POOLED_SEEDS - bar; seed++) {
-        const at = release(seed);
-        const why = miss(chase(fleer, seed, at + ARENA_T, ARENA, { tamper, release: at }), only === null, ARENA_T, only);
-        if (why !== null) bad.push(`seed ${seed}, released at ${at.toFixed(1)} s: ${why}`);
-      }
-      return { ran: seed - 1, bad };
-    };
-    it(`when the chase starts at the earliest release, ${RELEASE_FIRST} s, then the nearest cop is ${ARENA_GAP} m or more off, whereas with no hold the formation is on the player's tail`, (t) => {
-      const held = chase("evade", 1, release(1) + 5, ARENA, { release: release(1) });
-      const open = chase("evade", 1, 5, ARENA);
-      t.diagnostic(`nearest cop at the release: ${held.gap.toFixed(0)} m held to ${release(1).toFixed(1)} s, ${open.gap.toFixed(0)} m held only to the green`);
-      assert.ok(held.gap >= ARENA_GAP, `the nearest cop is ${held.gap.toFixed(0)} m off at the release`);
-      assert.ok(open.gap > 0 && open.gap < ARENA_GAP / 2, `held only to the green the nearest cop is ${open.gap.toFixed(1)} m off (−1: no cop up by 5 s): the control cannot tell a hold from none`);
-    });
-    it(`when an evading player flees in each of seeds 1-${POOLED_SEEDS}, then the pack ends at least ${ARENA_BAR} of the ${POOLED_SEEDS} runs within ${ARENA_T} s, busted or wrecked, with a cop in contact`, (t) => {
-      const { ran, bad } = arena("evade", ARENA_BAR);
-      t.diagnostic(`${ran} runs, ${bad.length} not ended by the pack${bad.length ? `\n${bad.join("\n")}` : ""}`);
-      assert.ok(bad.length <= POOLED_SEEDS - ARENA_BAR, `${bad.length} of ${ran} runs were not ended by the pack (at most ${POOLED_SEEDS - ARENA_BAR} of ${POOLED_SEEDS} allowed):\n${bad.join("\n")}`);
-    });
-    it(`when the hunters never steer, then the pack misses the bar of ending at least ${ARENA_BAR} of ${POOLED_SEEDS} runs`, (t) => {
-      const { ran, bad } = arena("evade", ARENA_BAR, (input) => void (input.steer = 0));
-      t.diagnostic(`${ran} runs, ${bad.length} not ended by the pack\n${bad.join("\n")}`);
-      assert.ok(bad.length > POOLED_SEEDS - ARENA_BAR, `${ran - bad.length} of ${ran} runs were ended by hunters that never steer: the bar is met without steering`);
-    });
-
-    /**
-     * The bust under the real rule (under 20 km/h within 20 m of a chasing cop for `SURVIVAL.bustTime`): the `corner` player runs for the
-     * far corner and creeps there at 3 m/s, boxed in with nowhere left to run, and the released pack has to close, hold it and bust it. A
-     * run counts when it ends busted (the rule itself needs a chasing cop within 20 m). Pooled like the pursuit count. `BUST_BAR` is the
-     * measured count less two runs of slack: seeds 1-24, release spread 8.1-12.1 s, 16 of 24 busted (17.9 to 92.8 s after the release), the
-     * other 8 wrecked by the cops' hits before the bust's hold ran out. Controls: cops that never move bust none (they never come within 20 m);
-     * and the pursuit count's runner that never stops ("evade") is busted in 2 of its 24 runs: a pack rarely busts a car that moves.
-     */
-    const BUST_BAR = 14;
-    it(`when the player runs for the far corner and creeps there at 3 m/s in each of seeds 1-${POOLED_SEEDS}, then the pack busts at least ${BUST_BAR} of the ${POOLED_SEEDS} runs`, (t) => {
-      const { ran, bad } = arena("corner", BUST_BAR, undefined, "busted");
-      t.diagnostic(`${ran} runs, ${bad.length} not busted${bad.length ? `\n${bad.join("\n")}` : ""}`);
-      assert.ok(bad.length <= POOLED_SEEDS - BUST_BAR, `${bad.length} of ${ran} runs were not busted (at most ${POOLED_SEEDS - BUST_BAR} of ${POOLED_SEEDS} allowed):\n${bad.join("\n")}`);
-    });
-    it("when the cornered player's cops never move, then they bust none of those runs", (t) => {
-      const { ran, bad } = arena("corner", BUST_BAR, FROZEN, "busted");
-      t.diagnostic(`${ran} runs, ${bad.length} not busted\n${bad.join("\n")}`);
-      assert.equal(bad.length, ran, `${ran - bad.length} of ${ran} runs were busted by cops that never move`);
-    });
-  });
-
-  describe("given a police car closing on a car that creeps at 3 m/s in the Survival corner", () => {
-    // Measured over the corner pool (lane 9 first-touch episodes, main 31, closing above 20 m/s; per episode the struck car's velocity
-    // change 0.3 s after): side hits main 10.6 m/s (n 9), lane 6.3 (n 4); rear hits main 11.4 (n 20), lane 6.1 (n 3); nose hits at 37.5 m/s
-    // main 3.9, none thrown (n 2), lane both thrown (n 2). The struck car's tyres hold it on main (stop and spin); on the lane they push back less.
-    it.todo("when a police car closing at 30-35 m/s hits the side or the rear of that car and they separate, then the struck car has gained about 10-11 m/s, and a nose hit at 37 m/s does not throw its driver (closes in Stage 4: the struck car's tyres hold it, tyre stop and struck-car spin)");
   });
 });
