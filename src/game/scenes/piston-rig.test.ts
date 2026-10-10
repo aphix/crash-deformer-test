@@ -57,15 +57,15 @@ const isCorner = (id: PistonId) => id.length > 5;
 
 /** Expectations the current rig misses: measured vs expected, and why. Keyed `${piston}:${metric}`. */
 const TODO: Partial<Record<string, string>> = {
-  // Stage 4 Phase A (lever yaw reaches every mass, plan Step 5 item 2): a corner shot spins the car ~1.6 rad/s, the struck nose
-  // recedes and the stroke ends early, so a corner grades and loads the cabin differently; closes in Phase B item 6 (the rigid
+  // Stage 4 items 1-4 (rigs and strikers) (lever yaw reaches every mass, plan Step 5 item 2): a corner shot spins the car ~1.6 rad/s, the struck nose
+  // recedes and the stroke ends early, so a corner grades and loads the cabin differently; closes in Stage 4 item 6 (wreck split) (the rigid
   // chassis owns the yaw, the crush layer takes the normal impulse).
-  "frontLeft:struck": "bumperFL 0.172 m, wingFL 0.015 m vs wing graded behind the bumper: lever yaw on the masses; Phase B item 6",
-  "frontRight:struck": "bumperFR 0.172 m, wingFR 0.015 m vs wing graded behind the bumper: lever yaw on the masses; Phase B item 6",
-  "frontLeft:cabin": "door 0.063 m vs < 0.06 m (+0.003): lever yaw on the masses; Phase B item 6",
-  "frontRight:cabin": "door 0.063 m vs < 0.06 m (+0.003): lever yaw on the masses; Phase B item 6",
-  "rearLeft:cabin": "door 0.061 m vs < 0.06 m (+0.001): lever yaw on the masses; Phase B item 6",
-  "rearRight:cabin": "door 0.061 m vs < 0.06 m (+0.001): lever yaw on the masses; Phase B item 6",
+  "frontLeft:struck": "bumperFL 0.172 m, wingFL 0.015 m vs wing graded behind the bumper: lever yaw on the masses; Stage 4 item 6 (wreck split)",
+  "frontRight:struck": "bumperFR 0.172 m, wingFR 0.015 m vs wing graded behind the bumper: lever yaw on the masses; Stage 4 item 6 (wreck split)",
+  "frontLeft:cabin": "door 0.063 m vs < 0.06 m (+0.003): lever yaw on the masses; Stage 4 item 6 (wreck split)",
+  "frontRight:cabin": "door 0.063 m vs < 0.06 m (+0.003): lever yaw on the masses; Stage 4 item 6 (wreck split)",
+  "rearLeft:cabin": "door 0.061 m vs < 0.06 m (+0.001): lever yaw on the masses; Stage 4 item 6 (wreck split)",
+  "rearRight:cabin": "door 0.061 m vs < 0.06 m (+0.001): lever yaw on the masses; Stage 4 item 6 (wreck split)",
   "frontLeft:far-particles": "0.077 m (bumperFR) vs ≤ 0.03 m: the shove's inertia leaves a permanent set across the whole car",
   "front:far-particles": "0.066 m (axleR) vs ≤ 0.03 m: the tail takes a set from the 7 m/s shove",
   "frontRight:far-particles": "0.077 m (bumperFL) vs ≤ 0.03 m: the shove's inertia leaves a permanent set across the whole car",

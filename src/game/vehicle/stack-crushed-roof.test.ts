@@ -79,14 +79,14 @@ function driveOff(w: CrashWorld, c: DeformableCar): { speeds: number[]; airEarly
  * lift 0.029 m and the suspension pose's pitch 0.022 rad, which no keyframe carries, so the sim cannot read them: the cage's frame following
  * them anyway leaves the car at 0.09 m/s, resting 3 cm higher with its tyres 0.093-0.175 m over the deck). Read at the sim's pose the
  * oracle's tyres stand within 0.032 m, past the 0.03 m `TOUCH` the sim counts as down. The crush law packs a roof at 0.45 m, so no crush
- * the law admits brings the tyres down (0.5 m, past it: 1.79 m/s at 0.5 s against the platform's 7.31). Closes in Phase B 6 (a wreck's
+ * the law admits brings the tyres down (0.5 m, past it: 1.79 m/s at 0.5 s against the platform's 7.31). Closes in Stage 4 item 6 (wreck split) (a wreck's
  * drawn pose is its rigid body's: `seatBody`'s hull lift and the suspension pose of a wreck go with the wreck split).
  */
 const crushDepths: readonly { crush: number; todo?: string }[] = [
   { crush: 0.4 },
   {
     crush: 0.45,
-    todo: "the sim's tyres read 0.102-0.166 m over the cage's hood and boot (reach 0.095 m): belly-beached, 0.00 m/s, where the oracle reads the drawn deck 5.9 cm higher (the wreck's render-only hull lift 0.029 m and suspension pitch 0.022 rad, in no keyframe) and demands the platform's 7.31 m/s; the sim cannot read them; closes in Phase B 6 (a wreck's drawn pose is its rigid body's)",
+    todo: "the sim's tyres read 0.102-0.166 m over the cage's hood and boot (reach 0.095 m): belly-beached, 0.00 m/s, where the oracle reads the drawn deck 5.9 cm higher (the wreck's render-only hull lift 0.029 m and suspension pitch 0.022 rad, in no keyframe) and demands the platform's 7.31 m/s; the sim cannot read them; closes in Stage 4 item 6 (wreck split) (a wreck's drawn pose is its rigid body's)",
   },
 ];
 

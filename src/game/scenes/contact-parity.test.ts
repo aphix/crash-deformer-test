@@ -36,7 +36,7 @@ describe("given the Doors ram lane's three scenes (mirror: the striker grazes a 
 });
 
 describe("given two cars driving into the nose and tail of a middle car, and a press closed to the same shortening", () => {
-  // todo -> Stage 4 Phase B: the sandwich's car-car crush at 20 km/h against the press closed to the same shortening (bumperFL 82 mm car /
+  // todo -> Stage 4 item 5 (car-car through the kernel): the sandwich's car-car crush at 20 km/h against the press closed to the same shortening (bumperFL 82 mm car /
   // 67 mm press, engineL 14 / 27 mm, bumperRL 26 / 50 mm).
   it.todo("when each car hits at 20 km/h, then the middle car's parts and crush match the press's", () => {
     const s = carSandwich(20);
@@ -48,7 +48,7 @@ describe("given two cars driving into the nose and tail of a middle car, and a p
 
 describe("given two cars driving into the nose and tail of a middle car, and a press whose plates are pushed by the same force over time as the two cars pushed (not closed to a shortening)", () => {
   for (const kph of [10, 20, 30, 40, 60]) {
-    // todo -> Stage 4 Phase B (5 of 5 red, as on the Stage 2 base): the sandwich side is car-car (`resolveCarPair`); the force-driven press
+    // todo -> Stage 4 item 5 (car-car through the kernel) (5 of 5 red, as on the Stage 2 base): the sandwich side is car-car (`resolveCarPair`); the force-driven press
     // is armed at the first slice's tiny speed, so its crush force is small and it tears off the quarter panels (quarterL, quarterR)
     // where the cars' sandwich tears none, at every speed 10-60 km/h. Needs the pair on the kernel and a force law independent of the
     // arming speed.
@@ -81,9 +81,9 @@ describe("given a piston and a car of the same mass and speed striking a crushab
 describe("given a piston and a car of the same mass and speed striking the parked car's nose at the speeds the cases above leave out, and its tail and right side", () => {
   const hits: [Strike, number][] = [["front", 10], ["front", 30], ["front", 60], ["rear", 30], ["right", 30]];
   for (const [at, kph] of hits) {
-    // todo -> Stage 4 Phase B for front 10 (engine block 33 mm car / 45 mm piston), front 60 (tank 43 / 58 mm, wing 38 / 21 mm) and right 30
+    // todo -> Stage 4 item 5 (car-car through the kernel) for front 10 (engine block 33 mm car / 45 mm piston), front 60 (tank 43 / 58 mm, wing 38 / 21 mm) and right 30
     // (door 43.7 deg car / 22.9 deg piston): the car side is `resolveCarPair`'s push, the piston side the kernel's impulse.
-    // todo -> Stage 4 Phase B for front 30 (bumperFL 75 mm car / 63 mm piston at softness 0.32, 1 mm over the 15 % bound) and rear 30 (bumperRL
+    // todo -> Stage 4 item 5 (car-car through the kernel) for front 30 (bumperFL 75 mm car / 63 mm piston at softness 0.32, 1 mm over the 15 % bound) and rear 30 (bumperRL
     // 27 / 15 mm at 0.4, 2 mm over the 10 mm bound): not the slice cut (the car side steps at 1/120 s like the piston's frame, h = 1/120 s on both
     // sides: 76 / 63; at 1/240 s 81 / 73) and not the first slices (a car's peak is the piston's: rear bumperRL 114 / 109 mm at 0.13 s). After the
     // common speed the pair's crush drifts up (rear 21 -> 27 mm over the next second) while the piston's relaxes (25 -> 15 mm): the pair stays in
@@ -140,7 +140,7 @@ describe("given every door scene (mirror, overOpen, shut, panelPush, panelPull) 
         for (const kg of [5, 300, CAR_KG, 5000]) {
           // A car stands in for the ram only at a car's own mass.
           const forms = kg === CAR_KG ? DOOR_FORMS : DOOR_FORMS.slice(0, 2);
-          // todo -> Stage 4 Phase B for the 12 km/h shut hit with the car as the ram, left and right (mirror fold 0.6 deg over the 0.5 deg bound
+          // todo -> Stage 4 item 5 (car-car through the kernel) for the 12 km/h shut hit with the car as the ram, left and right (mirror fold 0.6 deg over the 0.5 deg bound
           // with no tyre grip): the other 58 cells stay plain tests.
           (scenario === "shut" && kph === 12 && kg === CAR_KG ? it.todo : it)(`when the ${scenario} hit runs on the ${side < 0 ? "left" : "right"} side at ${kph} km/h with a ${kg} kg striker (${forms.length} forms), then every form breaks off the same parts and leaves the door, latch, mirror, drivetrain and crush as the ram-moves form does, to ${TIGHT.crushMm} mm and ${TIGHT.doorDeg}° with no tyre grip and to that plus the tyres' own effect with grip`, (t) => {
             const reference = doorHit("ramMoves", scenario, kph, kg, true, side);
@@ -171,7 +171,7 @@ describe("given every door scene (mirror, overOpen, shut, panelPush, panelPull) 
 describe("given the same hit on the nose, tail and right side of a parked car delivered by a moving piston, by a moving car, and in the swapped frame (the head, or the striker car, standing still while the struck car drives into it)", () => {
   for (const at of ["front", "rear", "right"] as const) {
     for (const kph of [10, 30]) {
-      // todo -> Stage 4 Phase B (6 of 6 cells red, as on the Stage 2 base): the swapped-frame forms differ in the first slices by the pair
+      // todo -> Stage 4 item 5 (car-car through the kernel) (6 of 6 cells red, as on the Stage 2 base): the swapped-frame forms differ in the first slices by the pair
       // path's own push and tyre stop (carMovesIntoPiston crush 7 / 52 / 9 / 8 mm over the 1 mm bound at front 10 / front 30 / rear 10 /
       // rear 30; right 10 and 30: parts or latch differ).
       it.todo(`when a ${CAR_KG} kg striker hits the ${at} at ${kph} km/h, then the struck car's parts and crush are the same whichever of the four runs it is, to ${TIGHT.crushMm} mm with no tyre grip and to that plus the tyres' own effect with grip`, (t) => {

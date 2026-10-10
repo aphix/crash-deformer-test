@@ -1117,7 +1117,7 @@ function snapshotRows(car: DeformableCar, n: number): void {
  * the closing it first met (`plasticEnergy`, the way `bodyContact` reads an approach: what the pair has to give, whatever the rows' own
  * impulses and the faces' cuts then made of it), split between the two cars as `bodyContact` splits it (`barrierSpeed`) at the pair's
  * masses, as the pair contact reads a hit through the centres (a hit off a car's centre loads it by its lever in the kernel: the pair
- * contact takes that with its move to the kernel, Phase B). One hit per car pair, at the point and along the normal of the row that
+ * contact takes that with its move to the kernel, Stage 4 item 5 (car-car through the kernel)). One hit per car pair, at the point and along the normal of the row that
  * closed hardest. A contact closing no faster than the crush law's graze (`CRASH.grazeMps`) crushes nothing, so a car standing or
  * driving on another arms none.
  */

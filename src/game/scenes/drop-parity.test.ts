@@ -36,7 +36,7 @@ for (const shotCase of shotCases) {
         assert.deepEqual(landingMismatch(drop.landing, piston.ebs), [], `${pointCase.id}: drop / piston`);
       });
 
-      // todo -> Stage 4 Phase B: the kernel's rows are plan-only ([x, z, nx, nz, depth]), and a drop meets the ground or the box on the
+      // todo -> Stage 4 items 5-6: the kernel's rows are plan-only ([x, z, nx, nz, depth]), and a drop meets the ground or the box on the
       // vertical, so the fall's crush never reaches the kernel: the nose's bumper crushes 66 mm to the piston's 204 mm (steel, 20 km/h,
       // the points alike: 40 of 40 red since the test was written, the drop at 0.3-0.4x the piston's crush). Rows gain y/ny with the cage.
       it.todo(`when it lands on ${pointCase.name} the same way the piston strikes it, then the crush depth at every point and region, the engine block's travel, the parts that come off and the drivetrain match the piston hit's within 15 % or 10 mm`, () => {

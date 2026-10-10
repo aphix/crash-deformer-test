@@ -88,7 +88,7 @@ describe("given a flat strip of ground 0.894 m high over four car lengths, and t
     });
   }
 
-  // todo -> Stage 4 Phase B (the pair on `bodyContact`; owner's call on `WALL_CRUSH` vs a flat-topped flank). Measured on integ/s3-s4a
+  // todo -> Stage 4 item 5 (car-car through the kernel) (the pair on `bodyContact`; owner's call on `WALL_CRUSH` vs a flat-topped flank). Measured on integ/s3-s4a
   // with the whole-body lift: the strip rows 20 / 28 m/s pass (the plain sedan rises 0.91 / 0.89 / 1.03 m at 8 / 12 / 20 with a lever-shared lift). Over the four
   // held cars the driven sedan is struck in its first touch slice: the pair SAT (`satCars` on the cages' plan outlines) answers with an
   // impulse equal to the whole closing speed (7.88 at 8 m/s, driver z -2.05, bumper under the pressed top of 0.894 m), `crashed` is
@@ -119,7 +119,7 @@ describe("given the fleet's jump wedge, and a car pressed into its profile and h
     assert.ok(gap <= 0.2, `skin ${gap.toFixed(3)} m off the wedge`);
   });
 
-  // todo -> Stage 4 Phase B, the same cause as the strip rows above. Measured: the driven sedan's first pair hit is the plan SAT's with an
+  // todo -> Stage 4 item 5 (car-car through the kernel), the same cause as the strip rows above. Measured: the driven sedan's first pair hit is the plan SAT's with an
   // impulse equal to its closing speed (7.88 at 8 m/s, 11.70 at 12 m/s, both at driver z -8.6 m, y 0.00): it ends crashed with rise
   // 0.00-0.01 m (real wedge 1.36 / 1.72 m), air 0.00 s (0.13 / 0.68 s), wheels [4] (real [4,2,0,2,4]).
   for (const v of [8, 12]) {
@@ -141,7 +141,7 @@ describe("given the corkscrew channel, and cars pressed into its floor along its
       return shapeCar({ top, bottom: (z) => top(z) - 0.5 }, pose);
     });
 
-  // todo -> Stage 4 Phase B, the same cause as the strip rows, plus one of its own. Measured: the pressed cars lie along the twisting
+  // todo -> Stage 4 item 5 (car-car through the kernel), the same cause as the strip rows, plus one of its own. Measured: the pressed cars lie along the twisting
   // floor with plans that overlap their neighbours, so the pair SAT hits the held cars against each other in the first slice (cars 1-2
   // impulse 0.45, 2-3 impulse 2.30, before any driver contact, driver at z -39.9) and the road crushes itself; the driven sedan never
   // leaves the floor level (crashed at 6 m/s): rise 0.00-0.01 m (real 1.96 / 6.02 / 11.37 / 15.16 m), air 0.00 s (real 0 / 1.42 / 2.47 / 3.00 s).

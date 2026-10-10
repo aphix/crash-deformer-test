@@ -79,7 +79,7 @@ const SHAPES = [
 const SPEEDS = [12, 30, 55] as const;
 
 /**
- * todo -> Phase B 5 (every contact through the kernel by the cage's own rows) for the 2 m block whose near edge is 0.8 m beside the
+ * todo -> Stage 4 item 5 (car-car through the kernel) (every contact through the kernel by the cage's own rows) for the 2 m block whose near edge is 0.8 m beside the
  * centre line at 55 m/s. On main the block's edge grazes the sedan's flank in all eight starts (health 1.00, speed 55.0). The drawn
  * body (the cage: outline 0.85 m, plan box 0.894 m, its flank out to z = 1.7 m) is a 0.05-0.09 m sliver in it, and the cage's contact
  * answers that as a hit: starts 1-5, 7 and 8 arm a full hit (the equivalent barrier speed 43.7 m/s, read at the first touch from the
@@ -93,7 +93,7 @@ const SPEEDS = [12, 30, 55] as const;
  * through the kernel give, not the closing at the first touch.
  */
 const SLIVER = SHAPES[3];
-const SLIVER_TODO = "Phase B 5: a 0.09 m sliver of the cage arms a full 55 m/s hit it takes 0.3 m/s from; health 0.00-0.44 (start 3 dead, start 6 no hit) until the rows deliver the hit";
+const SLIVER_TODO = "Stage 4 item 5 (car-car through the kernel): a 0.09 m sliver of the cage arms a full 55 m/s hit it takes 0.3 m/s from; health 0.00-0.44 (start 3 dead, start 6 no hit) until the rows deliver the hit";
 
 describe("given a fixed solid standing at the side of a sedan's path", () => {
   for (const shape of SHAPES) {

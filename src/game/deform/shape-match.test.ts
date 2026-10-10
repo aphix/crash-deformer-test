@@ -696,14 +696,14 @@ describe("given a car crushed by a 50 km/h front wall hit", () => {
     assert.ok(rear.tailMax > 0.1, `fixture: rear hit crushed the tail only ${rear.tailMax.toFixed(3)} m`);
     assert.ok(nose(rear) >= 0.8 * nose(front), `nose crush ${nose(front).toFixed(3)} → ${nose(rear).toFixed(3)} m`);
   });
-  // todo -> Phase B 6 (the wreck split goes): the roof mass slides forward against the cell during the rear hit and stays there
+  // todo -> Stage 4 item 6 (wreck split): the roof mass slides forward against the cell during the rear hit and stays there
   // (engineL–roof 1.499 → 1.429 m, bar 0.05: the roof is the pair's moving end, the engine mass does not move). The same run, the
-  // worst pair change 1.5 s in / the roof's forward shift at the end: Stage 3 alone (ca6b6d5d) 0.035 / 0.033 m, Stage 4A alone (18ecaba9)
+  // worst pair change 1.5 s in / the roof's forward shift at the end: Stage 3 alone (ca6b6d5d) 0.035 / 0.033 m, Stage 4 items 1-4 (rigs and strikers) alone (18ecaba9)
   // 0.043 / 0.047 m, both together (the integration's first working commit 1bdf3a90, to b94657da) 0.069 / 0.076 m: each lane is under the
-  // bar alone and their effects add. [INFERENCE] The 4A part is the hit's rigid increment going onto every mass of the wreck
+  // bar alone and their effects add. [INFERENCE] The Stage 4 items 1-4 (rigs and strikers) part is the hit's rigid increment going onto every mass of the wreck
   // (`shiftBody`, dv and dw × r), which the lattice then plays out as shear; a wreck that is one rigid body with the lattice crushing
-  // only from the contact impulses has none (docs/UNIFIED_CONTACT.md Stage 4 Phase B item 6).
-  it("when a 30 km/h wall then hits its rear 2.5 s later, then the front structure moves under 0.05", { todo: "Phase B 6: the roof shears 0.076 m forward in the rear hit (Stage 3 alone 0.033, Stage 4A alone 0.047, together 0.076); closes when the wreck is one rigid body" }, () => {
+  // only from the contact impulses has none (docs/UNIFIED_CONTACT.md Stage 4 item 6 (wreck split)).
+  it("when a 30 km/h wall then hits its rear 2.5 s later, then the front structure moves under 0.05", { todo: "Stage 4 item 6 (wreck split): the roof shears 0.076 m forward in the rear hit (Stage 3 alone 0.033, Stage 4 items 1-4 (rigs and strikers) alone 0.047, together 0.076); closes when the wreck is one rigid body" }, () => {
     const { pairs, first, second } = rearHit();
     let worst = 0,
       which = "";

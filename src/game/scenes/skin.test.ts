@@ -329,9 +329,9 @@ describe("given a car shot at 40 km/h by a piston, measured against a 3 km/h tap
   // lattice takes it as per-mass velocity while the planted tyres scrub: the hubs end 0.150 m off the body (0.129 m without the spin;
   // the arch paint is pinned 82 % to them) and the rear corner's paint 0.184 m (0.143 m) against particles that moved 0.141 m (0.158 m).
   // Not the tilt (the roll fell, 0.133 to 0.115 rad) and not the hubs' share of the spin (leaving them out leaves the rows red). The
-  // rigid motion is not crush, and it stops going through the lattice when the wreck split goes (Stage 4 phase B, step 6: the rigid
+  // rigid motion is not crush, and it stops going through the lattice when the wreck split goes (Stage 4 item 6 (wreck split): the rigid
   // body owns the spin, the masses get the crush alone).
-  const SPIN = "the struck car's spin goes through the lattice as per-mass velocity (tyre scrub drags the hubs, the corner paint outruns the particles): closes in Stage 4 phase B (the wreck split goes)";
+  const SPIN = "the struck car's spin goes through the lattice as per-mass velocity (tyre scrub drags the hubs, the corner paint outruns the particles): closes in Stage 4 item 6 (wreck split)";
   const FAR_TODO: Partial<Record<(typeof PISTON_IDS)[number], string>> = { frontLeft: SPIN, frontRight: SPIN, rearRight: SPIN, rearLeft: SPIN };
   const DENT_TODO: Partial<Record<(typeof PISTON_IDS)[number], string>> = { rearRight: SPIN, rearLeft: SPIN };
   for (const id of PISTON_IDS) {

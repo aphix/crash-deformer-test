@@ -19,7 +19,7 @@ function headOn(kph: number, bFirst: boolean): [CrashResult, CrashResult] {
 describe("given two identical cars in a mirror-symmetric head-on", () => {
   // 180 km/h: A's noses came out 0.939 m against B's 0.835 m (engine 0.481 against 0.498 m) while the world stepped A first;
   // at 100–150 km/h the pair was symmetric to 0.01 m.
-  it("when the crash runs at 100 to 200 km/h with either car first in the world's car list, then the two cars' noses (within 0.01 m), engine blocks (within 5 mm) and popped hubs agree", { todo: "the pair contact node depends on the order of the cars; the kernel's two rows are order-free (Phase B 5)" }, () => {
+  it("when the crash runs at 100 to 200 km/h with either car first in the world's car list, then the two cars' noses (within 0.01 m), engine blocks (within 5 mm) and popped hubs agree", { todo: "the pair contact node depends on the order of the cars; the kernel's two rows are order-free (Stage 4 item 5 (car-car through the kernel))" }, () => {
     for (const kph of [100, 130, 150, 165, 180, 190, 200]) {
       for (const bFirst of [false, true]) {
         const [a, b] = headOn(kph, bFirst);

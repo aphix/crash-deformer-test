@@ -74,10 +74,10 @@ describe("given the player's car in a respawn race with a mirror torn off and a 
 
   // todo -> Stage 5 (recalibrate): flat out for 12 s the car glances the oval's first wall at 38 m/s (closing 24.8 m/s) and the engine
   // packs 0.162 m, 12 mm past the 0.15 m kill, so the driver is thrown out of the door and the run reads respawning. Measured on the
-  // same run: main 0.053 m, Stage 4A alone (18ecaba9) 0.107 m, Stage 3 alone (ca6b6d5d) 0.025 m. The contact point `feedOverlap` crushes
+  // same run: main 0.053 m, Stage 4 items 1-4 (rigs and strikers) alone (18ecaba9) 0.107 m, Stage 3 alone (ca6b6d5d) 0.025 m. The contact point `feedOverlap` crushes
   // from is now the cage's corner, 0.87 m from the engine mass (the hulls' was 1.0 m), and the crush feed falls off with that distance
   // (toggle: with the feed off the engine packs 0.041 m by the same frame). The calibration of that reach is Stage 5's.
-  it("when the car has run flat out into the oval's first wall and the reset is held, then it is back on the road at once with the wreck state kept", { todo: "Stage 5: the oval's first wall glance packs the engine 0.162 m, 12 mm past the 0.15 m kill (main 0.053, 4A alone 0.107): the crush feed's reach was calibrated on the hulls' contact point, now the cage's corner" }, (t) => {
+  it("when the car has run flat out into the oval's first wall and the reset is held, then it is back on the road at once with the wreck state kept", { todo: "Stage 5: the oval's first wall glance packs the engine 0.162 m, 12 mm past the 0.15 m kill (main 0.053, Stage 4 items 1-4 (rigs and strikers) alone 0.107): the crush feed's reach was calibrated on the hulls' contact point, now the cage's corner" }, (t) => {
     t.after(() => setGround(null));
     holdThenTap(12);
   });

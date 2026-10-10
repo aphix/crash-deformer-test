@@ -17,7 +17,7 @@ const hitCases = [
 
 /**
  * The rows car-car still answers with `resolveCarPair`'s own rule (a position push and the tyres' stop, not the kernel's impulse at
- * the point): todo until Stage 4 Phase B puts the pair on `bodyContact`. Measured on the lane (the coupe's yaw-rate change against the
+ * the point): todo until Stage 4 item 5 (car-car through the kernel) puts the pair on `bodyContact`. Measured on the lane (the coupe's yaw-rate change against the
  * rigid body's; the speed changes of the pair are 13-15 m/s where the rigid answer is 5.5-5.8 m/s):
  *   owner's clip: coupe 0.03 vs 8.64 rad/s, hatchback 0.08 vs 2.56 rad/s;  coupe's middle: hatchback 0.17 vs 5.82 rad/s;
  *   front wheel: coupe -0.67 vs -8.50 rad/s, hatchback -0.00 vs 3.70 rad/s.

@@ -141,7 +141,7 @@ describe("given a 3-lap oval race of 3 AI rivals, 5 s in, with one car's driver 
       assert.ok(car.velocity.length() > 3, `moving again: ${car.velocity.length().toFixed(1)} m/s`);
     });
 
-    // todo -> Stage 4 Phase B for the AI rival: 4.10 s after the throw the rival's pedals are zero but it is neither freewheeling (`neutral`)
+    // todo -> Stage 4 items 5-6 for the AI rival: 4.10 s after the throw the rival's pedals are zero but it is neither freewheeling (`neutral`)
     // nor without wheels, drivetrain or stall, so a pedal-less drive state the AI's coast input does not reach is read; the player's row and
     // both Respawn rows pass. Seen only with the side-hit stall in the lane (`stalledS` 3 s after a 7-9 m/s wall brush), not isolated further.
     (who.id === RIVAL ? it.todo : it)(`when ${who.name} loses its driver in a No-reset race, then it gets no pedals, coasts, and is out of the race for good`, () => {
