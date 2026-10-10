@@ -13,7 +13,7 @@ import { NetTransport, type NetPeer } from "./transport.ts";
 import { packReel } from "./reel-codec.ts";
 import { reelParts } from "./reel-wire.ts";
 import { makeClip, sameClip } from "./reel-clip.test-util.ts";
-import { HOST_WAIT_MS } from "./net-constants.ts";
+import { HOST_WAIT_MS, SLOT_GRACE_MS } from "./net-constants.ts";
 import type { LookData } from "./look-codec.ts";
 import { CAR_SPRAY, NO_CAR_PICK, NO_PERSON_PICK, PERSON_SPRAY, carPickText, personPickText } from "../match/look-data.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
@@ -672,6 +672,29 @@ describe("given a client whose scene is cleared when the host's clear count chan
     s.cg.playing = false;
     s.step(10);
     assert.equal(s.cg.clears, 1, "back to the host's scene: its clear lands");
+  });
+});
+
+describe("given a host and a guest whose voice follows the host's roster of who drives which car", () => {
+  it("when the guest is seated, then each side's voice lists the other player in the car it drives, and neither lists itself", () => {
+    const s = session();
+    const guestHears = s.client.voice.snapshot().peers;
+    const hostHears = s.host.voice.snapshot().peers;
+    assert.equal(guestHears.length, 1, "the guest's voice lists one other player");
+    assert.equal(guestHears[0]!.id, s.hostId(), "the guest lists the host");
+    assert.equal(guestHears[0]!.car, 0, "the host drives car 0");
+    assert.equal(hostHears.length, 1, "the host's voice lists one other player");
+    assert.equal(hostHears[0]!.id, s.clientId(), "the host lists the guest");
+    assert.equal(hostHears[0]!.car, s.client.status().car, "the guest drives the car the host assigned it");
+  });
+
+  it("when the guest leaves and its seat lapses, then the host's voice lists nobody", () => {
+    const s = session();
+    assert.equal(s.host.voice.snapshot().peers.length, 1, "precondition: the guest is listed");
+    s.client.leave();
+    s.advance(SLOT_GRACE_MS + 1000);
+    s.step(5, { client: false });
+    assert.equal(s.host.voice.snapshot().peers.length, 0, "the roster dropped the guest");
   });
 });
 

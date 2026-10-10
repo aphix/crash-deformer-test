@@ -1,5 +1,7 @@
 import { useMemo, type RefObject } from "react";
 import { RoomShare } from "@/components/room-share";
+import { useVoice } from "@/components/use-voice";
+import { VoicePanel, VoicePeerControls } from "@/components/voice-panel";
 import type { CrashEngine } from "@/game/engine/engine";
 import { roomLink } from "@/game/hud/share-url";
 import { NET_TX, type NetStatus } from "@/game/net/net-ports";
@@ -26,6 +28,7 @@ function InviteQr({ link }: { link: string }) {
  * code; for every session the players, this peer's car, the snapshot rate, the lobby countdown and each peer's ping.
  */
 export function SessionDetails({ engine, status }: { engine: RefObject<CrashEngine | null>; status: NetStatus }) {
+  const { voice, status: voiceStatus } = useVoice(engine);
   // The link under the app's base path (the VPS serves it below /crush/); the QR code carries it.
   const invite = roomLink(`${window.location.origin}${import.meta.env.BASE_URL}`, status.room, status.tx);
   return (
@@ -44,13 +47,18 @@ export function SessionDetails({ engine, status }: { engine: RefObject<CrashEngi
         ) : null}
         <ul className="space-y-0.5" aria-label="Connected peers">
           {status.peers.length === 0 ? <li className="text-subtle">{status.public ? "Waiting for players…" : "No peers yet"}</li> : null}
-          {status.peers.map((p) => (
-            <li key={p.id} className="flex justify-between tabular-nums">
-              <span>{p.id}</span>
-              <span className="text-muted">{p.rttMs == null ? "–" : `${p.rttMs} ms`}</span>
-            </li>
-          ))}
+          {status.peers.map((p) => {
+            const voicePeer = voiceStatus?.peers.find((v) => v.id === p.id);
+            return (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-x-2 tabular-nums">
+                <span>{voicePeer && voicePeer.car >= 0 ? `car ${voicePeer.car}` : p.id}</span>
+                <span className="text-muted">{p.rttMs == null ? "–" : `${p.rttMs} ms`}</span>
+                {voice && voicePeer && voiceStatus?.on ? <VoicePeerControls voice={voice} peer={voicePeer} /> : null}
+              </li>
+            );
+          })}
         </ul>
+        {status.tx === NET_TX.rtc ? <VoicePanel engine={engine} /> : null}
       </div>
       {status.public || status.tx !== NET_TX.rtc ? null : <InviteQr link={invite} />}
     </>

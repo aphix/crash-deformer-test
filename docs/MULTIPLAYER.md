@@ -346,6 +346,19 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
   in 4.9 s, 0 × 429, ~30 requests per peer; two-page public race over WebRTC: B lands in A's room
   and drives car 1.
 
+## Voice
+
+Opt-in proximity voice on the same WebRTC mesh (`src/game/net/voice.ts` `Voice`, `NetPlay.voice`); no new dependency, browser built-ins only.
+
+- **Media on the existing pairs.** The dialer adds one `sendrecv` audio transceiver before its first offer; the answerer takes the transceiver the offer made and sets it `sendrecv` before the answer (`P2PRoom.connectTo`, `adoptOfferedAudio`). Opting in only attaches the microphone track to each pair with `sender.replaceTrack`; leaving range, muting or leaving voice uses `replaceTrack(null)`. No renegotiation, and a pair rebuilt by the watchdog is given its track again on the next frame (`P2PRoom.setAudioTrack` is idempotent).
+- **Who is where.** The host sends `MSG.roster` (`roster-codec.ts`: the peer id → car table, host included) reliably when a seat changes and with every keyframe (a guest's reliable channel can open after its seat is assigned, and a lost send heals within a second). A guest maps each remote stream to a car and reads `engine.live()[car].group.position` every frame; the listener is its own car. A peer the roster does not list is out of range.
+- **Range (owner 10-10): strong within 12 m, fading linearly, no voice past 30 m** (`voice-range.ts`, one place for the three numbers). The receive gain is `voiceGain(distance)` on a `GainNode` per peer (times the player's own volume), moved with `setTargetAtTime`; the same distance gates the send: past 30 m a peer's sender gets `replaceTrack(null)`, so no audio leaves the browser for a player out of range, and sending resumes at 29 m (a one-metre band against flicker). Measured in Chromium 149 (a linear `PannerNode`, ref 12, max 30): gain 1.00 / 1.00 / 0.56 / 0.06 / 0 at 5 / 12 / 20 / 29 / 35 m. The in-game geometry (walls between cars) is not used: distance only.
+- **Playing.** Each peer's stream goes `MediaStreamAudioSourceNode` → `GainNode` → one `MediaStreamAudioDestinationNode` → one `<audio>` element, whose `setSinkId` picks the output device. Every remote stream is also attached to a muted `<audio>` element: Chromium delivers a remote WebRTC stream to Web Audio only then (Firefox does not need it). Output choice is shown only where `HTMLMediaElement.setSinkId` exists (not Chrome Android).
+- **Capturing.** `getUserMedia` runs only on the opt-in click (`Voice.start`), with echo cancellation, noise suppression and auto gain on; the input device is an `ideal` constraint, so a stale remembered device falls back to the default. The microphone is released on leaving voice or the room. The pickers (`enumerateDevices`, refreshed on `devicechange`) and the choice (`useStoredString`) live in the settings' Playback section; the online panel holds the opt-in, mute, each peer's volume and mute (labelled by car) and speaking indicators (an `AnalyserNode`'s RMS, read 10 times a second).
+- **Needs a secure page.** `navigator.mediaDevices` exists only on https (and localhost): over plain http (a LAN preview by IP) the panel says so and offers no opt-in.
+- **Not done:** stereo placement of a voice (needs a listener heading), voice for a room on the BroadcastChannel transport, telling peers who has not opted in (their browser receives the audio of in-range speakers and plays none of it).
+- **Browser check** (two Chromium contexts, fake microphone, the production build, a real `/api/rtc` relay): cars placed 10 / 20 / 35 m apart by the host; both sides measure the output's RMS and read the audio sender's track. Heard at 10 m, the linear share of that at 20 m, silent with both senders `null` at 35 m, heard again back at 10 m.
+
 ## Race mode
 
 Race multiplayer runs through race mode's controller slots (`SlotKind = "player" | "ai" | "remote"`)
@@ -453,8 +466,9 @@ shrank to scale 0.23 before it vanished.
 
 Code: `src/game/net/` (`transport.ts` `NetTransport` + `BroadcastTransport`, `rtc-transport.ts`,
 `codec.ts`, `net-play.ts`, `net-ports.ts` (the engine as netplay sees it), `net-view.ts` (a client
-draws the snapshot ring), `net.test.ts`, `net-session.test.ts`, `race-net.test.ts`),
-`src/components/online-entry.tsx` (+ `online-session.tsx`, `online-private-room.tsx`), `src/routes/api/rtc.ts` +
+draws the snapshot ring), `voice.ts` + `voice-range.ts` + `roster-codec.ts` (proximity voice, below),
+`net.test.ts`, `net-session.test.ts`, `race-net.test.ts`, `voice-range.test.ts`, `roster-codec.test.ts`),
+`src/components/online-entry.tsx` (+ `online-session.tsx`, `online-private-room.tsx`, `voice-panel.tsx`), `src/routes/api/rtc.ts` +
 `src/lib/multiplayer/signaling.server.ts` (the kit's reference relay).
 
 Unit tests (`net.test.ts`): codec round trip within each quantization step, i16 clamping, input

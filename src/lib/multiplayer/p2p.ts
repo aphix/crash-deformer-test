@@ -63,6 +63,8 @@ export interface P2PRoomOptions {
   onConnected?: () => void;
   /** Binary frames from either channel (`sendBinary`). */
   onBinary?: (from: string, data: ArrayBuffer) => void;
+  /** A peer's incoming audio (proximity voice): its stream once the connection has one, null when the peer has left. */
+  onRemoteAudio?: (from: string, stream: MediaStream | null) => void;
 }
 
 interface PeerSlot {
@@ -83,6 +85,10 @@ interface PeerSlot {
   recreatedForOffer?: boolean;
   info: PeerInfo;
   pingSentAt?: number;
+  /** The pair's one audio transceiver (sendrecv): the dialer's offer carries it, so a microphone attaches later with no renegotiation. */
+  audio?: RTCRtpTransceiver;
+  /** The track last handed to `audio`'s sender (null: none). */
+  audioSent?: MediaStreamTrack | null;
 }
 
 const FAST_POLL_MS = 400;
@@ -91,6 +97,10 @@ const PING_INTERVAL_MS = 2000;
 const STALL_MS = 10_000;
 const MAX_RECOVERY_ATTEMPTS = 3;
 const SIGNAL_RETRY_DELAYS_MS = [250, 750];
+type VoiceKind = "audio";
+/** The one media kind the mesh carries beside its data channels, sent and received over every pair. */
+const VOICE_KIND: VoiceKind = "audio";
+const VOICE_DIRECTION: RTCRtpTransceiverDirection = "sendrecv";
 
 export function defaultIceServers(): RTCIceServer[] {
   const urls = (import.meta.env.VITE_STUN_URLS as string | undefined)
@@ -197,6 +207,31 @@ export class P2PRoom {
     return [...this.peers.values()].map((s) => ({ ...s.info }));
   }
 
+  /** Proximity voice: send `track` (null: nothing) to one peer on its audio transceiver. No renegotiation; a no-op until the pair has one, and while it already sends it. */
+  setAudioTrack(peerId: string, track: MediaStreamTrack | null): void {
+    const slot = this.peers.get(peerId);
+    if (!slot?.audio || slot.audioSent === track) return;
+    slot.audioSent = track;
+    void this.replaceAudioTrack(slot.audio, track);
+  }
+
+  private async replaceAudioTrack(audio: RTCRtpTransceiver, track: MediaStreamTrack | null): Promise<void> {
+    try {
+      await audio.sender.replaceTrack(track);
+    } catch (err) {
+      console.warn("[p2p] replaceTrack failed:", err);
+    }
+  }
+
+  /** The answerer's side of the audio pair: the offer created a receive-only transceiver; it sends too once the answer says sendrecv. */
+  private adoptOfferedAudio(slot: PeerSlot): void {
+    const audio = slot.pc.getTransceivers().find((t) => t.receiver.track.kind === VOICE_KIND);
+    if (!audio) return;
+    audio.direction = VOICE_DIRECTION;
+    slot.audio = audio;
+    slot.audioSent = audio.sender.track;
+  }
+
   // ── signaling loop ─────────────────────────────────────────────────────────
 
   private schedulePoll(delay: number): void {
@@ -274,6 +309,7 @@ export class P2PRoom {
     for (const [id, slot] of this.peers) {
       if (!alive.has(id)) {
         slot.pc.close();
+        this.opts.onRemoteAudio?.(id, null);
         this.peers.delete(id);
       }
     }
@@ -339,9 +375,12 @@ export class P2PRoom {
       }
     };
     pc.ondatachannel = (e) => this.attachChannel(slot, e.channel);
+    pc.ontrack = (e) => this.opts.onRemoteAudio?.(peerId, e.streams[0] ?? new MediaStream([e.track]));
 
     if (initiator) {
-      // Creating the channels triggers negotiationneeded → the offer.
+      // Creating the channels (and the audio transceiver) triggers negotiationneeded → the offer.
+      slot.audio = pc.addTransceiver(VOICE_KIND, { direction: VOICE_DIRECTION });
+      slot.audioSent = null;
       this.attachChannel(
         slot,
         pc.createDataChannel("state", { ordered: false, maxRetransmits: 0 }),
@@ -449,6 +488,7 @@ export class P2PRoom {
         await this.flushPendingCandidates(slot);
         if (this.closed) return;
         if (kind === "offer") {
+          this.adoptOfferedAudio(slot);
           await slot.pc.setLocalDescription();
           if (this.closed) return;
           await this.sendSignal(from, "answer", slot.pc.localDescription!.toJSON());

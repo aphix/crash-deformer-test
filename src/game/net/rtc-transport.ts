@@ -4,6 +4,8 @@ import { NetTransport, type NetPeer } from "./transport.ts";
 /** Cross-machine: the template's WebRTC mesh (`P2PRoom`), signaled through `/api/rtc`; binary on its unreliable channel, or its reliable one on request. */
 export class RtcTransport extends NetTransport {
   private readonly room: P2PRoom;
+  /** Proximity voice (`Voice.bind`): a peer's incoming audio stream, null once the peer has left. */
+  onRemoteAudio: ((from: string, stream: MediaStream | null) => void) | null = null;
 
   /** `role` is the roster tag the relay lists public rooms by ("host" / "client"); no personal name is sent. `meta` is read on every poll: a public host's match tag. */
   constructor(room: string, selfId: string, role: "host" | "client", meta: () => string) {
@@ -14,6 +16,7 @@ export class RtcTransport extends NetTransport {
       name: role,
       meta,
       onBinary: (from, data) => this.onMessage?.(from, new Uint8Array(data)),
+      onRemoteAudio: (from, stream) => this.onRemoteAudio?.(from, stream),
     });
     void this.room.join();
   }
@@ -25,6 +28,11 @@ export class RtcTransport extends NetTransport {
 
   send(data: Uint8Array<ArrayBuffer>, to?: string, reliable = false): void {
     this.room.sendBinary(data, to, reliable);
+  }
+
+  /** Proximity voice: this browser's microphone track to one peer, or null to stop sending to it. */
+  sendAudio(to: string, track: MediaStreamTrack | null): void {
+    this.room.setAudioTrack(to, track);
   }
 
   peers(): readonly NetPeer[] {

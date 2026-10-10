@@ -34,6 +34,8 @@ import { BroadcastTransport, type NetTransport } from "./transport.ts";
 import { playHostReel } from "./reel-codec.ts";
 import { ReelParts } from "./reel-wire.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
+import { packRoster, readRoster } from "./roster-codec.ts";
+import { Voice } from "./voice.ts";
 import { ROOM_MAX } from "../../lib/multiplayer/rooms.ts";
 import { fetchRooms, findMatch, matchStage, publicMeta, publicRoomName, WEAK_AI, WEAK_DERBY_FIELD, type MatchDeps } from "./matchmaking.ts";
 import {
@@ -62,6 +64,8 @@ interface NetPlayOptions {
 export class NetPlay {
   role: NetRole = "off";
   private readonly game: NetGame;
+  /** Opt-in proximity voice over this room's WebRTC mesh (docs/MULTIPLAYER.md "Voice"). */
+  readonly voice: Voice;
   private transport: NetTransport | null = null;
   private readonly connect: Connect;
   private readonly now: () => number;
@@ -94,6 +98,8 @@ export class NetPlay {
   private keyframeDue = false;
   /** Peer id → car. */
   private readonly slots = new Map<string, number>();
+  /** Host: the roster of who drives which car changed and the guests have not been told. */
+  private rosterDirty = false;
   /** Peer id → the name its hello carried (cleaned; "" when none). */
   private readonly names = new Map<string, string>();
   /** Peers whose hello carried this build's version: their input may (re)claim a car. */
@@ -167,6 +173,11 @@ export class NetPlay {
   constructor(game: NetGame, opts: NetPlayOptions = {}) {
     this.game = game;
     this.connect = opts.connect ?? connectDefault;
+    this.voice = new Voice({
+      selfId: () => this.transport?.selfId ?? "",
+      localCar: () => this.car,
+      carPosition: (car) => this.game.cars()[car]?.group.position ?? null,
+    });
     this.now = opts.now ?? (() => performance.now());
     // Executor form: the tsconfig lib predates `Promise.withResolvers`.
     this.sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
@@ -301,6 +312,8 @@ export class NetPlay {
     }
     this.setHidden(false);
     this.derbySilentFor = null;
+    this.voice.unbind();
+    this.rosterDirty = false;
     this.transport?.close();
     this.transport = null;
     this.role = "off";
@@ -398,6 +411,7 @@ export class NetPlay {
     }
     if (this.role === "host") this.hostFrame(wallDt, this.transport);
     else this.clientFrame(wallDt, this.transport);
+    this.voice.update(wallDt);
   }
 
   private start(role: NetRole, room: string, tx: NetTx): void {
@@ -405,6 +419,7 @@ export class NetPlay {
     const id = crypto.randomUUID().slice(0, 8);
     this.transport = this.connect(tx, room, id, role === "host" ? "host" : "client", () => this.metaNow());
     this.transport.onMessage = (from, data) => this.receive(from, data);
+    if (this.transport instanceof RtcTransport) this.voice.bind(this.transport);
     this.role = role;
     this.room = room;
     this.tx = tx;
@@ -487,6 +502,7 @@ export class NetPlay {
       // A race or derby seats a new peer at its next start; only Fleet grows the field at once.
       if (car >= this.game.cars().length && !this.game.race() && !this.game.derbyPhase()) this.game.setCarCount(car + 1);
       this.syncSeats();
+      this.rosterDirty = true;
       this.keyframeDue = true;
     }
     return car;
@@ -498,6 +514,15 @@ export class NetPlay {
     this.w.u8(car);
     this.w.u8(NET_VERSION);
     this.transport!.send(this.w.done(), peer);
+  }
+
+  /** Host: who drives which car goes to this host's own voice and, reliably, to every guest (`MSG.roster`): at once when a seat changes, and with every keyframe, since a guest's reliable channel can open after its seat is assigned. */
+  private publishRoster(t: NetTransport): void {
+    this.rosterDirty = false;
+    const entries = [{ peer: t.selfId, car: 0 }];
+    for (const [peer, car] of this.slots) entries.push({ peer, car });
+    this.voice.setRoster(entries);
+    t.send(packRoster(entries), undefined, true);
   }
 
   /** A peer's input older than `INPUT_STALE_MS` (a stalled link, a hidden tab) turns idle: its car coasts instead of holding the last throttle. */
@@ -534,6 +559,7 @@ export class NetPlay {
       left = true;
     }
     if (left) this.syncSeats();
+    if (left || this.rosterDirty || this.seq % KEYFRAME_EVERY === 0) this.publishRoster(t);
     const cars = this.game.cars();
     if (cars.length === 0) return;
     const L = this.layoutOf(cars[0]!);
@@ -653,6 +679,9 @@ export class NetPlay {
     else if (type === MSG.look) {
       const heard = readLook(data);
       if (heard && heard.car !== this.car) this.game.wearLook(heard.car, heard.look);
+    } else if (type === MSG.roster) {
+      const entries = readRoster(data);
+      if (entries) this.voice.setRoster(entries);
     }
   }
 

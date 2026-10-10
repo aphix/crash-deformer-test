@@ -28,6 +28,7 @@ import { FX_TIERS } from "@/game/present/engine-post";
 import { INITIAL_HUD, KNOB_RANGES, STROKE_RANGE_M, squashForStroke, strokeAt56 } from "@/game/hud/hud-store";
 import { changedSettings, fleetLaunched, isChanged, SETTINGS, type SectionId, type SettingId } from "@/game/hud/settings-changes";
 import { useStoredString } from "@/components/use-stored-string";
+import { VoiceDevicePickers } from "@/components/voice-device-pickers";
 import { useDriver } from "@/components/use-driver";
 import { cn } from "@/lib/utils";
 
@@ -170,6 +171,7 @@ function PlaybackSection({ state, engine }: HudProps) {
           Wet
         </Toggle>
       </div>
+      <VoiceDevicePickers engine={engine} />
       <div className="flex items-center gap-2">
         <span className="hud-label relative w-12 shrink-0">
           FX

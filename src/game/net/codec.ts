@@ -17,9 +17,10 @@ import { detSin, detCos } from "../kernel/physics-core.js";
  * `NET_VERSION`, the player's name (`Writer.str`; the host cleans it, `cleanName`); `reel`: the end-of-race
  * highlight reel (`reel-codec.ts`; the message itself is `MSG.reel`, but on the wire it travels as `reelPart` frames,
  * `reel-wire.ts`), sent once, reliably; `eject`: a driver was thrown out (`writeEject`), reliably; `look`: a player's car and
- * driver look with their spray paint (`look-codec.ts`), once per player, reliably.
+ * driver look with their spray paint (`look-codec.ts`), once per player, reliably; `roster`: the host's peer-to-car table for
+ * proximity voice (`roster-codec.ts`), to every guest, reliably, when a seat changes and with every keyframe.
  */
-export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby: 6, hold: 7, reel: 8, eject: 9, reelPart: 10, look: 11 } as const;
+export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby: 6, hold: 7, reel: 8, eject: 9, reelPart: 10, look: 11, roster: 12 } as const;
 
 /**
  * Wire format version, carried by hello and assign: peers on different builds (an auto-deploy mid-session)
@@ -46,8 +47,9 @@ carries the peer's own meter (a sixth byte), so every browser shows any viewed c
 18: MSG.look (11) carries a player's car and driver colour picks and their two spray bitmaps, sent once at seating.
 19: Stage 1 of the one-motion-path physics: a reel's keyframes and a snapshot's cars carry the trajectories of the one rigid step (derived rest and wreck contact; debris poses on one ground law), so peers on 18 would replay and mirror them differently.
 20: Stage 2 of the one-motion-path physics: a loose part's world pose is no longer on the wire (torn parts are rigid bodies each player's own world steps, `stepLoose`), a snapshot's parts are their flags and hinge values alone, so peers on 19 would read a different layout.
+21: `MSG.roster` (12): the host's table of which peer drives which car, so voice finds each peer's range; peers on 20 would drop it.
 */
-export const NET_VERSION = 20;
+export const NET_VERSION = 21;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;
