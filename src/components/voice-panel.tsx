@@ -57,9 +57,34 @@ export function VoicePanel({ engine }: { engine: RefObject<CrashEngine | null> }
   );
 }
 
+/** What a player is called in the lists: its roster name, else its car, else its peer id. */
+const whoOf = (peer: VoicePeerStatus): string => peer.name || (peer.car >= 0 ? `car ${peer.car}` : peer.id);
+
+/**
+ * A peer's name in the peer list, and its mute: clicking the name silences that player for this listener only (nothing is sent), clicking again lets
+ * it through. A muted name is struck through with a muted-speaker glyph and the button says what the next click does.
+ */
+export function PeerName({ voice, peer }: { voice: Voice; peer: VoicePeerStatus }) {
+  const who = whoOf(peer);
+  return (
+    <button
+      type="button"
+      className={cn("inline-flex min-w-0 items-baseline gap-1 rounded px-0.5 text-left hover:bg-fg/10", peer.muted ? "text-muted line-through" : "font-display")}
+      aria-pressed={peer.muted}
+      aria-label={peer.muted ? `Unmute ${who}` : `Mute ${who}`}
+      title={peer.muted ? `${who} is muted for you. Click to unmute.` : `Click to mute ${who} for you.`}
+      onMouseDown={keepFocus}
+      onClick={() => voice.setPeerMuted(peer.id, !peer.muted)}
+    >
+      <span className="truncate">{who}</span>
+      {peer.muted ? <VolumeX className="size-3 shrink-0 self-center no-underline" aria-hidden /> : null}
+    </button>
+  );
+}
+
 /** One peer's voice controls in the peer list: whether it is speaking, its volume and mute here, and "far" while it is out of range. */
 export function VoicePeerControls({ voice, peer }: { voice: Voice; peer: VoicePeerStatus }) {
-  const who = peer.car >= 0 ? `car ${peer.car}` : peer.id;
+  const who = whoOf(peer);
   return (
     <span className="flex basis-full items-center gap-1.5">
       <SpeakingDot speaking={peer.speaking} label={who} />
@@ -73,7 +98,7 @@ export function VoicePeerControls({ voice, peer }: { voice: Voice; peer: VoicePe
         className="min-w-0 flex-1"
         aria-label={`Voice volume of ${who}`}
       />
-      <Button className={cn(TAP, "shrink-0 px-2")} variant={peer.muted ? "default" : "ghost"} aria-pressed={peer.muted} aria-label={peer.muted ? `Unmute ${who}` : `Mute ${who}`} onMouseDown={keepFocus} onClick={() => voice.setPeerMuted(peer.id, !peer.muted)}>
+      <Button className={cn(TAP, "shrink-0 px-2")} variant={peer.muted ? "default" : "ghost"} aria-pressed={peer.muted} aria-label={peer.muted ? `Unmute ${who}'s voice` : `Mute ${who}'s voice`} onMouseDown={keepFocus} onClick={() => voice.setPeerMuted(peer.id, !peer.muted)}>
         {peer.muted ? <VolumeX /> : <Volume2 />}
       </Button>
       {peer.inRange ? null : <span className="text-subtle">far</span>}

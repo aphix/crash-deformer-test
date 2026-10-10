@@ -1,7 +1,8 @@
 import { useMemo, type RefObject } from "react";
 import { RoomShare } from "@/components/room-share";
 import { useVoice } from "@/components/use-voice";
-import { VoicePanel, VoicePeerControls } from "@/components/voice-panel";
+import { LobbyGate } from "@/components/lobby-gate";
+import { PeerName, VoicePanel, VoicePeerControls } from "@/components/voice-panel";
 import type { CrashEngine } from "@/game/engine/engine";
 import { roomLink } from "@/game/hud/share-url";
 import { NET_TX, type NetStatus } from "@/game/net/net-ports";
@@ -39,20 +40,18 @@ export function SessionDetails({ engine, status }: { engine: RefObject<CrashEngi
           {status.peers.length + 1}/{ROOM_MAX} players · car {status.car < 0 ? "…" : status.car}
           {status.role === "host" ? " (host)" : ""} · {status.snapHz.toFixed(0)} snapshots/s · {(status.bytesPerSec / 1024).toFixed(1)} KB/s
         </p>
-        {status.lobby != null ? (
-          <p className="font-display">
-            {status.role === "host" ? "Waiting for players…" : `Waiting for the ${status.public ?? "match"}…`} starts in {status.lobby} s
-            {status.role === "host" ? "; AI drives the empty seats" : ""}
-          </p>
-        ) : null}
+        {status.gate ? <LobbyGate engine={engine} status={{ ...status, gate: status.gate }} /> : null}
         <ul className="space-y-0.5" aria-label="Connected peers">
           {status.peers.length === 0 ? <li className="text-subtle">{status.public ? "Waiting for players…" : "No peers yet"}</li> : null}
           {status.peers.map((p) => {
             const voicePeer = voiceStatus?.peers.find((v) => v.id === p.id);
             return (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-x-2 tabular-nums">
-                <span>{voicePeer && voicePeer.car >= 0 ? `car ${voicePeer.car}` : p.id}</span>
-                <span className="text-muted">{p.rttMs == null ? "–" : `${p.rttMs} ms`}</span>
+                <span className="flex min-w-0 flex-wrap items-baseline gap-x-1">
+                  {voice && voicePeer ? <PeerName voice={voice} peer={voicePeer} /> : <span>{p.id}</span>}
+                  {voicePeer && voicePeer.car >= 0 ? <span className="text-muted">· car {voicePeer.car}</span> : null}
+                  <span className="text-muted">· {p.rttMs == null ? "–" : `${p.rttMs} ms`}</span>
+                </span>
                 {voice && voicePeer && voiceStatus?.on ? <VoicePeerControls voice={voice} peer={voicePeer} /> : null}
               </li>
             );

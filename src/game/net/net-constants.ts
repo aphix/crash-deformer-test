@@ -18,6 +18,8 @@ export const HOST_WAIT_MS = 5000;
 export const MAX_DEAD_ROOMS = 3;
 /** A public host waits this long (s) for players before the AI fills the empty seats and the race starts. */
 export const LOBBY_S = 15;
+/** The lobby's Go switch needs this many players (the host and one guest) until the host sets another (`NetPlay.setMinPlayers`). */
+export const DEFAULT_MIN_PLAYERS = 2;
 /** Seconds a finished public race shows its results before the next one starts (late joiners race then). */
 export const RESULTS_HOLD = 12;
 /** The race state rides along every this many snapshots (5 Hz), and with every keyframe. */

@@ -5,6 +5,7 @@ import type { DerbyBoardRow, DerbyDecided } from "../match/derby.ts";
 import type { RaceSnapshot } from "../match/types.ts";
 import type { DeformNetState } from "../deform/streamed-deform.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
+import { ROOM_MAX } from "../../lib/multiplayer/rooms.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
 
 /**
@@ -49,8 +50,9 @@ carries the peer's own meter (a sixth byte), so every browser shows any viewed c
 20: Stage 2 of the one-motion-path physics: a loose part's world pose is no longer on the wire (torn parts are rigid bodies each player's own world steps, `stepLoose`), a snapshot's parts are their flags and hinge values alone, so peers on 19 would read a different layout.
 21: `MSG.roster` (12): the host's table of which peer drives which car, so voice finds each peer's range; peers on 20 would drop it.
 22: co-op: a race snapshot carries the survival run (`survival`: bust time, pack count and wrecked), the campaign table and its standings flag, and a race HUD the team result, so peers on 21 would not follow a shared Survival run or campaign.
+23: the Havana lobby: `MSG.roster` entries carry each player's cleaned name (after the peer id), `MSG.input` flags gain bit 16 (`INPUT_RESET`: put my car back at a lobby spawn, repaired) and a race message carries the lobby's start gate (`gate`: players needed, game the Go switch starts), so peers on 22 would misread the roster and ignore the gate.
 */
-export const NET_VERSION = 22;
+export const NET_VERSION = 23;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;
@@ -477,20 +479,21 @@ export function readSnapshot(r: Reader, s: Snapshot, L: NetLayout): void {
   }
 }
 
-/** What a client's input packet asks of the host's race rules besides driving: a tap's respawn, a hold's reset with the damage kept. */
+/** What a client's input packet asks of the host besides driving: a tap's respawn, a hold's reset with the damage kept, and in the lobby (no race rules) its car put back at a Havana spawn, repaired. */
 export const INPUT_RESPAWN = 1;
 export const INPUT_HOLD = 2;
+export const INPUT_RESET = 4;
 
 /** A boost meter on the wire: 0..`METER_FULL` is empty to full, `METER_NONE` a car with no nitrous. */
 const METER_FULL = 254;
 const METER_NONE = 255;
-/** Client → host: this peer's shaped drive input, what it asks of the race rules (`INPUT_RESPAWN` | `INPUT_HOLD`), and its own boost meter (0-1) (6 bytes). */
+/** Client → host: this peer's shaped drive input, what it asks of the host (`INPUT_RESPAWN` | `INPUT_HOLD` | `INPUT_RESET`), and its own boost meter (0-1) (6 bytes). */
 export function writeInput(w: Writer, input: DriveInput, ask = 0, meter = 0): void {
   w.u8(MSG.input);
   w.u8(Math.round(Math.max(-1, Math.min(1, input.throttle)) * 127) & 0xff);
   w.u8(Math.round(Math.max(-1, Math.min(1, input.steer)) * 127) & 0xff);
   w.u8(Math.round(Math.max(0, Math.min(1, input.brake)) * 255));
-  w.u8((input.ebrake ? 1 : 0) | (input.boost ? 2 : 0) | ((ask & INPUT_RESPAWN) !== 0 ? 4 : 0) | ((ask & INPUT_HOLD) !== 0 ? 8 : 0));
+  w.u8((input.ebrake ? 1 : 0) | (input.boost ? 2 : 0) | ((ask & INPUT_RESPAWN) !== 0 ? 4 : 0) | ((ask & INPUT_HOLD) !== 0 ? 8 : 0) | ((ask & INPUT_RESET) !== 0 ? 16 : 0));
   w.u8(Math.round(Math.max(0, Math.min(1, meter)) * METER_FULL));
 }
 
@@ -543,7 +546,7 @@ export function readEject(r: Reader, e: Ejection): number {
   return time;
 }
 
-/** Reads a client's input packet into `out`: returns what it asks (`INPUT_RESPAWN` | `INPUT_HOLD`); its meter goes to `meterOut[0]`. */
+/** Reads a client's input packet into `out`: returns what it asks (`INPUT_RESPAWN` | `INPUT_HOLD` | `INPUT_RESET`); its meter goes to `meterOut[0]`. */
 export function readInput(r: Reader, out: DriveInput, meterOut: Float64Array): number {
   r.u8();
   out.throttle = ((r.u8() << 24) >> 24) / 127;
@@ -553,7 +556,7 @@ export function readInput(r: Reader, out: DriveInput, meterOut: Float64Array): n
   out.ebrake = (bits & 1) !== 0;
   out.boost = (bits & 2) !== 0;
   meterOut[0] = r.u8() / METER_FULL;
-  return ((bits & 4) !== 0 ? INPUT_RESPAWN : 0) | ((bits & 8) !== 0 ? INPUT_HOLD : 0);
+  return ((bits & 4) !== 0 ? INPUT_RESPAWN : 0) | ((bits & 8) !== 0 ? INPUT_HOLD : 0) | ((bits & 16) !== 0 ? INPUT_RESET : 0);
 }
 
 /**
@@ -641,15 +644,37 @@ export function readDerby(r: Reader): DerbyNetState {
   return { round, active: (flags & 1) !== 0, time, hold, radius, winnerId, winnerName, decided, lobby, seats, board };
 }
 
-/** `MSG.race`: the host's rules state (null between races), its public lobby countdown and course, and the field's driver-look seed (`driverLook`). */
+/** The game the lobby's Go switch starts. */
+export const GAME_KINDS = ["race", "survival", "derby"] as const;
+export type GameKind = (typeof GAME_KINDS)[number];
+
+/** The Havana lobby's start gate: how many players the host wants before Go works, and the game it starts. */
+export interface LobbyGate {
+  min: number;
+  kind: GameKind;
+}
+
+/**
+ * `MSG.race`: the host's rules state (null between races), its public lobby countdown and course, the field's driver-look seed (`driverLook`),
+ * and while the room waits in the Havana lobby its start gate (null once a game runs).
+ */
 export interface RaceNetState {
   lobby: number | null;
   trackId: string;
   look: number;
+  gate: LobbyGate | null;
   snap: RaceSnapshot | null;
 }
 
-const RACE_MSG = z.object({ lobby: z.number().nullable(), trackId: z.string().max(64), look: z.number().int().min(0).max(0xffffffff), snap: z.unknown() });
+const GATE = z.object({ min: z.number().int().min(1).max(ROOM_MAX), kind: z.enum(GAME_KINDS) });
+
+const RACE_MSG = z.object({
+  lobby: z.number().nullable(),
+  trackId: z.string().max(64),
+  look: z.number().int().min(0).max(0xffffffff),
+  gate: GATE.nullable().default(null),
+  snap: z.unknown(),
+});
 
 /**
  * A campaign table as the host's race message carries it: bounded, and every car id of `entry` has its row (`Campaign.restore` needs that).
@@ -711,8 +736,8 @@ export function readRace(data: Uint8Array): RaceNetState | null {
   }
   const m = RACE_MSG.safeParse(raw);
   if (!m.success) return null;
-  if (m.data.snap == null) return { lobby: m.data.lobby, trackId: m.data.trackId, look: m.data.look, snap: null };
+  if (m.data.snap == null) return { lobby: m.data.lobby, trackId: m.data.trackId, look: m.data.look, gate: m.data.gate, snap: null };
   const snap = RACE_SNAP.safeParse(m.data.snap);
   // A peer's JSON in the host's `RaceSnapshot` shape: what sizes the session is checked above, the rest is taken as is.
-  return snap.success ? { lobby: m.data.lobby, trackId: m.data.trackId, look: m.data.look, snap: snap.data as RaceSnapshot } : null;
+  return snap.success ? { lobby: m.data.lobby, trackId: m.data.trackId, look: m.data.look, gate: m.data.gate, snap: snap.data as RaceSnapshot } : null;
 }

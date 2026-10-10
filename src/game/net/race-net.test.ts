@@ -22,7 +22,7 @@ function clientOf(host: World, self: number): World {
   // The host's field size (NetPlay sets it from snapshots); the setup park makes aiCount + 1 cars.
   c.race.command({ type: "options", options: { trackId: "oval", aiCount: host.live().length - 1 } });
   host.race.look = 0xcafe1234;
-  const wire = readRace(writeRace({ lobby: null, trackId: "oval", look: host.race.look, snap: host.race.snapshot() }));
+  const wire = readRace(writeRace({ lobby: null, trackId: "oval", look: host.race.look, gate: null, snap: host.race.snapshot() }));
   assert.ok(wire?.snap, "the host's race state passes the client's checks");
   assert.equal(wire.look, 0xcafe1234, "the field's driver-look seed crosses the wire");
   c.race.look = wire.look;
@@ -104,7 +104,7 @@ describe("given a host race with no network peers seated", () => {
 function survivalClientOf(host: World, self: number): World {
   const c = makeWorld();
   c.race.enter(true);
-  const wire = readRace(writeRace({ lobby: null, trackId: host.race.snapshot()!.trackId, look: 0, snap: host.race.snapshot() }));
+  const wire = readRace(writeRace({ lobby: null, trackId: host.race.snapshot()!.trackId, look: 0, gate: null, snap: host.race.snapshot() }));
   assert.ok(wire?.snap, "the host's Survival state passes the client's checks");
   assert.ok(wire.snap.survival, "the snapshot says Survival");
   c.race.applySnapshot(wire.snap, self);

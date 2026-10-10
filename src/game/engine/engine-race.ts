@@ -58,6 +58,8 @@ export class RaceDirector extends RaceWatch {
 
   protected override start(trackId: string, grid: readonly number[]): void {
     this.auto = false;
+    this.free = false;
+    this.lobbySeatedFor = -1;
     super.start(trackId, grid);
     // A Watch race opens on Auto driver + Auto camera (any manual pick still overrides).
     if (this.spectating) {
@@ -81,25 +83,52 @@ export class RaceDirector extends RaceWatch {
     return this.active && this.menu != null;
   }
 
-  /** Race mode on. `survival`: a Survival run on its own course instead of the setup menu (docs/SURVIVAL.md). */
-  enter(survival = false): void {
+  /**
+   * Race mode on. `survival`: a Survival run on its own course instead of the setup menu (docs/SURVIVAL.md). `lobby`: the Havana free-drive
+   * lobby of a hosted room (no menu, no rules, no hunters; `showLobby`) with a car for the host and each seated peer.
+   */
+  enter(survival = false, lobby = false): void {
     if (this.active) return;
     this.active = true;
     this.survival = survival;
     this.mirrored = false;
     const scene = this.host.scene;
     this.saved = { background: scene.background as THREE.Color | null, fog: scene.fog, far: this.host.camera.far };
-    this.host.seat.drivable = (i) => this.entrants[i]?.kind === "player" && this.session != null && !this.spectating;
+    this.host.seat.drivable = (i) => (this.free ? i === this.self : this.entrants[i]?.kind === "player" && this.session != null && !this.spectating);
     if (survival) {
       this.entrants = this.field();
       this.start(this.survivalId, this.defaultGrid());
-    } else this.toSetup();
+    } else if (lobby) this.toLobby();
+    else this.toSetup();
+  }
+
+  /** Lobby on: no menu, no police or traffic, a car for the host and every seat, all placed on the Havana start. */
+  private toLobby(): void {
+    this.campaign = null;
+    this.setProgram(null);
+    this.brain = null;
+    this.traffic = null;
+    this.police = null;
+    this.spectating = false;
+    this.auto = false;
+    this.host.setPaused(false);
+    this.host.seat.clear();
+    this.host.setPolice(MAX_CARS, 0);
+    this.policeFrom = MAX_CARS;
+    this.dormant.fill(0);
+    let n = 1;
+    for (const id of this.seats.keys()) n = Math.max(n, id + 1);
+    this.host.setCarCount(n);
+    this.showLobby(this.survivalId);
+    this.seatLobby(this.self);
   }
 
   exit(): void {
     if (!this.active) return;
     this.active = false;
     this.survival = false;
+    this.free = false;
+    this.lobbySeatedFor = -1;
     this.mirrored = false;
     this.menu = null;
     this.session = null;
@@ -134,9 +163,10 @@ export class RaceDirector extends RaceWatch {
     this.unload();
   }
 
-  /** Engine reset (R in the sandbox, loop): restart the current race, or re-park the grid in setup. */
+  /** Engine reset (R in the sandbox, loop): restart the current race, re-park the grid in setup, or in the lobby put every car and prop back. */
   reset(): void {
-    if (this.session && this.track) this.start(this.track.id, this.grid);
+    if (this.free) this.lobbyScene();
+    else if (this.session && this.track) this.start(this.track.id, this.grid);
     else this.park();
   }
 
@@ -306,6 +336,7 @@ export class RaceDirector extends RaceWatch {
    * Null for a car with no nitrous: traffic, nobody heard.
    */
   meterOf(id: number): number | null {
+    if (this.free) return id === this.self ? this.host.seat.boost : this.host.heardMeter(id);
     if (this.seatDrives(id)) return this.host.seat.boost;
     if (this.aiDrives(id) && this.brain) return this.brain.meter[id]!;
     if (id >= this.policeFrom && id < this.host.live().length) return POLICE_METER;
@@ -355,6 +386,8 @@ export class RaceDirector extends RaceWatch {
    */
   applySnapshot(snap: RaceSnapshot, self: number): void {
     const prev = this.session;
+    this.free = false;
+    this.lobbySeatedFor = -1;
     this.mirrored = true;
     const fresh = !prev || prev.track.id !== snap.trackId || snap.time < prev.time;
     const tr = this.load(snap.trackId);
@@ -403,18 +436,45 @@ export class RaceDirector extends RaceWatch {
   }
 
   /**
-   * Netplay lobby, no menu: a public host waits for players on the course with its field parked (it
-   * starts the race itself when the lobby ends); a client shows the host's course until the race starts.
+   * Netplay lobby, no menu, no rules: the course is up and every car free-drives from its spawn (a public host's race or derby waits here
+   * for its players; a client shows the host's course until the game starts). Cars are placed once, when the lobby opens.
    */
   showLobby(trackId: string): void {
+    const fresh = !this.free || this.track?.id !== trackId;
     this.load(trackId);
     this.session = null;
     this.menu = null;
+    this.free = true;
+    if (fresh) for (let i = 0; i < this.host.live().length; i++) this.placeLobby(i);
+  }
+
+  /** The course the director shows: the lobby's, the race's, or (nothing loaded) the options' pick. */
+  get courseId(): string {
+    return this.track?.id ?? this.rules.trackId;
+  }
+
+  private lobbySeatedFor = -1;
+
+  /** Lobby: this browser drives car `self` (once per seat: Esc leaves it). */
+  seatLobby(self: number): void {
+    if (!this.free || this.lobbySeatedFor === self) return;
+    this.lobbySeatedFor = self;
+    this.self = self;
+    const seat = this.host.seat;
+    seat.focus(self);
+    seat.mode = "drive";
+    seat.boost = 1;
+  }
+
+  /** Lobby: car `id` (a peer's request, or this browser's R) back at its Havana spawn, repaired. */
+  resetLobbyCar(id: number): void {
+    if (this.free) this.placeLobby(id);
   }
 
   /** R / D-pad down (this browser), or a netplay peer's request for its car `id` (host). */
   requestRespawn(id = this.self): void {
-    if (this.mayAsk(id)) this.session!.requestRespawn(id);
+    if (this.free) this.placeLobby(id);
+    else if (this.mayAsk(id)) this.session!.requestRespawn(id);
   }
 
   /** There is a race, and this browser's own ask meets no menu and no spectating seat (a netplay peer's is the rules' to refuse). */
@@ -427,10 +487,11 @@ export class RaceDirector extends RaceWatch {
 
   /**
    * The reset control held (this browser), or a netplay peer's hold for its car `id` (host): back on the road at once, damage kept (`RaceSession.holdReset`).
-   * It works in a no-reset race and refuses where a tap does (a menu is up, spectating) and in Survival.
+   * It works in a no-reset race and refuses where a tap does (a menu is up, spectating) and in Survival. In the lobby it is a tap: there is no damage worth keeping.
    */
   holdReset(id = this.self): void {
-    if (this.mayAsk(id)) this.session!.holdReset(id);
+    if (this.free) this.placeLobby(id);
+    else if (this.mayAsk(id)) this.session!.holdReset(id);
   }
 
   /** Start of a physics slice: every car's input from its controller slot. */
@@ -439,6 +500,17 @@ export class RaceDirector extends RaceWatch {
     const s = this.session;
     const brain = this.brain;
     const ground = this.track?.ground();
+    if (this.free && ground) {
+      for (let i = 0; i < cars.length; i++) {
+        const car = cars[i]!;
+        const p = car.group.position;
+        const surf = SURFACES[ground.surfaceAt(p.x, p.z, p.y)];
+        const own = i === this.self && this.host.seat.mode === "drive" && this.host.seat.carIndex === i;
+        const input = car.driverOut !== null ? this.coast : own ? this.host.seat.input(car, dt) : this.seats.has(i) ? this.remote[i]! : this.hold;
+        applyDrive(car, onSurface(input, surf, this.scratch), dt);
+      }
+      return;
+    }
     if (!s || !brain || !ground) {
       for (let i = 0; i < cars.length; i++) applyDrive(cars[i]!, this.hold, dt);
       return;

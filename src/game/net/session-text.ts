@@ -26,6 +26,14 @@ export function sessionText(status: NetStatus, seconds = true): string {
   if (problem) return problem;
   const players = status.peers.length + 1;
   const where = status.public ? (status.role === "host" ? "Hosting" : "Joined") : `Room ${status.room}`;
+  const gate = status.gate;
+  if (gate) {
+    const need = gate.min - gate.players;
+    const more = `${need} more${status.role === "host" && players === 1 ? (need === 1 ? " player" : " players") : ""}`;
+    if (need > 0) return status.role === "host" && players === 1 ? `Waiting for ${more}` : `${where} · ${players}/${ROOM_MAX} · waiting for ${more}`;
+    const lobby = status.lobby === null ? null : seconds ? `starts in ${status.lobby} s` : "in the lobby";
+    return `${where} · ${players}/${ROOM_MAX} · ${lobby ?? (status.role === "host" ? "ready to go" : "waiting for the host")}`;
+  }
   if (status.lobby === null) return `${where} · ${players}/${ROOM_MAX} · race on`;
   const start = seconds ? `starts in ${status.lobby} s` : "in the lobby";
   if (status.role === "host" && players === 1) return `Waiting for players · ${start}`;

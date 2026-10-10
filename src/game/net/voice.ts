@@ -33,6 +33,8 @@ interface VoiceWorld {
 /** One remote player as the voice panel shows it. */
 export interface VoicePeerStatus {
   id: string;
+  /** The player's cleaned name from the host's roster, "" until it says. */
+  name: string;
   /** The car the peer drives, −1 until the host's roster says. */
   car: number;
   /** This listener's own volume for the peer, 0-1, and its mute. */
@@ -66,6 +68,7 @@ interface PeerNodes {
 
 interface VoicePeer {
   id: string;
+  name: string;
   /** The car the host's roster seats the peer in; −1 until it says. */
   car: number;
   stream: MediaStream | null;
@@ -164,14 +167,20 @@ export class Voice {
 
   /** The host's roster: which car each other player drives. A listed player without a voice stream and no seat any more is forgotten. */
   setRoster(entries: readonly RosterEntry[]): void {
-    const seated = new Map<string, number>();
-    for (const entry of entries) seated.set(entry.peer, entry.car);
+    const seated = new Map<string, RosterEntry>();
+    for (const entry of entries) seated.set(entry.peer, entry);
     seated.delete(this.world.selfId());
     for (const peer of this.peers.values()) {
-      peer.car = seated.get(peer.id) ?? -1;
+      const entry = seated.get(peer.id);
+      peer.car = entry?.car ?? -1;
+      peer.name = entry?.name ?? peer.name;
       if (peer.car < 0 && !peer.stream) this.peers.delete(peer.id);
     }
-    for (const [id, car] of seated) this.peerOf(id).car = car;
+    for (const [id, entry] of seated) {
+      const peer = this.peerOf(id);
+      peer.car = entry.car;
+      peer.name = entry.name;
+    }
     this.publish();
   }
 
@@ -267,7 +276,7 @@ export class Voice {
   private peerOf(id: string): VoicePeer {
     let peer = this.peers.get(id);
     if (!peer) {
-      peer = { id, car: -1, stream: null, volume: 1, muted: false, sendOpen: false, speakingHold: 0, nodes: null };
+      peer = { id, name: "", car: -1, stream: null, volume: 1, muted: false, sendOpen: false, speakingHold: 0, nodes: null };
       this.peers.set(id, peer);
     }
     return peer;
@@ -417,6 +426,7 @@ export class Voice {
       speaking: (session?.selfHold ?? 0) > 0,
       peers: [...this.peers.values()].map((peer) => ({
         id: peer.id,
+        name: peer.name,
         car: peer.car,
         volume: peer.volume,
         muted: peer.muted,

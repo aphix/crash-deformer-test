@@ -101,6 +101,11 @@ const _c = new THREE.Vector3();
  */
 export abstract class RaceField {
   active = false;
+  /**
+   * The Havana lobby (`RaceDirector.showLobby`): the course is up with no session, no rules and no hunters; every car drives freely from a spawn
+   * on the course's start anchor until the host's game starts.
+   */
+  free = false;
   menu: RaceMenu = null;
   options: RaceOptions = { ...DEFAULT_RACE_OPTIONS };
   /** What a run reads: the user's `options`, or with a program (the bench, a weak public host) its rules laid over them; the user's own are never written. */
@@ -400,6 +405,27 @@ export abstract class RaceField {
   /** Whether car contact has knocked placed prop `i` off its spot. */
   propKnocked(i: number): boolean {
     return this.knocked[i] === 1;
+  }
+
+  /** Where car `k` stands in the lobby: abreast on the course's start anchor like a hosted Survival run's humans (a course without one: its grid). */
+  private lobbySlot(k: number): { x: number; z: number; yaw: number; y: number } {
+    const tr = this.track!;
+    return tr.survival ? { ...humanSlot(tr.survival.start, k), y: 0 } : tr.gridSlot(k);
+  }
+
+  /** Lobby: car `id` back at its spawn, repaired (`place` dresses it afresh), upright and at rest. */
+  protected placeLobby(id: number): void {
+    const car = this.host.live()[id];
+    if (!car || !this.track) return;
+    const slot = this.lobbySlot(id);
+    car.group.visible = true;
+    this.place(car, slot.x, slot.z, slot.yaw, slot.y);
+  }
+
+  /** Lobby: every car back at its spawn and every knocked prop back on its spot (the drawn ones go back with the scene's `clear`). */
+  protected lobbyScene(): void {
+    for (let i = 0; i < this.host.live().length; i++) this.placeLobby(i);
+    this.resetProps();
   }
 
   protected park(): void {

@@ -12,6 +12,7 @@ import {
   NET_VERSION,
   INPUT_HOLD,
   INPUT_RESPAWN,
+  INPUT_RESET,
   readInput,
   Reader,
   readRace,
@@ -23,7 +24,7 @@ import {
   Writer,
   type NetLayout,
   type Snapshot,
-  type DerbyNetState, readDerby, writeDerby, packEject,
+  type DerbyNetState, readDerby, writeDerby, packEject, type GameKind, type LobbyGate,
 } from "./codec.ts";
 import { NET_TX, PHASES, type NetGame, type NetRace, type NetRole, type NetStatus, type NetTx, type PublicKind } from "./net-ports.ts";
 import { cleanName } from "../match/types.ts";
@@ -39,9 +40,19 @@ import { Voice } from "./voice.ts";
 import { ROOM_MAX } from "../../lib/multiplayer/rooms.ts";
 import { fetchRooms, findMatch, matchStage, publicMeta, publicRoomName, WEAK_AI, WEAK_DERBY_FIELD, type MatchDeps } from "./matchmaking.ts";
 import {
+  DEFAULT_MIN_PLAYERS,
   HELLO_EVERY, HOLD_EVERY_MS, HOST_LOST_MS, HOST_WAIT_MS, INPUT_STALE_MS, INTERP_DELAY, KEYFRAME_EVERY, LOBBY_S, MAX_DEAD_ROOMS,
   PUBLIC_DERBY_FIELD, RACE_EVERY, RACE_GONE_MS, REDUNDANT, REFUSED, RESULTS_HOLD, RING, SEND_HZ, SLOT_GRACE_MS,
 } from "./net-constants.ts";
+
+/** The name a player who typed none carries (`RaceDirector.playerName`): the roster shows such a player as "Host" or "Player N" instead. */
+const DEFAULT_NAME = "You";
+
+/** A roster name as every peer's list shows it: the cleaned name, or `fallback` for a player who typed none. */
+function shownName(name: string, fallback: string): string {
+  const clean = cleanName(name);
+  return clean && clean !== DEFAULT_NAME ? clean : fallback;
+}
 
 /** Opens this peer's link to a room: `role` is the roster tag the relay knows it by. */
 type Connect = (tx: NetTx, room: string, id: string, role: "host" | "client", meta: () => string) => NetTransport;
@@ -158,6 +169,13 @@ export class NetPlay {
   private finishedFor = 0;
   /** Client: R was tapped or held (`INPUT_RESPAWN`, `INPUT_HOLD`); rides on the next input packet. */
   private resetWanted = 0;
+  /** Host: the Havana lobby is up (no game running yet). */
+  private lobbyOn = false;
+  /** Host: players the Go switch needs (`setMinPlayers`), and the game it starts in a private room (`setLobbyKind`; a public room's is its kind). */
+  private minPlayers = DEFAULT_MIN_PLAYERS;
+  private lobbyKind: GameKind = "race";
+  /** Client: the host's lobby gate as its last race message said; null while a game runs. */
+  private heardGate: LobbyGate | null = null;
   /**
    * Client: frame time (s) since the host's last race message, counted only while this client could hear
    * (frames ran, the host not merely paused), so a hidden tab or a throttled host never ends the race.
@@ -194,9 +212,11 @@ export class NetPlay {
     return m === undefined || m < 0 ? null : m;
   }
 
+  /** Host a room: from the first moment everyone waits in the Havana lobby (`openLobby`) until `go`. */
   host(room: string, tx: NetTx = NET_TX.bc): void {
     this.start("host", room, tx);
     this.car = 0;
+    this.openLobby();
   }
 
   join(room: string, tx: NetTx = NET_TX.bc): void {
@@ -256,38 +276,84 @@ export class NetPlay {
     this.publicKind = kind;
   }
 
-  /** Host a fresh public room: the lobby counts `LOBBY_S` down on the course or in the bowl, then the match starts; `weak` runs a smaller field. */
+  /** Host a fresh public room: the lobby waits for `minPlayers` and counts `LOBBY_S` down, then the match starts; `weak` runs a smaller field. */
   publicHost(kind: PublicKind, weak = !this.game.hostFit()): void {
     this.host(publicRoomName(kind, Math.random().toString(36).slice(2, 8).toUpperCase()), NET_TX.rtc);
     this.publicKind = kind;
     this.derbyField = weak ? WEAK_DERBY_FIELD : PUBLIC_DERBY_FIELD;
-    if (kind === "race") {
-      this.game.enterRace(false);
-      const race = this.game.race();
-      // The weak device's smaller field is the room's own rules; the player's options stay as they were.
-      if (weak && race) race.command({ type: "program", options: { aiCount: WEAK_AI } });
-      // No setup menu: the lobby picks nothing; the race starts on its own when the countdown ends.
-      race?.showLobby(race.options.trackId);
-    } else this.game.derbyLobby(this.derbyField);
+    // The weak device's smaller field is the room's own rules; the player's options stay as they were.
+    if (weak && kind === "race") this.game.race()?.command({ type: "program", options: { aiCount: WEAK_AI } });
     this.lobbyLeft = LOBBY_S;
+  }
+
+  /** Host: the Havana lobby opens (a new room, or a public match's results are over): every peer free-drives there until the game starts. */
+  private openLobby(): void {
+    this.lobbyOn = true;
+    this.game.enterRace(false, true);
     this.syncSeats();
   }
 
   /** A public host's heartbeat tag for the relay's room list (`publicMeta`); "" for a guest or a private room. */
   private metaNow(): string {
     const kind = this.publicKind;
-    const stage = this.role === "host" && kind ? matchStage(this.game, kind) : null;
+    if (this.role !== "host" || !kind) return "";
+    const stage = this.lobbyOn ? "lobby" : matchStage(this.game, kind);
     return stage ? publicMeta(stage, kind === "race" ? (this.game.race()?.options.trackId ?? "") : "") : "";
   }
 
-  /** Client: ask the host to put this peer's car back on the track (race R / D-pad down). */
-  requestRespawn(): void {
-    this.resetWanted |= INPUT_RESPAWN;
+  /** Whether the Go switch works: the host is waiting in the lobby with at least `minPlayers` players. */
+  canGo(): boolean {
+    return this.role === "host" && this.lobbyOn && this.slots.size + 1 >= this.minPlayers;
   }
 
-  /** Client: ask the host to put this peer's car back on the track now with its damage kept (race R held). */
+  /** Host: the Go switch. Starts the room's game (a race on the race options' course, Survival, or a derby) with everyone seated; false while `canGo` is not. */
+  go(): boolean {
+    if (!this.canGo()) return false;
+    this.startGame();
+    return true;
+  }
+
+  /** Host, lobby: how many players (host included) the Go switch waits for, 1 to `ROOM_MAX`. */
+  setMinPlayers(n: number): void {
+    if (this.role === "host" && this.lobbyOn) this.minPlayers = Math.min(ROOM_MAX, Math.max(1, Math.round(n) || 1));
+  }
+
+  /** Host, private lobby: the game Go starts. A public room's is the one its name says. */
+  setLobbyKind(kind: GameKind): void {
+    if (this.role === "host" && this.lobbyOn && !this.publicKind) this.lobbyKind = kind;
+  }
+
+  /** Host, lobby: every car back at its spawn and repaired, every prop and piece of debris back (replicated to the guests through `clearGen`). */
+  resetScene(): void {
+    if (this.role === "host" && this.lobbyOn) this.game.resetLobbyScene();
+  }
+
+  /** The lobby ends: every peer is seated and the game starts. */
+  private startGame(): void {
+    const kind = this.publicKind ?? this.lobbyKind;
+    this.lobbyOn = false;
+    this.lobbyLeft = null;
+    this.finishedFor = 0;
+    this.syncSeats();
+    if (kind === "race") this.game.startRace();
+    else if (kind === "survival") this.game.enterRace(true);
+    else this.game.startDerby(this.derbyField);
+  }
+
+  /** The lobby's start gate as the panel shows it (null outside the lobby): a client's is the host's, as its last race message said. */
+  private currentGate(): (LobbyGate & { players: number }) | null {
+    if (this.role === "host") return this.lobbyOn ? { min: this.minPlayers, kind: this.publicKind ?? this.lobbyKind, players: this.slots.size + 1 } : null;
+    return this.heardGate && { ...this.heardGate, players: (this.transport?.peers().length ?? 0) + 1 };
+  }
+
+  /** Client: ask the host to put this peer's car back on the track (race R / D-pad down), or at a lobby spawn. */
+  requestRespawn(): void {
+    this.resetWanted |= this.heardGate ? INPUT_RESET : INPUT_RESPAWN;
+  }
+
+  /** Client: ask the host to put this peer's car back on the track now with its damage kept (race R held); in the lobby the same as a tap. */
   requestHoldReset(): void {
-    this.resetWanted |= INPUT_HOLD;
+    this.resetWanted |= this.heardGate ? INPUT_RESET : INPUT_HOLD;
   }
 
   /** The player leaves, or the page closes: the session is over, so its dead rooms are forgotten. */
@@ -309,6 +375,7 @@ export class NetPlay {
       for (const car of this.slots.values()) race?.setRemoteInput(car, this.idle);
       race?.command({ type: "program", options: null });
       this.game.setSeats(new Map());
+      if (this.lobbyOn) this.game.exitRace();
     }
     this.setHidden(false);
     this.derbySilentFor = null;
@@ -335,6 +402,10 @@ export class NetPlay {
     this.bytesPerSec = 0;
     this.lobbyLeft = null;
     this.finishedFor = 0;
+    this.lobbyOn = false;
+    this.minPlayers = DEFAULT_MIN_PLAYERS;
+    this.lobbyKind = "race";
+    this.heardGate = null;
   }
 
   /**
@@ -367,6 +438,7 @@ export class NetPlay {
       selfId: this.transport?.selfId ?? "",
       car: this.car,
       lobby: this.lobbyLeft == null ? null : Math.max(0, Math.ceil(this.lobbyLeft)),
+      gate: this.currentGate(),
       peers: this.transport?.peers() ?? [],
       snapHz: this.snapHz,
       bytesPerSec: this.bytesPerSec,
@@ -481,6 +553,7 @@ export class NetPlay {
       this.hasInput[car] = true;
       this.inputAt[car] = now;
       const race = this.game.race();
+      if (this.lobbyOn && (ask & INPUT_RESET) !== 0) this.game.resetLobbyCar(car);
       if (race) {
         race.setRemoteInput(car, input);
         if ((ask & INPUT_RESPAWN) !== 0) race.requestRespawn(car);
@@ -499,8 +572,11 @@ export class NetPlay {
       for (const used = new Set(this.slots.values()); used.has(car); ) car++;
       this.slots.set(peer, car);
       this.hasInput[car] = false;
-      // A race or derby seats a new peer at its next start; only Fleet grows the field at once.
-      if (car >= this.game.cars().length && !this.game.race() && !this.game.derbyPhase()) this.game.setCarCount(car + 1);
+      // The lobby grows the field for a new peer at once, and puts its car on a spawn; a race or derby seats a new peer at its next start; so does Fleet.
+      if (this.lobbyOn) {
+        if (car >= this.game.cars().length) this.game.setCarCount(car + 1);
+        this.game.resetLobbyCar(car);
+      } else if (car >= this.game.cars().length && !this.game.race() && !this.game.derbyPhase()) this.game.setCarCount(car + 1);
       this.syncSeats();
       this.rosterDirty = true;
       this.keyframeDue = true;
@@ -519,8 +595,8 @@ export class NetPlay {
   /** Host: who drives which car goes to this host's own voice and, reliably, to every guest (`MSG.roster`): at once when a seat changes, and with every keyframe, since a guest's reliable channel can open after its seat is assigned. */
   private publishRoster(t: NetTransport): void {
     this.rosterDirty = false;
-    const entries = [{ peer: t.selfId, car: 0 }];
-    for (const [peer, car] of this.slots) entries.push({ peer, car });
+    const entries = [{ peer: t.selfId, car: 0, name: shownName(this.game.playerName(), "Host") }];
+    for (const [peer, car] of this.slots) entries.push({ peer, car, name: shownName(this.names.get(peer) ?? "", `Player ${car}`) });
     this.voice.setRoster(entries);
     t.send(packRoster(entries), undefined, true);
   }
@@ -616,34 +692,33 @@ export class NetPlay {
   }
 
   /**
-   * A public match on the host: the lobby counts down (`LOBBY_S`, sooner once the room is full),
-   * then the match starts with every peer seated and the AI in the empty slots; a finished match
-   * shows its result for `RESULTS_HOLD` s and the next one starts, seating whoever joined meanwhile.
+   * A public match on the host: the lobby waits for `minPlayers` players, then counts down (`LOBBY_S`, sooner once the room is full)
+   * and starts the match with every peer seated and the AI in the empty slots; the Go switch starts it early. A finished match shows its
+   * result for `RESULTS_HOLD` s, then everyone is back in the lobby.
    */
   private runPublic(kind: PublicKind, wallDt: number): void {
-    const stage = matchStage(this.game, kind);
-    if (stage === null || stage === "running") {
+    if (this.lobbyOn) {
+      // A room short of players holds its countdown at the full `LOBBY_S`.
+      this.lobbyLeft = this.slots.size + 1 < this.minPlayers ? LOBBY_S : (this.lobbyLeft ?? LOBBY_S) - wallDt;
+      if (this.lobbyLeft <= 0 || this.slots.size >= ROOM_MAX - 1) this.startGame();
+      return;
+    }
+    if (matchStage(this.game, kind) !== "over") {
       this.lobbyLeft = null;
       this.finishedFor = 0;
       return;
     }
-    if (stage === "lobby") {
-      this.lobbyLeft = (this.lobbyLeft ?? LOBBY_S) - wallDt;
-      if (this.lobbyLeft > 0 && this.slots.size < ROOM_MAX - 1) return;
-    } else {
-      this.finishedFor += wallDt;
-      if (this.finishedFor < RESULTS_HOLD) return;
-    }
-    this.lobbyLeft = null;
+    this.finishedFor += wallDt;
+    if (this.finishedFor < RESULTS_HOLD) return;
     this.finishedFor = 0;
-    this.syncSeats();
-    if (kind === "race") this.game.startRace();
-    else this.game.startDerby(this.derbyField);
+    this.lobbyLeft = LOBBY_S;
+    this.openLobby();
   }
 
-  /** The rules state (or, between races, the lobby countdown and course) to every client. */
+  /** The rules state (or, in the lobby, the course, countdown and start gate) to every client. */
   private sendRace(race: NetRace, t: NetTransport): void {
-    const msg = writeRace({ lobby: this.lobbyLeft, trackId: race.options.trackId, look: race.look, snap: race.snapshot() });
+    const gate = this.lobbyOn ? { min: this.minPlayers, kind: this.publicKind ?? this.lobbyKind } : null;
+    const msg = writeRace({ lobby: this.lobbyLeft, trackId: race.courseId, look: race.look, gate, snap: race.snapshot() });
     t.send(msg);
     this.statBytes += msg.length;
   }
@@ -715,6 +790,7 @@ export class NetPlay {
     this.transport?.send(packLook(car, this.game.playerLook()), from, true);
     this.game.wearLook(car, null);
     if (!this.game.race() && !this.game.derbyPhase()) this.game.seat.focus(car);
+    else this.game.race()?.seatLobby(car);
   }
 
   /**
@@ -753,14 +829,18 @@ export class NetPlay {
     const s = readRace(data);
     if (!s) return;
     this.lobbyLeft = s.lobby;
+    this.heardGate = s.gate;
     this.raceSilentFor = 0;
-    this.game.enterRace(s.snap?.survival != null);
+    this.game.enterRace(s.snap?.survival != null, s.gate !== null);
     const race = this.game.race();
     if (!race) return;
     race.look = s.look;
     try {
       if (s.snap) race.applySnapshot(s.snap, this.car);
-      else race.showLobby(s.trackId);
+      else {
+        race.showLobby(s.trackId);
+        if (this.car >= 0) race.seatLobby(this.car);
+      }
     } catch {
       // Malformed race state from the host: keep the last good one.
     }
@@ -776,6 +856,7 @@ export class NetPlay {
       return;
     }
     this.lobbyLeft = state.lobby;
+    this.heardGate = null;
     this.derbySilentFor = 0;
     this.game.applyDerby(state, this.car);
   }
@@ -829,6 +910,7 @@ export class NetPlay {
     if (this.game.race() && this.heardHost && this.raceSilentFor * 1000 > RACE_GONE_MS) {
       this.game.exitRace();
       this.lobbyLeft = null;
+      this.heardGate = null;
     }
     if (this.derbySilentFor !== null && this.derbySilentFor * 1000 > RACE_GONE_MS) {
       this.game.applyDerby(null, this.car);

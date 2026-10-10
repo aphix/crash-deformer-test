@@ -113,8 +113,8 @@ export abstract class EngineScenes extends EngineDerby {
    * presentation only; a pick mid-transition retargets it.
    */
   protected setScene(next: SceneId): void {
-    // A room refuses the single-player scenes; a public room, which runs the race or derby its name says, refuses Survival too (a private room's host may run it as a team).
-    if (this.net.client || (this.net.role !== "off" && (SOLO_SCENES[next] || (next === "survival" && this.net.status().public !== null)))) return;
+    // A room refuses the single-player scenes; a public room, which runs the race or derby its name says, refuses Survival too (a private room's host may run it as a team). A host in the lobby picks its game in the session panel, not here.
+    if (this.net.client || this.net.status().gate !== null || (this.net.role !== "off" && (SOLO_SCENES[next] || (next === "survival" && this.net.status().public !== null)))) return;
     if (next === (this.sceneFade.pending ?? this.sceneId)) next = "fleet";
     if (this.fadeScenes && !this.warming) {
       this.sceneFade.request(next);
@@ -312,7 +312,7 @@ export abstract class EngineScenes extends EngineDerby {
     else this.race.holdReset();
   }
 
-  protected setRace(on: boolean, survival = false): void {
+  protected setRace(on: boolean, survival = false, lobby = false): void {
     if (on === this.race.active) return;
     if (on) {
       if (this.derbyMode) this.setDerby(false);
@@ -335,7 +335,7 @@ export abstract class EngineScenes extends EngineDerby {
     if (on) {
       // The seats first: a Survival run starts at `enter`, with whoever is seated.
       this.race.setSeats(this.netSeats);
-      this.race.enter(survival);
+      this.race.enter(survival, lobby);
     } else {
       this.stopReel();
       this.sceneId = "fleet";

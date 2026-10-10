@@ -5,7 +5,7 @@ import type { CarStyleId } from "../vehicle/car-variants.ts";
 import type { RaceDirector } from "../engine/engine-race.ts";
 import type { CrashPhase } from "../match/phase.ts";
 import type { VehicleClassId } from "../vehicle/vehicle-classes.ts";
-import type { DerbyNetState } from "./codec.ts";
+import type { DerbyNetState, LobbyGate } from "./codec.ts";
 import type { Reel } from "../match/highlights.ts";
 import type { NetPeer } from "./transport.ts";
 import type { LookData } from "./look-codec.ts";
@@ -23,6 +23,8 @@ export type NetRace = Pick<
   | "snapshot"
   | "applySnapshot"
   | "showLobby"
+  | "courseId"
+  | "seatLobby"
   | "command"
 >;
 
@@ -49,8 +51,11 @@ export interface NetGame {
   mirrorClock(phase: CrashPhase, timeScale: number): void;
   /** Race mode's director, null outside race mode. */
   race(): NetRace | null;
-  /** Race mode on (Survival when `survival`) / off, and (host) start a race with the current seats. A race already on in the other kind is left for the asked one. */
-  enterRace(survival: boolean): void;
+  /**
+   * Race mode on (Survival when `survival`) / off, and (host) start a race with the current seats. A race already on in the other kind is left for the asked one.
+   * `lobby`: the Havana free-drive lobby (no setup menu, no rules, no hunters) instead of the setup menu.
+   */
+  enterRace(survival: boolean, lobby?: boolean): void;
   exitRace(): void;
   startRace(): void;
   /** Host: network peers' cars and names. A race seats them at its next start, a derby at its next match. */
@@ -70,6 +75,10 @@ export interface NetGame {
   /** Host: derby mode with a field of at least `field` cars parked and no match (a public lobby), or a fresh match. */
   derbyLobby(field: number): void;
   startDerby(field: number): void;
+  /** Host, lobby: car `i` put back at a Havana spawn, repaired and upright (a new peer's car included). */
+  resetLobbyCar(i: number): void;
+  /** Host, lobby: the whole scene reset (props, debris, every car back at its spawn, repaired). */
+  resetLobbyScene(): void;
   /** Client: car `i` vaporizes (the local smoke burst) or comes back, as the host's flag says (fleet disc edge). */
   setVaporized(i: number, on: boolean): void;
   /** Host: how many times the scene has been cleared (mod 128), sent with every snapshot. */
@@ -112,6 +121,8 @@ export interface NetStatus {
   car: number;
   /** Seconds until a public match starts (host lobby, mirrored to clients), null otherwise. */
   lobby: number | null;
+  /** The Havana lobby's start gate (players needed, players here, the game Go starts); null once a game runs or outside a lobby. */
+  gate: (LobbyGate & { players: number }) | null;
   peers: readonly NetPeer[];
   /** Snapshots per second sent (host) or taken (client) over the last second, and their payload. */
   snapHz: number;
