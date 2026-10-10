@@ -386,10 +386,12 @@ export class RaceDirector extends RaceWatch {
    */
   applySnapshot(snap: RaceSnapshot, self: number): void {
     const prev = this.session;
+    // A session of this browser's own (a guest that entered Survival on the host's say, or the lobby) has not been mirrored yet: the host's first snapshot seats it.
+    const own = !this.mirrored || this.free;
     this.free = false;
     this.lobbySeatedFor = -1;
     this.mirrored = true;
-    const fresh = !prev || prev.track.id !== snap.trackId || snap.time < prev.time;
+    const fresh = !prev || own || prev.track.id !== snap.trackId || snap.time < prev.time;
     const tr = this.load(snap.trackId);
     const entrants: Entrant[] = [];
     let seated = false;

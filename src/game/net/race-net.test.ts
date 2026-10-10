@@ -145,6 +145,24 @@ describe("given a hosted Survival run with the host and a peer Zed seated on car
   });
 });
 
+describe("given a hosted Survival run that has just begun with a peer Zed seated on car 1", () => {
+  it("when a client that started its own local Survival run adopts the host's first state a few frames in, then it is seated as car 1 and drives instead of spectating", (t) => {
+    t.after(() => setGround(null));
+    const host = makeWorld();
+    host.race.setSeats(new Map([[1, "Zed"]]));
+    host.race.enter(true);
+    const state = { acc: 0 };
+    for (let n = 0; n < 10; n++) frame(host, state);
+    assert.ok(host.race.time < 0, "the run has not turned green yet");
+    const client = survivalClientOf(host, 1);
+    assert.notEqual(client.race.hud().you, null, "car 1 is in the host's field");
+    assert.equal(client.seat.mode, "drive", "the client drives its car from the first state");
+    assert.equal(client.seat.carIndex, 1);
+    host.race.exit();
+    client.race.exit();
+  });
+});
+
 describe("given a hosted campaign with the host and a peer seated", () => {
   it("when a client adopts the host's state, then it shows the host's campaign table, round and tracks, and the standings screen follows the host's flag", (t) => {
     t.after(() => setGround(null));
