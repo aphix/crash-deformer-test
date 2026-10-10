@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { detCos, detSin, hypot2 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import { idleDrive, type DriveInput, type DriverSeat } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
@@ -634,12 +634,29 @@ export abstract class RaceField {
     };
   }
 
-  /** Spawn a car at (x, z) facing `yaw`, standing on the ground layer nearest `y`, dressed. */
-  private place(car: DeformableCar, x: number, z: number, yaw: number, y: number): void {
-    car.spawnFacing(x, z, yaw, 0);
+  /** Spawn a car at (x, z) facing `yaw` (moving `speed` m/s that way), standing on the ground layer nearest `y`, dressed. */
+  private place(car: DeformableCar, x: number, z: number, yaw: number, y: number, speed = 0): void {
+    car.spawnFacing(x, z, yaw, speed);
     car.group.position.y = this.track ? this.track.ground().heightAt(x, z, y + 0.5) : 0;
     if (this.track) layOnGround(car);
     this.host.dress(car);
+  }
+
+  /**
+   * The bench's scripted crash (`engine-bench.ts`): the first two cars of the grid put head-on on the start line, `gap` m apart (centre to
+   * centre) and each driving at `speed` m/s toward the other, whichever course it is. False when there is no course or fewer than two cars on the grid.
+   */
+  crashAtStart(gap: number, speed: number): boolean {
+    const track = this.track;
+    const cars = this.host.live();
+    if (!track || this.grid.length < 2) return false;
+    const a = cars[this.grid[0]!];
+    const b = cars[this.grid[1]!];
+    if (!a || !b) return false;
+    const s = track.gridSlot(0);
+    this.place(a, s.x, s.z, s.yaw, s.y, speed);
+    this.place(b, s.x + detSin(s.yaw) * gap, s.z + detCos(s.yaw) * gap, s.yaw + Math.PI, s.y, speed);
+    return true;
   }
 
   /** The scratch a held reset captures a car's damage into (`placeKeeping`): one layout for every car. */

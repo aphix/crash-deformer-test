@@ -11,7 +11,10 @@ import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { benchPlan, leaderAhead, type BenchPlan } from "./engine-bench-plan.ts";
 import { watchPage } from "./engine-bench-page.ts";
 import { warmUp } from "./engine-bench-warm.ts";
-import { browserName, describeBench, DETAIL_ARMS, perSecond, PHASE_AB_DETAIL, PHASE_AB_FX, PHASE_AB_PACE, PHASE_WARM, PHASE_WINDOW, stat, type BenchResult, type BenchSettings, type Block } from "./engine-bench-report.ts";
+import { browserName, describeBench, DETAIL_ARMS, perSecond, PHASE_AB_DETAIL, PHASE_AB_FX, PHASE_AB_PACE, PHASE_REPLAY, PHASE_WARM, PHASE_WINDOW, stat, type BenchResult, type BenchSettings, type Block, type RagdollCost, type ReplayResult } from "./engine-bench-report.ts";
+import { CLIP_WAIT_S, CRASH_GAP, CRASH_SPEED, ragdollCost, REPLAY_SETTLE_S, REPLAY_TIER_S, replayTier, START_WAIT_S, type ReplayFrames } from "./engine-bench-replay.ts";
+import type { HighlightClip } from "../match/highlights.ts";
+import type { RagdollSystem } from "../present/engine-ragdoll.ts";
 import type { LabPresetId } from "../scenes/lab.ts";
 import type { RaceDirector } from "./engine-race.ts";
 import type { SimPacer } from "./sim-pace.ts";
@@ -40,7 +43,7 @@ export interface BenchParts {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   sun: THREE.DirectionalLight;
-  race: Pick<RaceDirector, "phase" | "time" | "reseed" | "policeStats" | "loadBenchCourse">;
+  race: Pick<RaceDirector, "phase" | "time" | "reseed" | "policeStats" | "loadBenchCourse" | "crashAtStart" | "recorder">;
   seat: DriverSeat;
   live(): readonly DeformableCar[];
   /** The distance detail (`present/car-detail.ts`) and the rung its governor holds: the bench pins rungs for its A/B and puts the governor's back. */
@@ -48,6 +51,8 @@ export interface BenchParts {
   governor: Pick<DetailGovernor, "level">;
   /** The live world: the steps it cut to fine slices for a hit about to land. */
   world: Pick<World, "fineCuts">;
+  /** The cosmetic Rapier world (the thrown drivers' and knocked props'): its step cost is its own row, not part of the engine's cpu. */
+  ragdoll: Pick<RagdollSystem, "stats">;
 }
 
 /** What `runBench` drives: the real engine, by its public face. */
@@ -74,6 +79,10 @@ interface BenchEngine {
   benchParts(): BenchParts;
   /** Every non-police car wears `style` (null: the fleet's mix). */
   useOneBody(style: CarStyleId | null): void;
+  /** The run's crash as the reel plays it from this frame on (the clip's size on the wire), and the end of that reel; the reel's sim step ms since the last read. */
+  playBenchReel(clip: HighlightClip): Promise<number>;
+  stopBenchReel(): void;
+  takeReelStepMs(): number;
 }
 
 // ponytail: executor form, the project's TS lib predates Promise.withResolvers.
@@ -403,6 +412,8 @@ interface Window {
   fineCuts: number;
   clockS: number;
   thrown: number;
+  /** The cosmetic Rapier world's `world.step()` cost over the window. */
+  ragdoll: RagdollCost;
 }
 
 /** Counts one frame in `slot`; a slot joins `order` the first time it is counted, so the shares come out in the order first seen. Returns the slots seen so far. */
@@ -440,6 +451,7 @@ async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat
   const fine0 = parts.world.fineCuts;
   const clock0 = t.simS;
   const thrown0 = beat.lab?.throws ?? 0;
+  const ragdoll0 = parts.ragdoll.stats.steps;
   let wall = 0;
   let shownSecond = NaN;
   t.timing = true;
@@ -466,7 +478,7 @@ async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat
     ui.set(`CRUSH BENCH: measuring ${second} / ${BENCH.measureS} s`);
   }
   t.timing = false;
-  return { s, w: { wallS: wall, lostSimS: pace.lost - lost0, cutFrames: pace.cut - cut0, fineCuts: parts.world.fineCuts - fine0, clockS: t.simS - clock0, thrown: (beat.lab?.throws ?? 0) - thrown0 } };
+  return { s, w: { wallS: wall, lostSimS: pace.lost - lost0, cutFrames: pace.cut - cut0, fineCuts: parts.world.fineCuts - fine0, clockS: t.simS - clock0, thrown: (beat.lab?.throws ?? 0) - thrown0, ragdoll: ragdollCost(parts.ragdoll.stats, ragdoll0) } };
 }
 
 /** Sums over the frames of one arm (all its blocks). */
@@ -622,7 +634,7 @@ function sharesOf(counts: Float64Array, order: Uint8Array, seen: number, frames:
   return shares;
 }
 
-function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gpu: Float64Array, setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "labThrown" | "settings" | "abPace" | "abFx" | "abDetail" | "device" | "pageEvents"> {
+function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "labThrown" | "settings" | "abPace" | "abFx" | "abDetail" | "device" | "pageEvents" | "gpuMs" | "replay" | "replayWhy"> {
   const { race } = parts;
   const { n, iv } = s;
   const third = Math.floor(n / 3);
@@ -657,7 +669,6 @@ function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gp
     cpuMs: stat(s.cpu, n),
     simMs,
     renderMs: stat(s.draw, n),
-    gpuMs: gpu.length ? stat(gpu) : null,
     stepsPerFrame: n ? stepSum / n : 0,
     msPerStep: stepSum ? simSum / stepSum : 0,
     simMsPerSimS: w.clockS ? simSum / w.clockS : 0,
@@ -671,6 +682,7 @@ function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gp
     tierPct: sharesOf(s.tierCounts, s.tierOrder, s.tiersSeen, n, (slot) => FX_TIERS[slot]!),
     detailPct: sharesOf(s.levelCounts, s.levelOrder, s.levelsSeen, n, (slot) => rungKey(slot - 1)),
     setupMs,
+    ragdoll: w.ragdoll,
   };
 }
 
@@ -728,6 +740,97 @@ function topTier(s: Samples, fallback: FxTier): FxTier {
     }
   }
   return top;
+}
+
+/** Frames of a wait: one `frame` each, with no samples, until `done` or `limitS` wall seconds. True when `done` came first. */
+async function waitFor(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, limitS: number, done: () => boolean): Promise<boolean> {
+  t.timing = false;
+  for (let wall = 0; !done(); wall += beat.frame[FRAME_DT]!) {
+    if (wall >= limitS) return false;
+    await frame(engine, parts.renderer, t, beat);
+  }
+  return true;
+}
+
+/**
+ * The run's own crash (docs/PERF_BENCH.md): the race starts over (its recorder with it), and once it is green the first two cars of the
+ * grid are put head-on on the start line (`RaceField.crashAtStart`); the recorder files the crash as a highlight. The clip, or why there is none.
+ */
+async function recordCrash(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, ui: { set(text: string): void }): Promise<HighlightClip | string> {
+  const { race } = parts;
+  ui.set("CRUSH BENCH: crash at the start line");
+  race.reseed(BENCH.seed);
+  engine.raceCommand({ type: "retry" });
+  if (!(await waitFor(engine, parts, t, beat, START_WAIT_S, () => race.phase === "racing"))) return "the restarted race did not go green";
+  if (!race.crashAtStart(CRASH_GAP, CRASH_SPEED)) return "fewer than two cars on the grid";
+  const kept = race.recorder.ledger.kept;
+  if (!(await waitFor(engine, parts, t, beat, CLIP_WAIT_S, () => kept.length > 0))) return "the crash was not filed as a highlight";
+  return kept[0]!;
+}
+
+/** One FX tier's replay before the GPU timer results land: its frames, the timer-query block they belong to, and the ragdoll world's cost during them. */
+interface ReplayArm {
+  tier: FxTier;
+  frames: ReplayFrames;
+  block: number;
+  ragdoll: RagdollCost;
+}
+
+/**
+ * `clip` played back as the highlight reel at each of `tiers` in turn (a restart at each: the same flight and crash every time):
+ * `REPLAY_SETTLE_S` unscored (the replay's world is built on its first frames), then `REPLAY_TIER_S` scored. The reel's own sim steps are its
+ * `sim` (the engine's pacer does not run while a reel plays).
+ */
+async function replayTiers(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, ui: { set(text: string): void }, clip: HighlightClip, tiers: readonly FxTier[]): Promise<{ bytes: number; arms: ReplayArm[] }> {
+  const arms: ReplayArm[] = [];
+  let bytes = 0;
+  for (const tier of tiers) {
+    ui.set(`CRUSH BENCH: replaying the crash at ${tier}`);
+    engine.setFxTier(tier);
+    bytes = await engine.playBenchReel(clip);
+    await waitFor(engine, parts, t, beat, REPLAY_SETTLE_S, () => false);
+    engine.takeReelStepMs();
+    const frames: ReplayFrames = { n: 0, iv: new Float64Array(CAP), cpu: new Float64Array(CAP), sim: new Float64Array(CAP), draw: new Float64Array(CAP) };
+    const ragdoll0 = parts.ragdoll.stats.steps;
+    t.timing = true;
+    t.block = ++t.blocks;
+    const block = t.block;
+    for (let wall = 0; wall < REPLAY_TIER_S && frames.n < CAP; ) {
+      await frame(engine, parts.renderer, t, beat);
+      const i = frames.n++;
+      wall += beat.frame[FRAME_DT]!;
+      frames.iv[i] = beat.frame[FRAME_DT]! * 1000;
+      frames.cpu[i] = beat.frame[FRAME_CPU]!;
+      frames.sim[i] = engine.takeReelStepMs();
+      frames.draw[i] = beat.frame[FRAME_DRAW]!;
+    }
+    t.timing = false;
+    arms.push({ tier, frames, block, ragdoll: ragdollCost(parts.ragdoll.stats, ragdoll0) });
+  }
+  engine.stopBenchReel();
+  return { bytes, arms };
+}
+
+/** The mean of the GPU timer-query results (ms) of one block, null when the device gave none. */
+function gpuMeanOf(gpu: GpuLog, block: number): number | null {
+  let sum = 0;
+  let count = 0;
+  for (let i = 0; i < gpu.n; i++) {
+    if (gpu.block[i] !== block) continue;
+    sum += gpu.ms[i]!;
+    count++;
+  }
+  return count ? sum / count : null;
+}
+
+/** The replay's card entry: the clip's size, cars and throws, and each tier's row with its GPU time. */
+function replayResult(run: { bytes: number; arms: readonly ReplayArm[]; clip: HighlightClip }, gpu: GpuLog): ReplayResult {
+  const { clip } = run;
+  return {
+    tierS: REPLAY_TIER_S,
+    clip: { bytes: run.bytes, cars: clip.cars.length, ejections: clip.ejections.length, steps: clip.h.length },
+    tiers: Object.fromEntries(run.arms.map((a) => [a.tier, replayTier(a.frames, gpuMeanOf(gpu, a.block), a.ragdoll)])),
+  };
 }
 
 /**
@@ -797,6 +900,23 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   page.phase(PHASE_AB_FX);
   const fxTiers: FxTier[] = plan.ultra ? ["minimal", "low", "high", "ultra"] : ["minimal", "low", "high"];
   const fx = await alternate(engine, parts, t, beat, ui, SETTING_KEY.fx, fxTiers.map((tier) => ({ key: tier, set: () => engine.setFxTier(tier) })), BENCH.fxCycles);
+  // What the run was like at its end is read now: the replay starts the race over.
+  const leaderEndM = leaderAhead(parts, plan);
+  const summary = summarize(parts, plan, s, w, setupMs);
+  page.phase(PHASE_REPLAY);
+  let replayRun: { bytes: number; arms: ReplayArm[]; clip: HighlightClip } | null = null;
+  let replayWhy: string | null = null;
+  if (plan.lab) replayWhy = "the Lab has no race to crash";
+  else {
+    try {
+      const clip = await recordCrash(engine, parts, t, beat, ui);
+      if (typeof clip === "string") replayWhy = clip;
+      else replayRun = { ...(await replayTiers(engine, parts, t, beat, ui, clip, fxTiers)), clip };
+    } catch (err) {
+      engine.stopBenchReel();
+      replayWhy = err instanceof Error ? err.message : String(err);
+    }
+  }
   const pageEvents = page.stop();
   engine.setFxAuto();
   if (plan.lab) engine.setTimeScale(null);
@@ -805,10 +925,14 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   const abPace = blocksOf(pace, gpu);
   const abFx = blocksOf(fx, gpu);
   const device = await deviceOf(parts, timerStepMs);
+  const windowGpu = windowGpuMs(gpu);
   const result: BenchResult = {
-    ...summarize(parts, plan, s, w, windowGpuMs(gpu), setupMs),
+    ...summary,
+    gpuMs: windowGpu.length ? stat(windowGpu) : null,
+    replay: replayRun && replayResult(replayRun, gpu),
+    replayWhy,
     pageEvents,
-    strip: plan.strip ? { spec: plan.strip, body: plan.body, racers: plan.racers, leaderWindowM, leaderEndM: leaderAhead(parts, plan) } : null,
+    strip: plan.strip ? { spec: plan.strip, body: plan.body, racers: plan.racers, leaderWindowM, leaderEndM } : null,
     labThrown: plan.lab ? w.thrown : null,
     settings,
     abPace: { fine: abPace["fine"]!, coarse: abPace["coarse"]! },

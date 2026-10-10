@@ -582,14 +582,14 @@ export class ReelDirector {
     // Each shot is framed from the car as drawn at the shot's own clip time: every peer picks the same.
     while (this.shot + 1 < shots.length && shots[this.shot + 1]!.at <= target) {
       const next = shots[this.shot + 1]!;
-      sim.advanceTo(next.at, deadline);
+      this.advance(sim, next.at, deadline);
       this.launch(p);
       if (!sim.done && sim.time < next.at - 1e-9) return 0;
       sim.present(next.at);
       this.shot++;
       this.frameShot(p, next);
     }
-    sim.advanceTo(target, deadline);
+    this.advance(sim, target, deadline);
     this.launch(p);
     sim.present(target);
     const shownTo = Math.min(target, sim.time);
@@ -602,6 +602,22 @@ export class ReelDirector {
       this.host.hit(hit.contact, hit.normal, hit.impulse);
     }
     return shown;
+  }
+
+  /** Wall ms the clips' sim steps cost (`ClipSim.advanceTo`) since `takeStepMs` last read it: the bench's replay `sim` row (the engine's own `pace.run` does not run while a reel plays). */
+  private stepMs = 0;
+
+  private advance(sim: ClipSim, to: number, deadline: number): void {
+    const t0 = performance.now();
+    sim.advanceTo(to, deadline);
+    this.stepMs += performance.now() - t0;
+  }
+
+  /** The sim step ms since the last call, and zero. */
+  takeStepMs(): number {
+    const ms = this.stepMs;
+    this.stepMs = 0;
+    return ms;
   }
 
   /**

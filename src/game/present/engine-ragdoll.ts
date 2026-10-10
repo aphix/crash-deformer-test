@@ -229,6 +229,17 @@ export const HIT_DV = 4;
 /** His torso centre this near (m) the ground: he has touched down (lying, it rests at 0.1–0.3 m; thrown, it is over 0.5 m). */
 export const GROUND_REACH = 0.45;
 
+/** `world.step()` timings kept (the newest): a 30 s window steps the world at most a few thousand times. */
+const STEP_LOG = 8192;
+
+/** The cosmetic world's cost so far: `world.step()` calls, the ring of their wall ms (the call `n` is at `log[n % log.length]`), the world's size. */
+export interface RagdollStats {
+  steps: number;
+  log: Float64Array;
+  colliders: number;
+  bodies: number;
+}
+
 export class RagdollSystem {
   /** The sandbox's lamp posts: the standing ones are fixed colliders in the run's statics (set by the engine). */
   poles: readonly Pole[] = [];
@@ -255,6 +266,13 @@ export class RagdollSystem {
   private readonly onExit: (at: THREE.Vector3, frame: THREE.Quaternion, inherit: THREE.Vector3) => void;
   private R: Rapier | null = null;
   private world: World | null = null;
+  /** `world.step()` calls so far and the wall ms of the latest `STEP_LOG` of them (`stats`): what the bench reads, nothing else does. */
+  private steps = 0;
+  private readonly stepMs = new Float64Array(STEP_LOG);
+  /** The Rapier world's cost so far (`RagdollStats`): steps run, their ms ring, and how many colliders and bodies the world holds. */
+  get stats(): RagdollStats {
+    return { steps: this.steps, log: this.stepMs, colliders: this.world?.colliders.len() ?? 0, bodies: this.world?.bodies.len() ?? 0 };
+  }
   private readonly dolls: Doll[] = [];
   private readonly carBodies: RigidBody[] = [];
   /** Each car's lower box for the props' squeeze as last fitted, `CAR_BOX` floats (`PropBodies.press`): centre height and forward offset, half extents. */
@@ -471,7 +489,9 @@ export class RagdollSystem {
       if (j === steps) this.purses?.capture(false);
       if (j === steps) this.props.capture(false);
       this.glassTouch();
+      const stepAt = performance.now();
       world.step();
+      this.stepMs[this.steps++ % STEP_LOG] = performance.now() - stepAt;
       if (++this.tick % WATCH_EVERY !== 0) continue;
       this.purses?.advance(WATCH_EVERY * STEP);
       for (let s = 0; s < SLOTS; s++) {

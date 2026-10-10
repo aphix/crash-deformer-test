@@ -91,6 +91,27 @@ export abstract class EngineReel extends EngineInput {
     this.cine.direct(this.camera, 0, false);
   }
 
+  /**
+   * The bench's replay (docs/PERF_BENCH.md): `clip` played as the highlight reel from this frame on, as the results reel plays it (the
+   * same pack and unpack every peer's reel takes). Returns the clip's size on the wire; a restart each call.
+   */
+  async playBenchReel(clip: HighlightClip): Promise<number> {
+    const msg = await packReel({ seed: 1, clips: [clip] }, 0);
+    const got = await unpackReel(msg, carLayout(this.cars[0]!));
+    this.highlights.play(got.reel, performance.now() / 1000);
+    return msg.length;
+  }
+
+  /** The bench's replay over: the cars and the crash clock as the race had them. */
+  stopBenchReel(): void {
+    this.stopReel();
+  }
+
+  /** The reel's sim step ms since the last read (`ReelDirector.takeStepMs`). */
+  takeReelStepMs(): number {
+    return this.highlights.takeStepMs();
+  }
+
   /** Setup menu: a saved highlight alone, on its course and its cars' looks; the setup field comes back after. */
   private async playSaved(key: string): Promise<void> {
     const text = loadSaved(key);

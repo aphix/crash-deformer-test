@@ -33,9 +33,15 @@ describe("given one cycle of the benchmark loop", () => {
     assert.equal(benchPlan("?bench=city&course=../../etc")?.id, "city");
   });
 
-  it("when Ultra is included, then every step is followed by its Ultra twin if this build has Ultra, and the cycle is unchanged if it has not", () => {
-    const ids = cycleOf(true).map((s) => s.id).join(" ");
-    assert.equal(ids, ULTRA_AVAILABLE ? "strip strip+ultra city city+ultra dam-spine dam-spine+ultra" : "strip city dam-spine");
+  it("when Ultra is included, then the cycle has the same three steps and no twin: each step's page runs its Ultra arm if this build has Ultra", () => {
+    const steps = cycleOf(true);
+    assert.equal(steps.map((s) => s.id).join(" "), "strip city dam-spine");
+    assert.ok(!steps.some((s) => s.id.includes("+")), "no twin step");
+    for (const s of steps) assert.equal(benchPlan(`?${s.query}`)!.ultra, ULTRA_AVAILABLE, s.id);
+  });
+
+  it("when Ultra is not included, then no step's page runs an Ultra arm", () => {
+    for (const s of cycleOf(false)) assert.equal(benchPlan(`?${s.query}`)!.ultra, false, s.id);
   });
 });
 
@@ -80,24 +86,21 @@ describe("given a loop whose state is in the address of its bench page", () => {
   const base = "https://game.test/crush/";
   const searchOf = (href: string): string => new URL(href).search;
 
-  it("when the address's loopultra is turned on during a cycle, then that cycle runs its benches unchanged and the next cycle runs each with its Ultra twin", { skip: !ULTRA_AVAILABLE && "this build has no Ultra" }, () => {
-    const ids: string[] = [];
+  it("when the address's loopultra is turned on during a cycle, then that cycle's benches run unchanged and the next cycle's benches each run their Ultra arm, as the same three steps", { skip: !ULTRA_AVAILABLE && "this build has no Ultra" }, () => {
+    const ran: string[] = [];
     let href = stepHref(base, { ...RUN, keep: true });
     for (let run = parseRun(searchOf(href)); run !== null && run.loop <= 2; run = parseRun(searchOf(href))) {
-      ids.push(`${run.loop} ${stepOf(run).id}`);
+      ran.push(`${run.loop} ${stepOf(run).id} ${benchPlan(`?${stepOf(run).query}`)!.ultra ? "ultra" : "plain"}`);
       const next = advance(run);
       if (next === null) break;
       href = stepHref(base, next);
-      if (ids.length === 1) {
+      if (ran.length === 1) {
         const edited = new URL(href);
         edited.searchParams.set("loopultra", "1");
         href = edited.toString();
       }
     }
-    assert.equal(
-      ids.join(" | "),
-      "1 strip | 1 city | 1 dam-spine | 2 strip | 2 strip+ultra | 2 city | 2 city+ultra | 2 dam-spine | 2 dam-spine+ultra",
-    );
+    assert.equal(ran.join(" | "), "1 strip plain | 1 city plain | 1 dam-spine plain | 2 strip ultra | 2 city ultra | 2 dam-spine ultra");
   });
 
   it("when a loop starts from a custom strip address (len, cars, props), then every strip step of every cycle builds the same strip", () => {
@@ -147,7 +150,7 @@ describe("given a loop whose state is in the address of its bench page", () => {
       it: "every option is on",
       from: base,
       run: { ...RUN, loop: 3, step: 0, keep: true, auto: true, ultra: true, ultraNext: true },
-      expected: `${base}?bench=strip&loop=k3x9q2&cycle=3&step=0&keep=1&auto=1&loopultra=1&cycleultra=1`,
+      expected: `${base}?bench=strip${ULTRA_AVAILABLE ? "&ultra=1" : ""}&loop=k3x9q2&cycle=3&step=0&keep=1&auto=1&loopultra=1&cycleultra=1`,
     },
   ];
   for (const testCase of hrefCases) {
@@ -203,6 +206,13 @@ describe("given a bench page opened by its address alone, with no loop in it", (
       assert.equal(runFromPage(search, "k3x9q2"), null);
     });
   }
+  it("when the page is a strip without ultra=1 and Ultra is on in the loop, then it is the strip step all the same (the arm is the page's own choice) and the steps after it run their Ultra arm", () => {
+    const run = runFromPage("?bench=strip", "k3x9q2");
+    assert.ok(run !== null);
+    assert.equal(stepOf(run).id, "strip");
+    assert.equal(benchPlan("?bench=strip")!.ultra, false, "this page runs no Ultra arm");
+    assert.equal(benchPlan(`?${stepOf(advance(run)!).query}`)!.ultra, ULTRA_AVAILABLE, "the next step's page does");
+  });
   it("when the page is the strip with keep, auto and loopultra turned off, then the loop it starts has them off and the address it rewrites keeps them off", () => {
     const run = runFromPage("?bench=strip&keep=0&auto=0&loopultra=0", "k3x9q2");
     assert.ok(run !== null);

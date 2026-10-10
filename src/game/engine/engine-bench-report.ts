@@ -5,7 +5,7 @@ import { labLine, stripLines, type StripResult } from "./engine-bench-plan.ts";
 /** The detail A/B's arms: no cuts at all, then the ladder's rungs for 75, 50 and 30 m (`DETAIL_LEVELS`). */
 export const DETAIL_ARMS: readonly { key: string; level: number | null }[] = [{ key: "off", level: null }, { key: "75 m", level: 0 }, { key: "50 m", level: 2 }, { key: "30 m", level: 4 }];
 
-interface Stat {
+export interface Stat {
   mean: number;
   p50: number;
   p95: number;
@@ -58,13 +58,59 @@ export interface BenchSettings {
   depth: { bits: number; subpixelBits: number; contextDepth: boolean; fragmentHighFloat: { precision: number; rangeMin: number; rangeMax: number } | null; near: number; far: number; logarithmicDepthBuffer: boolean; probe: DepthProbe };
 }
 
-/** The stretches of a run in order: the grid and warm-up, the sampled window, then the three A/Bs (`PAGE_PHASES[PHASE_WARM]` ...). */
-export const PAGE_PHASES = ["warm", "window", "ab-pace", "ab-detail", "ab-fx"] as const;
+/** The stretches of a run in order: the grid and warm-up, the sampled window, the three A/Bs, then the replay of the run's own crash (`PAGE_PHASES[PHASE_WARM]` ...). */
+export const PAGE_PHASES = ["warm", "window", "ab-pace", "ab-detail", "ab-fx", "replay"] as const;
 export const PHASE_WARM = 0;
 export const PHASE_WINDOW = 1;
 export const PHASE_AB_PACE = 2;
 export const PHASE_AB_DETAIL = 3;
 export const PHASE_AB_FX = 4;
+export const PHASE_REPLAY = 5;
+
+/** Mean and 95th percentile of one reading (ms). */
+export interface Pair {
+  mean: number;
+  p95: number;
+}
+
+/**
+ * The cosmetic Rapier world's cost over a stretch of frames (`RagdollSystem.stats`): `world.step()` calls, their ms, and the world's size
+ * at the end of it. `steps` 0 is a world with nothing to move (no dummy thrown, no prop knocked): its steps cost nothing.
+ */
+export interface RagdollCost {
+  steps: number;
+  stepMs: Pair;
+  colliders: number;
+  bodies: number;
+}
+
+/** One FX tier's stretch of the replay: the frames the reel drew at it, and what they cost. */
+export interface ReplayTier {
+  frames: number;
+  wallS: number;
+  fps: number;
+  /** 1000 / the 99th-percentile frame interval. */
+  fpsLow1: number;
+  frameMs: Pair;
+  cpuMs: Pair;
+  simMs: Pair;
+  renderMs: Pair;
+  /** Mean draw time on the GPU (timer query), null where the device has none. */
+  gpuMs: number | null;
+  ragdoll: RagdollCost;
+}
+
+/**
+ * The run's own crash played back as a highlight reel (docs/PERF_BENCH.md): the clip this run recorded of two racers put head-on at the
+ * start line, replayed `tierS` wall seconds at each FX tier in turn.
+ */
+export interface ReplayResult {
+  /** Wall seconds measured at each tier (after a settle). */
+  tierS: number;
+  /** The clip: its size on the wire (bytes, deflated), the cars it carries, the drivers thrown in it, and its recorded length (steps). */
+  clip: { bytes: number; cars: number; ejections: number; steps: number };
+  tiers: Record<string, ReplayTier>;
+}
 
 /** The page's state `atS` seconds into `phase` (`BenchResult.pageEvents`). */
 export interface PageEvent {
@@ -128,7 +174,7 @@ export interface BenchResult {
   detailPct: Record<string, number>;
   setupMs: { options: number; start: number };
   /**
-   * The page's state over the run, from the warm-up to the end of the A/B arms: one entry as each phase begins and one at every change
+   * The page's state over the run, from the warm-up to the end of the replay: one entry as each phase begins and one at every change
    * (`atS`: seconds into that entry's phase): shown on screen (not a background tab), the window focused, fullscreen. A hidden or
    * unfocused page is throttled by the browser, so frames in those spans are not the device's speed.
    */
@@ -139,6 +185,11 @@ export interface BenchResult {
   abFx: { minimal: Block; low: Block; high: Block; ultra?: Block };
   /** The distance detail pinned: no cuts, then the rungs for 75, 50 and 30 m (the governor off, the FX tier held). */
   abDetail: Record<string, Block>;
+  /** The cosmetic Rapier world (the thrown drivers' and knocked props'): `world.step()` over the sampled window, and the world's size. */
+  ragdoll: RagdollCost;
+  /** The run's own crash replayed as a highlight at each FX tier (null: no clip, `replayWhy` says why). */
+  replay: ReplayResult | null;
+  replayWhy: string | null;
   device: {
     browser: string;
     userAgent: string;
@@ -212,6 +263,18 @@ const row = (label: string, s: Stat): string => `${label.padEnd(10)}p50 ${f1(s.p
 const waited = (gpu: Stat, frame: Stat): boolean => gpu.p95 >= 0.85 * frame.p50 && gpu.p95 <= 1.15 * frame.p50;
 const gpuOf = (b: Block): string => (b.gpuMs === null ? "gpu n/a" : `gpu ${f1(b.gpuMs)}`);
 const arm = (label: string, b: Block): string => `${label} ${f1(b.fps)} fps, sim ${Math.round(b.simSpeedPct)} %, ${Math.round(b.simMsPerSimS)} ms/sim-s, cpu ${f1(b.cpuMs)}, draw ${f1(b.drawMs)}, ${gpuOf(b)}, ${Math.round(b.calls)} calls`;
+const pair = (p: Pair): string => `${f1(p.mean)}/${f1(p.p95)}`;
+const ragdollLine = (g: RagdollCost): string => `ragdoll world: ${g.steps} steps, step ${g.stepMs.mean.toFixed(2)} ms mean / ${g.stepMs.p95.toFixed(2)} p95, ${g.colliders} colliders, ${g.bodies} bodies`;
+/** The replay's lines: the clip and a row per FX tier (mean/p95 ms), or why there is none. */
+const replayLines = (r: ReplayResult | null, why: string | null): string[] =>
+  r === null
+    ? [`replay: none (${why ?? "no reason given"})`]
+    : [
+        `replay of this run's crash: ${r.clip.cars} cars, ${r.clip.ejections} thrown, ${Math.round(r.clip.bytes / 1024)} KB clip, ${r.tierS} s per tier (mean/p95 ms)`,
+        ...Object.entries(r.tiers).map(
+          ([tier, t]) => `  ${tier.padEnd(8)}${f1(t.fps)} fps, 1% low ${f1(t.fpsLow1)}, frame ${pair(t.frameMs)}, cpu ${pair(t.cpuMs)}, sim ${pair(t.simMs)}, draw ${pair(t.renderMs)}, ${t.gpuMs === null ? "gpu n/a" : `gpu ${f1(t.gpuMs)}`}, ragdoll step ${t.ragdoll.stepMs.mean.toFixed(2)}/${t.ragdoll.stepMs.p95.toFixed(2)} (${t.ragdoll.steps} steps)`,
+        ),
+      ];
 
 /** The results card's text, top line first: the numbers the owner reads off a screenshot. */
 export function describeBench(r: BenchResult): string[] {
@@ -231,6 +294,7 @@ export function describeBench(r: BenchResult): string[] {
     row("  sim", r.simMs) + `   ${f1(r.stepsPerFrame)} steps/frame, ${r.msPerStep.toFixed(2)} ms/step, ${Math.round(r.simMsPerSimS)} ms per sim-second, ${f1(r.fineCutsPerSimS)} fine-slice cuts/sim-s`,
     row("  draw", r.renderMs),
     r.gpuMs ? row("GPU", r.gpuMs) + (waited(r.gpuMs, r.frameMs) ? "   p95 is one frame long: a wait on the display, p50 is the work" : "") : "GPU       no timer query on this device",
+    ragdollLine(r.ragdoll),
     `draw ${r.calls} calls  ${Math.round(r.triangles / 1000)}k tris   cops: ${r.cops ? `${r.cops.stakeouts} stakeouts, ${r.cops.pursuits} pursuits, pack of ${r.cops.maxPack}` : "none"}`,
     `fx tier: ${tiers}${s.fxAuto ? " (auto)" : ""}   post chain at the top tier: ${s.post}`,
     `detail: only the body drawn beyond ${Object.entries(r.detailPct).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} for ${Math.round(v)} %`).join(", ")} of the window`,
@@ -244,6 +308,7 @@ export function describeBench(r: BenchResult): string[] {
     `               ${arm("high", r.abFx.high)}`,
     ...(r.abFx.ultra ? [`               ${arm(FX_TIER_ULTRA, r.abFx.ultra)}`] : []),
     ...DETAIL_ARMS.map((a, i) => `${i ? "                   " : "A/B detail pinned: "}${arm(a.key === "off" ? "no cuts" : `body beyond ${a.key}`, r.abDetail[a.key]!)}`),
+    ...replayLines(r.replay, r.replayWhy),
     `load: options ${f1(r.setupMs.options)} ms, start ${f1(r.setupMs.start)} ms`,
     `${d.gpu}${d.gpuMasked ? "   [masked by the browser: not the real GPU]" : ""}`,
     `${d.cores} cores${d.memoryGB ? `, ${d.memoryGB} GB` : ""}  screen ${d.screen} @${d.dpr}  canvas ${d.canvas}  timer step ${f1(d.timerStepMs)} ms`,

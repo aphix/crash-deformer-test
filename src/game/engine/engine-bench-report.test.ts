@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { browserName, describeBench, perSecond, stat, type Block, type BenchResult } from "./engine-bench-report.ts";
+import { browserName, describeBench, perSecond, stat, type Block, type BenchResult, type RagdollCost, type ReplayResult, type ReplayTier } from "./engine-bench-report.ts";
+import { MAX_JSON_BYTES } from "../../lib/submissions/kinds.ts";
 import { benchPlan } from "./engine-bench-plan.ts";
 
 const S = (p50: number) => ({ mean: p50, p50, p95: p50 * 2, p99: p50 * 3, max: p50 * 4 });
@@ -39,6 +40,9 @@ const RESULT: BenchResult = {
   tierPct: { high: 97, minimal: 3 },
   detailPct: { "50 m": 80, "40 m": 20 },
   setupMs: { options: 800, start: 140 },
+  ragdoll: { steps: 1800, stepMs: { mean: 0.21, p95: 0.5 }, colliders: 340, bodies: 52 },
+  replay: null,
+  replayWhy: "no clip yet",
   pageEvents: [{ phase: "warm", atS: 0, visible: true, focused: true, fullscreen: false }],
   settings: {
     fxTier: "high",
@@ -159,5 +163,59 @@ describe("given the bench result of a page that asked for the Ultra arm (?ultra=
     const at = lines.findIndex((l) => l.includes("high 48.0 fps"));
     assert.match(lines[at + 1]!, /^ +ultra 41\.0 fps, .*gpu 3\.2, 655 calls$/);
     assert.ok(!describeBench(RESULT).some((l) => l.includes("ultra ")));
+  });
+});
+
+/** A value with the digits a measured one has (a card's size must be judged with them, not with round numbers). */
+const measured = (x: number): number => x + 0.123456789012345;
+const ragdollOf = (steps: number): RagdollCost => ({ steps, stepMs: { mean: measured(0.2), p95: measured(0.5) }, colliders: 340, bodies: 52 });
+const tierOf = (fps: number): ReplayTier => ({
+  frames: 700,
+  wallS: measured(12),
+  fps: measured(fps),
+  fpsLow1: measured(fps / 2),
+  frameMs: { mean: measured(10), p95: measured(20) },
+  cpuMs: { mean: measured(8), p95: measured(14) },
+  simMs: { mean: measured(3), p95: measured(6) },
+  renderMs: { mean: measured(4), p95: measured(7) },
+  gpuMs: measured(2),
+  ragdoll: ragdollOf(1400),
+});
+const REPLAY: ReplayResult = {
+  tierS: 12,
+  clip: { bytes: 41_000, cars: 8, ejections: 2, steps: 900 },
+  tiers: { minimal: tierOf(120), low: tierOf(90), high: tierOf(60), ultra: tierOf(30) },
+};
+
+describe("given the bench result of a run that replayed its own crash at each FX tier", () => {
+  const card = describeBench({ ...RESULT, ragdoll: ragdollOf(1800), replay: REPLAY, replayWhy: null });
+
+  test("when the card is written, then the replay's clip is named and every tier has its own row with fps, frame, cpu, sim, draw and the ragdoll step ms", () => {
+    const at = card.findIndex((l) => l.startsWith("replay of this run's crash: 8 cars, 2 thrown, 40 KB clip, 12 s per tier"));
+    assert.ok(at >= 0, card.join("\n"));
+    for (const [i, tier] of ["minimal", "low", "high", "ultra"].entries()) {
+      const line = card[at + 1 + i]!;
+      assert.ok(line.startsWith(`  ${tier.padEnd(8)}`) && /fps, 1% low .*frame .*cpu .*sim .*draw .*gpu 2\.1, ragdoll step 0\.32\/0\.62 \(1400 steps\)$/.test(line), line);
+    }
+  });
+
+  test("when the card is written, then the window's ragdoll world line gives its steps, its step ms and the colliders and bodies it holds", () => {
+    assert.ok(card.includes("ragdoll world: 1800 steps, step 0.32 ms mean / 0.62 p95, 340 colliders, 52 bodies"), card.join("\n"));
+  });
+
+  test("when the result is sent with the replay and ragdoll fields, then the card stays under the submission cap with the room the old card left", () => {
+    // The old card measured 19 kB, HUD state included (`lib/submissions/kinds.ts`): what the two new fields add must fit the cap with it.
+    const added = JSON.stringify({ ragdoll: ragdollOf(1800), replay: REPLAY, replayWhy: null }).length;
+    assert.ok(19 * 1024 + added < MAX_JSON_BYTES.bench, `${added} bytes added to 19 kB`);
+    assert.ok(added < 4096, `${added} bytes`);
+  });
+});
+
+describe("given the bench result of a run that had no clip to replay", () => {
+  test("when the card is written, then it says why and has no tier rows, and the ragdoll line is still there", () => {
+    const card = describeBench({ ...RESULT, replay: null, replayWhy: "the crash was not filed as a highlight" });
+    assert.ok(card.includes("replay: none (the crash was not filed as a highlight)"), card.join("\n"));
+    assert.ok(!card.some((l) => l.startsWith("replay of")));
+    assert.ok(card.some((l) => l.startsWith("ragdoll world: 1800 steps")), "ragdoll line");
   });
 });

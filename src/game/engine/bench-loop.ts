@@ -29,11 +29,11 @@ const CYCLE: readonly BenchStep[] = [
   { id: BIGGEST_COURSE, query: `${benchQuery(BENCH_KIND.city)}&${COURSE_QUERY}=${BIGGEST_COURSE}` },
 ];
 
-/** The Ultra tier exists in this build (`FX_TIERS`): the loop's Ultra pass (`loopultra=1`) exists only then. */
+/** The Ultra tier exists in this build (`FX_TIERS`): the loop's Ultra arm (`loopultra=1`) exists only then. */
 const FX_TIER_IDS: readonly string[] = FX_TIERS;
 export const ULTRA_AVAILABLE: boolean = FX_TIER_IDS.includes(FX_TIER_ULTRA);
 
-/** The query names that carry a loop through the bench pages' addresses (`?bench=…` is the step's own query, `ultra=1` the Ultra twin's). */
+/** The query names that carry a loop through the bench pages' addresses (`?bench=…` is the step's own query, `ultra=1` the Ultra arm's). */
 const LOOP_QUERY = { session: "loop", cycle: "cycle", step: "step", keep: "keep", auto: "auto", ultraNext: "loopultra", ultraCycle: "cycleultra" } as const;
 
 /**
@@ -45,20 +45,20 @@ export interface BenchRun {
   session: string;
   loop: number;
   step: number;
-  /** This cycle runs each bench's Ultra twin: fixed when the cycle starts, so a `loopultra` edited mid-cycle neither skips nor repeats a bench. */
+  /** This cycle's benches each run their Ultra arm (`&ultra=1`, a fourth FX tier in the same run): fixed when the cycle starts, so a `loopultra` edited mid-cycle neither adds nor drops an arm. */
   ultra: boolean;
   /** Run the cycle again when it ends. */
   keep: boolean;
   /** Reload onto a newly deployed build between benches. */
   auto: boolean;
-  /** The next cycle runs each bench's Ultra twin (this cycle's own choice is `ultra`). */
+  /** The next cycle's benches each run their Ultra arm (this cycle's own choice is `ultra`). */
   ultraNext: boolean;
 }
 
-/** The benches of one cycle: each with, when asked for and the build has Ultra, its Ultra twin straight after it (same device state, so the pair compares). */
+/** The benches of one cycle: always the same three steps; with `ultra` set and Ultra in the build, each page also runs its Ultra arm (no second pass for it). */
 export function cycleOf(ultra: boolean): BenchStep[] {
-  const twin = ultra && ULTRA_AVAILABLE;
-  return CYCLE.flatMap((s) => (twin ? [s, { id: `${s.id}+ultra`, query: `${s.query}&${ULTRA_QUERY}=1` }] : [s]));
+  const arm = ultra && ULTRA_AVAILABLE;
+  return CYCLE.map((s) => (arm ? { id: s.id, query: `${s.query}&${ULTRA_QUERY}=1` } : s));
 }
 
 /** The first step of a new loop (the Benchmark entry): it keeps benching and reloads onto new builds, with Ultra where the build has it. */
@@ -69,7 +69,8 @@ export function startRun(session: string): BenchRun {
 /**
  * A bench page opened by its address alone (typed, shared, bookmarked): a new loop at the step that runs this page's own bench, with
  * the options its address sets (`keep`, `auto`, `loopultra`, `cycleultra`; `=0` is off) and every option it leaves out on, as the
- * Benchmark entry starts one; null for a bench no step of the cycle runs (the lab, another course), which runs once as asked.
+ * Benchmark entry starts one; null for a bench no step of the cycle runs (the lab, another course), which runs once as asked. The
+ * page's own `ultra=1` is the page's alone: a page opened without it runs no Ultra arm, the steps after it do.
  */
 export function runFromPage(search: string, session: string): BenchRun | null {
   const q = new URLSearchParams(search);
@@ -85,7 +86,7 @@ export function runFromPage(search: string, session: string): BenchRun | null {
   const steps = cycleOf(run.ultra);
   for (let i = 0; i < steps.length; i++) {
     const s = new URLSearchParams(steps[i]!.query);
-    if (s.get(BENCH_QUERY) === q.get(BENCH_QUERY) && s.get(COURSE_QUERY) === q.get(COURSE_QUERY) && s.get(ULTRA_QUERY) === q.get(ULTRA_QUERY)) return { ...run, step: i };
+    if (s.get(BENCH_QUERY) === q.get(BENCH_QUERY) && s.get(COURSE_QUERY) === q.get(COURSE_QUERY)) return { ...run, step: i };
   }
   return null;
 }
