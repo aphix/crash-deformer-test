@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import "../kernel/rapier-node.test-util.ts";
-import { frame, FRAME, type World } from "../world/race-world.test-util.ts";
+import { frame, FRAME, makeWorld, type World } from "../world/race-world.test-util.ts";
 import { blankPoint, type Track } from "../world/track.ts";
 import { layOnGround } from "../vehicle/car-air.ts";
 import { clipTitle, type HighlightClip } from "../match/highlights.ts";
@@ -107,6 +107,9 @@ export function holdAfter(tl: ScaleCurve, at: number): number {
   return (tl.scale.length - 1 - k) * dt;
 }
 
+/** One frame of a reel clip: its wall second into the clip timeline, its clip second, which camera held it (`MomentView.rig`) and the clip's slow-mo hold (`PhaseClock.hold`). */
+export type RigSample = { clip: number; wall: number; at: number; rig: string; hold: number };
+
 const _ndc = new THREE.Vector3();
 
 /** The moment at `p` as `cam` frames it on `screen`, judged by `VIEW` against the course's static solids `s` (no cars) and the screen's panels. */
@@ -153,12 +156,12 @@ const FLIGHT_MIN = 0.3;
  * Every clip of `clips` played through the reel's cameras at 60 Hz on `w`'s cars, on `screen` (its lens as the engine fits
  * it, `coverLens`): each moment judged on the frame it happens in (the first frame whose clip time reaches it).
  */
-export async function reelViews(w: World, clips: readonly HighlightClip[], scene: string, screen = DESKTOP): Promise<MomentView[]> {
+export async function reelViews(w: World, clips: readonly HighlightClip[], scene: string, screen = DESKTOP, trace?: RigSample[]): Promise<MomentView[]> {
   const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
   await ragdolls.preload();
   const crash = new CrashCam(false);
   let cut = false;
-  const crashDirect: Pick<CrashCam, "direct"> = { direct: (camera, dt, allowed, hold) => (cut = crash.direct(camera, dt, allowed, hold)) };
+  const crashDirect: Pick<CrashCam, "direct" | "holding"> = { direct: (camera, dt, allowed, hold) => (cut = crash.direct(camera, dt, allowed, hold)), get holding() { return crash.holding; } };
   const course = (): Sight => w.race.courseSight()!;
   const sight = (focus: (typeof w.cars)[number] | null): Sight => {
     const s = course();
@@ -191,7 +194,6 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
   reel.stepBudgetMs = Infinity;
   const camera = new THREE.PerspectiveCamera(LENS, 1, 0.1, 900);
   coverLens(camera, screen.view, screen.covers);
-  const probe = camera.clone();
   const out: MomentView[] = [];
   const s = course();
   for (const [i, clip] of clips.entries()) {
@@ -211,12 +213,13 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
       ragdolls.update(dt, w.live(), true, false, 0, null);
       rode = false;
       cut = false;
-      reel.aim(camera, probe, FRAME, crashDirect);
+      reel.aim(camera, FRAME, crashDirect);
       const cur = reel["cur"];
       if (k < 0 || !cur) continue;
       const sim = cur.sim;
       const shot = cur.shots[Math.max(0, reel["shot"])]!;
       const rig = rode ? "ride" : cut ? "crash" : reel["flying"] ? "flight" : shot.ctx ? "shot:context" : `shot:${shot.kind === "chase" || reel["shotCam"].found ? shot.kind : "chase"}`;
+      trace?.push({ clip: i, wall: k * FRAME, at: sim.time, rig, hold: clock.hold });
       const cam = `${rig}|${reel["shot"]}|${crash["held"]}`;
       const view = (kind: MomentKind, at: number, p: THREE.Vector3, car: number): MomentView => ({ scene, title, kind, at, hitAt: clip.firstImpact, rig, x: p.x, y: p.y, z: p.z, ...judge(camera, s, p, screen), cam, back: null, hold: holdAfter(tl, at), wall: (stepOf(tl, at) * wall) / (tl.sim.length - 1), end: wall, note: `${car === clip.focus ? "subject" : "other car"}, hit at ${clip.firstImpact.toFixed(2)} s, eye ${camera.position.toArray().map((v) => v.toFixed(1))}` });
       for (const m of moments) {
@@ -277,6 +280,18 @@ function put(track: Track, car: World["cars"][number], x: number, z: number, yaw
   car.spawnFacing(x, z, yaw, speed);
   car.group.position.y = track.ground().heightAt(x, z, pt.y + 0.5);
   layOnGround(car);
+}
+
+/** A race entered on `trackId` with a ramming field of `aiCount` and its dice from `seed`. */
+export function raceOn(trackId: string, seed: number, aiCount: number): World {
+  const w = makeWorld();
+  w.race.enter();
+  w.race.command({ type: "quit" });
+  w.race.command({ type: "options", options: { trackId, laps: 1, aiCount, noReset: false, aggression: 1 } });
+  w.race.reseed(seed);
+  w.race.command({ type: "start" });
+  w.seat.mode = "follow";
+  return w;
 }
 
 /** A staged jump's car runs at the crest from this far (m) short of it: too short for its driver to brake for it. */

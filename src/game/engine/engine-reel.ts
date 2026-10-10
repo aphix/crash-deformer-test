@@ -154,7 +154,7 @@ export abstract class EngineReel extends EngineInput {
     const followed = this.followedCar();
     const shown = followed?.group.visible === true;
     if (shown && this.view.rear) return "rear-view";
-    if (this.ragdolls.rideAlong) return "ragdoll";
+    if (this.ragdolls.rideAlong && (this.showRange || !this.cine.holding)) return "ragdoll";
     if (this.cine.cutting) return "crash-cam";
     const fp = followed?.group.position;
     if (followed && fp && (followed.falling || followed.vaporized || (fp.y < -0.01 && activeGround().heightAt(fp.x, fp.z, fp.y) === NO_FLOOR))) return "fall-watch";

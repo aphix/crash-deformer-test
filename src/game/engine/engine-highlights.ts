@@ -250,7 +250,7 @@ export type ReelHost = {
 };
 
 /** A clip ready to play. `id` names it for as long as the director holds it (every loop of a reel, and its solo view, are the same id); `from` is how it came (the results reel, a saved highlight). */
-type Prepared = { id: number; from: "reel" | "saved"; clip: HighlightClip; sim: ClipSim; tl: Timeline; shots: Shot[] };
+type Prepared = { id: number; from: "reel" | "saved"; clip: HighlightClip; sim: ClipSim; tl: Timeline; shots: Shot[]; beat: number };
 type Solo = Prepared & { startAt: number; back: () => void };
 
 const _c = new THREE.Vector3();
@@ -280,6 +280,8 @@ export class ReelDirector {
   private cur: Prepared | null = null;
   private pass = -1;
   private shot = -1;
+  /** Wall s into the clip's timeline the last frame was drawn at (`run`): the ride-along waits for its `Prepared.beat`. */
+  private wall = 0;
   /** The crash cam has begun / the cars have met (the flash and burst have gone off) on this pass of the clip. */
   private began = false;
   private met = false;
@@ -296,7 +298,7 @@ export class ReelDirector {
   private readonly flight = { ax: 0, az: 0, bx: 0, bz: 0, u: 0 };
   private readonly shotCam = new ShotCam();
   /** What the held crash cam asks about the clip's focus car (`crashHold`). */
-  private readonly hold: CrashHold = { target: new THREE.Vector3(), sight: () => this.host.sight(this.focus()!), hit: 0, later: laterHits(MAX_HITS) };
+  private readonly hold: CrashHold = { target: new THREE.Vector3(), sight: () => this.host.sight(this.focus()!), hit: 0, later: laterHits(2 * MAX_HITS) };
   /** Every live car's visibility when the reel took them. */
   private shown: boolean[] | null = null;
 
@@ -443,14 +445,14 @@ export class ReelDirector {
   }
 
   /**
-   * The reel's camera this frame: the subject's thrown driver's ride-along over everything, then the crash cam (on `probe`
-   * while a ride holds `camera`: its bars and clock run on), then the clip's shot or the flight.
+   * The reel's camera this frame: the crash cam while its window is open (its cuts, each later impact of the window as it
+   * comes), then the subject's thrown driver's ride-along (it waits for the crash shots, owner 2026-10-10), then the clip's
+   * shot or the flight.
    */
-  aim(camera: THREE.PerspectiveCamera, probe: THREE.PerspectiveCamera, wallDt: number, crash: Pick<CrashCam, "direct">): void {
+  aim(camera: THREE.PerspectiveCamera, wallDt: number, crash: Pick<CrashCam, "direct" | "holding">): void {
+    if (crash.direct(camera, wallDt, true, this.crashHold())) return;
     const subject = this.focus();
-    const ride = subject !== null && this.host.ride(camera, wallDt, subject);
-    const cut = crash.direct(ride ? probe : camera, wallDt, true, this.crashHold());
-    if (!ride && !cut) this.camera(camera);
+    if (crash.holding || subject === null || this.wall < this.cur!.beat || !this.host.ride(camera, wallDt, subject)) this.camera(camera);
   }
 
   /** The reel's camera when the crash cam does not hold it: the flight, or the clip's current shot. */
@@ -508,7 +510,10 @@ export class ReelDirector {
     });
     const throws = ends.filter((_, i) => clip.ejections[i]!.own);
     const tl = clipTimeline(clip.firstImpact, sim.length, throws);
-    return { id: ++this.serial, from, clip, sim, tl, shots: shotsFor(clip, tl, rand, () => this.host.still()) };
+    // The crash shots end with the last impact of the clip's scope (its hit beat, `HIT_KEEP` past it) or the crash cam's window, whichever is later.
+    const last = clip.hits[clip.hits.length - 1];
+    const beat = Math.max(tl.impact + crashCamEnd(tl.hold), last ? wallAt(tl, shownFrom(clip, last.t)) + HIT_KEEP : 0);
+    return { id: ++this.serial, from, clip, sim, tl, shots: shotsFor(clip, tl, rand, () => this.host.still()), beat };
   }
 
   private soloOf(p: Prepared, now: number, back: () => void): void {
@@ -545,6 +550,7 @@ export class ReelDirector {
   /** Clip `p` at wall `w` s into its timeline. */
   private run(p: Prepared, w: number): number {
     this.flying = false;
+    this.wall = w;
     const { tl, sim, shots } = p;
     const k = Math.min(Math.floor(w / TL_DT), tl.phase.length - 1);
     const c = this.host.clock;
@@ -630,22 +636,39 @@ export class ReelDirector {
     _c.set(clip.x, a.y, clip.z);
   }
 
-  /** The clip's impacts after its first that come before the crash cam hands back (`CrashHold.later`), wall s into the crash cam, where each lands. */
+  /**
+   * The clip's impacts after its first, and each driver thrown in its scope (`ClipEjection.own`), that come before the crash
+   * cam hands back (`CrashHold.later`), in time order: wall s into the crash cam, where each lands (a throw: at the torso as
+   * he leaves the pane), so the cam shows the driver being thrown with the crash instead of leaving it to the ride-along.
+   */
   private lookahead(p: Prepared): void {
     const { clip, tl } = p;
     const l = this.hold.later;
     l.n = 0;
-    if (clip.hits.length < 2) return;
     const end = crashCamEnd(tl.hold);
     const s = this.host.still();
+    const add = (w: number, x: number, y: number, z: number, exact: boolean): void => {
+      if (w >= end || l.n === l.at.length) return;
+      let k = l.n++;
+      for (; k > 0 && l.until[k - 1]! > w + HIT_KEEP; k--) {
+        l.from[k] = l.from[k - 1]!;
+        l.until[k] = l.until[k - 1]!;
+        l.at[k]!.copy(l.at[k - 1]!);
+      }
+      l.from[k] = w - HIT_LEAD;
+      l.until[k] = w + HIT_KEEP;
+      if (exact) l.at[k]!.set(x, y, z);
+      else hitAim(l.at[k]!, x, y, z, s);
+    };
     for (let k = 1; k < clip.hits.length; k++) {
       const h = clip.hits[k]!;
-      const w = wallAt(tl, shownFrom(clip, h.t)) - tl.impact;
-      if (w >= end) break;
-      l.from[l.n] = w - HIT_LEAD;
-      l.until[l.n] = w + HIT_KEEP;
-      hitAim(l.at[l.n]!, h.x, h.y, h.z, s);
-      l.n++;
+      add(wallAt(tl, shownFrom(clip, h.t)) - tl.impact, h.x, h.y, h.z, false);
+    }
+    for (const x of clip.ejections) {
+      if (!x.own) continue;
+      let at = 0;
+      for (let i = 0; i <= x.step; i++) at += clip.h[i]!;
+      add(wallAt(tl, at) - tl.impact, x.e.pos.x, x.e.pos.y, x.e.pos.z, true);
     }
   }
 }

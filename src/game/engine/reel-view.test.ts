@@ -1,7 +1,7 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { setGround } from "../world/ground.ts";
-import { makeWorld, type World } from "../world/race-world.test-util.ts";
+import type { World } from "../world/race-world.test-util.ts";
 import { hold, survivalWorld } from "../world/survival-run.test-util.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { Track } from "../world/track.ts";
@@ -9,7 +9,7 @@ import city from "../world/tracks/city.json" with { type: "json" };
 import stunt from "../world/tracks/stunt.json" with { type: "json" };
 import { HAVANA } from "../world/tracks/havana.ts";
 import type { HighlightClip } from "../match/highlights.ts";
-import { recordRace, reelViews, secondsToFirstImpact, STAGED_MEETING_S, VIEW, type Crash, type MomentKind, type MomentView, type Screen } from "./reel-view.test-util.ts";
+import { raceOn, recordRace, reelViews, secondsToFirstImpact, STAGED_MEETING_S, VIEW, type Crash, type MomentKind, type MomentView, type Screen } from "./reel-view.test-util.ts";
 
 /**
  * Owner, 2026-10-06: "the impact point (car-car hit) or the launch (driver ejection, car taking off) must actually be visible
@@ -23,18 +23,6 @@ import { recordRace, reelViews, secondsToFirstImpact, STAGED_MEETING_S, VIEW, ty
 const HOLD = { impact: 6.3, throw: 7.3 };
 /** Three steps of the reel's 120 Hz timeline. */
 const STEP = 1 / 40;
-
-/** A race entered on `trackId` with a ramming field of `aiCount` and its dice from `seed`. */
-function raceOn(trackId: string, seed: number, aiCount: number): World {
-  const w = makeWorld();
-  w.race.enter();
-  w.race.command({ type: "quit" });
-  w.race.command({ type: "options", options: { trackId, laps: 1, aiCount, noReset: false, aggression: 1 } });
-  w.race.reseed(seed);
-  w.race.command({ type: "start" });
-  w.seat.mode = "follow";
-  return w;
-}
 
 /** A Survival run on havana (the Survival course, off the race menu), its player sitting still until a staged crash floors it. */
 function survivalOn(seed: number): World {

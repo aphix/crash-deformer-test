@@ -119,6 +119,13 @@ function tanNeeded(p: Vec3, eye: Vec3, f: Vec3, r: Vec3, u: Vec3): number {
   return Math.max(x, y) / z;
 }
 
+/** `fov` (deg), or the least wider lens in which `p` lies in the frame of the eye `eye` looking at `aim` (`inFrame`'s test; `fov` when it never does). */
+export function fovFor(eye: Vec3, aim: Vec3, p: Vec3, fov: number): number {
+  if (!look(eye, aim.x, aim.y, aim.z)) return fov;
+  const need = tanNeeded(p, eye, _f, _r, _u);
+  return Number.isFinite(need) ? Math.max(fov, (2 * Math.atan(need) * 180) / Math.PI) : fov;
+}
+
 /** `p` lies in the frame of the eye `eye` looking at `aim` through the lens `fov` (deg) on every screen the reel plays on (`tanNeeded`). */
 export function inFrame(eye: Vec3, aim: Vec3, p: Vec3, fov: number): boolean {
   return look(eye, aim.x, aim.y, aim.z) && tanNeeded(p, eye, _f, _r, _u) <= Math.tan((fov * Math.PI) / 360);

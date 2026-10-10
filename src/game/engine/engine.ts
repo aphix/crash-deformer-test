@@ -702,9 +702,6 @@ export class CrashEngine extends EngineGarage {
   /** `aimRigs`'s derby centroid set, refilled per frame. */
   private readonly aliveBuf: DeformableCar[] = [];
 
-  /** Where the crash cam's cuts land while a ride-along holds the real camera (its bars and clock run on). */
-  private readonly crashProbe = new THREE.PerspectiveCamera();
-
   /**
    * What the spectator cams read from the scene: the solids and the rival racers when they pick a shot, the course's own
    * solids per frame (the chase push-out); `cut` is the Auto cam's cut, where the Auto driver may hand over another car.
@@ -734,19 +731,20 @@ export class CrashEngine extends EngineGarage {
 
   private aimRigs(wallDt: number): void {
     if (this.highlights.playing) {
-      // The reel frames its own shots; the subject's thrown driver's ride-along takes the camera over them, the crash cam on a probe lens.
+      // The reel frames its own shots: the crash cam over the hit while its window is open, then the subject's thrown driver's ride-along.
       this.reelFov ??= this.camera.fov;
-      this.highlights.aim(this.camera, this.crashProbe, wallDt, this.cine);
+      this.highlights.aim(this.camera, wallDt, this.cine);
       return;
     }
-    // A thrown driver's ride-along holds the camera from his exit (the windshield shot, then the dummy), over the crash
-    // cam's cuts: those keep their bars and clock on a probe lens and apply only when no driver is out. A drag hands
-    // the ride to the orbit around the dummy, the ride's cuts waiting; the ride then picks up from the user's view.
+    // The crash cam plays its cuts first (letterbox, bars and clock too); a thrown driver's ride-along, which opens on his
+    // exit's windshield and then frames the dummy, waits for its window to close (the range's own dummy cam rides at once).
+    // A drag hands the ride to the orbit around the dummy, the ride's cuts waiting; the ride then picks up from the user's view.
+    const cut = this.cine.direct(this.camera, wallDt, !this.view.userFramed && this.seat.mode !== "drive");
     const watched = this.followedCar() ? this.seat.carIndex : -1;
     const held = this.view.rideHeld(this.ragdolls.rideAlong, wallDt);
-    const ride = this.ragdolls.frameCamera(this.camera, wallDt, this.showRange, watched, held, this.view.lens, this.specScene.sight);
+    const waits = this.cine.holding && !this.showRange;
+    const ride = waits ? "none" : this.ragdolls.frameCamera(this.camera, wallDt, this.showRange, watched, held, this.view.lens, this.specScene.sight);
     this.view.frameRide(ride === "none" ? null : this.ragdolls.rideLook);
-    const cut = this.cine.direct(ride === "none" ? this.camera : this.crashProbe, wallDt, !this.view.userFramed && this.seat.mode !== "drive");
     if (ride === "held") this.view.orbit(wallDt, 0, false);
     if (ride !== "none" || cut) return;
     // The Auto driver (race spectating): a camera that makes no cuts is itself the cut; the Auto cam cuts in `specScene.cut`.
