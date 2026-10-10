@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { HDRLoader } from "three/addons/loaders/HDRLoader.js";
 
 /** The studio environment every FX tier lights the cars with (`scripts/bake-env.mjs` bakes it from three's RoomEnvironment). */
-export const STUDIO_ENV_URL = `${import.meta.env.BASE_URL}env-studio.hdr`;
+export const STUDIO_ENV_URL = `${import.meta.env?.BASE_URL ?? "/"}env-studio.hdr`;
 
 /**
  * One Radiance RGBE equirect (linear radiance, so highlights above 1 survive) downloaded, decoded to half float and

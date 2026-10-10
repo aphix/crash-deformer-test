@@ -129,7 +129,7 @@ export const RESPAWN_S = 2;
  * clock's reset only fires after a hit, so a run where no car meets another would otherwise never end. Under
  * `RESPAWN_S`, so the driven car's respawn never keeps the disc from counting as empty.
  */
-const FLEET_EMPTY_S = 1;
+export const FLEET_EMPTY_S = 1;
 
 /** Whether the fleet's disc has been empty for `FLEET_EMPTY_S`: every car vaporized, the last at `vaporAt` (wall s) per car, `now` wall s. */
 export function fleetEmptied(cars: readonly { vaporized: boolean }[], vaporAt: readonly (number | undefined)[], now: number): boolean {

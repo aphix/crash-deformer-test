@@ -16,7 +16,7 @@ import type { UltraHost } from "./load.ts";
  * `-diff` is the diffuse colour, `-nor` the OpenGL normal map, `-arm` ambient occlusion (R), roughness (G), metalness (B); the 1k JPEGs
  * re-encoded as WebP (quality 80, normals 88).
  */
-const BASE = import.meta.env.BASE_URL;
+const BASE = import.meta.env?.BASE_URL ?? "/";
 const SKY_URL = `${BASE}ultra/sky.hdr`;
 const ROLES: readonly SurfaceRole[] = ["asphalt", "concrete", "ground"];
 const MAX_ANISOTROPY = 8;
