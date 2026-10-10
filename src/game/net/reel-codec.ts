@@ -85,10 +85,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * replayed clip's cars near a solid and its debris move differently; 52: the car's cage is baked and fitted by the sim alone, on every step of
  * a crush window, and a wreck's solver state ends with each cluster's skin fit, the cage's flags and its refit history (`CarCage`
  * `stateSize`), and a keyframe's flight block also carries the weight borne on a car and what its wheels touch (`FLIGHT`), so a clip
- * recorded before replays the cars' tops, and what stands on them, otherwise).
+ * recorded before replays the cars' tops, and what stands on them, otherwise); 53: a circle prism (a palm's trunk, a lamp post) is met by the
+ * face the footprint entered only when it crossed it within `ENTRY_WINDOW`, else by the way it is nearest, so a replayed clip's car sliding
+ * past a trunk is no longer carried through its own length by the walk back).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 52;
+const REPLAY_VERSION = 53;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

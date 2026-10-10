@@ -4,6 +4,7 @@ import { armSolids, C_DEPTH, C_H, C_NX, C_NY, C_NZ, HIT_SIZE, KNOCK, MOUNT, poin
 import { CLASSES } from "../vehicle/vehicle-classes.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { ENTRY_WINDOW, SOLID_AT_REST } from "./constants.ts";
+import { FF_NX, FF_NZ, FF_PEN, FF_SIZE, FOOT_FX, FOOT_FZ, FOOT_HL, FOOT_HW, FOOT_RX, FOOT_RZ, FOOT_SIZE, FOOT_X, FOOT_Z, footFace } from "./prism.ts";
 
 /** A surface of the given prisms, armed as the scene's solids for the test that asks. */
 function solids(...specs: Parameters<Surface["addPrism"]>[0][]): Surface {
@@ -163,5 +164,49 @@ describe("given the step a tyre mounts", () => {
     assert.equal(count, 1);
     assert.equal(s.nearList[0], 2);
     assert.equal(s.prismsNear(45, 0, 20), 2);
+  });
+});
+
+/**
+ * A car's footprint against a circle prism (`footFace`): a trunk 0.9 m off the centre line of a footprint 0.894 m half wide and 2.11 m
+ * half long, its middle level with a point 0.2 m short of the footprint's front edge, so the circle stands `RADIUS - 0.006` m into the
+ * flank. Driving on at speed it came in through the front (the walk back along the motion leaves the grown footprint there); drifting at
+ * 1 m/s the walk back is the footprint's length, 3.9 m and 3.9 s for a flank touch 0.134 m deep, and it leaves the way it is nearest.
+ */
+describe("given a car's footprint over a circle prism at its flank", () => {
+  const HW = 0.894;
+  const HL = 2.11;
+  const RADIUS = 0.14;
+  const SIDE = HW + 0.006;
+  const AHEAD = HL - 0.2;
+  const foot = new Float64Array(FOOT_SIZE);
+  const hit = new Float64Array(FF_SIZE);
+
+  /** The footprint at the origin facing +z, moving `speed` m/s along +z, against the circle at (`SIDE`, `AHEAD`); the hit's depth and normal. */
+  function meet(speed: number): { pen: number; nx: number; nz: number } {
+    const s = new Surface();
+    s.addPrism({ x: SIDE, z: AHEAD, yaw: 0, hx: RADIUS, hz: RADIUS, circle: true, base: 0, top: 2, id: 0 });
+    foot[FOOT_X] = 0;
+    foot[FOOT_Z] = 0;
+    foot[FOOT_RX] = 1;
+    foot[FOOT_RZ] = 0;
+    foot[FOOT_FX] = 0;
+    foot[FOOT_FZ] = 1;
+    foot[FOOT_HW] = HW;
+    foot[FOOT_HL] = HL;
+    assert.ok(footFace(s.p, 0, foot, 0, speed, 1 / 240, hit), "they overlap");
+    return { pen: hit[FF_PEN]!, nx: hit[FF_NX]!, nz: hit[FF_NZ]! };
+  }
+
+  it("when the car drives on at 30 m/s then it met the prism through the footprint's front, the walk back's depth", () => {
+    const { pen, nx, nz } = meet(30);
+    assert.ok(nz < -0.99, `normal ${nx} ${nz}`);
+    assert.ok(pen > RADIUS - 0.006 + 0.05, `depth ${pen}`);
+  });
+
+  it("when the car drifts at 1 m/s then it leaves the way it is nearest, across the flank, by the flank's own depth", () => {
+    const { pen, nx, nz } = meet(1);
+    assert.ok(Math.abs(nx + 1) < 1e-12 && Math.abs(nz) < 1e-12, `normal ${nx} ${nz}`);
+    assert.ok(Math.abs(pen - (RADIUS - 0.006)) < 1e-12, `depth ${pen}`);
   });
 });

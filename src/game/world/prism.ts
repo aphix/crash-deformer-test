@@ -403,25 +403,32 @@ export function footFace(P: Float64Array, o: number, foot: Float64Array, vx: num
       out[FF_CLOSING] = -(rvx * (ex * rx + ez * fx) + rvz * (ex * rz + ez * fz)) / d;
       return false;
     }
-    let nx: number;
-    let nz: number;
-    let pen: number;
+    let nx = 0;
+    let nz = 0;
+    let pen = 0;
+    // Moving: the face it entered by, where the circle's middle, walked back along the relative motion, left the footprint grown by the
+    // radius, if it crossed that face within `ENTRY_WINDOW` (as `exitFace` asks of a point). A wreck drifting off a trunk at 1 m/s walks
+    // back through the car's whole length (3.9 m where it stands 0.11 m in) and has been in far longer: it leaves the way it is nearest.
+    let entered = false;
     if (hypot2(rvx, rvz) > SOLID_AT_REST) {
-      // Moving: the face it entered by, where the circle's middle, walked back along the relative motion, left the footprint grown by the radius.
       roundedEntry(lx, lz, rvx * rx + rvz * rz, rvx * fx + rvz * fz, hw, hl, radius, _entry);
       pen = _entry[F_DEPTH]!;
       nx = -(_entry[F_NX]! * rx + _entry[F_NZ]! * fx);
       nz = -(_entry[F_NX]! * rz + _entry[F_NZ]! * fz);
-    } else if (d > 1e-9) {
-      pen = radius - d;
-      nx = (ex * rx + ez * fx) / d;
-      nz = (ex * rz + ez * fz) / d;
-    } else {
-      // Middle inside the footprint and at rest: it leaves through the nearest edge.
-      const sideways = hw - Math.abs(lx) < hl - Math.abs(lz);
-      pen = radius + (sideways ? hw - Math.abs(lx) : hl - Math.abs(lz));
-      nx = -sign(sideways ? lx : lz) * (sideways ? rx : fx);
-      nz = -sign(sideways ? lx : lz) * (sideways ? rz : fz);
+      entered = pen / Math.max(NOT_CLOSING, -(rvx * nx + rvz * nz)) <= ENTRY_WINDOW;
+    }
+    if (!entered) {
+      if (d > 1e-9) {
+        pen = radius - d;
+        nx = (ex * rx + ez * fx) / d;
+        nz = (ex * rz + ez * fz) / d;
+      } else {
+        // Middle inside the footprint: it leaves through the nearest edge.
+        const sideways = hw - Math.abs(lx) < hl - Math.abs(lz);
+        pen = radius + (sideways ? hw - Math.abs(lx) : hl - Math.abs(lz));
+        nx = -sign(sideways ? lx : lz) * (sideways ? rx : fx);
+        nz = -sign(sideways ? lx : lz) * (sideways ? rz : fz);
+      }
     }
     out[FF_PEN] = pen;
     out[FF_NX] = nx;
