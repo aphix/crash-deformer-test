@@ -305,6 +305,48 @@ function detCos(x) {
   return kernelSin(REDUCED[0], REDUCED[1]);
 }
 
+/**
+ * `detSin(v[i])` into `v[i]` and `detCos(v[i])` into `v[i + 1]`, one reduction for both, the same bits as the two calls: the
+ * kernels' operations written out here in their order (`kernelSinSmall`, `kernelSin`, `kernelCos`), and the angle in and the
+ * pair out through the typed array, so a call that is not inlined boxes no argument, no result and no kernel result (each
+ * `detSin`/`detCos` call left out of its caller's inlining budget boxed two numbers, and its kernel call another).
+ */
+function sinCosAt(v, i) {
+  const x = v[i];
+  const ax = Math.abs(x);
+  const near = ax <= PIO4;
+  let q = 0;
+  let a = ax;
+  let t = 0;
+  if (!near) {
+    q = reducePio2(ax) & 3;
+    a = REDUCED[0];
+    t = REDUCED[1];
+  }
+  const z = a * a;
+  const w = z * a;
+  const ks = near
+    ? a + w * (S1 + z * (S2 + z * (S3 + z * (S4 + z * (S5 + z * S6)))))
+    : a - ((z * (0.5 * t - w * (S2 + z * (S3 + z * (S4 + z * (S5 + z * S6))))) - t) - w * S1);
+  const r = z * (C1 + z * (C2 + z * (C3 + z * (C4 + z * (C5 + z * C6)))));
+  const aa = Math.abs(a);
+  let kc;
+  if (aa < 0.3) kc = 1 - (0.5 * z - (z * r - a * t));
+  else {
+    const qx = aa > 0.78125 ? 0.28125 : Math.fround(aa * 0.25);
+    kc = 1 - qx - (0.5 * z - qx - (z * r - a * t));
+  }
+  let s;
+  let c;
+  if (q === 0) { s = ks; c = kc; }
+  else if (q === 1) { s = kc; c = -ks; }
+  else if (q === 2) { s = -ks; c = -kc; }
+  else { s = -kc; c = ks; }
+  if (x === 0) s = x;
+  v[i] = x < 0 ? -s : s;
+  v[i + 1] = c;
+}
+
 export {
   CRASH,
   TRANSFER,
@@ -324,4 +366,5 @@ export {
   hypot3,
   detSin,
   detCos,
+  sinCosAt,
 };

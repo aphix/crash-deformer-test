@@ -6,7 +6,7 @@ import { RES_SLOTS, SIM_SCALAR_NUMBERS, SKIN_K, type Beam, type MassNode, type S
 import { INF_K } from "./deform-build.ts";
 import { cageAxis, cageCoeffs } from "./deform-state.ts";
 import { skinKernel, skinKey, type SkinDynamic, type SkinKernel, type SkinStatic, type SkinTables } from "./skin-kernel.ts";
-import { FACE_TOP } from "./load-crush.ts";
+import { FACE_TOP, SKIN_STRAIN } from "./load-crush.ts";
 import { detSin } from "../kernel/physics-core.js";
 
 const _a = new THREE.Vector3();
@@ -16,12 +16,6 @@ const _e = new THREE.Vector3();
 const _f = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _axis = new THREE.Vector3();
-/**
- * Strain share (β) of the cluster map a skin point's offset from its parent masses takes; the
- * rotation is taken whole. At 1 the strain between the particles extrapolates past them: paint
- * 0.1 m outboard of a pushed door went 8% deeper than the door (piston `right`), at 0.65 within 1%.
- */
-const SKIN_STRAIN = 0.65;
 /** The roof mass sunk past this (m) is load crush: a crash alone holds it within `maxLift` (0.07 m, deep 0.28), so the skin's 0.1 m roof clamp lifts. */
 const SUNK_ROOF = 0.075;
 
@@ -99,6 +93,11 @@ function plasticRestPoints(c: ShapeCluster): void {
     c.qz[i] = s[6]! * x + s[7]! * y + s[8]! * z;
   }
 }
+/** Numbers a cluster's `simState` spends on the skin bake's carried fit (`skinRprev` 9, `skinRotQ` 4). */
+const SKIN_HISTORY = 13;
+/** Numbers `simState` ends with: the cage's two flags (`cageDue`, `skinBaked`). */
+const SIM_BAKE_NUMBERS = 2;
+
 /**
  * `simState`: a shape cluster's plastic rest (q0, cm0, AqqInv, plane normal, `planar`, Sp) and the fit's carried state:
  * the last rotation `Rprev` that `stabilizeMat` blends the next one with and the warm start `rotQ` (the rest points the
@@ -120,6 +119,8 @@ function simCluster(buf: Float64Array, o: number, c: ShapeCluster, write: boolea
   }
   o = simArray(buf, simArray(buf, simArray(buf, o + 4, c.AqqInv, write), c.n, write), c.Sp, write);
   o = simArray(buf, simArray(buf, o, c.Rprev, write), c.rotQ, write);
+  // The bake's own carried fit: the last rotation `matchSkinLocal` blends the next with and its warm start (the skin maps the cage is fitted from).
+  o = simArray(buf, simArray(buf, o, c.skinRprev, write), c.skinRotQ, write);
   if (write) plasticRestPoints(c);
   return o;
 }
@@ -364,12 +365,11 @@ export class StreamedDeformation extends DeformSolve {
     for (let mi = 0; mi < this.masses.length; mi++) maxTravel = Math.max(maxTravel, this.masses[mi]!.local.distanceTo(this.masses[mi]!.rest));
     for (let ci = 0; ci < this.cages.length; ci++) {
       const cage = this.cages[ci]!;
-      const isCell = cage.spec.name === "chassisCell" || cage.spec.name === "roof";
+      const isCell = cage.spec.name === "chassisCell";
       let cap: number;
       if (this.bidirectional) {
         cap = isCell && !this.deepCrush ? 0.16 : Math.max(2.2, maxTravel + 0.2);
-      } else if (cage.spec.name === "chassisCell") cap = 0.1;
-      else if (cage.spec.name === "roof") cap = 0.14;
+      } else if (isCell) cap = 0.1;
       else if (cage.spec.name === "doorLeft" || cage.spec.name === "doorRight") cap = 0.28;
       else cap = Math.min(cage.spec.maxCrush * 0.9, 0.85);
       cap = Math.max(cap, maxTravel * 0.95);
@@ -626,7 +626,8 @@ export class StreamedDeformation extends DeformSolve {
     let n = SIM_SCALAR_NUMBERS + this.sensors.length + vecs.length * 3 + this.masses.length * 17 + this.beams.length * 4;
     n += this.crush.length * 2 + this.imprint.length;
     for (let i = 0; i < arrays.length; i++) n += arrays[i]!.length;
-    for (const c of this.clusters) n += c.q0x.length * 3 + 38;
+    for (const c of this.clusters) n += c.q0x.length * 3 + 38 + SKIN_HISTORY;
+    n += SIM_BAKE_NUMBERS;
     return n;
   }
 
@@ -660,7 +661,15 @@ export class StreamedDeformation extends DeformSolve {
     // Load crush (docs/LOAD_CRUSH.md): each face's depth, the depth already baked into the masses, and the roof's imprint.
     o = simArray(buf, o, this.crush, write);
     o = simArray(buf, o, this.crushBaked, write);
-    simArray(buf, o, this.imprint, write);
+    o = simArray(buf, o, this.imprint, write);
+    // The sim's bake: whether the cage waits for a fit and whether a bake ever ran.
+    if (write) {
+      this.cageDue = buf[o]! !== 0;
+      this.skinBaked = buf[o + 1]! !== 0;
+    } else {
+      buf[o] = this.cageDue ? 1 : 0;
+      buf[o + 1] = this.skinBaked ? 1 : 0;
+    }
   }
 
   /** Netplay: array sizes for a `DeformNetState` (fixed by the rig). */
@@ -734,6 +743,8 @@ export class StreamedDeformation extends DeformSolve {
     }
     // Skinned now, LoD or not: a deferred flush would read the hubs after they move on below.
     this.solveCages();
+    this.cageDue = true;
+    this.skinBaked = true;
     this.flushSkin(geometry, true);
     this.skinOwed = false;
     group.updateWorldMatrix(false, false);

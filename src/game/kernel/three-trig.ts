@@ -1,5 +1,8 @@
 import { Quaternion, type Euler, type Vector3 } from "three";
-import { detCos, detSin } from "./physics-core.js";
+import { detCos, detSin, sinCosAt } from "./physics-core.js";
+
+/** `setFromEuler`'s half angles in [x/2, _, y/2, _, z/2, _], their [sin, cos] pairs out (`sinCosAt`: no boxed argument or result). */
+const _half = new Float64Array(6);
 
 /**
  * three's `Quaternion.setFromEuler`, `setFromAxisAngle` and `slerp`, term for term in three's own order, with the sines and cosines
@@ -14,15 +17,18 @@ import { detCos, detSin } from "./physics-core.js";
 function setFromEuler(this: Quaternion, euler: Euler, update = true): Quaternion {
   const e = euler as unknown as { _x: number; _y: number; _z: number; _order: string };
   const q = this as unknown as { _x: number; _y: number; _z: number; _w: number; _onChangeCallback: () => void };
-  const x = e._x;
-  const y = e._y;
-  const z = e._z;
-  const c1 = detCos(x / 2);
-  const c2 = detCos(y / 2);
-  const c3 = detCos(z / 2);
-  const s1 = detSin(x / 2);
-  const s2 = detSin(y / 2);
-  const s3 = detSin(z / 2);
+  _half[0] = e._x / 2;
+  _half[2] = e._y / 2;
+  _half[4] = e._z / 2;
+  sinCosAt(_half, 0);
+  sinCosAt(_half, 2);
+  sinCosAt(_half, 4);
+  const s1 = _half[0]!;
+  const c1 = _half[1]!;
+  const s2 = _half[2]!;
+  const c2 = _half[3]!;
+  const s3 = _half[4]!;
+  const c3 = _half[5]!;
   switch (e._order) {
     case "XYZ":
       q._x = s1 * c2 * c3 + c1 * s2 * s3;

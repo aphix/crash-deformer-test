@@ -35,3 +35,5 @@ export function hypot3(x: number, y: number, z: number): number;
 /** Math.sin and Math.cos from + − × ÷ only: the same bits in every engine, under 1 ulp from correctly rounded for |x| < 1.6e6. */
 export function detSin(x: number): number;
 export function detCos(x: number): number;
+/** `detSin(v[i])` to `v[i]` and `detCos(v[i])` to `v[i + 1]`, bit-equal to the two calls, boxing nothing when not inlined. */
+export function sinCosAt(v: Float64Array, i: number): void;

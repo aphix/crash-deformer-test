@@ -1,11 +1,14 @@
-import { bodyTopY } from "../vehicle/car-mesh.ts";
-import { CAR_STYLES } from "../vehicle/car-variants.ts";
-import { UNDERSIDE } from "../vehicle/car-suspension.ts";
+import * as THREE from "three";
+import { cageOf } from "../vehicle/car-cage-rig.ts";
+import type { CarCage } from "../vehicle/car-cage.ts";
+import { DeformableCar } from "../vehicle/car.ts";
+import { STOCK_PAINT } from "../vehicle/constants.ts";
+import { UNDERSIDE, underY } from "../vehicle/car-suspension.ts";
+import { sampleField } from "../contact/cage-outline.ts";
 import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { PREFABS, type PrefabId } from "../world/catalog.ts";
 import { Ground, STEP_UP } from "../world/ground.ts";
 import { propColliders, type Placed, type PropCollider } from "../world/placements.ts";
-import { CAR_HALF } from "../vehicle/car.ts";
 import type { CarType } from "./fleet.ts";
 
 /**
@@ -68,8 +71,7 @@ function footprint(item: LabItem): { hx: number; hz: number } {
   let ax: number;
   let az: number;
   if (item.kind === "car") {
-    ax = CAR_HALF.x;
-    az = CAR_HALF.z;
+    ({ hx: ax, hz: az } = planHalf(item.type.style));
   } else if (item.kind === "prop") {
     const s = PREFABS[item.prefab].size;
     ax = s[0] / 2;
@@ -165,33 +167,96 @@ export function labColliders(placed: readonly Placed[]): PropCollider[] {
  */
 const CARDS_X = 10;
 const CARDS_GAP = 0.2;
-/** The nose and tail keel points of a car's underside: car-local z and height over its origin (`UNDERSIDE`). */
-const [, NOSE_KEEL_Z, NOSE_KEEL_H] = UNDERSIDE[0]!;
-const [, TAIL_KEEL_Z, TAIL_KEEL_H] = UNDERSIDE[4]!;
-/** A base car under the top car's weight rides bottomed: its nose keel on the ground, pitched nose-up by the rear tyres at their stops (rad, measured on the lab's cards). */
-const BASE_PITCH = -0.00239;
-const BASE_RIDE = -NOSE_KEEL_H * detCos(BASE_PITCH) + NOSE_KEEL_Z * detSin(BASE_PITCH);
+/** The nose and tail lever (car-local z, m) of the top car's pitch: `UNDERSIDE`'s end rows, where the belly the rigid step rests with ends. */
+const KEEL_Z = 2;
+/** A base car under the top car's weight rides bottomed on its suspension's stops, pitched nose-up by the rear tyres: its origin's height (m) and pitch (rad), measured on the lab's cards. */
+const BASE_RIDE = -0.0368;
+const BASE_PITCH = -0.0024;
 
-/** The top car's height and pitch with its two keel ends on the base cars' roofs as drawn (`bodyTopY`), the base cars at `BASE_RIDE`. */
-function onRoofs(): { y: number; pitch: number } {
-  const reach = CAR_HALF.z + CARDS_GAP / 2;
-  const noseLocalZ = NOSE_KEEL_Z - reach;
-  const tailLocalZ = TAIL_KEEL_Z + reach;
-  const noseRoof = BASE_RIDE + bodyTopY(0, noseLocalZ, CAR_STYLES.sedan) - noseLocalZ * detSin(BASE_PITCH);
-  const tailRoof = BASE_RIDE + bodyTopY(0, tailLocalZ, CAR_STYLES.sedan) - tailLocalZ * detSin(BASE_PITCH);
-  let pitch = 0;
-  for (let i = 0; i < 4; i++) pitch = Math.asin(((NOSE_KEEL_H - TAIL_KEEL_H) * detCos(pitch) + tailRoof - noseRoof) / (NOSE_KEEL_Z - TAIL_KEEL_Z));
-  return { y: noseRoof - NOSE_KEEL_H * detCos(pitch) + NOSE_KEEL_Z * detSin(pitch), pitch };
+/** The cage a car of body `style` is built with (the one every car of the style shares), made from a throwaway car on first ask: a layout is data, no car exists yet. */
+const STOCK_CAGES = new Map<CarType["style"], CarCage>();
+function stockCage(style: CarType["style"]): CarCage {
+  let cage = STOCK_CAGES.get(style);
+  if (cage === undefined) {
+    cage = cageOf(new DeformableCar({ ...STOCK_PAINT, name: "lab-layout" }, new THREE.Scene(), null, style));
+    STOCK_CAGES.set(style, cage);
+  }
+  return cage;
 }
-const ON_ROOFS = onRoofs();
+
+/** The plan half extents (x, z) of the cage a car of body `style` is drawn with: the width and length every box-shaped reader of a car stands by. */
+export function planHalf(style: CarType["style"]): { hx: number; hz: number } {
+  const plan = stockCage(style).fields.planBox;
+  return { hx: (plan[1]! - plan[0]!) / 2, hz: (plan[3]! - plan[2]!) / 2 };
+}
+
+/**
+ * The stock sedan's body points the rigid step rests with (car-local x, y, z): the cage's vertices (the drawn body) and the belly rows
+ * of the drawn underside (`UNDERSIDE`, and the keel-to-rocker rows half a metre out, `underY`). The cage's own bottom stands up to 0.26 m
+ * over that underside at the nose and its tail vertices down to 0.1 m under it, so neither alone says where the top car touches.
+ */
+function bodyPoints(): readonly (readonly [number, number, number])[] {
+  const { style, fields } = stockCage(SEDAN.style);
+  const points: [number, number, number][] = UNDERSIDE.map(([x, z, h]): [number, number, number] => [x, h, z]);
+  for (const z of [2, 1, 0, -2]) for (const x of [-0.5, 0.5]) points.push([x, underY(x, z), z]);
+  for (let k = 0; k < style.vertexCount; k++) points.push([fields.pos[k * 3]!, fields.pos[k * 3 + 1]!, fields.pos[k * 3 + 2]!]);
+  return points;
+}
+
+/**
+ * How high (m) the top car's origin must stand for its body points on the nose (`side` 1) or tail (-1) half to clear the roof of the base
+ * car `reach` m out along its z (the cage's top, what the rigid step stands on), the base car at `BASE_RIDE` and `BASE_PITCH`.
+ */
+function endRise(side: 1 | -1, reach: number): number {
+  const cage = stockCage(SEDAN.style);
+  let rise = -Infinity;
+  for (const [x, y, z] of bodyPoints()) {
+    if (z * side <= 0) continue;
+    const baseZ = z - side * reach;
+    const roof = sampleField(cage.fields.top, cage.style, x, baseZ);
+    if (Number.isFinite(roof)) rise = Math.max(rise, BASE_RIDE + roof - baseZ * detSin(BASE_PITCH) - y);
+  }
+  return rise;
+}
+
+/** The top car's height and pitch with its body points on the base cars' roofs as the cage draws them, the base cars at `BASE_RIDE`. */
+function onRoofs(): { y: number; pitch: number } {
+  const reach = planHalf(SEDAN.style).hz + CARDS_GAP / 2;
+  const noseRise = endRise(1, reach);
+  const tailRise = endRise(-1, reach);
+  return { y: (noseRise + tailRise) / 2, pitch: Math.asin((tailRise - noseRise) / (2 * KEEL_Z)) };
+}
 
 /** A throw lane's start: a sedan on the bench left of the targets, facing them (+x). */
 const THROWER = pose(-14, 0, 0, Math.PI / 2);
+
+/** The house of cards' layout, from the sedan cage's roof and keel heights (made on first ask). */
+function cardsLayout(): LabLayout {
+  const roofs = onRoofs();
+  const half = planHalf(SEDAN.style).hz + CARDS_GAP / 2;
+  return [
+    { kind: "car", type: SEDAN, pose: THROWER, hold: "free" },
+    { kind: "car", type: SEDAN, pose: pose(CARDS_X - half, BASE_RIDE, 0, Math.PI / 2, BASE_PITCH), hold: "free" },
+    { kind: "car", type: SEDAN, pose: pose(CARDS_X + half, BASE_RIDE, 0, Math.PI / 2, BASE_PITCH), hold: "free" },
+    { kind: "car", type: SEDAN, pose: pose(CARDS_X, roofs.y, 0, Math.PI / 2, roofs.pitch), hold: "free" },
+  ];
+}
+
+/** The glass preset's layout: the dummy stands a sedan's half width off the board (made on first ask). */
+function glassLayout(): LabLayout {
+  return [
+    { kind: "dummy", pose: pose(0, 1, BOARD.z + planHalf(SEDAN.style).hx + BRACKET_LIP, Math.PI / 2), hold: "free" },
+    { kind: "car", type: SEDAN, pose: pose(10, 4 * PEG, 0, -Math.PI / 2), hold: "pin" },
+  ];
+}
+
+const made: { cards: LabLayout | null; glass: LabLayout | null } = { cards: null, glass: null };
 
 /**
  * The presets. `pad`: the empty bench and a car to throw. `wall`: a row of the game's props across the bench, more on the
  * pegboard's brackets above it. `cards`: the house of cards of cars. `glass`: a dummy on the bench, and a car held on a stand
  * bracket with its windscreen facing him. The first item is where the opening shot looks from: never the car against the board.
+ * `cards` and `glass` read the sedan's cage, so they are made when first asked.
  */
 export const LAB_LAYOUTS: Readonly<Record<LabPresetId, LabLayout>> = {
   pad: [{ kind: "car", type: SEDAN, pose: THROWER, hold: "free" }],
@@ -202,14 +267,10 @@ export const LAB_LAYOUTS: Readonly<Record<LabPresetId, LabLayout>> = {
     { kind: "prop", prefab: "barrier-block", pose: pose(10, 0, 6.8), hold: "free" },
     ...[-2, 0, 2, 4].map((x, i): LabItem => ({ kind: "prop", prefab: i % 2 ? "cone" : "crate", pose: pose(8 + x * PEG * 2, 6 * PEG, 0), hold: "pin" })),
   ],
-  cards: [
-    { kind: "car", type: SEDAN, pose: THROWER, hold: "free" },
-    { kind: "car", type: SEDAN, pose: pose(CARDS_X - CAR_HALF.z - CARDS_GAP / 2, BASE_RIDE, 0, Math.PI / 2, BASE_PITCH), hold: "free" },
-    { kind: "car", type: SEDAN, pose: pose(CARDS_X + CAR_HALF.z + CARDS_GAP / 2, BASE_RIDE, 0, Math.PI / 2, BASE_PITCH), hold: "free" },
-    { kind: "car", type: SEDAN, pose: pose(CARDS_X, ON_ROOFS.y, 0, Math.PI / 2, ON_ROOFS.pitch), hold: "free" },
-  ],
-  glass: [
-    { kind: "dummy", pose: pose(0, 1, BOARD.z + CAR_HALF.x + BRACKET_LIP, Math.PI / 2), hold: "free" },
-    { kind: "car", type: SEDAN, pose: pose(10, 4 * PEG, 0, -Math.PI / 2), hold: "pin" },
-  ],
+  get cards() {
+    return (made.cards ??= cardsLayout());
+  },
+  get glass() {
+    return (made.glass ??= glassLayout());
+  },
 };

@@ -30,6 +30,24 @@ export function vec3(v: THREE.Vector3): { x: number; y: number; z: number } {
   return { x: round4(v.x), y: round4(v.y), z: round4(v.z) };
 }
 
+/**
+ * The crush energy (J) of a full plastic exchange of an approach of `closing` m/s at effective mass `meff` kg (`1/k`): what the contact's
+ * barrier speeds (`barrierSpeed`) split. A contact that is not closing has none. The rigid step's rows and the contact kernel read it alike.
+ */
+export function plasticEnergy(closing: number, meff: number): number {
+  return closing > 0 ? 0.5 * meff * closing * closing : 0;
+}
+
+/**
+ * One side's equivalent barrier speed (m/s) for a plastic exchange of `plastic` joules: the side takes the share `mobility ·
+ * inverseMass / k` of it (its own velocity change's energy, the partner's `hardness` scaling it), and a rigid wall would crush as
+ * much at the speed whose ½mv² is that. `mobility` is the side's inverse effective mass at the contact (its inverse mass plus the
+ * lever's), `k` the pair's. Any consistent mass unit gives the same speed (per unit mass of one side, as the rigid step's rows read).
+ */
+export function barrierSpeed(plastic: number, mobility: number, inverseMass: number, partnerHardness: number, k: number): number {
+  return Math.sqrt((2 * plastic * mobility * inverseMass * partnerHardness) / k);
+}
+
 
 /** Kill NaNs and clamp |v| so a bad polar/impulse cannot light-speed the car. */
 export function clampSpeed(vel: THREE.Vector3, max = CRASH.maxMassMps): void {

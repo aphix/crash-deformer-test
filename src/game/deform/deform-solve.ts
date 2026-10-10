@@ -11,6 +11,7 @@ import {
 } from "./physics-util.ts";
 import {
   matchCluster,
+  PLASTIC,
   applyPlasticity,
   stiffnessIters,
   goalAlpha,
@@ -506,7 +507,10 @@ export abstract class DeformSolve extends DeformContact {
       }
     }
     if (contacting) {
-      for (let ci = 0; ci < this.clusters.length; ci++) applyPlasticity(this.clusters[ci]!, this.shapeParticles, dt, this.squash, this.buckle);
+      PLASTIC[0] = dt;
+      PLASTIC[1] = this.squash;
+      PLASTIC[2] = this.buckle;
+      for (let ci = 0; ci < this.clusters.length; ci++) applyPlasticity(this.clusters[ci]!, this.shapeParticles);
     }
     this.writeShapeToMasses();
   }

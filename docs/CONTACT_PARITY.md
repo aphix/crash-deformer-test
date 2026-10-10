@@ -114,7 +114,7 @@ the struck car takes). The scene props only move their box; the car meets it thr
 
 - **`partContact(car, box, dt)`**: the door slab and mirror colliders (formerly `DoorRig.hitMirror`
   / `hitDoor`), for any striker running along the car (within 15°, `PARALLEL`) with its near edge
-  outside the body's width (`CAR_HALF.x`). Folds, breaks and tears go through the hinge model in
+  outside the body's width (the cage's plan box, `car.cage.fields.planBox`). Folds, breaks and tears go through the hinge model in
   `car.ts` (`setMirrorFold`, `breakMirror`, `loadDoorStop`); the free swing (`swingDoors`) now
   runs in `afterContacts` for every car with an unlatched door. Callers: the Doors ram
   (`DoorRig.hit`), piston heads, and car-car (`partContactPair`, once per slice per close pair
@@ -195,9 +195,36 @@ the particle-level split under "Open" below.
   car-car (rails 29→32, wings 47→49 mm) and broke the piston wing grading, so it was dropped. The
   remaining per-particle gaps above (engine block, tank, rear axle, bumpers) come from this split.
 
-## Hooked pairs: the car-car contact axis (`satTwoHulls`)
+## Drop parity: a car's own weight on a fixed solid vs a piston ram (`scenes/drop-parity.test.ts`)
 
-A pair's SAT axis is signed by the **cars' centres** (b → a), not by the centres of the hull pair that overlaps. A corner
+Owner, 2026-10-07: dropping a car onto the point a piston strikes, from the height that gives it the same hit, must crush it the same.
+
+- **Matched quantity: energy.** The ram hands a struck car `E = hardness·½·μ·v²` (`PistonRig.shotEnergy`, `head.energy`) and
+  sizes its crush by `head.ebs = sqrt(2E/m)`, the speed at which the car driven square into an uncrushable face takes exactly `E`.
+  The drop reaches the solid at that same `ebs` (released `ebs²/(2g)` above its first touch, `g` read back from the sim), so its kinetic
+  energy there is `m g h = E`. Energy because crush is work along the structure's force-stroke curve: the same structure at the same
+  point reaches the same stroke at the same work. Not impulse: a struck car leaves a plastic ram hit at the shared velocity (`J = μ v`),
+  the dropped car gives all its momentum to the solid (`J = m·ebs`, `sqrt(hardness·(M+m)/M)` times larger).
+- **Set-up.** The car hangs at rest turned so the face's push direction is straight up (nose down for a front hit, on its side for a
+  side hit, standing on its corner for a corner hit). Corners fall on the flat ground (the lowest hull point is the struck corner).
+  Middles and sides fall on an uncrushable box the size of the ram's face (1.2 m × 0.5 m, 0.5 m high), its middle under the strike point.
+  The release height is corrected until the touch speed is within 1 % of `ebs`.
+- **Window.** From first touch until the deepest particle has stopped sinking (1 mm steps) for 20 ms, at most 0.3 s: the same rule
+  for both deliveries. Later rolling, toppling and settling is not compared.
+- **Compared (15 % or 10 mm, E4's band):** crush per body particle (hubs excluded) and per region, engine block travel, cabin
+  intrusion, parts and wheels off, drivetrain. Five shots (steel 20, 40, 60 and 90 km/h, honeycomb 40 km/h) × eight points.
+
+Before (main 8eff45a1, steel 40 km/h, drop / ram, mm): the 40 landing checks pass (touch speed within 3 % of `ebs`, hit axis
+vertical) and all 40 crush checks fail. Front: nose 158 / 328, wings 62 / 107, nothing behind the engine bay (0 / 14-58), cabin
+intrusion 0 / 4. Front-left corner: struck bumper 43 / 310, the same side's door 173 / 24 (the dropped car crushes the side that
+leans on the ground), engine block 0 / 32. Right side: door 169 / 208, engine block 0 / 44. At 90 km/h the ram kills the nose
+drivetrain and pops wheels; the drop pops none and keeps every drivetrain alive. In the traced front drop `applyImpact` is never
+called and the masses stay inactive: the car is marked crashed by the face load-crush (`CarSurfaces.commit`, the only other writer
+of `crashed`), so there is no engine travel, no crash rules and no crush behind the struck face; the ram starts a real crash.
+
+## Hooked pairs: the car-car contact axis (`satCars`)
+
+(Measured on the old hull SAT; since Stage 3 the axis is the deeper cage outline's normal turned to the side of the centres, `contact/sat.ts`, and `pair-hook.test.ts` pins it on the cages.) A pair's SAT axis is signed by the **cars' centres** (b → a), not by the centres of the hull pair that overlaps. A corner
 hull (half length 0.24 m) pushed past its partner's midplane read "out" the way that drives the whole cars deeper in, and
 the next SAT pass of the same slice picked another hull pair with the opposite sign and undid the push: a car's rear corner
 stayed inside the follower's nose for seconds (the owner's "hooked cops"; any class pair). Measured on b74c840:

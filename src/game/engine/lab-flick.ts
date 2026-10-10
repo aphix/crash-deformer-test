@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { CAR_HALF } from "../vehicle/car.ts";
+import { planHalf } from "../scenes/lab.ts";
 import { hypot2 } from "../kernel/physics-core.js";
 import type { Lab } from "./engine-lab.ts";
 
@@ -83,7 +83,8 @@ export class LabFlick {
       const mx = this.px.x;
       const my = this.px.y;
       // The thing's drawn half length: its middle moved that far along the camera's right, on screen.
-      this.screen(this.at.addScaledVector(this.right, lab.slotOf[k]! >= 0 ? CAR_HALF.z : FLICK.dummyHalf), r);
+      const item = lab.layout[k]!;
+      this.screen(this.at.addScaledVector(this.right, item.kind === "car" ? planHalf(item.type.style).hz : FLICK.dummyHalf), r);
       const reach = Math.max(FLICK.pickPx, hypot2(this.px.x - mx, this.px.y - my));
       const d = hypot2(x - mx, y - my);
       if (d <= reach && d < bestD) {

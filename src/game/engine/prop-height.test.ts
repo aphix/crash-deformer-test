@@ -8,8 +8,8 @@ import { makeWorld } from "../world/race-world.test-util.ts";
 import { Track } from "../world/track.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { OFF_MENU, TRACKS } from "../world/tracks/index.ts";
-import { FOOT_HALF_L, FOOT_HALF_W } from "../vehicle/car-mesh.ts";
-import { lowestY, propContact } from "../contact/prop-contact.ts";
+import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
+import { propContact } from "../contact/prop-contact.ts";
 import { frame, makeCar, worldOf } from "../vehicle/ground-probe.test-util.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
@@ -44,16 +44,30 @@ const pick = (colliders: readonly PropCollider[], prefab: PrefabId): PropCollide
   return colliders.filter((c) => c.prefab === prefab && ground(c)).reduce((a, b) => (gap(b) > gap(a) ? b : a));
 };
 
+/** Height (m) of the lowest point of `car`'s drawn body as the group's quaternion tilts it: its cage's vertices, class lift on. */
+function lowestY(car: DeformableCar): number {
+  const { x, y, z, w } = car.group.quaternion;
+  const [rightY, upY, fwdY] = [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)];
+  const pos = car.cage.fields.pos;
+  const lift = CLASSES[carClass(car)].lift;
+  let low = Infinity;
+  for (let k = 0; k < car.cage.style.vertexCount; k++) low = Math.min(low, rightY * pos[k * 3]! + upY * (pos[k * 3 + 1]! + lift) + fwdY * pos[k * 3 + 2]!);
+  return car.group.position.y + low;
+}
+
 /** A car facing +z with its front-right wall probe 0.1 m off the middle of `c` (a circle has no normal at its middle), its lowest point at height `low` and `pitch` (rad, + nose down). */
 function carOn(c: PropCollider, low: number, pitch = 0): DeformableCar {
   const car = makeCar("sedan");
-  const [ox, oz] = [FOOT_HALF_W, FOOT_HALF_L];
+  const box = car.cage.fields.planBox;
+  const [ox, oz] = [box[1]!, box[3]!];
   car.spawnFacing(c.x + 0.1 - ox, c.z - oz, 0, 8);
   car.group.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitch);
   car.refreshBasis();
   car.group.position.y += low - lowestY(car);
   return car;
 }
+
+const _v = new THREE.Vector3();
 
 afterEach(() => setGround(null));
 
@@ -87,10 +101,10 @@ describe("given a prop on a course, solid (palm, wall, dumpster) or knockable (c
         assert.equal(hit(0, 0, true).touched, true);
       });
 
-      it("when it is nose down 15° with its centre more than 0.4 m over the top but its front underside corner 0.14 m under, then it hits the prop, while a level car at that centre height passes", () => {
+      it("when it is nose down 15° with its centre more than 0.2 m over the top but its front underside corner 0.14 m under, then it hits the prop, while a level car at that centre height passes", () => {
         const tilted = hit(-0.14, 15 * (Math.PI / 180));
         const origin = tilted.car.group.position.y - tilted.k.top(tilted.c);
-        assert.ok(origin > 0.4, `the origin is ${origin.toFixed(2)} m over the prop's top`);
+        assert.ok(origin > 0.2, `the origin is ${origin.toFixed(2)} m over the prop's top`);
         assert.equal(tilted.touched, true, "the corner is in it");
         assert.equal(hit(origin).touched, false, "level, the same origin height clears");
       });
@@ -98,14 +112,22 @@ describe("given a prop on a course, solid (palm, wall, dumpster) or knockable (c
   }
 
   describe("given a sedan with its centre 3 m above flat ground", () => {
-    it("when it is level, then its lowest point is its ground point, and when it is nose down 0.3 rad, then its lowest point is its front underside corner", () => {
+    it("when it is level, then its lowest point is its cage's lowest vertex, and when it is nose down 0.3 rad, then its lowest point is the cage's lowest vertex as that tilt carries it", () => {
       const car = makeCar("sedan");
       car.spawnFacing(0, 0, 0, 0);
       car.group.position.y = 3;
       car.refreshBasis();
-      assert.ok(Math.abs(lowestY(car) - 3) < 1e-9);
+      const lift = CLASSES[carClass(car)].lift;
+      const lowest = (): number => {
+        const pos = car.cage.fields.pos;
+        let low = Infinity;
+        for (let k = 0; k < car.cage.style.vertexCount; k++) low = Math.min(low, _v.set(pos[k * 3]!, pos[k * 3 + 1]! + lift, pos[k * 3 + 2]!).applyQuaternion(car.group.quaternion).y);
+        return 3 + low;
+      };
+      assert.ok(Math.abs(lowestY(car) - lowest()) < 1e-9);
       car.group.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.3);
-      assert.ok(Math.abs(lowestY(car) - (3 + 0.68 * Math.cos(0.3) - (0.68 * Math.cos(0.3) + 2.22 * Math.sin(0.3)))) < 1e-9);
+      assert.ok(Math.abs(lowestY(car) - lowest()) < 1e-9);
+      assert.ok(lowestY(car) < 3, "the front underside corner is under the origin's height");
     });
   });
 });
@@ -122,7 +144,7 @@ describe("given a sedan flying a ballistic arc at 12 m/s over a wall or palm on 
     // Along the prop's local x, 7.2 m out, a ballistic arc whose apex is over it; the right probe runs through its middle.
     const yaw = c.yaw + Math.PI / 2;
     const d = SPEED * TC;
-    const lat = -FOOT_HALF_W;
+    const lat = -car.cage.fields.planBox[1]!;
     car.spawnFacing(c.x - Math.sin(yaw) * d + Math.cos(yaw) * lat, c.z - Math.cos(yaw) * d - Math.sin(yaw) * lat, yaw, 0);
     const vy = 9.6 * TC;
     car.group.position.y = top + clear - (vy * TC - 4.8 * TC * TC);

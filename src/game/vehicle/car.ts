@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformNetState } from "../deform/streamed-deform.ts";
-import { applyGroundFriction, CRASH, hypot2 } from "../deform/physics-util.ts";
+import { applyGroundFriction, CRASH, FRICTION_G, hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, DOOR, WHEEL_POS } from "./car-mesh.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
@@ -11,10 +11,11 @@ import { C_GRIP, C_NY, C_OWNER, HIT_SIZE } from "../world/surfaces.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { clearDents } from "./loose-dent.ts";
 import type { CarSurfaces } from "./car-surfaces.ts";
-import { LID } from "./constants.ts";
+import type { CarCage } from "./car-cage.ts";
+import { CageRig } from "./car-cage-rig.ts";
+import { CLASS_LIFT, LID, FUEL_CUTOFF_G, SIDE_HIT_X, STALL_S } from "./constants.ts";
 
 export { CAR_HALF, DOOR, WHEEL_POS };
-export type { Hull } from "../deform/hulls.ts";
 
 const _p = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -25,7 +26,7 @@ const _fallC = new THREE.Vector3();
 const _fallV = new THREE.Vector3();
 const _fallR = new THREE.Vector3();
 const _wantQuaternion = new THREE.Quaternion();
-/** Where a `DeformableCar.flight` block holds each part: spin (3), pitch, yaw, roll (3), orientation quaternion (4), velocity (3), position (3), contact-end clocks (2), reach, squeeze flag and drift. */
+/** Where a `DeformableCar.flight` block holds each part: spin (3), pitch, yaw, roll (3), orientation quaternion (4), velocity (3), position (3), contact-end clocks (2), reach, squeeze flag, drift, the seconds the engine stays cut (`stalledS`), the weight borne on it by cars that stepped after it (6: `CarSurfaces.borneState`) and what its wheels touch (`FLIGHT_CONTACT`: each wheel's contact, the wheels down, airborne, hard touch, yielding). */
 export const FLIGHT_EULER = 3;
 const FLIGHT_QUATERNION = 6;
 export const FLIGHT_VELOCITY = 10;
@@ -34,7 +35,11 @@ const FLIGHT_END_AGO = 16;
 const FLIGHT_END_REACH = 18;
 const FLIGHT_END_SQUEEZE = 19;
 const FLIGHT_DRIFT = 20;
-export const FLIGHT = 21;
+const FLIGHT_STALL = 21;
+const FLIGHT_BORNE = 22;
+const FLIGHT_CONTACT = 28;
+const FLIGHT_DOWN = FLIGHT_CONTACT + 4 * HIT_SIZE;
+export const FLIGHT = FLIGHT_DOWN + 4;
 /** Rate (1/s) a wreck's body eases onto its ground clearance (`seatBody`), and most (m) it is stood up for its underside (a hollow deeper is a wall). */
 const HULL_LIFT_RATE = 12;
 const HULL_LIFT_MAX = 0.2;
@@ -51,9 +56,53 @@ export class DeformableCar extends CarParts {
   airborne = false;
   /** A parked car's tyres grip the ground both ways (their wheels do not turn): set where a scene stands a car, cleared by any drive input. */
   parked = false;
+  /** Seconds the engine stays cut after a side hit (`stallOnSideHit`): `applyDrive` counts it down and gives no drive meanwhile. */
+  stalledS = 0;
   /** Moved by the rigid contact solve (`stepFree`), not by its crush masses: derived, never stored. `velocity` is then its centre of mass's. */
   get rigid(): boolean {
     return !this.deform.massActive;
+  }
+  private cageRig: CageRig | null = null;
+  /** The car's contact shape: its drawn body (`CarCage`), fitted by `refitCage`. */
+  get cage(): CarCage {
+    return (this.cageRig ??= new CageRig(this)).cage;
+  }
+  /** The cage's fields changed since a caller last asked (`refitCage`). */
+  private cageChanged = false;
+  /**
+   * Fits the cage to the body as the sim last baked its skin (`stepBreakage`: every step of a crush window), a car never baked
+   * or just reset or restored from the net to its style's shared shape, and answers whether its fields changed since the last answer
+   * (`CarCage.refit`: not for a mass within `REFIT_EPSILON` of the last raster). Never solves the skin: drawing cannot reach the cage.
+   */
+  refitCage(): boolean {
+    if (this.deform.cageDue) this.fitCage();
+    const changed = this.cageChanged;
+    this.cageChanged = false;
+    return changed;
+  }
+  /** The cage fitted to the last bake (or to rest: never baked, the masses sit at rest and the skin tables are empty, so the body is its style's shared shape). */
+  private fitCage(): void {
+    const rig = (this.cageRig ??= new CageRig(this));
+    this.deform.cageDue = false;
+    if (this.deform.skinBaked ? rig.refit() : rig.cage.reset()) this.cageChanged = true;
+  }
+  /** Numbers in a keyframe's solver state of this car: the deform's (`StreamedDeformation.simSize`) and its cage's fit history (`CarCage.stateSize`). */
+  solverSize(): number {
+    return this.deform.simSize() + (this.cageRig ??= new CageRig(this)).cage.stateSize();
+  }
+  /**
+   * The car's solver state into `buf` (`solverSize()` numbers), or with `write` restored from it: the deform's, then the cage's refit history
+   * (a restored car's cage is the recorded one, bit for bit, whatever the sim baked since).
+   */
+  solverState(buf: Float64Array, write: boolean): void {
+    const rig = (this.cageRig ??= new CageRig(this));
+    const n = this.deform.simSize();
+    this.deform.simState(buf, write);
+    const own = buf.subarray(n, n + rig.cage.stateSize());
+    if (write) {
+      rig.cage.readState(own);
+      this.cageChanged = true;
+    } else rig.cage.writeState(own);
   }
   /** The world's other-car tops this body can stand on (`stepWorld` sets it; null: the world's ground alone). */
   surfaces: CarSurfaces | null = null;
@@ -103,6 +152,7 @@ export class DeformableCar extends CarParts {
     this.speed = speed;
     this.spawnSpeed = speed;
     this.parked = false;
+    this.stalledS = 0;
     this.crashed = false;
     this.resetContact();
     if (this.classBody) this.classBody.position.y -= this.hullLift;
@@ -230,7 +280,15 @@ export class DeformableCar extends CarParts {
       }
       this.bodyMat.roughness = rough;
     }
+    this.stallOnSideHit(localN, ebs);
     this.deform.impulseAt(worldPoint, _in, impulse);
+  }
+
+  /** A side hit past the crash sensor's average deceleration (`FUEL_CUTOFF_G`) cuts the fuel for `STALL_S` seconds (`applyDrive` gives no drive until then); a hit already on the books does not extend it. */
+  private stallOnSideHit(localInward: THREE.Vector3, ebs: number): void {
+    if (Math.abs(localInward.x) < SIDE_HIT_X) return;
+    const decel = (ebs * ebs) / (2 * Math.max(0.05, this.deform.hitStroke()));
+    if (decel >= FUEL_CUTOFF_G * FRICTION_G && this.stalledS <= 0) this.stalledS = STALL_S;
   }
 
   syncPose(dt: number): void {
@@ -255,8 +313,9 @@ export class DeformableCar extends CarParts {
    * Highlight keyframes (docs/HIGHLIGHTS.md): what a netplay pose rounds or leaves out, `FLIGHT` doubles into `buf` at `o`,
    * or with `write` from it: the spins, the Euler angles the drive turns and the quaternion the rigid step turns (each is the
    * other's derived copy only up to rounding, and the drive reads the heading off the quaternion before it sets it from the
-   * Euler), velocity and position whole (the wire rounds them: a first impact 0.5 m/s off), the squeeze clocks and the drift
-   * state. What the body touches is read again (`restoreContact`).
+   * Euler), velocity and position whole (the wire rounds them: a first impact 0.5 m/s off), the squeeze clocks, the drift
+   * state and the weight a rider that stepped after this car left borne on it (its next step takes it: it is the step's input as
+   * much as the velocity is). What the body touches is read again (`restoreContact`).
    */
   flight(buf: Float64Array, o: number, write: boolean): void {
     if (write) {
@@ -273,7 +332,10 @@ export class DeformableCar extends CarParts {
       this.endReach = buf[o + FLIGHT_END_REACH]!;
       this.endSqueeze = buf[o + FLIGHT_END_SQUEEZE] !== 0;
       this.drive.drift = buf[o + FLIGHT_DRIFT]!;
+      this.stalledS = buf[o + FLIGHT_STALL]!;
+      this.surfaces?.borneState(this.slot, buf, o + FLIGHT_BORNE, true);
       this.restoreContact();
+      this.contact(buf, o, true);
       return;
     }
     this.angular.toArray(buf, o);
@@ -287,6 +349,35 @@ export class DeformableCar extends CarParts {
     buf[o + FLIGHT_END_REACH] = this.endReach;
     buf[o + FLIGHT_END_SQUEEZE] = this.endSqueeze ? 1 : 0;
     buf[o + FLIGHT_DRIFT] = this.drive.drift;
+    buf[o + FLIGHT_STALL] = this.stalledS;
+    if (this.surfaces) this.surfaces.borneState(this.slot, buf, o + FLIGHT_BORNE, false);
+    else buf.fill(0, o + FLIGHT_BORNE, o + FLIGHT_BORNE + 6);
+    this.contact(buf, o, false);
+  }
+
+  /**
+   * The wheel contacts the last rigid slice left (`wheelHit`, shifted by that slice's lift, and what was derived from them) as the
+   * flight block holds them, or with `write` put back from it. The drive of the next step reads them (the wheels it grips with), and
+   * a fresh read of the pose (`restoreContact`) is not them: a car on another's roof had one wheel less. A wreck on its masses has
+   * none to restore: its hubs' last slice is read again (`restoreContact`).
+   */
+  contact(buf: Float64Array, o: number, write: boolean): void {
+    const at = o + FLIGHT_CONTACT;
+    const down = o + FLIGHT_DOWN;
+    if (!write) {
+      buf.set(this.wheelHit, at);
+      buf[down] = this.wheelsDown;
+      buf[down + 1] = this.airborne ? 1 : 0;
+      buf[down + 2] = this.hardTouch ? 1 : 0;
+      buf[down + 3] = this.yielding ? 1 : 0;
+      return;
+    }
+    if (this.deform.massActive) return;
+    this.wheelHit.set(buf.subarray(at, at + 4 * HIT_SIZE));
+    this.wheelsDown = buf[down]!;
+    this.airborne = buf[down + 1] !== 0;
+    this.hardTouch = buf[down + 2] !== 0;
+    this.yielding = buf[down + 3] !== 0;
   }
 
   /**
@@ -397,10 +488,19 @@ export class DeformableCar extends CarParts {
    */
   stepBreakage(dt: number): void {
     if (this.vaporized || this.falling) return;
-    this.deform.stepCrush(dt, this.glassLeft());
-    if (!this.crashed) return;
-    this.syncAttachedParts(dt);
-    this.evaluateBreakage(this.deform.impulseValue, dt);
+    this.deform.stepCrush(dt);
+    if (this.crashed) {
+      this.syncAttachedParts(dt);
+      this.evaluateBreakage(this.deform.impulseValue, dt);
+    }
+    // The cage takes the bake of this step with the parts as this step left them: a pure function of the sim's state.
+    if (this.deform.cageDue && this.deform.skinBaked) this.fitCage();
+  }
+
+  /** Between two slices of one `stepWorld` step: a crushing car's sensors read and skin bake (`stepCrushSlice`), then its cage is fitted from the bake, as `stepBreakage` does when the step ends. */
+  bakeBetweenSlices(h: number): void {
+    if (this.vaporized || this.falling || !this.deform.massActive) return;
+    if (this.deform.stepCrushSlice(h)) this.fitCage();
   }
 
   /** Per rendered frame: the mesh follows the solve (skin, lamps, panels, glass, interior); nothing here changes the sim. */
@@ -624,7 +724,7 @@ export class DeformableCar extends CarParts {
 
   /** The class body the ride moves (`null` for a car with no class), found once. */
   private classBodyObject(): THREE.Object3D | null {
-    return (this.classBody ??= this.group.getObjectByName("classLift") ?? null);
+    return (this.classBody ??= this.group.getObjectByName(CLASS_LIFT) ?? null);
   }
 
   /**

@@ -10,7 +10,6 @@ import {
   type SensorSpec,
 } from "../kernel/rig-spec.ts";
 import { DeformParticleHelper, DeformRigHelper } from "./deform-helper.ts";
-import type { Hull } from "./hulls.ts";
 import { bindLattice, buildRunStructures, INF_K, restoreInto, runTemplate, wrinkleSeeds } from "./deform-build.ts";
 import { FACES, faceFollow, IMPRINT_NONE } from "./load-crush.ts";
 import { PushBudget } from "./push-budget.ts";
@@ -94,7 +93,7 @@ export interface MassNode {
   dynamic: boolean;
   clipping: boolean;
   popped: boolean;
-  /** Car-frame push (m) a squeezing face (press plates, `projectOutOfBox` when bidirectional) has given a planted
+  /** Car-frame push (m) a squeezing face (press plates, `pushMass` when bidirectional) has given a planted
    *  hub: clampLocal pins it at rest + shove and pops it past WHEEL_DIAMETER. Pinned at rest, plates passed through the tyres. */
   shoveX: number;
   shoveZ: number;
@@ -149,10 +148,14 @@ export abstract class DeformRig {
   skinDeferred = false;
   /** A skin was skipped since the mesh was last written — `flushSkin` before the car is seen. */
   skinOwed = false;
-  /** The crush has moved since the skin's solve (cluster fit, cage corners) last ran: `solveSkin` runs it. */
-  protected skinDue = false;
+  /** The sim baked the skin since the car's cage (`DeformableCar.cage`) was last fitted to it: the cage is fitted from that bake. */
+  cageDue = true;
+  /** The sim has baked the masses since the car was set up: until it has, `massPos` and the cluster maps are empty and the body is its rest shape. */
+  skinBaked = false;
   /** The crush window closed since the mesh was last written: a deferred skin is written once anyway. */
   protected skinFinal = false;
+  /** The length (s) of the last slice `stepCrushSlice` read the sensors at, until the step's own `stepCrush` takes it (0: no slice has). Never outlives a step. */
+  protected sliceReadDt = -0;
   crushAmount = -0;
   impactLocal = new THREE.Vector3();
   impactInward = new THREE.Vector3(0, 0, -1);
@@ -173,7 +176,7 @@ export abstract class DeformRig {
   /** Sticky until reset: this car was squeezed / deep-crushed, so `clampLocal` keeps those shape limits. */
   protected squeezeShape = false;
   protected deepShape = false;
-  /** Masses resting on the face after the last projectOutOfBox call. */
+  /** Masses resting on the face after the last `faceHits` call. */
   faceContacts = 0;
   /** Walls past both wheel midpoints: the cage and rails may yield. Reads false while `frameCrush` is off. */
   get deepCrush(): boolean {
@@ -214,9 +217,6 @@ export abstract class DeformRig {
   protected hitSpeed = -0;
   /** Σ EBS² per struck end (`struckEnd`: front, rear, left, right). */
   protected readonly endEbs2 = new Float64Array(4);
-  /** `liveHulls` / `liveCrushHulls` output, rewritten by each call (a SAT pass allocated 10 hulls per car). */
-  protected readonly hullBuf: Hull[] = Array.from({ length: 5 }, () => ({ cx: 0, cz: 0, hx: 0, hz: 0 }));
-  protected readonly crushHullBuf: Hull[] = Array.from({ length: 5 }, () => ({ cx: 0, cz: 0, hx: 0, hz: 0 }));
   /** Ground under each dynamic mass before (`floorPre`) and after (`floorPost`, `gripPost`) its move (`sampleGround`). */
   protected readonly floorPre = new Float64Array(MASS_SPECS.length);
   protected readonly floorPost = new Float64Array(MASS_SPECS.length);
@@ -475,8 +475,10 @@ export abstract class DeformRig {
     this.skinnedThisFrame = false;
     this.skinDeferred = false;
     this.skinOwed = false;
-    this.skinDue = false;
+    this.cageDue = true;
+    this.skinBaked = false;
     this.skinFinal = false;
+    this.sliceReadDt = -0;
     this.crushAmount = -0;
     this.impactLocal.set(0, 0, 0);
     this.massCornerX = NaN;
@@ -529,8 +531,6 @@ export abstract class DeformRig {
     this.imprint[1] = 0;
     this.imprint[2] = 0;
     this.loadDirty.fill(0);
-    for (const h of this.hullBuf) h.cx = h.cz = h.hx = h.hz = 0;
-    for (const h of this.crushHullBuf) h.cx = h.cz = h.hx = h.hz = 0;
     for (const b of [this.endEbs2, this.cageCo, this.floorPre, this.floorPost, this.gripPost, this.hubStand, this.pose, this.spinHeld, this.strokeOut, this.massCornerW]) b.fill(0);
     for (const b of [this.goalX, this.goalY, this.goalZ, this.goalW, this.startX, this.startY, this.startZ, this.turnX, this.turnZ, this.impulseW]) b.fill(0);
     for (const b of [this.massPos, this.clusterXf, this.netSkinXf, this.netImpact]) b.fill(0);

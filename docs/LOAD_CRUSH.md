@@ -22,8 +22,8 @@ Load crush is how `stepAir`, the rigid flight step, meets a body's five faces (r
   yields (at rest under 0.5 W a roof does not move).
 - A car resting on another car's top presses it back (`CarSurfaces.press`): the lower car takes the upper's reaction as a
   velocity change, so the bottom roof carries every car above it, and a car's yield is judged against **its own** weight
-  in the lower car's roof (`mOwner / mSelf`). A car carried this way stays in `stepAir` and `restsOn` keeps the plan SAT
-  from shoving it off its carrier (`shareHeight`).
+  in the lower car's roof (`mOwner / mSelf`). A car carried this way stays in `stepAir`; the plan SAT leaves it alone because the
+  two cages' heights do not overlap at the contact.
 - A step runs at 480 Hz (`stepWorld`: up to 8 slices, `CONTACT_HZ`) only while a body in flight touched something last
   slice (`contactHz`); free flight, a body frozen at rest, and every car with no flight cost what they cost otherwise. No
   allocation in `stepAir`, `CarSurfaces` or `bakeLoadCrush`.
@@ -71,9 +71,8 @@ Opposite faces stay at 0 (nose drop: tail 0; left: right 0).
 second stay on the axis (< 5 cm, < 3° lean, no car 10 cm off at any time) with the roof sink growing toward the bottom.
 What holds a column up, in the shared car-on-car rule:
 
-- **`shareHeight`** (`contact/sat.ts`): a car whose box bottom plus belly (`bellyY`: stock 0.13 m plus the class lift) is
-  over the crown of the upright car under it (`roofHeight`: class lift on, load crush off, along its up axis), less
-  0.11 m, is stacked on it: `CarSurfaces` carries it and the plan SAT does not push it.
+- **The cages' heights** (`contact/cage-outline.ts` `bandsMeet`, `contact/sat.ts` `satCars`): a car whose body spans heights that overlap
+  the car under it by no more than `VERTICAL_CLEAR` is on it, not beside it: the cage's top in the store carries it and the plan SAT does not push it.
 - **`restsOn`** is set by touching a top, pressed or not (`CarSurfaces.touch`).
 - **One-sided ground**: a car's ground is a car below it (origin height), never one above.
 - **Lifted bodies**: others stand on the drawn roof (the class lift is on the top surface).

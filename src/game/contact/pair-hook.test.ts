@@ -6,14 +6,14 @@ import { applyDrive, idleDrive } from "../vehicle/car-drive.ts";
 import { armKill, assignClass, CLASSES, HANDLING, killClass, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
-import { carCrushHulls, physicsSlice, satCars, sliceSpeed } from "./sat.ts";
+import { physicsSlice, satCars, sliceSpeed } from "./sat.ts";
 import { tyreOverlap } from "./pair-contact.ts";
 
 /**
  * Hooked cars: two cars locked together while one drives away (the owner's cop cars "hooked" onto the cars they chase, the
- * front car's rear corner inside the follower's nose). A pair's contact axis comes from its hulls; a corner hull pushed past
+ * front car's rear corner inside the follower's nose). A pair's contact axis comes from its cages' outlines; a corner pushed past
  * its partner's midplane used to read "out" the way that drives the whole cars deeper in, and the next SAT pass picked the
- * opposite hull pair and undid the push.
+ * opposite side's row and undid the push.
  */
 const FRAME = 1 / 60;
 const scene = new THREE.Scene();
@@ -29,9 +29,9 @@ function build(cls: VehicleClassId): DeformableCar {
   return car;
 }
 
-/** Whether the pair is in contact the way `resolveCarPair` tests it: crush hulls, hulls or tyres overlap. */
+/** Whether the pair is in contact the way `resolveCarPair` tests it: the cages' plan outlines or the tyres overlap. */
 function touching(a: DeformableCar, b: DeformableCar, n: THREE.Vector3, p: THREE.Vector3): boolean {
-  return satCars(a, b, n, p, carCrushHulls) !== null || satCars(a, b, n, p) !== null || tyreOverlap(a, b) > 0;
+  return satCars(a, b, n, p) !== null || tyreOverlap(a, b) > 0;
 }
 
 describe("given two cars hooked together (the front car's rear corner inside the follower's nose, as a cop car hooks onto the car it chases)", () => {
@@ -51,14 +51,12 @@ describe("given two cars hooked together (the front car's rear corner inside the
           a.spawnFacing(lat, gap, yaw, 0);
           const dx = a.group.position.x - b.group.position.x;
           const dz = a.group.position.z - b.group.position.z;
-          for (const hulls of [undefined, carCrushHulls]) {
-            if ((hulls ? satCars(a, b, n, p, hulls) : satCars(a, b, n, p)) === null) continue;
-            hits++;
-            // `satCars`' axis runs b → a: against a − b it would push the cars deeper in.
-            if (n.x * dx + n.z * dz < 0) {
-              together++;
-              first ||= `gap ${gap.toFixed(1)} lat ${lat.toFixed(1)} yaw ${yaw.toFixed(1)} (${hulls ? "crush hulls" : "hulls"})`;
-            }
+          if (satCars(a, b, n, p) === null) continue;
+          hits++;
+          // `satCars`' axis runs b → a: against a − b it would push the cars deeper in.
+          if (n.x * dx + n.z * dz < 0) {
+            together++;
+            first ||= `gap ${gap.toFixed(1)} lat ${lat.toFixed(1)} yaw ${yaw.toFixed(1)}`;
           }
         }
       }

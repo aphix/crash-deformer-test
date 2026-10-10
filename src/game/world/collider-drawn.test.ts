@@ -32,8 +32,7 @@ const SAME = 1e-9;
  * The most (m) a kind's colliders stand off its drawn shape, either way: what the kind's pieces measure (`prefabGap`), up to the
  * next centimetre, and what bounds it. A kind with no entry is held to 0 until it has measured. What one more piece would buy,
  * measured: the tree's first crown step in two, 0.22 → 0.20 (the second step then limits); the rock's top ring in two, 0.36 →
- * 0.35; the palm's first drum in two, 0.29 → 0.21 (the second drum then limits); the monument's every arm in one more slice,
- * 0.26 → 0.19 for 45 more boxes.
+ * 0.35; the palm's first drum in two, 0.29 → 0.21 (the second drum then limits); the monument's arms at 1.5 slices per metre of tip radius, 0.26 → 0.077 (333 pieces for 138); at 2, 0.058 (423).
  */
 const KIND_TOL: Partial<Record<PrefabId, number>> = {
   // A cone's three stacked solids against its taper.
@@ -55,8 +54,8 @@ const KIND_TOL: Partial<Record<PrefabId, number>> = {
   grandstand: 0.01,
   billboard: 0.01,
   lamp: 0.02,
-  // The star's arms in slices as wide as the arm is at its middle, and the five-sided spire in three circles.
-  monument: 0.26,
+  // The star's arms in boxes as wide as the arm is at their middle, and the five-sided spire in three circles.
+  monument: 0.08,
   // The leaning trunk in three drums, each bounding its slice of the lean.
   palm: 0.29,
   wall: 0.03,

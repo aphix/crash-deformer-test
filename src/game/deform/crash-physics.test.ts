@@ -7,6 +7,7 @@ import { ENGINE_KILL_TRAVEL, type DeformMode } from "./deform-rig.ts";
 import { CRASH, crushStroke, leftoverCrumple } from "./physics-util.ts";
 import { DT, MODES, assertSameDigest, dummyGeom, mass } from "../vehicle/test-support.ts";
 import { runPair } from "../contact/crash-scenarios.test-util.ts";
+import { holdOnFace } from "../contact/external-contact.ts";
 import { warmCrashPath } from "../engine/world-step.ts";
 
 /** ~50 km/h NCAP-style rigid barrier. */
@@ -68,7 +69,7 @@ function stepWall(
   if (leftover > 0.3) s.d.applyImpulse(n.x, n.y, n.z, leftover * s.d.totalMass * dt * 4);
   s.d.stepStructure(dt);
   s.d.followGroup(s.group, s.vel, s.omega, dt);
-  s.d.stepCrush(dt, true);
+  s.d.stepCrush(dt);
   s.d.update(s.geom);
 }
 
@@ -600,7 +601,7 @@ forModes("given a car whose right side is pushed in at 10 m/s", (spawn) => {
       s.d.applyImpulse(n.x, 0, n.z, 80);
       s.d.stepStructure(DT);
       s.d.followGroup(s.group, s.vel, s.omega, DT);
-      s.d.stepCrush(DT, true);
+      s.d.stepCrush(DT);
       s.d.update(s.geom);
     }
     const L = travel(s.d, "doorL") + travel(s.d, "wingFL");
@@ -860,7 +861,7 @@ forModes("given a car whose wheels stay on until a hard enough hit knocks them o
     const h = mass(s.d, "hubFL");
     // A slab square to the car (normal −z) whose near face is 0.1 m inside the tyre (hub z + TYRE_R).
     const face = h.world.z + TYRE_R - 0.1;
-    s.d.projectOutOfBox(h.world.x, face + 0.5, 0.5, 0.06, Math.PI / 2);
+    holdOnFace(s.d, h.world.x, face + 0.5, 0.5, 0.06, Math.PI / 2, true);
     s.d.followGroup(s.group, s.vel, s.omega, DT);
     assert.ok(h.local.z - h.rest.z < -0.09, `hub held at ${(h.local.z - h.rest.z).toFixed(3)} m: the face is inside the tyre`);
     s.d.followGroup(s.group, s.vel, s.omega, DT);

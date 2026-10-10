@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { CAR_HALF } from "../vehicle/car-mesh.ts";
+import { crownY, keelY } from "../vehicle/car-cage-rig.ts";
 import { Ground, STEP_UP } from "../world/ground.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
 
@@ -34,11 +34,6 @@ export const CORKSCREW = {
 const STEP = 0.05;
 const N_SAMPLES = Math.round(CORKSCREW.len / STEP) + 1;
 const TWIST_RATE = CORKSCREW.bank / (CORKSCREW.len - CORKSCREW.twistFrom - CORKSCREW.twistEase / 2);
-/** Car-local side points the walls hold in: the body's four corners at mid height. */
-const SIDES: readonly (readonly [number, number, number])[] = [-1, 1].flatMap((sx) =>
-  [-1, 1].map((sz): [number, number, number] => [sx * CAR_HALF.x, CAR_HALF.y, sz * CAR_HALF.z]),
-);
-
 /** Centreline height and run (local z) at each `STEP` of floor, from the climb's profile. */
 const PROFILE_Y = new Float64Array(N_SAMPLES);
 const PROFILE_Z = new Float64Array(N_SAMPLES);
@@ -190,8 +185,8 @@ export class Corkscrew extends Ground {
   }
 
   /**
-   * The walls against a car on the floor: each body corner past a wall (across the floor at its own distance along
-   * the run, below the wall's top) pushes the car back across the floor, and its speed into that wall is taken out.
+   * The walls against a car on the floor: each corner of its cage's plan box (at mid height of the cage) past a wall (across the
+   * floor at its own distance along the run, below the wall's top) pushes the car back across the floor, and its speed into that wall is taken out.
    */
   contact(car: DeformableCar): void {
     const pos = car.group.position;
@@ -202,8 +197,10 @@ export class Corkscrew extends Ground {
     const q = car.group.quaternion;
     let push = 0;
     let side = 0;
-    for (const [x, y, z] of SIDES) {
-      _p.set(x, y, z).applyQuaternion(q).add(pos);
+    const plan = car.cage.fields.planBox;
+    const midY = (crownY(car) + keelY(car)) / 2;
+    for (let k = 0; k < 4; k++) {
+      _p.set(k < 2 ? plan[0]! : plan[1]!, midY, k % 2 === 0 ? plan[2]! : plan[3]!).applyQuaternion(q).add(pos);
       // The corner's own floor distance: the car's, plus its reach along the run.
       const s = s0 + (_p.z - pos.z) * tz + (_p.y - pos.y) * ty;
       if (s < 0 || s > CORKSCREW.len) continue;

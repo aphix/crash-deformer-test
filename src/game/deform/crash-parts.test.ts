@@ -36,7 +36,7 @@ function stepWall(s: ReturnType<typeof spawnOffset>, dt: number, contactX: numbe
   s.d.feedOverlap(contact, n, 0.1, closing, dt);
   s.d.stepStructure(dt);
   s.d.followGroup(s.group, s.vel, s.omega, dt);
-  s.d.stepCrush(dt, true);
+  s.d.stepCrush(dt);
   s.d.update(s.geom);
 }
 

@@ -61,7 +61,9 @@ export function m3RotationAngle(R: Mat3): number;
 export function makeCluster(particles: ShapeParticle[], idx: number[]): ShapeCluster;
 export function rebuildAqqWeighted(c: ShapeCluster, particles: ShapeParticle[]): void;
 export function matchCluster(c: ShapeCluster, particles: ShapeParticle[], beta: number): void;
-export function applyPlasticity(c: ShapeCluster, particles: ShapeParticle[], dt: number, squash: number, buckle?: number): void;
+export const PLASTIC: Float64Array;
+/** Plastic flow of one cluster, its slice length, squash and buckle read from `PLASTIC` [0..2] (no argument boxing). */
+export function applyPlasticity(c: ShapeCluster, particles: ShapeParticle[]): void;
 export function resetCluster(c: ShapeCluster, particles: ShapeParticle[]): void;
 export function transformSkinPointInto(
   c: ShapeCluster,

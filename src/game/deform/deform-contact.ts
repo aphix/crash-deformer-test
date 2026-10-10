@@ -15,7 +15,7 @@ import { HubPlane } from "./hub-plane.ts";
 import { BodyFit } from "./body-fit.ts";
 import type { MassNode } from "./deform-rig.ts";
 import type { StreamedDeformation } from "./streamed-deform.ts";
-import { detSin, detCos } from "../kernel/physics-core.js";
+import { detSin, detCos, sinCosAt } from "../kernel/physics-core.js";
 
 /** Engine slack (m) a hit too slow to pack the nose still allows (mounts, not crush).
  *  This replaces the old first-hit ENGINE_LIGHT_CAP: the block's reach now
@@ -33,6 +33,8 @@ const VY_SPAN = 0.004;
 const DRIVE_TURN_HOLD = 1 / 30; // sim s a driven wreck's turn rate stays reported after `applyDrive` set it (followGroup)
 /** A mass this close (m) to a rigid face still counts as resting on it. */
 const FACE_SKIN = 0.02;
+/** Numbers per contact row of `faceHits`: x, z, nx, nz, depth. */
+export const FACE_ROW = 5;
 
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
@@ -49,6 +51,8 @@ const LEVEL_TIME = 0.1;
 const _plane = new HubPlane();
 /** The masses' spin sums (`followGroup` resets and fills them). */
 const _fit = new BodyFit();
+/** `measurePose`'s angles in [pitch, _, roll, _, yaw, _], their [sin, cos] pairs out (`sinCosAt`: no boxed argument or result). */
+const _sc = new Float64Array(6);
 /** The ground plane holds a wreck's tilt while its lowest hub is within this (m) of its `HUB_FLOOR`, and fades out over `PLANE_FADE` more: a wreck in flight has no ground under it to lie on. */
 const PLANE_FADE_FROM = 0.05;
 const PLANE_FADE = 0.25;
@@ -412,10 +416,14 @@ export abstract class DeformContact extends DeformState {
     const pitch = Math.max(-0.2, Math.min(0.22, Math.atan2(-fy, Math.max(yawLen, 0.15)))) * this.lean + planePitch * (1 - this.lean);
     const roll = Math.max(-0.5, Math.min(0.5, (engR.world.y - engL.world.y) * 0.55)) * this.lean + planeRoll * (1 - this.lean);
     const tilt = Number.isFinite(pitch + roll);
-    const cp = detCos(tilt ? pitch : 0);
-    const sp = detSin(tilt ? pitch : 0);
-    const cr = detCos(tilt ? roll : 0);
-    const sr = detSin(tilt ? roll : 0);
+    _sc[0] = tilt ? pitch : 0;
+    _sc[2] = tilt ? roll : 0;
+    sinCosAt(_sc, 0);
+    sinCosAt(_sc, 2);
+    const sp = _sc[0]!;
+    const cp = _sc[1]!;
+    const sr = _sc[2]!;
+    const cr = _sc[3]!;
     const ax = (engL.local.x + engR.local.x) * 0.5 - axle.local.x;
     const ay = (engL.local.y + engR.local.y) * 0.5 - axle.local.y;
     const az = (engL.local.z + engR.local.z) * 0.5 - axle.local.z;
@@ -460,7 +468,11 @@ export abstract class DeformContact extends DeformState {
     }
     const p = this.pose;
     p[0] = pitch;
-    p[1] = Number.isFinite(yaw) ? Math.atan2(detSin(yaw), detCos(yaw)) : this.prevYaw;
+    if (Number.isFinite(yaw)) {
+      _sc[4] = yaw;
+      sinCosAt(_sc, 4);
+      p[1] = Math.atan2(_sc[4]!, _sc[5]!);
+    } else p[1] = this.prevYaw;
     p[2] = roll;
     p[3] = wx;
     p[4] = wy;
@@ -524,45 +536,49 @@ export abstract class DeformContact extends DeformState {
   }
 
   /**
-   * Crush force from a face moving at `refVn` along its outward normal
-   * (nx, nz): impulse `j` (N·s) comes off the masses still moving into it, as
-   * one equal Δv, never past the face's speed. Relative motion is kept, so the
-   * cabin keeps piling into the stopped nose. Returns the momentum taken (N·s).
+   * A contact's change of the body's motion (`bodyContact`'s increment): the whole body's velocity change (`dvx`, `dvz`) and yaw-rate
+   * change `dw` about (`cx`, `cz`) go onto every dynamic mass as one rigid body (v += dv + dw × r). The part along the face's normal
+   * (`nx`, `nz`) is carried by the masses still driving into the face, those moving along it slower than the face (`refVn`): a mass
+   * held on the face is at rest on it and the face's impulse cannot reach it, so the driving masses carry the whole normal momentum
+   * (dv scaled by the mass over their mass) and none is taken past the face's speed. Returns the normal momentum taken (N·s).
    */
-  brakeInbound(nx: number, nz: number, j: number, refVn = 0): number {
-    if (!this.massActive || j <= 0) return 0;
-    let moving = 0;
+  shiftBody(dvx: number, dvz: number, dw: number, cx: number, cz: number, nx: number, nz: number, refVn: number): number {
+    if (!this.massActive) return 0;
+    let all = 0;
+    let driving = 0;
     for (let mi = 0; mi < this.masses.length; mi++) {
       const m = this.masses[mi]!;
-      if (m.dynamic && m.vel.x * nx + m.vel.z * nz < refVn) moving += m.mass;
+      if (!m.dynamic) continue;
+      all += m.mass;
+      if (m.vel.x * nx + m.vel.z * nz < refVn) driving += m.mass;
     }
-    if (moving < 1e-6) return 0;
-    const dv = j / moving;
+    const dvn = dvx * nx + dvz * nz;
+    const push = driving > 1e-6 ? (dvn * all) / driving : 0;
+    const tx = dvx - dvn * nx;
+    const tz = dvz - dvn * nz;
     let taken = 0;
     for (let mi = 0; mi < this.masses.length; mi++) {
       const m = this.masses[mi]!;
       if (!m.dynamic) continue;
-      const vn = m.vel.x * nx + m.vel.z * nz - refVn;
-      if (vn >= 0) continue;
-      const cut = Math.min(-vn, dv);
-      m.vel.x += nx * cut;
-      m.vel.z += nz * cut;
+      const vn = m.vel.x * nx + m.vel.z * nz;
+      const cut = vn >= refVn ? 0 : Math.min(refVn - vn, push);
+      m.vel.x += tx + nx * cut + dw * (m.world.z - cz);
+      m.vel.z += tz + nz * cut - dw * (m.world.x - cx);
       taken += cut * m.mass;
     }
     return taken;
   }
 
   /**
-   * Rigid slab at mass level: a mass whose half-radius sphere is inside the
-   * box (centre cx/cz, half extents hx/hz, rotated by yaw) goes back out
-   * through the nearer of the car-side face or an end face and loses its
-   * inbound speed there. Planted hubs are the world pin and stay put on a one-sided
-   * hit (the car moves away from the face); squeezed (`bidirectional`) the car
-   * cannot, so the face meets the tyre and shoves the hub (`shoveHub`).
-   * Returns the momentum taken out (N·s) for the caller to hand to the slab. Without `ends` a mass never leaves round an end
-   * face (a fixed wall's end is the joint to the next panel, which would hold it in the wall): only by the car-side face.
+   * The contact rows of a rigid slab on the masses: every mass whose half-radius sphere is inside the box (centre cx/cz, half extents
+   * hx/hz, rotated by yaw) leaves a row [x, z, nx, nz, depth] in `hits` (`FACE_ROW` apart; the mass's world point, the unit normal
+   * out of the slab through the nearer of the car-side face or an end face, and the depth along it) and its index in `who`.
+   * The slab's response is the caller's (`bodyContact` per row, then `pushMass`). Planted hubs are the world pin and are no row on a
+   * one-sided hit (the car moves away from the face); squeezed (`bidirectional`) the car cannot, so the face meets the tyre and
+   * shoves the hub (`pushMass`). Without `ends` a mass never leaves round an end face (a fixed wall's end is the joint to the next
+   * panel, which would hold it in the wall): only by the car-side face. Returns the number of rows.
    */
-  projectOutOfBox(cx: number, cz: number, hx: number, hz: number, yaw: number, ends = true): number {
+  faceHits(cx: number, cz: number, hx: number, hz: number, yaw: number, ends: boolean, hits: Float64Array, who: Int32Array): number {
     if (!this.massActive) return 0;
     const rx = detCos(yaw);
     const rz = -detSin(yaw);
@@ -574,10 +590,10 @@ export abstract class DeformContact extends DeformState {
     // which the slab clip reads) in step with the projected world positions.
     const gc = detCos(this.prevYaw);
     const gs = detSin(this.prevYaw);
-    let removed = 0;
-    let moved = false;
+    let n = 0;
     this.faceContacts = 0;
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       const planted = m.hub && !m.popped;
       // Planted hubs pin the wreck on a one-sided hit; a squeeze (`bidirectional`) or a face past the wheel
       // centres (`deepCrush`) meets the tyres.
@@ -595,41 +611,52 @@ export abstract class DeformContact extends DeformState {
       const penX = hx + r - (ox * rx + oz * rz) * side;
       const penZ = hz + rEnd - Math.abs(lz);
       if (penZ > 0 && penX > -FACE_SKIN) this.faceContacts++;
-      if (penX <= 0 || penZ <= 0) continue;
-      let nx: number;
-      let nz: number;
-      let pen: number;
+      if (penX <= 0 || penZ <= 0 || n >= who.length) continue;
+      const o = n * FACE_ROW;
+      hits[o] = m.world.x;
+      hits[o + 1] = m.world.z;
       if (penX <= penZ || !ends) {
-        nx = rx * side;
-        nz = rz * side;
-        pen = penX;
+        hits[o + 2] = rx * side;
+        hits[o + 3] = rz * side;
+        hits[o + 4] = penX;
       } else {
         const end = lz >= 0 ? 1 : -1;
-        nx = fx * end;
-        nz = fz * end;
-        pen = penZ;
+        hits[o + 2] = fx * end;
+        hits[o + 3] = fz * end;
+        hits[o + 4] = penZ;
       }
-      const dx = nx * pen;
-      const dz = nz * pen;
-      m.world.x += dx;
-      m.world.z += dz;
-      m.local.x += dx * gc - dz * gs;
-      m.local.z += dx * gs + dz * gc;
-      moved = true;
-      if (planted && !this.deepCrush) this.shoveHub(m, dx, dz);
-      const vn = m.vel.x * nx + m.vel.z * nz;
-      if (vn < 0) {
-        m.vel.x -= nx * vn;
-        m.vel.z -= nz * vn;
-        removed -= vn * m.mass;
-      }
+      who[n++] = mi;
     }
-    // A wreck resting on the face: the face moved its bumpers after this call's clamp, so the packed nose
-    // shoves the block with it (clampLocal's pack rule, within the hit's reach). Without it a dead wreck sat
-    // at 0.476 m nose gap after 52 + 35 km/h. Not while the cell still drives in: the face's transient push
-    // reached the block and killed it in single 35–50 km/h hits.
+    return n;
+  }
+
+  /** Move mass `mi` by (`dx`, `dz`) in the world and in the car's frame; a planted hub the face meets is shoved (`shoveHub`). */
+  pushMass(mi: number, dx: number, dz: number): void {
+    const m = this.masses[mi]!;
+    const gc = detCos(this.prevYaw);
+    const gs = detSin(this.prevYaw);
+    m.world.x += dx;
+    m.world.z += dz;
+    m.local.x += dx * gc - dz * gs;
+    m.local.z += dx * gs + dz * gc;
+    if (m.hub && !m.popped && !this.deepCrush) this.shoveHub(m, dx, dz);
+  }
+
+  /**
+   * A wreck resting on the face (the slab of `faceHits`, after its rows moved masses): the face moved its bumpers after this
+   * call's clamp, so the packed nose shoves the block with it (clampLocal's pack rule, within the hit's reach). Without it a dead
+   * wreck sat at 0.476 m nose gap after 52 + 35 km/h. Not while the cell still drives in: the face's transient push reached the
+   * block and killed it in single 35–50 km/h hits.
+   */
+  packEngineBlock(cx: number, cz: number, yaw: number): void {
+    const rx = detCos(yaw);
+    const rz = -detSin(yaw);
+    const cell = this.at.cell;
+    const side = (cell.world.x - cx) * rx + (cell.world.z - cz) * rz >= 0 ? 1 : -1;
+    const gc = detCos(this.prevYaw);
+    const gs = detSin(this.prevYaw);
     const into = -(cell.vel.x * rx + cell.vel.z * rz) * side;
-    if (moved && into < 0.3 && !this.bidirectional && this.hitSpeed >= 0 && -this.impactInward.z > Math.abs(this.impactInward.x)) {
+    if (into < 0.3 && !this.bidirectional && this.hitSpeed >= 0 && -this.impactInward.z > Math.abs(this.impactInward.x)) {
       const front = Math.min(this.at.bumperFL.local.z, this.at.bumperFR.local.z) - ENGINE_PACK_GAP;
       const crumple = Math.min(this.at.bumperFL.rest.z, this.at.bumperFR.rest.z) - Math.max(this.at.engineL.rest.z, this.at.engineR.rest.z) - ENGINE_PACK_GAP;
       const reach = Math.max(ENGINE_SLACK, this.hitStroke() - crumple);
@@ -641,7 +668,6 @@ export abstract class DeformContact extends DeformState {
         m.world.z -= gc * back;
       }
     }
-    return removed;
   }
 
   /**
@@ -661,7 +687,9 @@ export abstract class DeformContact extends DeformState {
    * clampLocal turned the whole wreck with it, with no angular momentum (zips 2 → 0 in derby seed 1, 120 s). Positions
    * only: the uneven push changed Σ m r × v of a wreck whose nose and cabin move apart, and the next clamp kept it as
    * spin (derby seed 4 c0: −2.5 rad/s of L/I in 0.6 s of shoving), so the angular momentum is handed back. `dv` (m/s)
-   * is the speed the push trades (`pushApart`), added to the same masses by the same weights. A push of nothing (the
+   * is the speed the push trades (`pushApart`): the car's mean speed changes by `dv`, so the masses that keep their place
+   * (`keep` < 1) take a smaller share of it and the others a larger one, and the pair's momentum is what it was (the weights
+   * alone moved `dv` × Σ m·keep / Σ m, up to 8 % of a T-bone's momentum gained in the shove). A push of nothing (the
    * slice's `takePush` budget spent: 87 % of a derby-32's pushes) moves nothing and returns.
    */
   separateAlong(nx: number, ny: number, nz: number, amount: number, dv = 0): void {
@@ -670,6 +698,17 @@ export abstract class DeformContact extends DeformState {
     const gc = detCos(this.prevYaw);
     const gs = detSin(this.prevYaw);
     const into = Math.max(0, (nx * gc - nz * gs) * this.impactInward.x + (nx * gs + nz * gc) * this.impactInward.z);
+    let all = 0;
+    let kept = 0;
+    if (dv !== 0) {
+      for (let mi = 0; mi < this.masses.length; mi++) {
+        const m = this.masses[mi]!;
+        if (!m.dynamic) continue;
+        all += m.mass;
+        kept += m.mass * (1 - this.crumpleWeight(m) * 0.88 * into);
+      }
+    }
+    const share = kept > 1e-9 ? (dv * all) / kept : 0;
     for (let mi = 0; mi < this.masses.length; mi++) {
       const m = this.masses[mi]!;
       if (!m.dynamic) continue;
@@ -677,8 +716,8 @@ export abstract class DeformContact extends DeformState {
       m.world.x += nx * amount * keep;
       m.world.y += ny * amount * keep;
       m.world.z += nz * amount * keep;
-      m.vel.x += nx * dv * keep;
-      m.vel.z += nz * dv * keep;
+      m.vel.x += nx * share * keep;
+      m.vel.z += nz * share * keep;
     }
     this.yawMomentum(1, true);
   }

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { bleedAfterSlide, DeformableCar } from "../vehicle/car.ts";
 import { JerseyBarrier, type ContactHit } from "../scenes/engine-props.ts";
 import { tyreOverlap } from "./pair-contact.ts";
+import { bodyHit } from "./external-contact.ts";
 import { beginImpact, easeTimeScale, phaseClock, stepPhase, type PhaseClock } from "../match/phase.ts";
 import { CAGES } from "../kernel/rig-spec.ts";
 import { BARRIER_HALF, physicsSlice, sliceSpeed } from "./sat.ts";
@@ -83,6 +84,8 @@ export type CrashWorld = {
   slomo: boolean;
   /** Group position at the start of the last slice before each car's first contact. */
   preContact: Map<DeformableCar, THREE.Vector3>;
+  /** Where each car's hulls first reached the held slab's face (`HeldBarrier.touch`). */
+  touch: Map<DeformableCar, THREE.Vector3>;
   /** Every driver the sim threw out so far (`world.ejection`, drained each step), and a hook for the engine's own use of them (the ragdolls). */
   ejections: Ejection[];
   onEject: ((e: Ejection) => void) | null;
@@ -150,10 +153,20 @@ export function relaunchDamaged(car: DeformableCar, x: number, z: number, yaw: n
   car.refreshBasis();
 }
 
-/** The real slab held fixed: every resolve hands back the slide and dent it took. */
+/**
+ * The real slab held fixed: every resolve hands back the slide and dent it took. It notes where each car's hulls first reach its face
+ * (`touch`: the position the car had at that instant, the slice's overshoot taken back along the face's normal): the contact
+ * begins a slice's closing travel before that (`strikeCar`), and the calibration's travel is counted from the touch.
+ */
 class HeldBarrier extends JerseyBarrier {
+  override kg = Infinity;
+  readonly touch = new Map<DeformableCar, THREE.Vector3>();
   override resolve(car: DeformableCar, deform: boolean, feed: boolean, dt: number): ContactHit | null {
     const hit = super.resolve(car, deform, feed, dt);
+    if (car.crashed && !this.touch.has(car)) {
+      // The slice that armed the hit: the hulls are `bodyHit.depth` (a gap if negative) from the face, along its normal into the car.
+      this.touch.set(car, new THREE.Vector3(car.group.position.x + bodyHit.nx * bodyHit.depth, 0, car.group.position.z + bodyHit.nz * bodyHit.depth));
+    }
     this.vel.set(0, 0, 0);
     this.crush = 0;
     return hit;
@@ -345,7 +358,10 @@ export class Probe {
     r.cellShift = Math.max(r.cellShift, Math.hypot(cell.x - cellRest.x, cell.z - cellRest.z));
     r.cabinIntrusion = Math.max(r.doorMaxL, r.doorMaxR, r.roofMax);
     r.engineGapErr = Math.max(r.engineGapErr, Math.abs(mass(d, "engineL").local.distanceTo(mass(d, "engineR").local) - 0.6));
-    r.comTravel = Math.max(r.comTravel, (car.group.position.x - this.start.x) * this.dir.x + (car.group.position.z - this.start.z) * this.dir.z);
+    // From where the hulls first reach the slab's face (`HeldBarrier.touch`), not from the slice before the contact began; a world with
+    // no slab counts from the slice before the first contact.
+    const from = w.touch.get(car) ?? this.start;
+    if (w.touch.has(car) || !barrier) r.comTravel = Math.max(r.comTravel, (car.group.position.x - from.x) * this.dir.x + (car.group.position.z - from.z) * this.dir.z);
     const v = car.velocity.dot(this.dir);
     this.vMin = Math.min(this.vMin, v);
     this.trace.push({ t: this.t, v });
@@ -419,13 +435,14 @@ export function run(w: CrashWorld, probes: Probe[], after: number): void {
 
 export function makeWorld(cars: DeformableCar[], barrier: boolean, slomo: boolean): CrashWorld {
   const preContact = new Map<DeformableCar, THREE.Vector3>();
-  const world = newWorld(cars, barrier ? new HeldBarrier(new THREE.Scene(), new THREE.Group()) : null);
+  const slab = barrier ? new HeldBarrier(new THREE.Scene(), new THREE.Group()) : null;
+  const world = newWorld(cars, slab);
   world.beforeSlice = () => {
     for (const car of cars) if (!car.crashed) preContact.set(car, (preContact.get(car) ?? new THREE.Vector3()).copy(car.group.position));
     return false;
   };
   world.ejection = new EjectionWatch();
-  return { cars, acc: 0, clock: phaseClock(), slomo, preContact, world, ejections: [], onEject: null };
+  return { cars, acc: 0, clock: phaseClock(), slomo, preContact, touch: slab?.touch ?? new Map(), world, ejections: [], onEject: null };
 }
 
 /**

@@ -13,10 +13,9 @@ export const WHEEL_POS: [number, number, number][] = [
 export const CAR_HALF = { x: 0.88, y: 0.68, z: 2.22 };
 
 /**
- * The plan rectangle (half width, half length; m) a car meets a solid with: the drawn body with its mirrors and a margin, wider
- * and longer than `CAR_HALF` (the body's own box). The look-ahead of a hard-driving car reads it too (`markApproaches`).
+ * The plan length (half length; m) a car meets a solid with: the drawn body with its mirrors and a margin, longer than `CAR_HALF`
+ * (the body's own box). The look-ahead of a hard-driving car reads it too (`markApproaches`).
  */
-export const FOOT_HALF_W = 0.95;
 export const FOOT_HALF_L = 2.3;
 
 /** Shared-platform hardpoints (8e2dc49, five styles on one platform): arch opening radius about the hub (m), floor pan height (m). */
@@ -100,19 +99,6 @@ export function roofTopY(x: number, z: number, style: BodyStyle): number {
   const [us, ys] = ROOF_SHOULDER;
   const u = Math.min(Math.abs(x) / r.x, 1);
   return r.y + (u < us ? lerp(ROOF_CROWN, ys, u / us) : lerp(ys, 0, (u - us) / (1 - us)));
-}
-
-/**
- * The body's top surface (m over the tyre plane) at car-local (`x`, `z`): the roof panel over the cabin, easing to the
- * beltline over the bonnet and boot and out across the shoulder; NaN past the body's plan. What a car resting on this
- * one stands on (`CarSurfaces`).
- */
-export function bodyTopY(x: number, z: number, style: BodyStyle): number {
-  const sl = sampleSlice(z, style.profile);
-  const r = roofAt(z, style);
-  const ax = Math.abs(x);
-  if (ax > sl.hw || Math.abs(z) > CAR_HALF.z) return NaN;
-  return ax <= r.x ? roofTopY(x, z, style) : lerp(r.y, sl.yBelt, (ax - r.x) / Math.max(sl.hw - r.x, 1e-3));
 }
 
 /** Side glass top edge: tucked under the roof cant rail. */

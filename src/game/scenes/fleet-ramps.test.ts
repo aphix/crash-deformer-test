@@ -262,8 +262,8 @@ function approachSide(cls: VehicleClassId, off: number, wall: number, { frames =
 }
 
 /**
- * How far along +x (m) the car's body reaches: a live car's box, a wreck's crush hulls and body masses (a crushed nose is
- * shorter than the box it was built in, so the box no longer says where the car is).
+ * How far along +x (m) the car's body reaches: its cage's plan box (the drawn body, crushed as drawn) and, for a wreck, its body
+ * masses.
  */
 function bodyReachX(car: DeformableCar): number {
   const p = car.group.position;
@@ -271,11 +271,10 @@ function bodyReachX(car: DeformableCar): number {
   const s = Math.sin(car.yaw);
   let x = -Infinity;
   const add = (lx: number, lz: number): void => void (x = Math.max(x, p.x + lx * c + lz * s));
-  if (!car.deform.massActive) for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(sx * CAR_HALF.x, sz * CAR_HALF.z);
-  else {
-    for (const h of car.crushHulls()) for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(h.cx + sx * h.hx, h.cz + sz * h.hz);
-    for (const m of car.deform.masses) if (!m.hub) x = Math.max(x, m.world.x);
-  }
+  car.refitCage();
+  const box = car.cage.fields.planBox;
+  for (const ix of [0, 1]) for (const iz of [2, 3]) add(box[ix]!, box[iz]!);
+  if (car.deform.massActive) for (const m of car.deform.masses) if (!m.hub) x = Math.max(x, m.world.x);
   return x;
 }
 
@@ -441,7 +440,7 @@ describe("given two cars driving head-on at each other up the two ramps, with no
 
   // The cell is vB 11, not 8: at 8 m/s the car on the ramp was passed over with 0.26 m between its roof and the other's tyres, and
   // the strike this case guarded was the plan SAT's, from a height band that a pitched car's box stretched over a roof it did not
-  // touch (`shareHeight`: a car above another's roof is stacked on it, whatever its pitch). At 11 m/s they meet nose to roof, 1.58 m up.
+  // touch (the old box-band gate; now the cages' own heights decide). At 11 m/s they meet nose to roof, 1.58 m up.
   it("when the car still on its ramp strikes the other mid-air, then the struck car keeps a ballistic height: no frame moves its height away from what its speeds say", { todo: HEAD_ON_TODO }, (t) => {
     const { w, cars } = pair(16, 11);
     const [a] = cars;

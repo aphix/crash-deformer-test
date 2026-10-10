@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { LIGHT_BAR } from "../vehicle/constants.ts";
 
 /**
  * Distance detail, one rule for every car in every scene. Seen from the camera (m, at the 50 degree lens the game frames with),
@@ -63,7 +64,7 @@ function takeFar(car: DeformableCar): THREE.Object3D[] {
   const parts: THREE.Object3D[] = [];
   car.group.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m === car.body || m.name === "lightBar" || !m.layers.isEnabled(0)) return;
+    if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m === car.body || m.name === LIGHT_BAR || !m.layers.isEnabled(0)) return;
     m.layers.disable(0);
     parts.push(m);
   });

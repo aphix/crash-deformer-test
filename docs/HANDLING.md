@@ -96,8 +96,8 @@ the arcade end is about × 0.4 and × 0.5 of those, the real order kept (muscle 
   slope, with the touchdown frame already on the ground's pose (`car-support.ts` `landPose`).
 - **Wrecks** ride on their masses (`deform-contact.ts` `followGroup`); once the contact window has closed and every hull
   point is clear, `stepAir` flies the wreck and gives it back to its masses on landing, dents kept.
-- **Height-aware car contact.** Two cars touch only where their body boxes overlap in height (`contact/sat.ts`
-  `shareHeight`).
+- **Height-aware car contact.** Two cars touch only where their cages' heights overlap by more than `VERTICAL_CLEAR` at the contact
+  (`contact/cage-outline.ts` `bandsMeet`, and per outline node in `satCars`).
 - **Resting** (`car-support.ts`): a car under 3 m/s whose pose would put a tyre or its hull under the ground takes the rest
   plane instead, the lowest the middle can stand with every tyre, underside point and bumper corner above its own ground.
 - **Ramps are ground and wall by one rule** (`FleetRamps.onFace`): a point stands on a wedge's face while the face is at most

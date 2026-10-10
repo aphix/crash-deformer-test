@@ -57,13 +57,16 @@ type Collider = ({ kind: "circle"; r: number } | { kind: "box"; hx: number; hz: 
 
 /** A star plan's valley radius over its tip radius: the one number `present/prefabs.ts`'s `star` draws and `starPlan` bounds. */
 export const STAR_INNER = 0.45;
+/** Slices per metre of tip radius `starPlan` cuts each arm's tip triangle into: each stands off the drawn taper by half its width step (0.077 m worst measured). */
+const STAR_SLICES = 1.5;
 
 /**
  * A five-pointed star prism (tip radius `r`, one tip toward +z, as `present/prefabs.ts` draws it) from `y0` to `y1` as boxes, per
- * arm: one over the arm's share of the core (out to the line between the two valleys beside it), then the tip triangle in `slices`
- * pieces along the arm, each as wide as the triangle is at its middle (as far under it at its near end as over it at its far end).
+ * arm: one over the arm's share of the core (out to the line between the two valleys beside it), then the tip triangle in
+ * `STAR_SLICES` per metre of `r` pieces along the arm, each as wide as the triangle is at its middle (as far under it at its near end as over it at its far end).
  */
-function starPlan(r: number, y0: number, y1: number, slices: number): Collider[] {
+function starPlan(r: number, y0: number, y1: number): Collider[] {
+  const slices = Math.ceil(r * STAR_SLICES);
   const valley = r * STAR_INNER;
   const reach = valley * detCos(Math.PI / 5);
   const half = valley * detSin(Math.PI / 5);
@@ -216,17 +219,17 @@ export const PREFABS: Record<PrefabId, PrefabSpec> = {
   // The Havana course: a stepped star-plan tower, pastel flat-roofed blocks (the building's shape), palms, stucco walls (long axis +Z), a dumpster (long axis +X).
   monument: {
     body: "solid",
-    // The star-plan steps (`starPlan`: boxes per arm, more where the arm is longer), then the five-sided spire as three circles round its vertices.
+    // The star-plan steps (`starPlan`: boxes per arm stepped down its taper, more where the arm is longer), then the five-sided spire as three circles round its vertices.
     collider: [
-      ...starPlan(6.2, 0, 1.4, 3),
-      ...starPlan(5.7, 1.4, 4.2, 3),
-      ...starPlan(5.1, 4.2, 9, 2),
-      ...starPlan(4.5, 9, 15, 2),
-      ...starPlan(3.9, 15, 22, 2),
-      ...starPlan(3.3, 22, 30, 2),
-      ...starPlan(2.8, 30, 38, 2),
-      ...starPlan(2.3, 38, 45, 1),
-      ...starPlan(1.8, 45, 50, 1),
+      ...starPlan(6.2, 0, 1.4),
+      ...starPlan(5.7, 1.4, 4.2),
+      ...starPlan(5.1, 4.2, 9),
+      ...starPlan(4.5, 9, 15),
+      ...starPlan(3.9, 15, 22),
+      ...starPlan(3.3, 22, 30),
+      ...starPlan(2.8, 30, 38),
+      ...starPlan(2.3, 38, 45),
+      ...starPlan(1.8, 45, 50),
       { kind: "circle", r: 0.8, y0: 50, y1: 51.5 },
       { kind: "circle", r: 0.56, y0: 51.5, y1: 53.2 },
       { kind: "circle", r: 0.29, y0: 53.2 },

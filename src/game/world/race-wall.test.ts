@@ -11,7 +11,7 @@ import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { bodyPoints } from "../vehicle/body-points.test-util.ts";
 import { makeCar } from "../vehicle/ground-probe.test-util.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
-import { FOOT_HALF_L, FOOT_HALF_W } from "../vehicle/car-mesh.ts";
+import { FOOT_HALF_L } from "../vehicle/car-mesh.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 
@@ -163,7 +163,8 @@ describe("given a lone car in the city race on a walled stretch of the loop, 2 m
       car.group.position.z -= p.tx[k]! * 1.35;
       w.race.courseHit(car, 0, 1 / 120);
       const back = lat(0);
-      assert.ok(back < limit - 0.9 && back > limit - 3, `returned to ${back.toFixed(2)} m, the wall line at ${limit.toFixed(2)} m`);
+      const hw = footHalfW(car);
+      assert.ok(back < limit - hw + 0.001 && back > limit - 3, `returned to ${back.toFixed(3)} m, the wall line at ${limit.toFixed(2)} m, the car's drawn flank ${hw.toFixed(3)} m from its middle`);
     } finally {
       w.race.exit();
       setGround(null);
@@ -202,11 +203,13 @@ describe("given a lone car in the city race on a walled stretch of the loop with
       assert.ok(Math.abs(lateral() - (limit + 2.8)) < 0.01, `a car outside the wall is not pushed (now ${lateral().toFixed(2)} m, line ${limit.toFixed(2)} m)`);
       // A keyframe puts it 3.7 m back, its flank 0.05 m into the drawn wall: freshly placed, and the wall returns it that far.
       // (The old line probe read 0.13 m: it measured the front probes across the bend in the frame of the car's middle.)
-      put(limit - 0.9);
+      // The placed car's flank (hw from its middle) 0.05 m past the wall's face.
+      const hw = footHalfW(car);
+      put(limit - hw + 0.05);
       const depth = footDepth(car);
       w.race.remember(0, Float64Array.of(-1), 0);
       w.race.courseHit(car, 0, 1 / 120);
-      const pushed = limit - 0.9 - lateral();
+      const pushed = limit - hw + 0.05 - lateral();
       assert.ok(depth > 0.03 && Math.abs(pushed - depth) < 0.01, `the placed car, ${depth.toFixed(3)} m into the wall, is pushed back ${pushed.toFixed(3)} m`);
     } finally {
       w.race.exit();
@@ -246,20 +249,26 @@ const ROAD_SIDE = CITY_WALLS.map((c) => {
   return (CITY.path.x[k]! - c.x) * Math.cos(c.yaw) - (CITY.path.z[k]! - c.z) * Math.sin(c.yaw) > 0 ? 1 : -1;
 });
 
+/** The car's contact half width (m): its cage's plan box, the drawn body the wall meets (mirrors and open doors are `partContact`'s). */
+function footHalfW(car: DeformableCar): number {
+  const plan = car.cage.fields.planBox;
+  return (plan[1]! - plan[0]!) / 2;
+}
+
 /**
- * How deep (m) the car's contact footprint (the rectangle `FOOT_HALF_W` by `FOOT_HALF_L` span) stands in the city's drawn wall from its road
- * face: its outline sampled every centimetre (on a bend the deepest point of a flank is between its corners).
+ * How deep (m) the car's contact footprint (its cage's plan box) stands in the city's drawn wall from its road face: its outline
+ * sampled every centimetre (on a bend the deepest point of a flank is between its corners).
  */
 function footDepth(car: DeformableCar): number {
   const p = car.group.position;
-  const [fw, fl] = [FOOT_HALF_W, FOOT_HALF_L];
+  const [x0, x1, z0, z1] = car.cage.fields.planBox;
   let depth = 0;
   for (let q = 0; q <= 400; q++) {
     // Round the outline: t in [0, 1) per side, sides +x, −x (flanks) and +z, −z (ends).
     const t = (q % 100) / 100;
     const side = Math.floor(q / 100);
-    const ox = side < 2 ? (side === 0 ? fw : -fw) : -fw + 2 * fw * t;
-    const oz = side < 2 ? -fl + 2 * fl * t : side === 2 ? fl : -fl;
+    const ox = side < 2 ? (side === 0 ? x1! : x0!) : x0! + (x1! - x0!) * t;
+    const oz = side < 2 ? z0! + (z1! - z0!) * t : side === 2 ? z1! : z0!;
     const x = p.x + car.rightFlat.x * ox + car.fwdFlat.x * oz;
     const z = p.z + car.rightFlat.z * ox + car.fwdFlat.z * oz;
     for (const c of CITY_WALLS) {

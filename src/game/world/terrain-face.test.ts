@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { launch } from "../contact/crash-scenarios.test-util.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
+import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { MU_BODY } from "../vehicle/car-air.ts";
 import { EjectionWatch } from "../vehicle/ejection.ts";
 import { activeGround, Ground, NO_FLOOR, setGround } from "./ground.ts";
@@ -19,13 +20,18 @@ import { OFF_MENU, TRACKS } from "./tracks/index.ts";
  * Dam-spine has cut faces beside its road (2.5 to 4 m high within a metre or two, normal up component ny 0.24 to 0.38 where the
  * course is read at 0.5 m: 34 of 211 000 cells under 0.5) and 52 degree flanks (ny 0.58 to 0.66) leading down to them.
  *
- * Where the line falls between them is the body's friction, `MU_BODY`. A point sliding horizontally at v into a face whose
+ * Where the line falls between them is the body's friction, `MU_BODY`. A point mass sliding horizontally at v into a face whose
  * normal has the horizontal share nh = sqrt(1 - ny^2) loses v nh along the normal and keeps v ny along the face; Coulomb friction
- * takes at most MU_BODY v nh of that. The point stops dead while MU_BODY nh >= ny, that is while ny <= MU_BODY / sqrt(1 + MU_BODY^2)
- * (a face steeper than atan(1 / MU_BODY), 59 degrees: ny 0.51), and slides up a shallower one. Measured on this tree the sedan at
- * 12 m/s stops at every face up to ny 0.52 and rides onto a ny 0.58 one: the hull rows and the tyres' footprint already answer a
- * terrain cell by this one law (the tyre's `STEP_MAX` makes a higher face a wall to it), so the terrain needs no side rule of its
- * own. `.bench/uc2/cliff.ts`, which found the sedan climbing 5 to 9 m, launched it horizontally off the top of the flank: it flew.
+ * takes at most MU_BODY v nh of that, so it stops dead while ny <= MU_BODY / sqrt(1 + MU_BODY^2) (ny 0.51). A car is not a point mass:
+ * the contact sits on the nose, a lever r from the centre of mass, and the same Coulomb law answers in impulses. The normal impulse
+ * is jn = v nh / kn and the tangential one needed to stop the slide jt = v ny / kt, each over the contact's effective inverse mass
+ * k = 1 + I (r x dir)^2 (I the body's inverse inertia per unit mass about the pitch axis). The nose stops dead while
+ * MU_BODY nh / kn >= ny / kt, that is ny / nh <= MU_BODY kt / kn: the sedan's lever (2.0 m forward, 0.52 m down, I 0.56) makes kt
+ * 3.2 against kn 1.5 and the limit ny 0.71, not 0.51. Measured on this tree the sedan at 12 m/s stops at every face up to ny 0.66
+ * and rides onto a ny 0.72 one (the point-mass limit's ny 0.58 flank sticks: -1.94 m past the foot, 0.33 m up). The hull rows and
+ * the tyres' footprint answer a terrain cell by this one law (the tyre's `STEP_MAX` makes a higher face a wall to it), so the
+ * terrain needs no side rule of its own. `.bench/uc2/cliff.ts`, which found the sedan climbing 5 to 9 m, launched it horizontally off
+ * the top of the flank: it flew.
  * Mutation: body friction 0 in `stepFree` (both caps) fails the ny 0.30, 0.40 and 0.50 faces (the sedan rides 4 to 9 m up them).
  */
 
@@ -34,10 +40,28 @@ const SPEED = 12;
 const RUN_UP = 8;
 /** The face rises this much (m): what dam-spine's cut faces rise within 3 m, at least. */
 const HEIGHT = 2.7;
-/** The normal's up component below which friction stops a sliding body point dead (derived above). */
-const STOPS_BELOW = MU_BODY / Math.sqrt(1 + MU_BODY * MU_BODY);
-/** Faces spread across what stops it (the measured cut faces 0.24 to 0.38, and one just under the limit), and a flank over it. */
-const STOPPING_NY = [0.2, 0.3, 0.4, 0.97 * STOPS_BELOW] as const;
+/** The normal's up component below which friction stops a sliding point mass dead (derived above). */
+const POINT_STOPS_BELOW = MU_BODY / Math.sqrt(1 + MU_BODY * MU_BODY);
+/** The sedan's nose lever from its centre of mass (m, forward and up: the belly's front row) and its inverse inertia about the pitch axis. */
+const LEVER = { x: 2.0, y: -0.52 };
+const INV_I_PITCH = 3 / (CAR_HALF.y ** 2 + CAR_HALF.z ** 2);
+/** The normal's up component below which the nose's friction stops the sedan dead: ny / nh = MU_BODY kt / kn, solved by bisection. */
+function stopsBelow(): number {
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 60; i++) {
+    const ny = (lo + hi) / 2;
+    const nh = Math.sqrt(1 - ny * ny);
+    const kn = 1 + INV_I_PITCH * (LEVER.x * ny - LEVER.y * -nh) ** 2;
+    const kt = 1 + INV_I_PITCH * (LEVER.x * nh - LEVER.y * ny) ** 2;
+    if (ny / nh < (MU_BODY * kt) / kn) lo = ny;
+    else hi = ny;
+  }
+  return lo;
+}
+const STOPS_BELOW = stopsBelow();
+/** Faces spread across what stops it (the measured cut faces 0.24 to 0.38, and one just under the point-mass limit), and a flank over the nose's. */
+const STOPPING_NY = [0.2, 0.3, 0.4, 0.97 * POINT_STOPS_BELOW] as const;
 const FLANK_NY = 1.13 * STOPS_BELOW;
 /** The origin may reach the foot no further than this (m), and rise over its height at the first touch no more than this (m). */
 const PAST_FOOT = 0.5;
@@ -138,7 +162,7 @@ describe(`given the terrain of ${COURSE}`, () => {
           const ny = hit[C_NY]!;
           cells++;
           steepest = Math.min(steepest, ny);
-          if (ny < STOPS_BELOW) cuts++;
+          if (ny < POINT_STOPS_BELOW) cuts++;
           else if (ny > 0.55 && ny < 0.7) flanks++;
         }
       }
@@ -147,7 +171,7 @@ describe(`given the terrain of ${COURSE}`, () => {
 
   it("when its cells are read, then it has cut faces the sedan above is stopped by (the steepest under the lowest face tried) and flanks of the ramp's kind", () => {
     assert.ok(cells > 100000, `${cells} cells read`);
-    assert.ok(cuts >= 10 && steepest <= STOPPING_NY[0], `${cuts} cells under ny ${STOPS_BELOW.toFixed(2)}, the steepest ny ${steepest.toFixed(2)}`);
+    assert.ok(cuts >= 10 && steepest <= STOPPING_NY[0], `${cuts} cells under ny ${POINT_STOPS_BELOW.toFixed(2)}, the steepest ny ${steepest.toFixed(2)}`);
     assert.ok(flanks >= 1000, `${flanks} flank cells (ny 0.55 to 0.7)`);
   });
 });

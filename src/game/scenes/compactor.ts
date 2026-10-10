@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { bodyContact, bodyHit, makeBox, type ContactBox } from "../contact/external-contact.ts";
+import { strikeCar, bodyHit, makeBox, type ContactBox } from "../contact/external-contact.ts";
 import type { StreamedDeformation } from "../deform/streamed-deform.ts";
 
 /**
@@ -57,7 +57,7 @@ function placePlate(box: ContactBox, end: 1 | -1, face: number, speed: number): 
 
 /**
  * The press scene's physics on a car parked at the origin facing +Z: the plates are a kinematic
- * driver only; the car meets them through the shared striker contact (`bodyContact`, the same
+ * driver only; the car meets them through the shared striker contact (`strikeCar`, the same
  * crush path a barrier or a piston face takes) and the shared crash rules
  * (`DeformableCar.noteContactEnd`: two struck ends make a squeeze). DOM-free: the engine and the
  * tests run the same `step`.
@@ -119,20 +119,18 @@ export class CompactorRig {
     placePlate(this.front, 1, this.face, speed);
     placePlate(this.rear, -1, this.face, speed);
     hit.hits = 0;
-    hit.frontJ = bodyContact(car, this.front, dt, true);
+    hit.frontJ = strikeCar(car, this.front, dt, true);
     if (bodyHit.touching) {
       car.noteContactEnd(1, this.face);
       hit.hits++;
     }
-    hit.rearJ = bodyContact(car, this.rear, dt, true);
+    hit.rearJ = strikeCar(car, this.rear, dt, true);
     if (bodyHit.touching) {
       car.noteContactEnd(-1, this.face);
       hit.hits++;
     }
     if (car.deform.massActive) {
       car.deform.stepStructure(dt);
-      bodyContact(car, this.front, dt, false);
-      bodyContact(car, this.rear, dt, false);
       car.syncPose(dt);
     }
     if (car.crashed) this.contacted = true;

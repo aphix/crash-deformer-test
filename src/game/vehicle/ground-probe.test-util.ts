@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { applyDrive, type DriveInput } from "./car-drive.ts";
 import { DeformableCar } from "./car.ts";
 import { UNDERSIDE } from "./car-suspension.ts";
-import { HULL, layOnGround } from "./car-air.ts";
+import { layOnGround } from "./car-air.ts";
 import { assignClass, CLASSES, type VehicleClassId } from "./vehicle-classes.ts";
 import { paint } from "./test-support.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
@@ -29,7 +29,7 @@ const TREAD_RINGS = [
 ] as const;
 /** Points round each tread ring (7.5° apart). */
 const TREAD_STEPS = 48;
-/** The body's front bumper corners, over the underside samples (car-local x, y, z; `HULL` in car-air.ts). */
+/** The body's front bumper corners, over the underside samples (car-local x, y, z). */
 const BUMPERS = [-1, 1].flatMap((sx) => [-1, 1].map((sz): [number, number, number] => [sx * 0.88, 0.35, sz * 2.22]));
 
 /** Height hints are the asking point plus this (m): the layer rule (`STEP_UP`, a ramp's kerb) reads them. */
@@ -221,10 +221,14 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
   };
   for (const [x, z, h] of UNDERSIDE) probe(`under(${x},${z})`, x, h, z);
   for (const [x, y, z] of BUMPERS) probe(`bumper(${x > 0 ? "+" : "-"}x,${z > 0 ? "front" : "rear"})`, x, y, z);
-  // Beltline and roof corners (`HULL` in car-air.ts, as the drawn body carries them), so a car on its side or roof is judged on
-  // the points it lies on.
-  for (let i = 4; i < HULL.length; i++) {
-    const [x, y, z] = HULL[i]!;
+  // The cage's vertices (the drawn body's points the rigid step meets surfaces with, in the body's frame), so a car on its side or
+  // roof is judged on the points it lies on.
+  car.refitCage();
+  const cagePos = car.cage.fields.pos;
+  for (let i = 0; i < car.cage.style.vertexCount; i++) {
+    const x = cagePos[i * 3]!;
+    const y = cagePos[i * 3 + 1]!;
+    const z = cagePos[i * 3 + 2]!;
     probe(`hull(${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)})`, x, y, z);
   }
   // The belly between the keel and the rockers, along its lines: where the ground under a line is not one plane between two samples (a

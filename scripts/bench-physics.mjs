@@ -91,7 +91,10 @@ time("matchCluster 3-particle anim", 40_000, () => {
   pose(tri, triPts, frame++ & (FRAMES - 1));
   m.matchCluster(ct, tri, 0.25);
 });
-time("applyPlasticity", 20_000, () => m.applyPlasticity(c, rest, 1 / 60, 0.4, true, 0.45));
+time("applyPlasticity", 20_000, () => {
+  m.PLASTIC.set([1 / 60, 0.4, 0.45]);
+  m.applyPlasticity(c, rest);
+});
 time("matchSkinLocal", 40_000, () => m.matchSkinLocal(cs, skinRest, skinLocal, skinMass, 0.8));
 time("matchSkinLocal animated", 40_000, () => {
   const a = anim[frame++ & (FRAMES - 1)];

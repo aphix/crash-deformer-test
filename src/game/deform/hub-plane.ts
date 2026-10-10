@@ -1,4 +1,6 @@
-import { detSin, detCos } from "../kernel/physics-core.js";
+import { detSin, detCos, sinCosAt } from "../kernel/physics-core.js";
+/** `fit`'s heading in [yaw, _], its [sin, cos] out (`sinCosAt`: no boxed argument or result). */
+const _sc = new Float64Array(2);
 /** Steepest ground plane (rad, 34°) a planted wreck settles to; the stunt course's kicker is 21.5°. */
 const TILT = 0.6;
 /** Least spread (m⁴) of the hubs' x/z a ground plane is fitted on: four hubs read 16, three 5; a squeezed or lost set is no plane. */
@@ -73,8 +75,10 @@ export class HubPlane {
     this.height = this.base + mf - gx * mx - gz * mz;
     this.gx = gx;
     this.gz = gz;
-    const cy = detCos(yaw);
-    const sy = detSin(yaw);
+    _sc[0] = yaw;
+    sinCosAt(_sc, 0);
+    const sy = _sc[0]!;
+    const cy = _sc[1]!;
     const along = gx * sy + gz * cy;
     const across = gx * cy - gz * sy;
     this.pitch = Math.max(-TILT, Math.min(TILT, -Math.atan(along))) * grounded;

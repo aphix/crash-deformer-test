@@ -46,6 +46,8 @@ const KEY_EVERY = 1;
 const KEY_SLOTS = 40;
 /** Ejections remembered for the clips (a race has a handful; the oldest drop out of a pathological one). */
 const MAX_EJECTED = 64;
+/** Numbers one more panel in a car's cage adds to its refit history (a police car's light bar over the civilian cars' hood, boot and two skinned panes: `CarCage.stateSize`), left in the keyframe's solver scratch. */
+const CAGE_PANEL_SLACK = 8;
 
 /**
  * A clip also takes cars within this many metres of its hit (`bystanders`): a camera sees them, and a car left out of
@@ -117,6 +119,8 @@ export class CrashRecorder {
   private readonly flyBytes = new Uint8Array(this.fly.buffer);
   private sim = new Float64Array(0);
   private simBytes = new Uint8Array(0);
+  /** `simBytes` as far as a car of each solver size reads (by its numbers). */
+  private simViews: Uint8Array[] = [];
   private readonly part = new Float64Array(PART_STATE);
   private readonly partBytes = new Uint8Array(this.part.buffer);
   /** The course's memory (null: a race on a flat field), and the bytes of knock flags one keyframe holds for its props. */
@@ -233,8 +237,10 @@ export class CrashRecorder {
     let L = this.layout;
     if (!L || knockBytes > this.knockBytes) {
       const lay = carLayout(cars[0]!);
-      this.sim = new Float64Array(cars[0]!.deform.simSize());
+      // The most any car's solver state takes, with the slack of one more panel in the cage's refit history (a light bar: `CarCage.stateSize`).
+      this.sim = new Float64Array(cars.reduce((m, c) => Math.max(m, c.solverSize()), 0) + CAGE_PANEL_SLACK);
       this.simBytes = new Uint8Array(this.sim.buffer);
+      this.simViews = [];
       this.knockBytes = knockBytes;
       L = this.layout = lay;
       this.keys = Array.from({ length: KEY_SLOTS }, () => new Writer(this.keyBytes(MAX_CARS)));
@@ -433,16 +439,19 @@ export class CrashRecorder {
       else this.mem.set(NO_MEMORY);
       w.bytes.set(this.memBytes, w.off);
       w.off += this.memBytes.length;
-      // Every car's parts state; the solver state of a wreck in front of it. A car with a torn part is a wreck here whether or not it is crashed: its net state alone would leave its hit frame zeroed (a zero `impactInward`, where the intact car has (0, 0, -1)).
+      // Every car's parts state; the solver state of a wreck in front of it (the deform's and its cage's refit history: `solverState`). A car with a torn part is a wreck here whether or not it is crashed: its net state alone would leave its hit frame zeroed (a zero `impactInward`, where the intact car has (0, 0, -1)).
       const solver = s.cars[i]!.wreck;
-      w.u16((solver ? this.sim.length : 0) + PART_STATE);
+      const own = solver ? car.solverSize() : 0;
+      if (own > this.sim.length) throw new RangeError("a car's solver state outgrew the keyframe's scratch");
+      w.u16(own + PART_STATE);
       car.partState(this.part, false);
-      if (solver) car.deform.simState(this.sim, false);
+      if (solver) car.solverState(this.sim, false);
       // One native byte copy (little-endian like the codec, as every browser's Float64Array): `f64s`, a number at a
       // time in code too rarely run to be optimized, boxed each one (125 KB a keyframe at 11 wrecks).
       if (solver) {
-        w.bytes.set(this.simBytes, w.off);
-        w.off += this.simBytes.length;
+        const bytes = (this.simViews[own] ??= new Uint8Array(this.sim.buffer, 0, own * 8));
+        w.bytes.set(bytes, w.off);
+        w.off += bytes.length;
       }
       w.bytes.set(this.partBytes, w.off);
       w.off += this.partBytes.length;

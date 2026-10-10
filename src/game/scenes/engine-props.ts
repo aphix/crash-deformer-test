@@ -1,12 +1,10 @@
 import * as THREE from "three";
-import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
-import { UNDERSIDE } from "../vehicle/car-suspension.ts";
-import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
-import type { Hull } from "../deform/hulls.ts";
-import { applyGroundFriction, leftoverCrumple, round4, satPushCap, vec3 } from "../deform/physics-util.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
+import { keelY } from "../vehicle/car-cage-rig.ts";
+import { applyGroundFriction, leftoverCrumple } from "../deform/physics-util.ts";
 import { C_PY, HIT_SIZE } from "../world/surfaces.ts";
-import { BARRIER_HALF, BARRIER_MASS, BARRIER_TOP, clipCarToBarrier, satCarBarrier } from "../contact/sat.ts";
-import { impulseCar, pushCar } from "../contact/pair-contact.ts";
+import { BARRIER_HALF, BARRIER_MASS, BARRIER_TOP, clipCarToBarrier } from "../contact/sat.ts";
+import { strikeCar, bodyHit, makeBox, type ContactBox } from "../contact/external-contact.ts";
 import { detSin, detCos, hypot2, hypot3 } from "../kernel/physics-core.js";
 
 /** Fraction of a ramp ball's diameter left above the asphalt. */
@@ -14,10 +12,10 @@ export const BALL_EXPOSE = 0.25;
 /** A body with no wheel contact to read (in flight, a wreck on its masses) clears the slab with its origin this high (m). */
 const FLIGHT_CLEAR = BARRIER_TOP - 0.3;
 
-/** The underside's lowest point over the tyre plane (car-local m, a lifted class's body lifted by its `lift`). */
-const UNDER_LOW = Math.min(...UNDERSIDE.map((u) => u[2]));
 const _sp = new THREE.Vector3();
 const _qi = new THREE.Quaternion();
+const _cn = new THREE.Vector3();
+const _cp = new THREE.Vector3();
 /** The slab's top clipped to a car's plan box, as car-local corners (x, y, z; at most 8). */
 const _poly = new Float64Array(24);
 const _clip = new Float64Array(24);
@@ -67,8 +65,6 @@ const _v = new THREE.Vector3();
 const _r = new THREE.Vector3();
 const _bn = new THREE.Vector3();
 const _bp = new THREE.Vector3();
-const _cn = new THREE.Vector3();
-const _cp = new THREE.Vector3();
 const _bRight = new THREE.Vector3();
 const _bFwd = new THREE.Vector3();
 
@@ -116,8 +112,12 @@ export class JerseyBarrier {
   readonly vel = new THREE.Vector3();
   yaw = 0;
   crush = 0;
-  /** Car-side face normal from the last `hold`. */
+  /** The slab's mass (kg): a held slab (a scenario's rigid wall) is `Infinity`, a kinematic striker like every fixed solid. */
+  kg = BARRIER_MASS;
+  /** Car-side face normal from the last `striker`. */
   private readonly faceN = new THREE.Vector3();
+  /** The slab as a striker, rewritten for each car (`striker`). */
+  private readonly box = makeBox();
 
   /** `group` is the slab's mesh from the scene that owns it; headless scenarios pass a bare group. */
   constructor(scene: THREE.Scene, group: THREE.Group) {
@@ -169,10 +169,10 @@ export class JerseyBarrier {
     applyGroundFriction(this.vel, dt, 1.8, true);
   }
 
-  /** Mass-level slab contact, then the cabin tunnelling floor. */
+  /** Mass-level slab contact (no crush), then the cabin tunnelling floor. */
   clip(car: DeformableCar): void {
     if (this.over(car)) return;
-    this.hold(car);
+    strikeCar(car, this.striker(car), 0, false);
     clipCarToBarrier(car, this.yaw, this.group.position, this.hx(), leftoverCrumple(car.deform.slabTravel()));
   }
 
@@ -200,11 +200,12 @@ export class JerseyBarrier {
       _poly[k * 3 + 1] = _sp.y;
       _poly[k * 3 + 2] = _sp.z;
     }
-    let n = clipAxis(_poly, 4, 0, 1, CAR_HALF.x, _clip);
-    n = clipAxis(_clip, n, 0, -1, CAR_HALF.x, _poly);
-    n = clipAxis(_poly, n, 2, 1, CAR_HALF.z, _clip);
-    n = clipAxis(_clip, n, 2, -1, CAR_HALF.z, _poly);
-    const low = UNDER_LOW + CLASSES[carClass(car)].lift;
+    const plan = car.cage.fields.planBox;
+    let n = clipAxis(_poly, 4, 0, 1, plan[1]!, _clip);
+    n = clipAxis(_clip, n, 0, -1, -plan[0]!, _poly);
+    n = clipAxis(_poly, n, 2, 1, plan[3]!, _clip);
+    n = clipAxis(_clip, n, 2, -1, -plan[2]!, _poly);
+    const low = keelY(car);
     // The slab's top is under none of the car's box: the car is beside the slab and clears it only with its box's bottom corner nearest the
     // slab over the slab's top. The plan footprint overstates a pitched box's reach (a monster nose-up 17° at a ramp's high end read 0.1 m
     // into the end of a slab its nose was 0.4 m above, and crashed); a level body beside the slab is under its top and meets it (a monster
@@ -213,7 +214,7 @@ export class JerseyBarrier {
       let nearest = Infinity;
       let clear = false;
       for (let k = 0; k < 4; k++) {
-        _sp.set(k < 2 ? -CAR_HALF.x : CAR_HALF.x, low, k % 2 === 0 ? -CAR_HALF.z : CAR_HALF.z).applyQuaternion(car.group.quaternion).add(p);
+        _sp.set(k < 2 ? plan[0]! : plan[1]!, low, k % 2 === 0 ? plan[2]! : plan[3]!).applyQuaternion(car.group.quaternion).add(p);
         const dx = _sp.x - o.x;
         const dz = _sp.z - o.z;
         const across = Math.max(0, Math.abs(dx * ax + dz * az) - hx);
@@ -231,104 +232,46 @@ export class JerseyBarrier {
   }
 
   /**
-   * Put every mass that crossed the slab back on its face (the slab takes that
-   * momentum) and leave the car-side face normal in `faceN`. True while a
-   * mass of a crashed car rests on the face.
+   * The slab as a striker facing `car`: its car-side face is the way it pushes (`faceN`), its thickness the dented one, its speed and its
+   * mass its own (14 t: the car's crush takes nearly all of the hit's energy, and the slab slides a little), its face rigid. The one
+   * contact every striker goes through (`strikeCar`), as the press plates, the pistons and every fixed prop do.
    */
-  private hold(car: DeformableCar): boolean {
+  private striker(car: DeformableCar): ContactBox {
     const o = this.group.position;
-    const held = car.deform.projectOutOfBox(o.x, o.z, this.hx(), BARRIER_HALF.z, this.yaw);
     const rx = detCos(this.yaw);
     const rz = -detSin(this.yaw);
     const side = (car.group.position.x - o.x) * rx + (car.group.position.z - o.z) * rz >= 0 ? 1 : -1;
     this.faceN.set(rx * side, 0, rz * side);
-    if (held > 0) this.vel.addScaledVector(this.faceN, -held / BARRIER_MASS);
-    return car.crashed && car.deform.faceContacts > 0;
+    const box = this.box;
+    box.x = o.x;
+    box.y = 0.48;
+    box.z = o.z;
+    box.hx = BARRIER_HALF.z;
+    box.hy = BARRIER_TOP / 2;
+    box.hz = this.hx();
+    box.yaw = Math.atan2(this.faceN.x, this.faceN.z);
+    box.vx = this.vel.x;
+    box.vz = this.vel.z;
+    box.kg = this.kg;
+    box.hardness = 1;
+    box.fixed = true;
+    return box;
   }
 
   /**
-   * Crush force: the constant deceleration that spends this hit's stroke on
-   * the car pressing into `faceN`. It reaches the cabin through the
-   * structure, so masses already held on the face do not count against it.
+   * The car meets the slab: `arm` starts or re-arms its crash at the face's closing speed, `feed` spends the hit's stroke (the slab's
+   * reaction slides it). Returns the hit for the cinematic and the FX while the car's hulls are in the slab.
    */
-  private brake(car: DeformableCar, dt: number): void {
-    const n = this.faceN;
-    if (car.velocity.x * n.x + car.velocity.z * n.z >= 0) return;
-    const v0 = car.deform.hitSpeedValue;
-    const j = car.deform.totalMass * ((v0 * v0) / (2 * car.deform.hitStroke())) * dt;
-    const taken = car.deform.brakeInbound(n.x, n.z, j);
-    this.vel.addScaledVector(n, -taken / BARRIER_MASS);
-  }
-
-  /** World position of the car's mass nearest the slab face (`faceN` from the last `hold`). */
-  private nearestMass(car: DeformableCar): THREE.Vector3 {
-    let best = car.deform.masses[0]!.world;
-    let bestD = Infinity;
-    for (const m of car.deform.masses) {
-      const d = m.world.x * this.faceN.x + m.world.z * this.faceN.z;
-      if (d < bestD) {
-        bestD = d;
-        best = m.world;
-      }
-    }
-    return best;
-  }
-
-  resolve(car: DeformableCar, deform: boolean, feed: boolean, dt: number): ContactHit | null {
+  resolve(car: DeformableCar, arm: boolean, feed: boolean, dt: number): ContactHit | null {
     if (this.over(car)) return null;
-    const crushHit = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _cn, _cp, car.crushHulls());
-    const overlap = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _bn, _bp, car.hulls());
-    this.hold(car);
-    clipCarToBarrier(car, this.yaw, this.group.position, this.hx(), leftoverCrumple(car.deform.slabTravel()));
-    if (!crushHit && !overlap) {
-      // The crushed nose can sit on the face with the shrunken hulls clear of it — and a wreck coming
-      // back for another hit touches here first, so this is where its fresh hit arms.
-      if (!this.hold(car)) return null;
-      const closing = -(car.velocity.x * this.faceN.x + car.velocity.z * this.faceN.z);
-      if (deform && closing > 0.2) car.applyImpact(this.nearestMass(car), this.faceN, closing, closing);
-      car.deform.notifyContact();
-      if (feed) this.brake(car, dt);
-      return null;
-    }
-
-    const n = crushHit ? _cn : overlap ? _bn : _cn;
-    n.y = 0;
-    if (n.lengthSq() > 1e-8) n.normalize();
-    _bn.y = 0;
-    if (_bn.lengthSq() > 1e-8) _bn.normalize();
-    _cn.y = 0;
-    if (_cn.lengthSq() > 1e-8) _cn.normalize();
-    const p = crushHit ? _cp : _bp;
-    const closing = -car.velocity.dot(n);
-
-    // A wreck takes a fresh hit too (applyImpact → rearmHit gates it on quiet time and EBS): the slab
-    // re-armed only the first, so repeated wall hits reused its stroke and never crushed deeper.
-    if (deform && closing > 0.2 && (crushHit ?? overlap ?? 0) > 0.004) {
-      car.applyImpact(p, n.clone(), closing, closing);
-    }
-    car.deform.notifyContact();
-
-    if (feed && crushHit && crushHit > 0) {
-      car.deform.feedOverlap(_cp, _cn, crushHit, Math.max(0, closing), dt);
-    }
-    if (this.hold(car) && feed) this.brake(car, dt);
-
-    if (overlap) {
-      const leftover = leftoverCrumple(car.deform.crumpleTravelCorner());
-      const maxPen = car.deform.massActive ? leftover * 0.4 : 0.015;
-      const extra = Math.max(0, overlap - maxPen);
-      const push = Math.min(extra + 0.004, satPushCap(dt));
-      pushCar(car, _bn.x, 0, _bn.z, push);
-      if (feed && crushHit) {
-        this.indent(_cp, _cn, Math.min(0.012, crushHit * 0.12));
-      }
-    }
+    const taken = strikeCar(car, this.striker(car), dt, feed, arm);
+    this.vel.addScaledVector(this.faceN, -taken / this.kg);
+    if (!bodyHit.touching) return null;
+    _cp.set(bodyHit.x, 0.48, bodyHit.z);
+    _cn.set(bodyHit.nx, 0, bodyHit.nz);
+    if (feed && bodyHit.depth > 0) this.indent(_cp, _cn, Math.min(0.012, bodyHit.depth * 0.12));
     this.clip(car);
-
-    const shown = crushHit ?? overlap ?? 0;
-    return shown > 0.001
-      ? { impulse: Math.max(closing, 0.5), contact: p.clone(), normal: n.clone() }
-      : null;
+    return bodyHit.depth > 0.001 ? { impulse: Math.max(bodyHit.closing, 0.5), contact: _cp, normal: _cn } : null;
   }
 
   /** True when the slab sits between this pair so they must not SAT through it. */
@@ -349,12 +292,15 @@ export class JerseyBarrier {
       const pz = car.group.position.z;
       const lx = px * _bRight.x + pz * _bRight.z;
       const lz = px * _bFwd.x + pz * _bFwd.z;
+      const plan = car.cage.fields.planBox;
+      const halfX = (plan[1]! - plan[0]!) / 2;
+      const halfZ = (plan[3]! - plan[2]!) / 2;
       const rX =
-        Math.abs(car.right.x * _bRight.x + car.right.z * _bRight.z) * CAR_HALF.x +
-        Math.abs(car.forward.x * _bRight.x + car.forward.z * _bRight.z) * CAR_HALF.z;
+        Math.abs(car.right.x * _bRight.x + car.right.z * _bRight.z) * halfX +
+        Math.abs(car.forward.x * _bRight.x + car.forward.z * _bRight.z) * halfZ;
       const rZ =
-        Math.abs(car.right.x * _bFwd.x + car.right.z * _bFwd.z) * CAR_HALF.x +
-        Math.abs(car.forward.x * _bFwd.x + car.forward.z * _bFwd.z) * CAR_HALF.z;
+        Math.abs(car.right.x * _bFwd.x + car.right.z * _bFwd.z) * halfX +
+        Math.abs(car.forward.x * _bFwd.x + car.forward.z * _bFwd.z) * halfZ;
       const vLx = car.velocity.x * _bRight.x + car.velocity.z * _bRight.z;
       const vLz = car.velocity.x * _bFwd.x + car.velocity.z * _bFwd.z;
       const gapX = Math.abs(lx) - BARRIER_HALF.x - rX;

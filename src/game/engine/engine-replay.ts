@@ -130,7 +130,7 @@ export class ClipSim {
         f.y = fl[base + FLIGHT_POSITION + 1]!;
         f.z = fl[base + FLIGHT_POSITION + 2]!;
         const n = r.u16();
-        if (n !== PART_STATE && n !== cars[j]!.deform.simSize() + PART_STATE) throw new RangeError("a keyframe's solver state is another build's");
+        if (n !== PART_STATE && n !== cars[j]!.solverSize() + PART_STATE) throw new RangeError("a keyframe's solver state is another build's");
         const words = new Uint32Array(2 * n);
         for (let i = 0; i < words.length; i++) words[i] = r.u32();
         sims[j] = new Float64Array(words.buffer);
@@ -316,16 +316,17 @@ export class ClipSim {
     if (f.wreck) car.writeNetState(f.deform, f.parts);
     if (sim) {
       const solver = sim.length - PART_STATE;
-      if (solver > 0) car.deform.simState(sim.subarray(0, solver), true);
+      if (solver > 0) car.solverState(sim.subarray(0, solver), true);
       car.partState(sim.subarray(solver), true);
     }
     // The net state of a car that is no wreck (one with a part torn off) carries no crumple settings: the recording's again.
     car.deform.squash = this.clip.squash;
     car.deform.buckle = this.clip.buckle;
     car.deform.setMode(this.clip.deformMode);
-    // What it touches is read again with its wreck state back (`pose` read it as an intact car): a wreck on its masses touches
-    // what its hubs' last slice left, and a crashed one off them is moved by the rigid step.
+    // What it touches: a wreck on its masses touches what its hubs' last slice left (read again with its wreck state back: `pose` read it as an
+    // intact car), any other what the recorded step's last slice left it (`DeformableCar.contact`).
     car.restoreContact();
+    car.contact(this.flight[k]!, j * FLIGHT, true);
     if (f.falling) beginFakeFall(car, true);
   }
 
@@ -342,6 +343,9 @@ export class ClipSim {
     const car = this.cars[j]!;
     const f = this.keys[k]!.cars[j]!;
     car.driverOut = EXIT_PANES[f.driverOut] ?? null;
+    // The weight borne on a car by the riders that stepped after it is the replay world's: the flight block restores it there, at the car's place in the clip.
+    car.surfaces = this.world.surfaces;
+    car.slot = j;
     car.flight(this.flight[k]!, j * FLIGHT, true);
     this.restoreCar?.(this.clip.cars[j]!.slot, this.memory[k]!, j * MEMORY);
     car.speed = hypot2(car.velocity.x, car.velocity.z);

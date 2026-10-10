@@ -2,7 +2,7 @@ import { before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
-import { bellyY, roofHeight } from "../vehicle/car-surfaces.ts";
+import { crownY, keelY } from "../vehicle/car-cage-rig.ts";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { assignClass, HANDLING } from "../vehicle/vehicle-classes.ts";
 import { fleetClass, fleetStyle } from "../scenes/fleet.ts";
@@ -218,7 +218,7 @@ function recordStack(): Recorded {
   under.spawnFacing(IMPACT_X, 300, Math.PI / 2, 0);
   top.spawnFacing(IMPACT_X, 300, Math.PI / 2, 0);
   // Its belly 2 cm over the drawn roof below: it settles onto that roof in its first slices and stands there.
-  top.group.position.y = under.group.position.y + roofHeight(under) - bellyY(top) + 0.02;
+  top.group.position.y = under.group.position.y + crownY(under) - keelY(top) + 0.02;
   // What it touches read off that pose, as a scene that places a car reads it (`layOnGround`), and as a keyframe restore does.
   top.restoreContact();
   const rec = new CrashRecorder({ recall: (_i, out) => out.set([-1]), knocks: () => new Uint8Array(16) });

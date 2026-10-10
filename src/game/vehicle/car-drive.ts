@@ -191,7 +191,10 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   // slices (a hit after the slice's own read, or a car wrecked before the step): a keyframe restores the same, so a replay drives the same.
   if (car.deform.massActive) wreckContact(car);
   // No wheel within its springs' reach of a surface (flight, a belly on a roof): the car keeps its ballistic velocity and spin.
-  const alive = car.deform.drivetrainAlive;
+  // A side hit past the crash sensor cuts the fuel (`DeformableCar.stallOnSideHit`) for a few seconds: the same no-drive as a dead drivetrain, then it restarts.
+  const stalled = car.stalledS > 0;
+  if (stalled) car.stalledS = Math.max(0, car.stalledS - dt);
+  const alive = car.deform.drivetrainAlive && !stalled;
   car.airThrottle = alive && car.airborne ? throttle : 0; // in the air the gas winds the wheels (`spinWheels`)
   if (!alive || car.wheelsDown === 0) return idleDriveState(d);
   const k = CLASSES[carClass(car)];

@@ -146,8 +146,11 @@ describe("given the stunt course's CRUSH crest (the hill under the CRUSH billboa
       const hung = Math.max(...run[first]!.gaps.map(Math.abs));
       const fallFrames = Math.ceil(Math.sqrt((2 * hung) / G) / FRAME);
       const down = run.findIndex((r, i) => i >= first && i <= first + fallFrames && r.gaps.every((g) => Math.abs(g) <= PLAIN.gap));
-      const w = worst(run.slice(Math.max(down, 0), first + 30), 0, Infinity);
-      t.diagnostic(`${cls}: touched down at s ${run[first]!.s.toFixed(0)} with the tail ${(hung * 100).toFixed(0)} cm up, all down ${down - first} of ${fallFrames} frames later; the next 0.5 s: most turn in a frame ${turn.toFixed(2)}°, deepest tyre ${(sunk * 100).toFixed(1)} cm, underside ${(pen * 100).toFixed(1)} cm of ${(slicePenetration(closing) * 100).toFixed(1)}; from then: frame ${w.framePitch.toFixed(2)}° off the slope of ${springPitch(cls).toFixed(1)}°`);
+      // "From then on" is `fallFrames` after touchdown, the latest the clause above lets the tyres be down: a tail's tyres reach the road at
+      // their springs' droop stop with the frame still turning onto the slope (a monster: 12.6° off it at the frame its rear tyres touch, 0.2°
+      // eight frames on), so the frame the tyres are within `gap` of the road is not the frame the body has settled onto it.
+      const w = worst(run.slice(first + fallFrames, first + fallFrames + 30), 0, Infinity);
+      t.diagnostic(`${cls}: touched down at s ${run[first]!.s.toFixed(0)} with the tail ${(hung * 100).toFixed(0)} cm up, all down ${down - first} of ${fallFrames} frames later; the next 0.5 s: most turn in a frame ${turn.toFixed(2)}°, deepest tyre ${(sunk * 100).toFixed(1)} cm, underside ${(pen * 100).toFixed(1)} cm of ${(slicePenetration(closing) * 100).toFixed(1)}; from ${fallFrames} frames on: frame ${w.framePitch.toFixed(2)}° off the slope of ${springPitch(cls).toFixed(1)}°`);
       assert.ok(turn <= SNAP, `the body turned ${turn.toFixed(2)}° in one frame after touchdown`);
       assert.ok(sunk <= PLAIN.gap, `a tyre ${(sunk * 100).toFixed(1)} cm into the road after touchdown`);
       assert.ok(pen <= slicePenetration(closing), `underside ${(pen * 100).toFixed(1)} cm into the road after touchdown`);

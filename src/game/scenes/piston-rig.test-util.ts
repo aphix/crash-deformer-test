@@ -70,6 +70,10 @@ export const PISTON_ARCH = 0.5;
 export type PistonShot = Partial<PistonConfig> & {
   /** Sim seconds to keep running after first contact (default 1.5). */
   after?: number;
+  /** The frame swap: the head stands still at its rest plate and the car drives into it at `speedKph` (undriven, brakes off). */
+  carMoves?: boolean;
+  /** Called after every half-frame slice with the rig and the fired head; `true` ends the shot there. */
+  onSlice?: (rig: PistonRig, head: PistonHead) => boolean;
 };
 
 export type PistonShotResult = {
@@ -180,7 +184,7 @@ export function pistonLocality(shot: PistonShotResult, tap: PistonShotResult): P
 /**
  * Park `car` at the origin, fire one piston with `shot`, run the engine's
  * frame order (2 slices of a 1/60 s frame, cutDrive, one skin update per frame)
- * until `after` seconds past first contact, and measure the damage in the car
+ * until `after` seconds past first contact (or `onSlice` ends it), and measure the damage in the car
  * frame with the rigid motion fitted out on the particles beyond `PISTON_FAR`.
  */
 export function firePiston(car: DeformableCar, id: PistonId, shot: PistonShot = {}): PistonShotResult {
@@ -191,16 +195,24 @@ export function firePiston(car: DeformableCar, id: PistonId, shot: PistonShot = 
   const pos = geo.getAttribute("position") as THREE.BufferAttribute;
   const rest = Float32Array.from(pos.array as Float32Array);
   const head = rig.head(id);
-  rig.fire(id);
+  if (shot.carMoves) {
+    head.fire(0, rig.honey);
+    const u = rig.config.speedKph / 3.6;
+    car.velocity.set(-head.nx * u, 0, -head.nz * u);
+    car.speed = u;
+    car.sampleMotion();
+  } else rig.fire(id);
   const frame = 1 / 60;
   const after = shot.after ?? 1.5;
   let since = 0;
   for (let f = 0; f < 60 * 20; f++) {
     for (let s = 0; s < 2; s++) {
+      if (shot.carMoves) car.integrate(frame / 2);
       rig.step(frame / 2);
       car.afterContacts(frame / 2);
       if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(frame / 2);
       car.stepBreakage(frame / 2);
+      if (shot.onSlice?.(rig, head)) return measureShot(car, rig, id, rest);
     }
     car.updateSkin();
     if (head.contacted) since += frame;

@@ -7,7 +7,7 @@ import { EjectionWatch } from "../vehicle/ejection.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import { physicsSlice, sliceSpeed, BARRIER_HALF } from "../contact/sat.ts";
 import { FOOT_HALF_L } from "../vehicle/car-mesh.ts";
-import { HULL } from "../vehicle/car-air.ts";
+import { cageLift } from "../vehicle/car-cage-rig.ts";
 import { launch, makeWorld as barrierWorld, relaunchDamaged, strikeReach, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { makeWorld as raceWorld } from "./race-world.test-util.ts";
 import { activeGround, setGround } from "./ground.ts";
@@ -165,7 +165,7 @@ function straightWall(track: Track): Face {
 /**
  * The prop of `prefab` whose nearest neighbour prop is farthest (a neighbour's own contact would answer for it), its ground piece
  * farthest out from the middle of its ground pieces, and that piece's +x face (a thin box's wide side, a circle's x side: a star's
- * arm is met on its flank). Of equally far pieces (a star's five arms) the one with the most level ground before it: a wreck rolls
+ * arm is met on its flank at its base). Of equally far pieces (a star's five arms) the one with the most level ground before it: a wreck rolls
  * off a slope by itself, and the slab it is held to stands on a flat range.
  */
 function propFace(colliders: readonly PropCollider[], prefab: PrefabId, end = false): Face {
@@ -186,9 +186,15 @@ function propFace(colliders: readonly PropCollider[], prefab: PrefabId, end = fa
     const depth = c.kind === "circle" ? c.r : thinZ ? c.hz : c.hx;
     return { x: c.x + nx * depth, z: c.z + nz * depth, nx, nz };
   };
+  // A star arm is stepped down its taper in slices (a sliver at its tip): its flank is met at the slice next to the core, where it is widest (the arm's first piece is the core's).
+  const flank = (tip: PropCollider): PropCollider => {
+    const arm = own.filter((o) => o.yaw === tip.yaw && o.kind === tip.kind).sort((a, b) => reach(a) - reach(b));
+    return arm[Math.min(1, arm.length - 1)]!;
+  };
   const rise = (f: Face): number => Math.abs(activeGround().heightAt(f.x + f.nx * APPROACH, f.z + f.nz * APPROACH) - activeGround().heightAt(f.x, f.z));
   return own
     .filter((c) => reach(c) > farthest - 1e-6)
+    .map((tip) => (end ? tip : flank(tip)))
     .map(faceOf)
     .reduce((a, b) => (rise(b) < rise(a) ? b : a));
 }
@@ -225,16 +231,23 @@ export function strike(target: Target, cls: VehicleClassId, speed: number, hits 
   return out;
 }
 
-/** How far (m) the car's points are past a face's plane, along the face's inward normal: its rigid hull points (bumper, beltline and roof corners, stock) and its drawn body's vertices. */
+/** How far (m) the car's points are past a face's plane, along the face's inward normal: its rigid body points (the cage's vertices) and its drawn body's vertices. */
 export type Sink = { hull: number; mesh: number };
 const _p = new THREE.Vector3();
+
+/** Cage vertex `k` in `car`'s own frame (class lift on) into `out`: the body's contact points, as the rigid step reads them. */
+function cageVertex(car: DeformableCar, k: number, out: THREE.Vector3): THREE.Vector3 {
+  car.refitCage();
+  const pos = car.cage.fields.pos;
+  return out.set(pos[k * 3]!, pos[k * 3 + 1]! + cageLift(car), pos[k * 3 + 2]!);
+}
 
 function sinkPast(car: DeformableCar, f: Face): Sink {
   const into = (): number => -((_p.x - f.x) * f.nx + (_p.z - f.z) * f.nz);
   const q = car.group.quaternion;
   let hull = -Infinity;
-  for (let k = 4; k < HULL.length; k++) {
-    _p.set(HULL[k]![0], HULL[k]![1], HULL[k]![2]).applyQuaternion(q).add(car.group.position);
+  for (let k = 0; k < car.cage.style.vertexCount; k++) {
+    cageVertex(car, k, _p).applyQuaternion(q).add(car.group.position);
     hull = Math.max(hull, into());
   }
   car.updateSkin();

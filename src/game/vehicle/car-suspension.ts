@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { VehicleClassId } from "./vehicle-classes.ts";
+import { CLASS_LIFT } from "./constants.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { C_H, HIT_SIZE, staticTop } from "../world/surfaces.ts";
@@ -47,7 +48,7 @@ export const UNDERSIDE: readonly (readonly [number, number, number])[] = [
   ...([-0.8, 0.8] as const).flatMap((x) => [[x, 2, 0.051], [x, 1, 0.101], [x, 0, 0.134], [x, -0.5, 0.147], [x, -2, 0.169]] as const),
 ];
 /** The drawn underside's height (m) at car-local (`x`, `z`) within the rockers: `UNDERSIDE`'s keel and its rocker line along z, between them across. */
-function underY(x: number, z: number): number {
+export function underY(x: number, z: number): number {
   let keel = 0;
   let rocker = 0;
   for (const [line, side] of [[0, 0], [0.8, 1]] as const) {
@@ -180,6 +181,8 @@ export class Suspension {
   private body: THREE.Object3D | null | undefined = undefined;
   /** The drawn body's extra rise (m) over the springs' ride while its underside rests on the ground (`bottomOut`). */
   private rise = 0;
+  /** The class `lift` the body was last posed at (`NaN` before the first pose): the lift fades as the body rolls onto its side, however still its springs are. */
+  private posedLift = NaN;
 
   /** At rest on a new spawn: the body back on its stock ride. */
   reset(): void {
@@ -192,6 +195,7 @@ export class Suspension {
     o.fill(0);
     this.seat.fill(0);
     this.load.reset();
+    this.posedLift = NaN;
     this.riding = false;
     this.body = undefined;
   }
@@ -205,7 +209,7 @@ export class Suspension {
    * hubs).
    */
   step(group: THREE.Object3D, wheels: readonly THREE.Object3D[], cls: VehicleClassId, lift: number, free: boolean, air: boolean, gone: number, hit: Float64Array, dt: number): void {
-    if (this.body === undefined) this.body = group.getObjectByName("classLift") ?? null;
+    if (this.body === undefined) this.body = group.getObjectByName(CLASS_LIFT) ?? null;
     if (!free) {
       if (this.riding) {
         this.offset.fill(0);
@@ -236,7 +240,7 @@ export class Suspension {
     const off = this.offset;
     const sunk = this.rise > 0 || off[0]! < 0 || off[1]! < 0 || off[2]! < 0 || off[3]! < 0;
     const bottom = air && !sunk ? 0 : this.bottomOut(e, lift);
-    if (this.seatWheels(e, hit, wheels, stop, air, dt) || moved || bottom !== this.rise) {
+    if (this.seatWheels(e, hit, wheels, stop, air, dt) || moved || bottom !== this.rise || lift !== this.posedLift) {
       this.rise = bottom;
       this.pose(lift);
     }
@@ -308,6 +312,7 @@ export class Suspension {
     const body = this.body;
     if (!body) return;
     const o = this.offset;
+    this.posedLift = lift;
     body.position.y = lift + this.heave + this.rise;
     body.rotation.x = -this.pitch;
     body.rotation.z = Math.atan((o[1]! + o[3]! - o[0]! - o[2]!) / (4 * TRACK));

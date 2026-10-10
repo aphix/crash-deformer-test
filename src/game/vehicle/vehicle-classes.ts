@@ -5,6 +5,7 @@
  */
 import * as THREE from "three";
 import type { CarStyleId } from "./car-variants.ts";
+import { CLASS_LIFT } from "./constants.ts";
 
 export type VehicleClassId = "sedan" | "muscle" | "truck" | "monster" | "police";
 /** Netplay wire order (a snapshot sends the index): append only. */
@@ -401,11 +402,11 @@ export function assignClass(car: Dressable, id: VehicleClassId): void {
   assigned.set(car, id);
   const s = CLASSES[id];
   const g = car.group;
-  let body = g.getObjectByName("classLift");
+  let body = g.getObjectByName(CLASS_LIFT);
   let hubs = g.getObjectByName("classHubs");
   if (!body) {
     body = new THREE.Group();
-    body.name = "classLift";
+    body.name = CLASS_LIFT;
     hubs = new THREE.Group();
     hubs.name = "classHubs";
     g.add(body, hubs);

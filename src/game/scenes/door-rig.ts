@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { hypot3 } from "../kernel/physics-core.js";
-import { bodyContact, makeBox, partContact } from "../contact/external-contact.ts";
+import { strikeCar, makeBox, partContact } from "../contact/external-contact.ts";
 
 /**
  * The door/mirror knock scenes of `docs/door-mirror-sketch.png`, on a car parked at the origin
@@ -43,9 +43,9 @@ export const DOOR_LANES: Readonly<Record<DoorScenario, RamLane>> = {
   overOpen: { dir: 1, inner: 0.95, width: 0.6, bottom: 0.3, top: 0.75, open: (55 * Math.PI) / 180 },
   // Outside the mirror head on the open door, so the ram meets the slab first.
   shut: { dir: -1, inner: 1.1, width: 0.6, bottom: 0.3, top: 0.75, open: (55 * Math.PI) / 180 },
-  // Just outside the car's widest point (0.88): a quarter panel at hinge 0.45 stands 0.18 off the body, so its free end is in the lane.
-  panelPush: { dir: 1, inner: 0.885, width: 0.6, bottom: 0.3, top: 0.75, open: 0.45, part: "panel" },
-  panelPull: { dir: -1, inner: 0.885, width: 0.6, bottom: 0.3, top: 0.75, open: 0.45, part: "panel" },
+  // Outside the car's widest drawn point (the cage's plan half width, 0.894) and the last node of its field (0.9: a point in the rim cell reads a ramp rising into the flank): a quarter panel at hinge 0.45 stands 0.18 off its pivot, its free end at 0.942, so its tip is in the lane.
+  panelPush: { dir: 1, inner: 0.91, width: 0.6, bottom: 0.3, top: 0.75, open: 0.45, part: "panel" },
+  panelPull: { dir: -1, inner: 0.91, width: 0.6, bottom: 0.3, top: 0.75, open: 0.45, part: "panel" },
 };
 
 export const RAM_DEFAULTS = { kph: 12, kg: 300 } as const;
@@ -256,7 +256,7 @@ export class DoorRig {
     if (hit.touched) this.touched = true;
     this.u = Math.max(0, this.u - hit.du);
     // A lane that reaches the skin dents it through the same body contact the other rigs use.
-    const taken = bodyContact(car, box, h, true);
+    const taken = strikeCar(car, box, h, true);
     if (taken > 0) this.touched = true;
     this.u = Math.max(0, this.u - taken / this.kg);
   }

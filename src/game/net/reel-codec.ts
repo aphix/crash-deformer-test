@@ -82,10 +82,13 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * different last bits and replays to the same bits in every browser;
  * 51: Stage 2 of the one-motion-path physics: props, race walls, ramps and the press's plates are prisms of one store met by the face a
  * body entered, torn parts and wheels are rigid bodies that topple and slide by their points, a loose part's pose leaves the wire, so a
- * replayed clip's cars near a solid and its debris move differently).
+ * replayed clip's cars near a solid and its debris move differently; 52: the car's cage is baked and fitted by the sim alone, on every step of
+ * a crush window, and a wreck's solver state ends with each cluster's skin fit, the cage's flags and its refit history (`CarCage`
+ * `stateSize`), and a keyframe's flight block also carries the weight borne on a car and what its wheels touch (`FLIGHT`), so a clip
+ * recorded before replays the cars' tops, and what stands on them, otherwise).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 51;
+const REPLAY_VERSION = 52;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

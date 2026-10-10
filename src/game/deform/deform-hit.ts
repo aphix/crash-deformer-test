@@ -294,6 +294,11 @@ export abstract class DeformHit extends DeformRig {
     this.crushBaked.set(this.crush);
   }
 
+  /** The masses were placed by hand (a test rig: `shapeCar`): the skin is owed from them, the same one re-solve path as `bakeLoadCrush`. */
+  markMassesMoved(): void {
+    this.loadDirty[0] = 1;
+  }
+
   /** `impulse` drives FX and glass; `ebs` (equivalent barrier speed, m/s) sizes the crush. */
   beginCrush(
     localPoint: THREE.Vector3,
@@ -361,7 +366,7 @@ export abstract class DeformHit extends DeformRig {
    * belongs to the current hit or is too soft.
    */
   rearmHit(localPoint: THREE.Vector3, localInward: THREE.Vector3, impulse: number, ebs: number): boolean {
-    if (!this.massActive || this.bidirectional || ebs < REARM_EBS || this.quietTime() < REARM_QUIET) return false;
+    if (!this.massActive || ebs < REARM_EBS || this.quietTime() < REARM_QUIET) return false;
     this.impactLocal.copy(localPoint);
     this.impactInward.copy(localInward).normalize();
     this.snapImpactToNearestMass();

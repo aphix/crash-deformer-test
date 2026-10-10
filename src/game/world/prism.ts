@@ -90,7 +90,8 @@ function roundedEntry(cx: number, cz: number, vx: number, vz: number, hw: number
     const dx = cx - kx;
     const dz = cz - kz;
     const b = dx * gx + dz * gz;
-    const arc = b + Math.sqrt(Math.max(0, b * b - (dx * dx + dz * dz - r * r)));
+    // The walk-back from (cx, cz) along g meets the corner's circle where |d + g t| = r: t = −b + √(b² − (|d|² − r²)).
+    const arc = -b + Math.sqrt(Math.max(0, b * b - (dx * dx + dz * dz - r * r)));
     nx = (dx + gx * arc) / r;
     nz = (dz + gz * arc) / r;
   } else if (tx <= tz) {

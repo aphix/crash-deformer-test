@@ -9,9 +9,10 @@ import { armSolids, Surface } from "../world/surfaces.ts";
 import { DeformableCar } from "./car.ts";
 import type { DetachPart, LooseBody } from "./car-core.ts";
 import { CAR_HALF } from "./car-mesh.ts";
-import { roofHeight, SKIN } from "./car-surfaces.ts";
-import { RESTITUTION } from "./car-air.ts";
-import { invInertia, newLooseShape, stepLoose, worldInertia } from "./loose-step.ts";
+import { crownY } from "./car-cage-rig.ts";
+import { SKIN } from "./car-surfaces.ts";
+import { RESTITUTION, invInertia } from "./car-air.ts";
+import { newLooseShape, stepLoose } from "./loose-step.ts";
 import { corner, LIES_FLAT, lowest, RESTS, thinAxisUp } from "./loose-step.test-util.ts";
 import { assertSameDigest, paint } from "./test-support.ts";
 
@@ -142,7 +143,7 @@ const PUSH_V = 5;
 /** The bumper dropped onto parked car B's roof, left `rest` s, then pushed off it sideways for `slide` s; its lowest point (m) on the roof and at the end. */
 function roofDrop(l: Lot, at: number, rest: number, slide: number): { onRoof: number; restSpeed: number; end: THREE.Vector3; endLow: number; roofY: number } {
   const b = l.cars[1]!;
-  const roofY = b.group.position.y + roofHeight(b);
+  const roofY = b.group.position.y + crownY(b);
   throwPart(l, at, roofY + DROP, b.group.position.z, new THREE.Vector3(), rest);
   const onRoof = lowest(l.part);
   const restSpeed = l.part.velocity.length();
@@ -322,9 +323,9 @@ describe("given a body with unequal inertias turned to any orientation", () => {
     for (let k = 0; k < 100; k++) {
       const q = new THREE.Quaternion(next(), next(), next(), next() + 1.5).normalize();
       const x = new THREE.Vector3(next(), next(), next());
-      const want = x.clone().applyQuaternion(q.clone().invert()).multiply(shape.invI).applyQuaternion(q);
-      worldInertia(q, shape);
-      worst = Math.max(worst, invInertia(x).distanceTo(want));
+      const turn = new THREE.Matrix3().setFromMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(q));
+      const want = x.clone().applyMatrix3(turn.clone().transpose()).multiply(shape.invI).applyMatrix3(turn);
+      worst = Math.max(worst, invInertia(x.clone(), q, q.clone().invert(), shape.invI).distanceTo(want));
     }
     assert.ok(worst < 1e-9, `worst miss ${worst} over 100 orientations`);
   });

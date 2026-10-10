@@ -12,7 +12,6 @@ import {
 } from "./physics-util.ts";
 import type { BodyPartName } from "../kernel/rig-spec.ts";
 import { DeformParticleHelper, DeformRigHelper } from "./deform-helper.ts";
-import { CRUSH_HULLS, HULLS, type Hull } from "./hulls.ts";
 import { DeformHit } from "./deform-hit.ts";
 import type { Beam, MassNode } from "./deform-rig.ts";
 import { CageStrain, maxCompression, sensorsByPart } from "./cage-measure.ts";
@@ -85,17 +84,8 @@ export function cageAxis(co: Float64Array, o: number, u: number, v: number, w: n
   return co[o]! + u * co[o + 1]! + v * (co[o + 2]! + u * co[o + 4]!) + w * (co[o + 3]! + u * co[o + 5]! + v * (co[o + 6]! + u * co[o + 7]!));
 }
 
-/** Write one live hull, or its rest hull (`fallback`) when any extent is non-finite. */
-function setHull(h: Hull, fallback: Hull, cx: number, cz: number, hx: number, hz: number): void {
-  const ok = Number.isFinite(cx) && Number.isFinite(cz) && Number.isFinite(hx) && Number.isFinite(hz);
-  h.cx = ok ? cx : fallback.cx;
-  h.cz = ok ? cz : fallback.cz;
-  h.hx = ok ? hx : fallback.hx;
-  h.hz = ok ? hz : fallback.hz;
-}
-
 /**
- * Mass and hub queries and kicks, ground drag, the drivetrain, crush weights, the frame update, live hulls, the
+ * Mass and hub queries and kicks, ground drag, the drivetrain, crush weights, the frame update, the
  * debug helpers and measurements.
  */
 export abstract class DeformState extends DeformHit {
@@ -433,20 +423,25 @@ export abstract class DeformState extends DeformHit {
 
   /**
    * One fixed step of the crush: the sensors follow the masses, and the hit's window closes (here, in sim time, never
-   * by the frame rate). With `solve`, the skin's solve (cluster fit, cage corners) is redone from them too: the glass
-   * reads the cages' strain. Without it the solve waits for the next frame (`update`); the mesh write is always the
-   * frame's. Called once per fixed step (`settleStep`): a part's tear, a lamp's break and the glass depended on how often
+   * by the frame rate). The skin is baked (cluster fit, cage corners: `bakeSkin`) here, on every step of the window and on a
+   * load crush's step, never by drawing: `update` writes the mesh from the last bake. The cage is fitted from that bake, so what a contact
+   * reads is the body as the step's own crush left it, whatever the frame rate or what the camera drew.
+   * Called once per fixed step (`settleStep`): a part's tear, a lamp's break and the glass depended on how often
    * the renderer drew, and a replay drew at another rate than the live sim it re-ran.
    */
-  stepCrush(dt: number, solve: boolean): void {
+  stepCrush(dt: number): void {
+    let bake = false;
+    // The step's last slice only: the slices before it read the sensors themselves (`stepCrushSlice`), each at its own rate cap.
+    const read = this.sliceReadDt > 0 ? this.sliceReadDt : dt;
+    this.sliceReadDt = 0;
     if (this.crushing) {
-      this.pullSensorsFromMasses(dt);
+      this.pullSensorsFromMasses(read);
 
       let maxC = 0;
       for (let i = 0; i < this.sensors.length; i++) if (this.sensors[i]!.compression > maxC) maxC = this.sensors[i]!.compression;
       this.crushAmount = maxC;
       this.wrinkleAmp = THREE.MathUtils.clamp(maxC * (0.2 + this.buckle * 0.5), 0, 0.18 + this.buckle * 0.5);
-      this.skinDue = true;
+      bake = true;
       // Plastic leftover (maxC) is not "still crushing". Keep skinning while
       // masses are live or contact is fresh — otherwise we rewrite the mesh
       // from a jittering polar every frame (flicker) and pay computeVertexNormals
@@ -454,30 +449,56 @@ export abstract class DeformState extends DeformHit {
       // Contact window only. Residual bounce / cluster breathing is not crush —
       // reskinning it every frame is the polar snap-back flicker.
       this.crushing = this.bidirectional || this.quietTime() < 0.28;
-      // Window closed with a deferred skin: write it at the next frame, from this solve — the pose an
+      // Window closed with a deferred skin: write it at the next frame, from this bake — the pose an
       // always-skinned car freezes on. Later state drifts (cm), so a late catch-up would not match.
       if (!this.crushing) this.skinFinal = true;
     } else if (this.loadDirty[0] !== 0) {
       // Load crush baked into the masses (`bakeLoadCrush`) with no crash window open: skin once from them.
-      this.loadDirty[0] = 0;
-      this.skinDue = true;
+      bake = true;
     }
-    if (solve) this.solveSkin();
+    this.loadDirty[0] = 0;
+    if (bake) this.bakeSkin();
   }
 
-  /** The skin's solve from the masses as they are, if the crush has moved since the last one; the mesh write is owed. */
-  private solveSkin(): void {
-    if (!this.skinDue) return;
-    this.skinDue = false;
+  /**
+   * A slice that is not its step's last: the sensors read the masses and the skin is baked as this slice's crush left them, as
+   * `stepCrush` does once the step ends, so a hit cut in more slices sees the same body (its next slice's contact reads the cage this
+   * bake fits) and the same peak (a transient the step's end never samples) as one cut at the fine floor. `stepCrush` then reads
+   * the last slice at that slice's length: the sensors' rate cap (`pullSensorsFromMasses`) is per read, the same per second.
+   * Returns whether it baked (a crash window is open).
+   */
+  stepCrushSlice(h: number): boolean {
+    if (!this.crushing) return false;
+    this.pullSensorsFromMasses(h);
+    this.sliceReadDt = h;
+    this.bakeSkin();
+    return true;
+  }
+
+  /** The skin's solve from the masses as they are (cluster fit, cage corners): the mesh write is owed and the cage is due a fit (`cageDue`). A pure function of the masses and each cluster's last fit (`simState`); only the sim calls it. */
+  bakeSkin(): void {
     this.bakeLocalSkin();
     this.solveCages();
     this.skinOwed = true;
+    this.cageDue = true;
+    this.skinBaked = true;
   }
 
-  /** Per frame: solve what the steps left unsolved and write the mesh (a deferred skin waits unless the crush just ended). */
+  /**
+   * Skins the masses a load crush just baked (`bakeLoadCrush`) at once, in the slice that crushed them: the car's cage, the surface other cars
+   * stand on, is the drawn body, so it must be as crushed as the load has left it before the next slice reads it. Left to `stepCrush` (once per
+   * step), a stack's roof stood where the last step left it while the weight above it sank on through every slice of this one: the crush
+   * booked the same penetration again each slice (a roof 0.360 m under three cars at 60 Hz, 0.244 m at 240 Hz).
+   */
+  skinLoaded(): void {
+    if (this.loadDirty[0] === 0) return;
+    this.loadDirty[0] = 0;
+    this.bakeSkin();
+  }
+
+  /** Per frame: write the mesh from the sim's last bake (a deferred skin waits unless the crush just ended). Never solves. */
   update(geometry: THREE.BufferGeometry): void {
     this.skinnedThisFrame = false;
-    this.solveSkin();
     if (this.skinOwed && (!this.skinDeferred || this.skinFinal)) {
       this.skinFinal = false;
       this.flushSkin(geometry);
@@ -514,74 +535,6 @@ export abstract class DeformState extends DeformHit {
       if (dx * dx + dy * dy + dz * dz > 0.09) return true;
     }
     return false;
-  }
-
-  liveHulls(): Hull[] {
-    const cell = this.at.cell;
-    const engineL = this.at.engineL;
-    const engineR = this.at.engineR;
-    const doorL = this.at.doorL;
-    const doorR = this.at.doorR;
-    const axleR = this.at.axleR;
-    const hubFL = this.at.hubFL;
-    const hubFR = this.at.hubFR;
-    const hubRL = this.at.hubRL;
-    const hubRR = this.at.hubRR;
-
-    const engineZ = (engineL.local.z + engineR.local.z) * 0.5;
-    const zFront = engineZ + 0.36;
-    const zFrontBack = engineZ - 0.12;
-    const zRear = axleR.local.z - 0.36;
-    const zRearFront = axleR.local.z + 0.12;
-    const hzF = Math.max(0.12, (zFront - zFrontBack) * 0.5);
-    const hzR = Math.max(0.12, (zRearFront - zRear) * 0.5);
-    const midHx = THREE.MathUtils.clamp(
-      Math.max(Math.abs(doorL.local.x), Math.abs(doorR.local.x)) + 0.02,
-      0.48,
-      0.8,
-    );
-
-    const out = this.hullBuf;
-    setHull(out[0]!, HULLS[0]!, (hubFL.local.x + engineL.local.x) * 0.5, (zFront + zFrontBack) * 0.5, 0.32, hzF);
-    setHull(out[1]!, HULLS[1]!, (hubFR.local.x + engineR.local.x) * 0.5, (zFront + zFrontBack) * 0.5, 0.32, hzF);
-    setHull(out[2]!, HULLS[2]!, cell.local.x, (zFrontBack + zRearFront) * 0.5, midHx, Math.max(0.12, (zFrontBack - zRearFront) * 0.5));
-    setHull(out[3]!, HULLS[3]!, (hubRL.local.x + axleR.local.x) * 0.5, (zRear + zRearFront) * 0.5, 0.32, hzR);
-    setHull(out[4]!, HULLS[4]!, (hubRR.local.x + axleR.local.x) * 0.5, (zRear + zRearFront) * 0.5, 0.32, hzR);
-    return out;
-  }
-
-  liveCrushHulls(frontDetached = false, rearDetached = false): Hull[] {
-    const fl = this.at.bumperFL;
-    const fr = this.at.bumperFR;
-    const rl = this.at.bumperRL;
-    const rr = this.at.bumperRR;
-    const cell = this.at.cell;
-    const engineL = this.at.engineL;
-    const engineR = this.at.engineR;
-    const doorL = this.at.doorL;
-    const doorR = this.at.doorR;
-    const axleR = this.at.axleR;
-
-    const engineZ = (engineL.local.z + engineR.local.z) * 0.5;
-    const zFront = frontDetached ? engineZ + 0.34 : Math.max(fl.local.z, fr.local.z) + 0.12;
-    const zFrontBack = Math.min(engineZ, zFront - 0.18);
-    const zRear = rearDetached ? axleR.local.z - 0.28 : Math.min(rl.local.z, rr.local.z) - 0.12;
-    const zRearFront = Math.max(axleR.local.z, zRear + 0.18);
-    const hzF = Math.max(0.12, (zFront - zFrontBack) * 0.5);
-    const hzR = Math.max(0.12, (zRearFront - zRear) * 0.5);
-    const midHx = THREE.MathUtils.clamp(
-      Math.max(Math.abs(doorL.local.x), Math.abs(doorR.local.x)) + 0.02,
-      0.48,
-      0.8,
-    );
-
-    const out = this.crushHullBuf;
-    setHull(out[0]!, CRUSH_HULLS[0]!, fl.local.x * 0.85, (zFront + zFrontBack) * 0.5, 0.34, hzF);
-    setHull(out[1]!, CRUSH_HULLS[1]!, fr.local.x * 0.85, (zFront + zFrontBack) * 0.5, 0.34, hzF);
-    setHull(out[2]!, CRUSH_HULLS[2]!, cell.local.x, (zFrontBack + zRearFront) * 0.5, midHx, Math.max(0.12, (zFrontBack - zRearFront) * 0.5));
-    setHull(out[3]!, CRUSH_HULLS[3]!, rl.local.x * 0.85, (zRear + zRearFront) * 0.5, 0.34, hzR);
-    setHull(out[4]!, CRUSH_HULLS[4]!, rr.local.x * 0.85, (zRear + zRearFront) * 0.5, 0.34, hzR);
-    return out;
   }
 
   skinPanel(geometry: THREE.BufferGeometry, rest: Float32Array, name: BodyPartName, origin: THREE.Vector3): void {

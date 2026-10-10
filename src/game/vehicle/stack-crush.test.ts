@@ -6,7 +6,7 @@ import { paint } from "./test-support.ts";
 import { makeWorld, tickWorld, type CrashWorld } from "../contact/crash-scenarios.test-util.ts";
 import { FACE_LEFT, FACE_NOSE, FACE_RIGHT, FACE_TAIL, FACE_TOP, faceMax, faceStrength } from "../deform/load-crush.ts";
 import { MASS_SPECS } from "../kernel/rig-spec.ts";
-import { bellyY, roofHeight } from "./car-surfaces.ts";
+import { crownY, keelY } from "./car-cage-rig.ts";
 
 /**
  * Load crush (docs/LOAD_CRUSH.md): a face yields under the load on it, so a stack of cars crushes each roof by the
@@ -34,7 +34,7 @@ function stack(n: number, hz = 60): { cars: DeformableCar[]; w: CrashWorld } {
     c.spawnFacing(0, 0, 0, 0);
     if (i > 0) {
       const under = cars[i - 1]!;
-      c.group.position.y = under.group.position.y + roofHeight(under) - bellyY(c) + GAP;
+      c.group.position.y = under.group.position.y + crownY(under) - keelY(c) + GAP;
     }
     c.airborne = i > 0;
     c.parked = true;
@@ -104,8 +104,8 @@ describe("given a stack of cars dropped one on the next on the flat pad, each ro
     const restored = live.map((src) => {
       const c = new DeformableCar(paint(), new THREE.Scene());
       c.spawnFacing(0, 0, 0, 0);
-      const sim = new Float64Array(src.deform.simSize());
-      src.deform.simState(sim, false);
+      const sim = new Float64Array(src.solverSize());
+      src.solverState(sim, false);
       const flight = new Float64Array(FLIGHT);
       src.flight(flight, 0, false);
       c.group.position.copy(src.group.position);
@@ -113,7 +113,7 @@ describe("given a stack of cars dropped one on the next on the flat pad, each ro
       c.velocity.copy(src.velocity);
       c.angular.copy(src.angular);
       c.crashed = src.crashed;
-      c.deform.simState(sim, true);
+      c.solverState(sim, true);
       c.flight(flight, 0, true);
       c.refreshBasis();
       return c;

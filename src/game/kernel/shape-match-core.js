@@ -71,7 +71,8 @@ function m3Bounded(m, lim) {
   return true;
 }
 /** Inverse of the symmetric matrix [a00 a01 a02; a01 a11 a12; a02 a12 a22] into out; identity when singular. */
-function symInvertInto(a00, a01, a02, a11, a12, a22, out) {
+function symInvertInto(a, out) {
+  const a00 = a[0], a01 = a[1], a02 = a[2], a11 = a[3], a12 = a[4], a22 = a[5];
   const c00 = a11 * a22 - a12 * a12;
   const c01 = a02 * a12 - a01 * a22;
   const c02 = a01 * a12 - a02 * a11;
@@ -468,18 +469,37 @@ function rebuildAqqWeighted(c, particles) {
   const det = a00 * c00 + a01 * (a02 * a12 - a01 * a22) + a02 * (a01 * a12 - a02 * a11);
   // λ_min ≈ det / (sum of principal 2×2 minors) when one eigenvalue is much smaller than the others.
   c.planar = det <= PLANAR_THIN * (a00 + a11 + a22) * (c00 + c11 + c22);
-  restMomentsInto(c, a00, a01, a02, a11, a12, a22);
+  _mom[0] = a00;
+  _mom[1] = a01;
+  _mom[2] = a02;
+  _mom[3] = a11;
+  _mom[4] = a12;
+  _mom[5] = a22;
+  restMomentsInto(c);
 }
-/** AqqInv (regularised) and, for a flat cluster, the unit normal n of its rest plane. */
-function restMomentsInto(c, a00, a01, a02, a11, a12, a22) {
-  symInvertInto(a00 + AQQ_EPS, a01, a02, a11 + AQQ_EPS, a12, a22 + AQQ_EPS, c.AqqInv);
-  if (c.planar) planeNormalInto(a00, a01, a02, a11, a12, a22, c.n);
+/**
+ * The second moments [a00 a01 a02 a11 a12 a22] a caller leaves in `_mom`, and the regularised copy `symInvertInto` reads: a call V8
+ * does not inline boxes every double it takes, and a plastic cluster makes this call every slice.
+ */
+const _mom = new Float64Array(6);
+const _reg = new Float64Array(6);
+/** AqqInv (regularised) and, for a flat cluster, the unit normal n of its rest plane, from the moments in `_mom`. */
+function restMomentsInto(c) {
+  _reg[0] = _mom[0] + AQQ_EPS;
+  _reg[1] = _mom[1];
+  _reg[2] = _mom[2];
+  _reg[3] = _mom[3] + AQQ_EPS;
+  _reg[4] = _mom[4];
+  _reg[5] = _mom[5] + AQQ_EPS;
+  symInvertInto(_reg, c.AqqInv);
+  if (c.planar) planeNormalInto(_mom, c.n);
 }
 /**
  * Normal of a flat shape with second moments a: adj(a) ≈ λ1λ2·n nᵀ when λ3 ≪ λ1, λ2,
  * so its longest column is ∥ n. A degenerate (collinear) shape keeps the old normal.
  */
-function planeNormalInto(a00, a01, a02, a11, a12, a22, out) {
+function planeNormalInto(a, out) {
+  const a00 = a[0], a01 = a[1], a02 = a[2], a11 = a[3], a12 = a[4], a22 = a[5];
   const c00 = a11 * a22 - a12 * a12, c01 = a02 * a12 - a01 * a22, c02 = a01 * a12 - a02 * a11;
   const c11 = a00 * a22 - a02 * a02, c12 = a01 * a02 - a00 * a12, c22 = a00 * a11 - a01 * a01;
   const l0 = c00 * c00 + c01 * c01 + c02 * c02;
@@ -609,7 +629,13 @@ function matchCluster(c, particles, beta) {
 }
 /** Slice rate the creep was tuned at (its old 1/120 s floor at the 1/240 s slice). */
 const CREEP_REF_HZ = 240;
-function applyPlasticity(c, particles, dt, squash, buckle = 0.45) {
+/**
+ * `applyPlasticity`'s inputs: slice length (s) in [0], squash in [1], buckle in [2]. The caller fills the row, because the call is not
+ * inlined and a double argument of such a call is a heap number each time (one per cluster per slice).
+ */
+const PLASTIC = new Float64Array(3);
+function applyPlasticity(c, particles) {
+  const dt = PLASTIC[0], squash = PLASTIC[1], buckle = PLASTIC[2];
   if (squash < 0.03 && buckle < 0.03) return;
   const yieldC = 0.035 + (1 - squash) * 0.08 + (1 - buckle) * 0.04;
   const S = c.S, Sp = c.Sp;
@@ -670,7 +696,13 @@ function applyPlasticity(c, particles, dt, squash, buckle = 0.45) {
     a12 += my * vz;
     a22 += m * vz * vz;
   }
-  restMomentsInto(c, a00, a01, a02, a11, a12, a22);
+  _mom[0] = a00;
+  _mom[1] = a01;
+  _mom[2] = a02;
+  _mom[3] = a11;
+  _mom[4] = a12;
+  _mom[5] = a22;
+  restMomentsInto(c);
 }
 function resetCluster(c, particles) {
   m3Id(c.Sp);
@@ -772,9 +804,15 @@ function matchSkinLocal(c, rest, local, mass, beta) {
     a12 += my * vz;
     a22 += m * vz * vz;
   }
-  symInvertInto(a00, a01, a02, a11, a12, a22, _AqqInv);
+  _mom[0] = a00;
+  _mom[1] = a01;
+  _mom[2] = a02;
+  _mom[3] = a11;
+  _mom[4] = a12;
+  _mom[5] = a22;
+  symInvertInto(_mom, _AqqInv);
   fitInto(p0, p1, p2, p3, p4, p5, p6, p7, p8, _AqqInv, c.A);
-  if (c.planar) planeNormalInto(a00, a01, a02, a11, a12, a22, _skinN);
+  if (c.planar) planeNormalInto(_mom, _skinN);
   if (c.planar && !completePlanarInto(c.A, _skinN, c.skinRprev)) {
     m3Copy(c.skinRprev, c.skinR);
     m3Id(c.S);
@@ -799,6 +837,7 @@ function deformBeta(squash) {
 }
 
 export {
+  PLASTIC,
   applyPlasticity,
   deformBeta,
   goalAlpha,

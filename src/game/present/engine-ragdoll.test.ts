@@ -11,6 +11,7 @@ import { RagdollSystem } from "./engine-ragdoll.ts";
 import { SHIRTS } from "./driver-look.ts";
 import { FLAT_GROUND } from "../world/ground.ts";
 import { occluder, sightLine, solid, type Occluder, type Sight } from "./spectate-cam.ts";
+import { BELT_Y, SILL_Y, UNDER } from "./ragdoll-proxy.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
 
 const FRAME = 1 / 60;
@@ -47,19 +48,20 @@ function endZ(car: DeformableCar, name: string): number {
 }
 /**
  * Which solid part of `car`'s body holds world point `p` ("" for none): the bonnet or boot block and the door walls
- * below the beltline (the crushed ends from the bumper masses), the roof slab. The cabin and its openings are not solid.
+ * below the sill (`SILL_Y`, the top of the dummies' lower box; the crushed ends from the bumper masses), the roof slab over the
+ * belt (`BELT_Y`, where the proxy's cabin starts). The cabin and its openings are not solid.
  */
 function solidAt(car: DeformableCar, p: THREE.Vector3): string {
   const nose = Math.max(endZ(car, "bumperFL"), endZ(car, "bumperFR")) + 0.05;
   const tail = Math.min(endZ(car, "bumperRL"), endZ(car, "bumperRR")) - 0.05;
   _l.copy(p).sub(car.group.position).applyQuaternion(_q.copy(car.group.quaternion).invert());
   const ax = Math.abs(_l.x);
-  if (_l.y > 0.14 && _l.y < 0.83 && _l.z < nose && _l.z > tail) {
+  if (_l.y > 0.14 && _l.y < SILL_Y && _l.z < nose && _l.z > tail) {
     if (ax < 0.8 && _l.z > 0.66) return "bonnet";
     if (ax < 0.8 && _l.z < -0.86) return "boot";
     if (ax >= 0.8 && ax < 0.91) return "door";
   }
-  if (ax < 0.85 && _l.y > 1.25 && _l.y < 1.33 && _l.z > -0.86 && _l.z < 0.49) return "roof";
+  if (ax < 0.85 && _l.y > BELT_Y + 0.25 && _l.y < BELT_Y + 0.33 && _l.z > -0.86 && _l.z < 0.49) return "roof";
   return "";
 }
 
@@ -152,7 +154,7 @@ describe("given a thrown dummy and the crushed bodies of the other cars", () => 
       const t = dolls[0]!.bodies[0]!.translation();
       _l.set(t.x, t.y, t.z);
       const local = _l.clone().sub(b.group.position).applyQuaternion(_q.copy(b.group.quaternion).invert());
-      if (Math.abs(local.x) < 0.86 && local.y > 0.05 && local.y < 0.85 && Math.abs(local.z) < 2.15) inside.push(`frame ${f} at ${local.toArray().map((v) => v.toFixed(2))}`);
+      if (Math.abs(local.x) < CAR_HALF.x && local.y > -UNDER && local.y < SILL_Y && Math.abs(local.z) < CAR_HALF.z) inside.push(`frame ${f} at ${local.toArray().map((v) => v.toFixed(2))}`);
       // The grace window ends 0.35 s in (frame 20–21): anything still inside a box would be shoved out here.
       if (f >= 18 && f <= 24) jump = Math.max(jump, _l.distanceTo(prev));
       maxZ = Math.max(maxZ, t.z);

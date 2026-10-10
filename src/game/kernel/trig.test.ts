@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import "./three-trig.ts";
 import { Euler, Object3D, Quaternion, Vector3 } from "three";
-import { detCos, detSin } from "./physics-core.js";
+import { detCos, detSin, sinCosAt } from "./physics-core.js";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 
 // The oracle: sin and cos by Taylor series in 140-bit fixed point (BigInt), the argument reduced by a 140-bit π, so each result
@@ -122,6 +122,16 @@ describe("given the game's own sine and cosine (the same bits in every browser, 
   it("when asked for an angle that is not a finite number, then it returns not-a-number", () => {
     for (const x of [NaN, Infinity, -Infinity]) {
       assert.ok(Number.isNaN(detSin(x)) && Number.isNaN(detCos(x)));
+    }
+  });
+
+  it("when sinCosAt is given an angle, then it writes the bits of detSin and detCos, for every input set and the special values", () => {
+    const pair = new Float64Array(4);
+    const angles = [0, -0, NaN, Infinity, -Infinity, Math.PI / 4, -Math.PI / 4, Math.PI / 2, Math.PI, -3 * Math.PI / 2, 0.3, 0.78125, ...inputSets.flatMap((set) => set.inputs)];
+    for (const x of angles) {
+      pair[2] = x;
+      sinCosAt(pair, 2);
+      assert.equal(Object.is(pair[2], detSin(x)) && Object.is(pair[3], detCos(x)), true, `angle ${x}: ${pair[2]}, ${pair[3]} against ${detSin(x)}, ${detCos(x)}`);
     }
   });
 

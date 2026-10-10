@@ -17,6 +17,12 @@ const START_GAP = 0.19;
 /** How far the torso's centre is behind its leading face (m): chest first its half depth; head first, the tips of his raised arms (he is thrown arms up, `ARM`) are 0.80 m out along his spine, the end of his torso 0.27 m. */
 const LEAD = { chest: 0.11, head: 0.8 } as const;
 const TORSO_HALF_LENGTH = 0.27;
+/**
+ * Where a torso aims on a door window (m up the pane from its middle): the window is 0.45 m tall and the torso 0.36 m wide down it,
+ * so he goes in through its lower part, his top end under the drawn roof rail that the cage shows over the window's top edge
+ * (a torso aimed at the middle reached 1.23 m, over the rail's underside at 1.13 m, and hit it as the drawn car would).
+ */
+const DOOR_UP = -0.1;
 
 type Body = { translation(): THREE.Vector3Like; linvel(): THREE.Vector3Like; collider(i: number): { setCollisionGroups(g: number): void } };
 type Dolls = { bodies: Body[] }[];
@@ -90,9 +96,9 @@ describe("given a parked car's glass (each pane intact, then cracked, then shatt
     { it: "when his torso strikes the windshield once at 10 m/s, then the windshield cracks and holds, and he bounces back off it", pane: "windshield", up: 0.1, along: 0, speeds: [10], expected: "cracked", goesThrough: false },
     { it: "when torsos strike the windshield twice at 10 m/s, then the second strike shatters it and that torso goes on through into the cabin", pane: "windshield", up: 0.1, along: 0, speeds: [10, 10], expected: "shattered", goesThrough: true },
     { it: "when his torso strikes the windshield at 3 m/s, under the 4 m/s that breaks glass, then the windshield stays intact and he bounces back off it", pane: "windshield", up: 0.1, along: 0, speeds: [3], expected: "intact", goesThrough: false },
-    { it: "when his torso strikes the left door window once at 10 m/s, then the window cracks and holds, and he bounces back off it", pane: "doorL", up: 0.02, along: -0.18, speeds: [10], expected: "cracked", goesThrough: false },
-    { it: "when torsos strike the left door window twice at 10 m/s, then the second strike shatters it and that torso goes on through into the cabin", pane: "doorL", up: 0.02, along: -0.18, speeds: [10, 10], expected: "shattered", goesThrough: true },
-    { it: "when his torso strikes the left door window at 3 m/s, under the 4 m/s that breaks glass, then the window stays intact and he bounces back off it", pane: "doorL", up: 0.02, along: -0.18, speeds: [3], expected: "intact", goesThrough: false },
+    { it: "when his torso strikes the left door window once at 10 m/s, then the window cracks and holds, and he bounces back off it", pane: "doorL", up: DOOR_UP, along: 0, speeds: [10], expected: "cracked", goesThrough: false },
+    { it: "when torsos strike the left door window twice at 10 m/s, then the second strike shatters it and that torso goes on through into the cabin", pane: "doorL", up: DOOR_UP, along: 0, speeds: [10, 10], expected: "shattered", goesThrough: true },
+    { it: "when his torso strikes the left door window at 3 m/s, under the 4 m/s that breaks glass, then the window stays intact and he bounces back off it", pane: "doorL", up: DOOR_UP, along: 0, speeds: [3], expected: "intact", goesThrough: false },
   ] as const;
   for (const testCase of torsoStrikeCases) {
     it(testCase.it, async (t) => {

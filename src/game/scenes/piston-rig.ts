@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { bodyContact, makeBox, partContact } from "../contact/external-contact.ts";
+import { strikeCar, makeBox, partContact } from "../contact/external-contact.ts";
 import type { StreamedDeformation } from "../deform/streamed-deform.ts";
 import { KPH_PER_MS } from "../kernel/constants.ts";
 
@@ -239,7 +239,7 @@ function holdCentreOfMass(d: StreamedDeformation): void {
 
 /**
  * The piston scene's physics: owns the heads and drives the parked car. Each head is a striker
- * box through the shared contact (`bodyContact`: crush from the face's overlap, the particles
+ * box through the shared contact (`strikeCar`: crush from the face's overlap, the particles
  * held on the moving face, the stroke-sized crush force; `partContact`: doors and mirrors), and
  * hands the first hit to `applyImpact` with an equivalent barrier speed from the impactor's
  * energy. DOM-free; the engine and the tests run the same `step`.
@@ -450,7 +450,7 @@ export class PistonRig {
     box.vz = h.nz * uFace;
     box.kg = this.config.massKg;
     box.hardness = this.config.hardness;
-    let taken = bodyContact(car, box, dt, crush);
+    let taken = strikeCar(car, box, dt, crush);
     const touching = d.faceContacts > 0;
     if (crush) taken += box.kg * partContact(car, box, dt).du;
     if (h.phase === "coast") h.u = Math.max(0, h.u - taken / this.config.massKg);

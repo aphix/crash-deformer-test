@@ -63,7 +63,7 @@ function roofSkinDrift(style: BodyStyle): number {
   const attr = geo.getAttribute("position") as THREE.BufferAttribute;
   const rest = new Float32Array(attr.array as Float32Array);
   d.applyImpact(new THREE.Vector3(0, 0.4, 2), new THREE.Vector3(0, 0, -1), 4);
-  d.stepCrush(1 / 60, true);
+  d.stepCrush(1 / 60);
   d.update(geo);
   let drift = 0;
   for (let i = 0; i < attr.count; i++) {
@@ -86,8 +86,7 @@ describe("given every body style, compared with the sedan that the shared platfo
       assert.ok(Math.abs(b.max.x - sedan.max.x) < 0.03 && Math.abs(b.min.x - sedan.min.x) < 0.03, `${id} width ${b.min.x}..${b.max.x}`);
     });
 
-    it(`when a ${id} is built, then it keeps the sedan's collision hulls and its mass rig (the masses and where each sits at rest)`, () => {
-      assertSameDigest(cars[id].deform.liveHulls(), cars.sedan.deform.liveHulls(), `${id} hulls`);
+    it(`when a ${id} is built, then it keeps the sedan's mass rig (the masses and where each sits at rest)`, () => {
       const rig = (c: DeformableCar) => c.deform.masses.map((m) => [m.name, m.mass, ...m.rest.toArray()]);
       assertSameDigest(rig(cars[id]), rig(cars.sedan), `${id} mass rig`);
     });
@@ -164,7 +163,7 @@ describe("given every body style's rig cage (the soft-body frame that wraps the 
         d.feedOverlap(rl.world, new THREE.Vector3(0, 0, 1), 0.1, 14, 1 / 60);
         d.stepStructure(1 / 60);
         d.followGroup(c.group, vel, new THREE.Vector3(), 1 / 60);
-        d.stepCrush(1 / 60, true);
+        d.stepCrush(1 / 60);
         d.update(geo);
       }
       assert.ok(rl.local.z - z0 > 0.05, `${id} tail did not crush ${z0} → ${rl.local.z}`);

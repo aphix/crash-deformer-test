@@ -69,6 +69,7 @@ export {
   makeCluster,
   rebuildAqqWeighted,
   matchCluster,
+  PLASTIC,
   applyPlasticity,
   resetCluster,
   transformSkinPointInto,

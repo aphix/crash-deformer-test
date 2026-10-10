@@ -3,6 +3,7 @@ import "../kernel/three-trig.ts";
 import * as THREE from "three";
 import { StreamedDeformation } from "../deform/streamed-deform.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
+import { BUMPER_F, LID, LIGHT_BAR } from "./constants.ts";
 import { computeNormalsFast } from "../deform/fast-normals.ts";
 import { hypot2, round4 } from "../deform/physics-util.ts";
 import {
@@ -33,7 +34,7 @@ import {
   trimMaterial,
   type LampKind,
 } from "./car-materials.ts";
-import { CRUSH_HULLS, HULLS, type Hull } from "../deform/hulls.ts";
+import type { CarCage } from "./car-cage.ts";
 import { CAR_STYLES, type BodyStyle, type CarStyleId } from "./car-variants.ts";
 import { anchorOnSkin, poseOnSkin, type GlowKind, type SkinAnchor } from "./lamp-lights.ts";
 import { panelRegions, type PanelName, type PanelRegion } from "./car-panels.ts";
@@ -74,25 +75,21 @@ export interface CarPaint {
 
 type GlassBurst = (origin: THREE.Vector3, velocity: THREE.Vector3, count: number) => void;
 
-/** G-key hull overlay: each 2D contact hull drawn as a box over this height band (m, display only). */
+/** G-key overlay: the cage's plan box drawn as a box over this height band (m, display only). */
 const HULL_Y0 = 0.18;
 const HULL_Y1 = 0.72;
 /** The box's 12 edges as corner pairs. Corner k sits at HULL_Y1 if k ≥ 4; round the ring, k & 3 is (x0,z0) (x1,z0) (x1,z1) (x0,z1). */
 const BOX_EDGES = [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7];
 
-/** Writes hull `h`'s box edges (BOX_EDGES.length × 3 floats) into `arr` from `o`; returns the end offset. */
-function writeHullBox(arr: Float32Array, o: number, h: Hull): number {
-  const x0 = h.cx - h.hx;
-  const x1 = h.cx + h.hx;
-  const z0 = h.cz - h.hz;
-  const z1 = h.cz + h.hz;
+/** Writes the box's edges (BOX_EDGES.length × 3 floats) into `arr` from the plan bounds `box` (x min, x max, z min, z max). */
+function writePlanBox(arr: Float32Array, box: Float64Array): void {
+  let o = 0;
   for (const k of BOX_EDGES) {
     const ring = k & 3;
-    arr[o++] = ring === 1 || ring === 2 ? x1 : x0;
+    arr[o++] = ring === 1 || ring === 2 ? box[1]! : box[0]!;
     arr[o++] = k < 4 ? HULL_Y0 : HULL_Y1;
-    arr[o++] = ring >= 2 ? z1 : z0;
+    arr[o++] = ring >= 2 ? box[3]! : box[2]!;
   }
-  return o;
 }
 
 /** C1: only a side hit this hard (m/s EBS, 45 km/h) tears a door off; slower side hits spring it. */
@@ -343,6 +340,8 @@ export abstract class CarCore {
    */
   readonly flushCasters: THREE.Mesh[] = [];
   protected hullHelper: THREE.LineSegments | null = null;
+  /** The car's contact shape: its drawn body (`DeformableCar.cage`). */
+  abstract readonly cage: CarCage;
   private bumperF: THREE.Group;
   private bumperR: THREE.Group;
   protected hood: THREE.Mesh;
@@ -406,7 +405,7 @@ export abstract class CarCore {
     if (this.style.lightBar) {
       this.sirenMat = makeSirenMaterial();
       this.lightBar = new THREE.Mesh(makeLightBar(), this.sirenMat);
-      this.lightBar.name = "lightBar";
+      this.lightBar.name = LIGHT_BAR;
       this.lightBar.castShadow = true;
       // Feet soles on the roof's dome where they stand, not the crown between them (that sank them 0.5–2.3 cm).
       this.lightBar.position.set(0, roofTopY(LIGHT_BAR_FOOT.x, LIGHT_BAR_Z, this.style) - LIGHT_BAR_FOOT.sole, LIGHT_BAR_Z);
@@ -595,10 +594,10 @@ export abstract class CarCore {
       this.parts.push(p);
       return p;
     };
-    add("bumperF", this.bumperF, "bumperFront", 1, 2, "two-point", 0.42);
+    add(BUMPER_F, this.bumperF, "bumperFront", 1, 2, "two-point", 0.42);
     add("bumperR", this.bumperR, "bumperRear", 16, 17, "two-point", 0.4);
-    add("hood", this.hood, "bonnet", 3, 3, "cowl", 0.5);
-    add("trunk", this.trunk, "boot", 18, 18, "tail", 0.48);
+    add(LID.hood, this.hood, "bonnet", 3, 3, "cowl", 0.5);
+    add(LID.trunk, this.trunk, "boot", 18, 18, "tail", 0.48);
     const doorL = add("doorL", this.doorL, "doorLeft", 6, 6, "door", 0.4, { theta: 0, omega: 0, latched: true, load: 0, mirrorFold: 0 });
     const doorR = add("doorR", this.doorR, "doorRight", 7, 7, "door", 0.4, { theta: 0, omega: 0, latched: true, load: 0, mirrorFold: 0 });
     this.doorParts = [doorL, doorR];
@@ -620,15 +619,12 @@ export abstract class CarCore {
       if (r.kind === "quarter") this.quarterParts[r.side < 0 ? 0 : 1] = part;
     }
     // Last, so every style's other parts keep their indices (netplay, tests). Roof sensor 12 on both ends.
-    if (this.lightBar) this.lightBarPart = add("lightBar", this.lightBar, "roof", 12, 12, "bar", 0.3);
+    if (this.lightBar) this.lightBarPart = add(LIGHT_BAR, this.lightBar, "roof", 12, 12, "bar", 0.3);
   }
 
   private buildHullHelper(): void {
-    const pos = new Float32Array(HULLS.length * BOX_EDGES.length * 3);
-    let o = 0;
-    for (const h of HULLS) o = writeHullBox(pos, o, h);
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(BOX_EDGES.length * 3), 3));
     const mat = new THREE.LineBasicMaterial({
       color: 0x8aa0b4,
       transparent: true,
@@ -641,28 +637,12 @@ export abstract class CarCore {
     this.group.add(this.hullHelper);
   }
 
+  /** Redraws the G-key overlay over the cage's plan box as of the last fit. */
   protected updateHullHelper(): void {
     if (!this.hullHelper) return;
     const attr = this.hullHelper.geometry.getAttribute("position") as THREE.BufferAttribute;
-    let o = 0;
-    for (const h of this.hulls()) o = writeHullBox(attr.array as Float32Array, o, h);
+    writePlanBox(attr.array as Float32Array, this.cage.fields.planBox);
     attr.needsUpdate = true;
-  }
-
-  hulls() {
-    if (!this.deform.massActive) return HULLS;
-    return this.deform.liveHulls();
-  }
-
-  crushHulls() {
-    if (!this.deform.massActive) return CRUSH_HULLS;
-    return this.deform.liveCrushHulls(this.bumperOff("bumperF"), this.bumperOff("bumperR"));
-  }
-
-  /** A loop, not `parts.some(…)`: the hull getters run per SAT pass and allocated two closures each. */
-  private bumperOff(name: "bumperF" | "bumperR"): boolean {
-    for (let i = 0; i < this.parts.length; i++) if (this.parts[i]!.name === name && this.parts[i]!.detached) return true;
-    return false;
   }
 
   /** Back to an intact, clear pane on its rest seat and shape. */

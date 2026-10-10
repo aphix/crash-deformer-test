@@ -29,9 +29,9 @@ plays one clip alone with no HUD; **Save** keeps it in this browser.
 into a typed-array ring of `RING` (5120) steps, at least 17 s at a race's
 240–300 steps/s. Every `KEY_EVERY` (1 s) it encodes a keyframe: the netplay snapshot of every car (`writeSnapshot`,
 with each wreck's deform and parts), the course's knocked props (a bit each), then per car its flight block
-(`DeformableCar.flight`: `FLIGHT` (21) doubles, the whole spin, the takeoff spin, pitch, yaw, roll, velocity and position,
-the squeeze clocks, the drift state and the pose-following step's support height; what the body touches is read off the pose
-again, `readContact`), the course's memory of it (`MEMORY` doubles: where
+(`DeformableCar.flight`: `FLIGHT` (88) doubles, the whole spin, the takeoff spin, pitch, yaw, roll, velocity and position,
+the squeeze clocks, the drift state, the weight borne on the car by riders stepped after it (`CarSurfaces.borneState`) and what its
+wheels touch (`DeformableCar.contact`); a wreck on its masses touches what its hubs' last slice left, read again, `readContact`), the course's memory of it (`MEMORY` doubles: where
 the wall contact last stood, how far past the line, the road segment the projection hint is on) and, for a wreck, its
 solver state (`simState`: every scalar such as the crash clocks, each sensor's compression, each mass's position, velocity
 and crush offsets, each beam's set, each shape cluster's plastic rest and fit state) with its parts' state (`partState`:
@@ -40,9 +40,8 @@ step in which a car is put on a spot (a respawn, a police wake or put-away, a st
 takes one more at once, because the replay cannot drive a car there. A clip keeps **the keyframe it starts at, with every
 car of the clip, and one more per later step that put some of its cars on a spot, with those cars alone** (`cutKey`).
 Nothing else is kept: the replay is the sim that recorded it (docs below), so a keyframe in between would correct nothing
-and cost a wreck's 6.2 KB solver state each. A wreck is 1559 words (6.2 KB) in the first keyframe, 2.2 KB deflated while
-it moves (measured on the stunt clips: the clusters' fit state 1.2 KB of that, the masses 0.6, the arrays and scalars 0.4),
-and a car put on a spot is some 400 bytes.
+and cost a wreck's 21 KB solver state each. A wreck is 2619 doubles (21 KB) in the first keyframe (the clusters' fit state and skin fit, the masses,
+the arrays and scalars, the cage's refit history 388 doubles), and a car put on a spot is some 400 bytes.
 
 An impact is any contact (car–car, wall or prop) closing at `IMPACT_MIN` (12.5 m/s, 45 km/h) or more, whose pair had been
 apart for `REHIT_S` (0.35 s), so grinding never re-counts. 12.5 m/s is the speed at which a lone sedan head-on reaches `MIN_SCORE`: a slower bump could only join a cluster and lift its car count and score (owner 10-05: "multi car pileups are just slow bumps"). Measured on 192 races (city, oval with police, breaker-yard, dam-spine, seeds 1-48): the old 5 m/s floor kept 81 of 150 oval-police clips as 3+-car pile-ups, 34 of them (and 8 of 9 on the city) only through bumps under 12 m/s; 49 of 56 city "pile-up" titles had two cars hit (the title counted the bystanders in the shot). The title now counts the cars hit (`HighlightClip.hit`, ≥ 3 for "N-car pile-up").
@@ -94,7 +93,7 @@ since the clip's start (a touch is a SAT contact, a door, mirror or panel meetin
 that did not exist at the clip's first keyframe. A car put on a spot after the first impact is taken like any other (its
 keyframe puts it there again). 80 m covers the replay cameras' sight lines (`DUTCH.range` is 90 m): of
 the 46 cars a camera could see on five seeded races, 80 m holds 44 and 60 m holds 39. A clip grows by bystanders only to
-`CLIP_SHARE` (`REEL_BUDGET` / `TOP` × 3.3 ≈ 158 KiB estimated: a car's inputs plus its 6.2 KB solver state if it is a
+`CLIP_SHARE` (`REEL_BUDGET` / `TOP` × 3.3 ≈ 158 KiB estimated: a car's inputs plus its 21 KB solver state if it is a
 wreck in the clip's first keyframe). A bystander too big for what is left is skipped (a cheaper one further out may still
 fit), and a pile-up that already fills the share takes none. The recorder's steady-state allocation is 1.2 B a step
 against a 16 B bound (`engine-record.test.ts`): `simState` reads a wreck's scalar fields as plain properties (`simScalarsOut`,
@@ -155,15 +154,26 @@ crash it recorded. What it takes, each found by the replay straying from the liv
   had left swinging came back at rest, a panel's hinge value rounded, the door-motion sample re-read. A door slows the next
   striker by what it holds (`partContactPair`), so two wrecks one second after a pile-up hit differently (1e-11 m at the
   first contact of a four-car pile-up, 11 m two seconds later). `CarParts.partState` carries them.
-- **The car's pose, whole** (8). The flight block (`FLIGHT` 21 doubles) holds pitch, yaw, roll, velocity and position exactly
+- **The car's pose, whole** (8). The flight block (`FLIGHT` 88 doubles) holds pitch, yaw, roll, velocity and position exactly
   (the wire rounds them to 1e-4 rad, 1 cm/s and a float32), the squeeze rule's clocks (`endAgo`, `endReach`, `endSqueeze`), the
-  drift state and the support height; no stored airborne or hull-contact bit: `readContact` derives `airborne`, `rigid`,
-  `wheelsDown` and `restsOn` from the restored pose and the surfaces under it. The wreck's `squash` and `buckle` are stored as doubles in the clip header.
+  drift state, the seconds the engine stays cut after a side hit (`stalledS`: a clip that starts on a stalled car replays it stalled), the
+  weight borne on it (`CarSurfaces.borneState`: a rider that stepped after it in the last slice left its weight to this step's first
+  contacts) and each wheel's contact as the last rigid slice left it (`wheelHit`, `wheelsDown`, `airborne`, `hardTouch`, `yielding`:
+  that slice's lift moved them, so a fresh read of the pose (`readContact`) is not them, and the drive grips with them: a car on another's
+  roof read one wheel less and drove 0.016 m/s off in its first step, seed 9's fifth clip 62 m by its end). A wreck on its masses reads its hubs' contact again.
+  The wreck's `squash` and `buckle` are stored as doubles in the clip header.
 - **The solver state as doubles** (9). `simState` writes each scalar, and every mass, beam, sensor and cluster number, as a
   double: a restored wreck is bit for bit the live one. It includes the hit vectors (`impactLocal`, `impactInward`), the body
   frame, the ground samples, the shape clusters' fit state (`Rprev`, `rotQ`, warm start) and the clocks (`elapsed`,
   `lastContact`, `lastPower`, `contactAt`, compared by holds of whole steps). A car with a part torn off carries it whether or
   not it crashed: its netplay wreck section alone leaves the hit frame zeroed (`impactInward` (0, 0, 0) for the intact car's (0, 0, -1)).
+- **The cage is the sim's alone** (52). A car's contact shape, its cage (`CarCage`), is fitted from the skin the *sim* bakes (`DeformState.stepCrush`:
+  every step of a crush window and a load crush's step) and from its parts' state
+  (`hingePose`), never from what was drawn: drawing writes the mesh from the last bake and solves nothing (`engine/cage-draw-independence.test.ts`:
+  a race with and without an extra `updateSkin()` on every car at every step is bit-identical). The fit is skipped while no mass moved
+  `REFIT_EPSILON` (1 cm), so what a car stands on depends on that fit's history: a keyframe carries the cage's last-fit inputs as float32
+  (`CarCage.writeState`: 388 doubles, the fit reads exactly those floats), each cluster's skin fit (`skinRprev`, `skinRotQ`) and the
+  cage and baked flags, through `DeformableCar.solverState`. A wreck's solver state is 2619 doubles (21 KB) per keyframe, 598 of them these.
 - **The course's memory** (9, 23). Each keyframe carries per car its wall contact history and road projection hint, and the
   race's knocked props (`RaceField.remember`, `knockTo`): a replay starts from the course the live race had.
 - **Props knocked by cars the clip leaves out**. A knocked prop is gone for every car, so a clip car that reaches its place

@@ -1,7 +1,8 @@
 import type { DeformableCar } from "../vehicle/car.ts";
 import { readContact } from "../vehicle/car-air.ts";
 import { ROOF_REST_Y } from "../vehicle/car-parts.ts";
-import { BELLY_Y, bellyY, roofHeight, SKIN } from "../vehicle/car-surfaces.ts";
+import { crownY, keelY } from "../vehicle/car-cage-rig.ts";
+import { SKIN } from "../vehicle/car-surfaces.ts";
 import { hypot2 } from "../kernel/physics-core.js";
 
 /**
@@ -32,10 +33,12 @@ export const STACK_RANGES = {
 /** Seconds from the scene's start to the first drop: the empty base car shows first. */
 const LEAD_S = 1;
 const G = 9.81;
+/** The stock keel's height (m) over the origin, for the camera's framing of a tower. */
+const STOCK_KEEL_Y = 0.13;
 
 /** The opening orbit shot for a finished stack of `n` cars (one car adds about 1.17 m): looking at the base car's roof, far enough back for the whole tower. */
 export function stackShot(n: number): { lookY: number; radius: number; pitch: number } {
-  return { lookY: 0.65, radius: Math.min(30, Math.max(12, (n * 1.17 + BELLY_Y) * 1.3)), pitch: 0.32 };
+  return { lookY: 0.65, radius: Math.min(30, Math.max(12, (n * 1.17 + STOCK_KEEL_Y) * 1.3)), pitch: 0.32 };
 }
 
 export class StackRig {
@@ -67,12 +70,12 @@ export class StackRig {
 /** Stand car `k` (hidden or spent) upright over the crushed roof of the stack below it (`cars[0..k-1]`), its belly `drop` m clear, falling. */
 export function placeDrop(cars: readonly DeformableCar[], k: number, drop: number): void {
   let top = 0;
-  for (let i = 0; i < k; i++) top = Math.max(top, cars[i]!.group.position.y + roofHeight(cars[i]!));
+  for (let i = 0; i < k; i++) top = Math.max(top, cars[i]!.group.position.y + crownY(cars[i]!));
   const car = cars[k]!;
   car.group.visible = true;
   car.spawnFacing(0, 0, 0, 0);
   car.parked = true;
-  car.group.position.y = top - bellyY(car) + drop;
+  car.group.position.y = top - keelY(car) + drop;
   readContact(car);
   // The load crush reads the car below's matrixWorld in the next step; the renderer's update comes after it.
   car.group.updateMatrixWorld(true);
@@ -112,6 +115,6 @@ export function stackLoads(cars: readonly DeformableCar[], n: number): { loadKn:
 function stands(lower: DeformableCar, upper: DeformableCar): boolean {
   const a = lower.group.position;
   const b = upper.group.position;
-  const over = b.y + bellyY(upper) - (a.y + roofHeight(lower));
+  const over = b.y + keelY(upper) - (a.y + crownY(lower));
   return upper.group.matrixWorld.elements[5]! > UPRIGHT && hypot2(b.x - a.x, b.z - a.z) < COLUMN_OFFSET && over > -SKIN && over < COLUMN_CLEAR;
 }

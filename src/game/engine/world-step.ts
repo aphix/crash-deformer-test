@@ -3,12 +3,13 @@ import { bleedAfterSlide, DeformableCar } from "../vehicle/car.ts";
 import { StrongestContact, type ContactHit, type JerseyBarrier } from "../scenes/engine-props.ts";
 import { partContactPair } from "../contact/external-contact.ts";
 import { markApproaches, resolveCarPair } from "../contact/pair-contact.ts";
-import { shareHeight } from "../contact/sat.ts";
+import { bandsMeet } from "../contact/cage-outline.ts";
 import { leftoverCrumple } from "../deform/physics-util.ts";
 import type { EjectionWatch } from "../vehicle/ejection.ts";
-import { contactHz } from "../vehicle/car-air.ts";
+import { armCrushRows, contactHz } from "../vehicle/car-air.ts";
 import { CarSurfaces } from "../vehicle/car-surfaces.ts";
 import { armTops } from "../world/surfaces.ts";
+import { STOCK_PAINT } from "../vehicle/constants.ts";
 
 /**
  * Everything one physics step touches besides the cars. The engine fills it per scene; a headless harness
@@ -188,7 +189,7 @@ export function stepWorld(w: World, dt: number): void {
       const dx = ca.group.position.x - cb.group.position.x;
       const dz = ca.group.position.z - cb.group.position.z;
       // Cars at different heights (one flying over the other, on a bridge over it) never touch; nor does a fake falling off the fleet disc.
-      if (dx * dx + dz * dz > 28 || !shareHeight(ca, cb) || ca.falling || cb.falling) continue;
+      if (dx * dx + dz * dz > 28 || !bandsMeet(ca, cb) || ca.falling || cb.falling) continue;
       const masses = (ca.deform.massActive || cb.deform.massActive) && ca.deform.collideWith(cb.deform, h);
       if (partContactPair(ca, cb, h) || masses) w.partTouch?.(a, b);
     }
@@ -227,7 +228,7 @@ export function stepWorld(w: World, dt: number): void {
         const a = nearList[k]!;
         const b = nearList[k + 1]!;
         if (barrier && barrier.blocksPair(cars[a]!, cars[b]!)) continue;
-        if (!shareHeight(cars[a]!, cars[b]!) || cars[a]!.falling || cars[b]!.falling) continue;
+        if (!bandsMeet(cars[a]!, cars[b]!) || cars[a]!.falling || cars[b]!.falling) continue;
         const pair = resolveCarPair(cars[a]!, cars[b]!, feed, h);
         if (pair) {
           moved = true;
@@ -243,6 +244,7 @@ export function stepWorld(w: World, dt: number): void {
       }
       if (!moved && w.plan < 0) break;
     }
+    armCrushRows(h);
     shape |= ran << (STEP_SHAPE + 2 * i);
 
     for (let ci = 0; ci < n; ci++) {
@@ -255,6 +257,9 @@ export function stepWorld(w: World, dt: number): void {
     }
     if (w.collide) for (let ci = 0; ci < n; ci++) w.collide(cars[ci]!, ci, h);
     for (let ci = 0; ci < n; ci++) cars[ci]!.deform.endSlice();
+    // A step's last slice is baked by its caller (`stepBreakage`); the slices before it take their own, so the next slice reads the body
+    // as this one's crush left it, not as the step began (a hit cut in two slices crushed what its first slice did not see).
+    if (i < slices - 1) for (let ci = 0; ci < n; ci++) cars[ci]!.bakeBetweenSlices(h);
   }
   w.ejection?.step(cars, dt);
   w.shape = shape;
@@ -290,7 +295,7 @@ const WARM_HITS = [
  */
 export function warmCrashPath(): boolean {
   const scene = new THREE.Scene();
-  const paint = { body: 0x808080, accent: 0x404040, name: "warm-up" };
+  const paint = { ...STOCK_PAINT, name: "warm-up" };
   let crashed = true;
   for (const [x, z, yaw, yawB, vB] of WARM_HITS) {
     const a = new DeformableCar(paint, scene);

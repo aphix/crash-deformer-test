@@ -1,11 +1,10 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { Surface } from "../world/surfaces.ts";
-import { bodyTopY } from "./car-mesh.ts";
-import type { BodyStyle } from "./car-variants.ts";
-import { FACES, FACE_AXIS, FACE_TOP, faceFollow, faceMax, faceStrength, IMPRINT_NONE } from "../deform/load-crush.ts";
+import type { CageFields, CageStyle } from "./car-cage.ts";
+import { cageLift } from "./car-cage-rig.ts";
+import { FACES, FACE_AXIS, FACE_TOP, faceFollow, faceMax, faceStrength, IMPRINT_NONE, SKIN_STRAIN } from "../deform/load-crush.ts";
 import { PAN } from "./car-suspension.ts";
-import { CLASSES, carClass } from "./vehicle-classes.ts";
 
 /**
  * What a body in flight (`stepAir`) rests on besides the world's ground: the other cars' tops, as the dynamic part of the
@@ -23,7 +22,7 @@ import { CLASSES, carClass } from "./vehicle-classes.ts";
 /** A point this far (m) under another car's top counts as standing on it; deeper is inside the car (the plan SAT's, `shareHeight`). */
 export const SKIN = 0.25;
 /** A car more than ~60° off vertical is not a surface to stand on. */
-export const UPRIGHT = 0.5;
+const UPRIGHT = 0.5;
 /** Plan radius (m) past which a car's top is out of reach: its half-diagonal. */
 const REACH = 2.5;
 /**
@@ -33,112 +32,27 @@ const REACH = 2.5;
 const NEAR_SLACK = 2;
 /** A top point that follows its car's roof crush less than this is rigid (bonnet and boot ends carry, never yield). */
 const YIELDS = 0.3;
-/** The keel's height (m) over a car's origin at the stock ride; the class's body lift (`bellyY`) is on top of it. */
-export const BELLY_Y = 0.13;
+const ROOFS = new WeakMap<CageStyle, { crown: number; follow: Float32Array }>();
 
-/** How high (m) over `car`'s origin its belly rides: a car on another's roof sits its roof's crown less this over that car's origin. */
-export function bellyY(car: DeformableCar): number {
-  return BELLY_Y + CLASSES[carClass(car)].lift;
-}
-
-const CROWNS = new WeakMap<BodyStyle, number>();
-
-/** Highest point of a body style's roof along its centreline (m over the car's origin at the stock ride). */
-function roofCrown(style: BodyStyle): number {
-  let top = CROWNS.get(style);
-  if (top === undefined) {
-    top = 0;
-    for (let z = -2.2; z <= 2.2; z += 0.1) top = Math.max(top, bodyTopY(0, z, style) || 0);
-    CROWNS.set(style, top);
+/** A style's pristine roof: its crown (the highest node, m over the car's origin at the stock ride) and per node how far the drawn top follows the roof's crush (`faceFollow` at the node's height, times the share of a mass's travel the skin takes: `SKIN_STRAIN`; NaN where there is no top). */
+function roofOf(style: CageStyle): { crown: number; follow: Float32Array } {
+  let roof = ROOFS.get(style);
+  if (roof === undefined) {
+    const top = style.pristine.top;
+    const follow = new Float32Array(top.length);
+    let crown = 0;
+    for (let k = 0; k < top.length; k++) {
+      follow[k] = faceFollow(FACE_TOP, 0, top[k]!, 0) * SKIN_STRAIN;
+      if (top[k]! > crown) crown = top[k]!;
+    }
+    ROOFS.set(style, (roof = { crown, follow }));
   }
-  return top;
-}
-
-/** How high (m) over `car`'s origin its roof's crown stands now (class lift on, load crush off): the surface a car above stands on. */
-export function roofHeight(car: DeformableCar): number {
-  return roofCrown(car.style) + CLASSES[carClass(car)].lift - car.deform.crush[FACE_TOP]!;
+  return roof;
 }
 
 const _t = new THREE.Vector3();
 const _qi = new THREE.Quaternion();
 
-/**
- * Each style's drawn top (`bodyTopY`, roof dome and all: what a car above stands on is the roof the car draws) on a `GRID_STEP` grid
- * over the body's plan (x ±`GRID_X`, z ±`GRID_Z`; NaN off the body), built once.
- */
-const GRID_STEP = 0.1;
-const GRID_X = 0.9;
-const GRID_Z = 2.25;
-const GRID_NX = Math.round((2 * GRID_X) / GRID_STEP) + 1;
-const GRID_NZ = Math.round((2 * GRID_Z) / GRID_STEP) + 1;
-const GRIDS = new WeakMap<BodyStyle, Float32Array>();
-
-function topGrid(style: BodyStyle): Float32Array {
-  let g = GRIDS.get(style);
-  if (!g) {
-    g = new Float32Array(GRID_NX * GRID_NZ);
-    for (let j = 0; j < GRID_NZ; j++) for (let i = 0; i < GRID_NX; i++) g[j * GRID_NX + i] = bodyTopY(i * GRID_STEP - GRID_X, j * GRID_STEP - GRID_Z, style);
-    GRIDS.set(style, g);
-  }
-  return g;
-}
-
-/** Each style's per-node follow of the roof's crush (`faceFollow` at the top's height; NaN where there is no top), built once. */
-const FOLLOWS = new WeakMap<BodyStyle, Float32Array>();
-
-function topFollow(style: BodyStyle): Float32Array {
-  let a = FOLLOWS.get(style);
-  if (!a) {
-    const g = topGrid(style);
-    a = new Float32Array(g.length);
-    for (let k = 0; k < g.length; k++) a[k] = faceFollow(FACE_TOP, 0, g[k]!, 0);
-    FOLLOWS.set(style, a);
-  }
-  return a;
-}
-
-/** The top's highest node (m): what a tilted slot's box grows by. */
-function topMax(g: Float32Array): number {
-  let m = 0;
-  for (let k = 0; k < g.length; k++) if (Math.abs(g[k]!) > m) m = Math.abs(g[k]!);
-  return m;
-}
-
-/**
- * A pressed roof's own top: its style's drawn top with every node the roof's imprint plane (`DeformRig.imprint`) cuts down to that
- * plane (follow 1: it sinks with the roof), rebuilt only when the style, the imprint or the crush changes. The skin cuts the same
- * plane (`StreamedDeformation.bakeLocalSkin`), so the drawn roof and what stands on it are one surface.
- */
-interface RoofCut {
-  readonly heights: Float32Array;
-  readonly follow: Float32Array;
-  /** What it was built from: the imprint's height, rise along x and along z, and the roof's crush depth. */
-  readonly key: Float64Array;
-  style: BodyStyle | null;
-  max: number;
-}
-
-function buildCut(c: RoofCut, style: BodyStyle, im: Float64Array, drop: number): void {
-  const g = topGrid(style);
-  const f = topFollow(style);
-  let max = 0;
-  for (let j = 0; j < GRID_NZ; j++) {
-    const rowPlane = im[0]! + im[2]! * (j * GRID_STEP - GRID_Z);
-    for (let i = 0; i < GRID_NX; i++) {
-      const k = j * GRID_NX + i;
-      const plane = rowPlane + im[1]! * (i * GRID_STEP - GRID_X);
-      const cut = plane - drop < g[k]! - drop * f[k]!;
-      const h = cut ? plane : g[k]!;
-      c.heights[k] = h;
-      c.follow[k] = cut ? 1 : f[k]!;
-      if (Math.abs(h) > max) max = Math.abs(h);
-    }
-  }
-  c.style = style;
-  c.key.set(im);
-  c.key[3] = drop;
-  c.max = max;
-}
 
 /** A pan plane that stands this far (m) over the roof's crown is not pressing it (a tyre, a bumper corner is). */
 const IMPRINT_REACH = 0.05;
@@ -154,22 +68,22 @@ const PAN_LENGTH = PAN[3]![2] - PAN[0]![2];
 /** `presser`'s `PAN` point `k` (class lift on) in the roof frame `_mi` of a car whose class lift is `lift`, into `_pl` at `3k`. */
 function inRoofFrame(presser: DeformableCar, k: number, lift: number): void {
   const p = PAN[k]!;
-  _pt.set(p[0], p[1] + CLASSES[carClass(presser)].lift, p[2]).applyQuaternion(presser.group.quaternion).add(presser.group.position).applyMatrix4(_mi);
+  _pt.set(p[0], p[1] + cageLift(presser), p[2]).applyQuaternion(presser.group.quaternion).add(presser.group.position).applyMatrix4(_mi);
   _pl[3 * k] = _pt.x;
   _pl[3 * k + 1] = _pt.y - lift;
   _pl[3 * k + 2] = _pt.z;
 }
 
-/** Grid `g` (a `topGrid`'s shape) read bilinear at plan (`x`, `z`) of its car's frame; NaN past the grid or the body. */
-function gridAt(g: Float32Array, x: number, z: number): number {
-  const u = (x + GRID_X) / GRID_STEP;
-  const v = (z + GRID_Z) / GRID_STEP;
+/** Node field `g` (the style's lattice) read bilinear at plan (`x`, `z`) of its car's frame; NaN past the lattice or the body. */
+function gridAt(style: CageStyle, g: Float32Array, x: number, z: number): number {
+  const u = (x - style.u0) / style.step;
+  const v = (z - style.v0) / style.step;
   const i = Math.floor(u);
   const j = Math.floor(v);
-  if (!(i >= 0 && j >= 0 && i < GRID_NX - 1 && j < GRID_NZ - 1)) return NaN;
-  const k = j * GRID_NX + i;
+  if (!(i >= 0 && j >= 0 && i < style.nu - 1 && j < style.nv - 1)) return NaN;
+  const k = j * style.nu + i;
   const tu = u - i;
-  return (g[k]! * (1 - tu) + g[k + 1]! * tu) * (1 - (v - j)) + (g[k + GRID_NX]! * (1 - tu) + g[k + GRID_NX + 1]! * tu) * (v - j);
+  return (g[k]! * (1 - tu) + g[k + 1]! * tu) * (1 - (v - j)) + (g[k + style.nu]! * (1 - tu) + g[k + style.nu + 1]! * tu) * (v - j);
 }
 
 /**
@@ -183,7 +97,7 @@ function gridAt(g: Float32Array, x: number, z: number): number {
  */
 function imprint(presser: DeformableCar, pressed: DeformableCar): void {
   _mi.copy(pressed.group.matrixWorld).invert();
-  const lift = CLASSES[carClass(pressed)].lift;
+  const lift = cageLift(pressed);
   for (let k = 0; k < PAN.length; k++) inRoofFrame(presser, k, lift);
   const a = (PAN_SLOPE * (_pl[9]! - _pl[0]!)) / PAN_LENGTH;
   const b = (PAN_SLOPE * (_pl[11]! - _pl[2]!)) / PAN_LENGTH;
@@ -192,16 +106,17 @@ function imprint(presser: DeformableCar, pressed: DeformableCar): void {
   const d = pressed.deform;
   const im = d.imprint;
   const drop = d.crush[FACE_TOP]!;
-  if (!(c <= roofCrown(pressed.style) - drop + IMPRINT_REACH)) return;
+  if (!(c <= roofOf(pressed.cage.style).crown - drop + IMPRINT_REACH)) return;
   const old = im[0] !== IMPRINT_NONE;
-  const top = topGrid(pressed.style);
-  const follow = topFollow(pressed.style);
+  const style = pressed.cage.style;
+  const top = style.pristine.top;
+  const follow = roofOf(style).follow;
   let relief = 0;
   let overRoof = false;
   for (let k = 0; k < PAN.length; k++) {
     const x = _pl[3 * k]!;
     const z = _pl[3 * k + 2]!;
-    let surface = gridAt(top, x, z) - drop * gridAt(follow, x, z);
+    let surface = gridAt(style, top, x, z) - drop * gridAt(style, follow, x, z);
     if (old) surface = Math.min(surface, im[0]! - drop + im[1]! * x + im[2]! * z);
     const gap = c + a * x + b * z - surface;
     if (!(gap <= IMPRINT_REACH)) continue;
@@ -226,10 +141,8 @@ export class CarSurfaces extends Surface {
   met: ((a: number, b: number) => void) | null = null;
   /** The car being stepped: its own top is never its ground. */
   private self: DeformableCar | null = null;
-  /** What each slot's surface shows: its style's shared top (`topGrid`) or its own pressed one (`cuts`). */
-  private shown: (BodyStyle | RoofCut | undefined)[] = [];
-  /** A slot's own pressed top, built the first time its roof is imprinted and rewritten in place after. */
-  private cuts: (RoofCut | undefined)[] = [];
+  /** The cage fields each slot's surface shows (the style's shared ones while the car is pristine, else the car's own). */
+  private shown: (CageFields | undefined)[] = [];
   private left = new Float64Array(FACES);
   private yielded = new Uint8Array(FACES);
   private grew = new Float64Array(FACES);
@@ -378,6 +291,26 @@ export class CarSurfaces extends Surface {
     b.fill(0, o, o + 6);
   }
 
+  /**
+   * Car `i`'s borne weight (6 doubles) into `buf` at `o`, or with `write` restored from it: the carry of a rider that stepped after its
+   * carrier crosses the step boundary, so a highlight keyframe holds it (`DeformableCar.flight`).
+   */
+  borneState(i: number, buf: Float64Array, o: number, write: boolean): void {
+    if (i < 0) return;
+    if (write) {
+      this.growBorne(i + 1);
+      this.borne.set(buf.subarray(o, o + 6), 6 * i);
+    } else if (6 * i < this.borne.length) buf.set(this.borne.subarray(6 * i, 6 * i + 6), o);
+    else buf.fill(0, o, o + 6);
+  }
+
+  private growBorne(cars: number): void {
+    if (this.borne.length >= 6 * cars) return;
+    const grown = new Float64Array(6 * cars);
+    grown.set(this.borne);
+    this.borne = grown;
+  }
+
   /** The stepping car has a point in car `own`'s top this slice, pressing or not: a body at rest has slices with no impulse. */
   touch(own: number): void {
     this.touched[own] = 1;
@@ -410,6 +343,7 @@ export class CarSurfaces extends Surface {
       // A roof another car's belly sank takes the shape of that belly; the ground's or a wall's press (the stepping car's own faces) has no pan.
       if (f === FACE_TOP && car !== self && d.crush[f]! > before) imprint(self, car);
       d.bakeLoadCrush();
+      d.skinLoaded();
     }
     // Every car the stepping car presses or touches this slice met it: a highlight clip that keeps one keeps the other (`World.partTouch`).
     if (this.met) for (let i = 0; i < this.cars.length; i++) if (this.react[i] !== 0 || this.touched[i] !== 0) this.met(self.slot, i);
@@ -436,10 +370,10 @@ export class CarSurfaces extends Surface {
     return any;
   }
 
-  /** Car `i`'s roof slot from its pose (call after the car's integrate/pose each slice): the body's drawn top (cut to the roof's imprint once pressed), lifted by the class, sinking by the crush along its follow. The roofs a query lists (`reach`) are listed again after it. */
+  /** Car `i`'s roof slot from its pose (call after the car's integrate/pose each slice): the cage's top (the drawn body, crush and roof imprint in it), lifted by the class. The roofs a query lists (`reach`) are listed again after it. */
   sync(i: number, car: DeformableCar): void {
     this.nearOf = -1;
-    if (this.borne.length < 6 * this.cars.length) this.borne = new Float64Array(6 * this.cars.length);
+    this.growBorne(this.cars.length);
     // Only the rigid step takes the weight borne on it: a car its wheels or its masses carry drops it.
     if (!car.rigid) this.borne.fill(0, 6 * i, 6 * i + 6);
     for (let k = this.count; k <= i; k++) {
@@ -447,25 +381,16 @@ export class CarSurfaces extends Surface {
       this.own(k, k);
       this.disable(k);
     }
-    const d = car.deform;
-    if (d.imprint[0] === IMPRINT_NONE) {
-      if (this.shown[i] !== car.style) {
-        const heights = topGrid(car.style);
-        this.setGridData(i, GRID_NX, GRID_NZ, GRID_STEP, GRID_STEP, -GRID_X, -GRID_Z, heights, topFollow(car.style), topMax(heights));
-        this.shown[i] = car.style;
-      }
-    } else {
-      const drop = d.crush[FACE_TOP]!;
-      const cut = (this.cuts[i] ??= { heights: new Float32Array(GRID_NX * GRID_NZ), follow: new Float32Array(GRID_NX * GRID_NZ), key: new Float64Array(4).fill(NaN), style: null, max: 0 });
-      const same = cut.style === car.style && cut.key[0] === d.imprint[0] && cut.key[1] === d.imprint[1] && cut.key[2] === d.imprint[2] && cut.key[3] === drop;
-      if (!same || this.shown[i] !== cut) {
-        if (!same) buildCut(cut, car.style, d.imprint, drop);
-        this.setGridData(i, GRID_NX, GRID_NZ, GRID_STEP, GRID_STEP, -GRID_X, -GRID_Z, cut.heights, cut.follow, cut.max);
-        this.shown[i] = cut;
-      }
+    // The cage is the drawn body (crush, imprint, torn lids and lift in it): its top is the roof, fitted again only past `REFIT_EPSILON`.
+    const cage = car.cage;
+    const refitted = car.refitCage();
+    if (refitted || this.shown[i] !== cage.fields) {
+      const { nu, nv, step, u0, v0 } = cage.style;
+      this.setGridData(i, nu, nv, step, step, u0, v0, cage.fields.top, roofOf(cage.style).follow, cage.fields.heightMax);
+      this.shown[i] = cage.fields;
     }
     const e = car.group.matrixWorld.elements;
-    const lift = CLASSES[carClass(car)].lift;
+    const lift = cageLift(car);
     _axes[0] = e[0]!;
     _axes[1] = e[1]!;
     _axes[2] = e[2]!;
@@ -475,7 +400,6 @@ export class CarSurfaces extends Surface {
     _axes[6] = e[8]!;
     _axes[7] = e[9]!;
     _axes[8] = e[10]!;
-    this.setDrop(i, car.deform.crush[FACE_TOP]!);
     // The frame is current even for a car that is no surface: the owner rule compares frame heights.
     this.setFrame(i, e[12]! + lift * e[4]!, e[13]! + lift * e[5]!, e[14]! + lift * e[6]!, _axes);
     if (car.falling || car.vaporized || e[5]! < UPRIGHT) this.disable(i);

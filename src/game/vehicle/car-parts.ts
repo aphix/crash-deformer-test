@@ -1,8 +1,9 @@
 import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import { TYRE_R } from "../deform/deform-state.ts";
+import { BUMPER_F } from "./constants.ts";
 import { DOOR } from "./car-mesh.ts";
-import { LIGHT_BAR_FOOT } from "./car-materials.ts";
+import { hingePose, INTERIOR_MASSES, interiorPose } from "./part-pose.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { MASS_SPECS } from "../kernel/rig-spec.ts";
 import { flutterShell, makeShell, poseShell, recentre, setPrimer, shellBox } from "./car-panels.ts";
@@ -38,6 +39,8 @@ import {
   windWear,
 } from "./car-wear.ts";
 import { partState, PART_SLOTS } from "./part-state.ts";
+
+const _interior = new Float64Array(4);
 
 /** A door's drawn angle (rad) per unit of crash hinge value (`hingeT`): the jam that holds a door ajar. */
 const DOOR_JAM = 1.45;
@@ -81,8 +84,6 @@ const PANEL_OPEN = 0.03;
 const LIVE_SHELLS = 2;
 /** A tyre's width (m) at wheel scale 1: a popped wheel flies as a disk this wide (`wheelShape`). */
 const TYRE_WIDTH = 0.24;
-/** The light bar's tilt on its far mount at full load (rad). */
-const BAR_ROLL = 0.5;
 /** A bumper hung by one corner rolls about it this much at full hinge and full asymmetry (rad), and sags this far (m). */
 const BUMPER_ROLL = 0.6;
 const BUMPER_SAG = 0.06;
@@ -102,6 +103,8 @@ function foldAt(p: DetachPart): number {
   if (p.hinge === "bar") return 0.05;
   return p.region ? PANEL_OPEN : Infinity;
 }
+
+const _hinge = new Float64Array(7);
 
 /** Back on the camera's layer 0 (`traverse` callback, one function for every tear). */
 function showOnCamera(o: THREE.Object3D): void {
@@ -203,10 +206,10 @@ export abstract class CarParts extends CarGlass {
 
     if (p.hinge === "two-point") {
       if (p.bumper) {
-        const fl = this.deform.massLocal(p.name === "bumperF" ? "bumperFL" : "bumperRL");
-        const fr = this.deform.massLocal(p.name === "bumperF" ? "bumperFR" : "bumperRR");
+        const fl = this.deform.massLocal(p.name === BUMPER_F ? "bumperFL" : "bumperRL");
+        const fr = this.deform.massLocal(p.name === BUMPER_F ? "bumperFR" : "bumperRR");
         p.object.position.set((fl.x + fr.x) * 0.5, (fl.y + fr.y) * 0.5, (fl.z + fr.z) * 0.5);
-        const span = Math.abs(fl.z - (p.name === "bumperF" ? 2.06 : -2.06));
+        const span = Math.abs(fl.z - (p.name === BUMPER_F ? 2.06 : -2.06));
         p.object.scale.set(1 + t * 0.04, Math.max(0.45, 1 - t * 0.28), Math.max(0.18, 1 - span * 0.45));
         // Hangs by the corner that took less: rolls about it, the struck end drops.
         const left = this.deform.sensorCompression(p.attachL);
@@ -224,14 +227,10 @@ export abstract class CarParts extends CarGlass {
         p.object.position.y -= t * 0.12;
         p.object.position.x += side * t * 0.18;
       }
-    } else if (p.hinge === "cowl") {
-      p.object.position.z -= t * 0.08;
-      p.object.position.y += t * 0.26;
-      p.object.rotation.x = -t * 0.5;
-    } else if (p.hinge === "tail") {
-      p.object.position.z += t * 0.08;
-      p.object.position.y += t * 0.22;
-      p.object.rotation.x = t * 0.5;
+    } else if (p.hinge === "cowl" || p.hinge === "tail" || p.hinge === "bar") {
+      hingePose(p, this.deform.impactInward.x, _hinge, 0);
+      p.object.position.set(_hinge[0]!, _hinge[1]!, _hinge[2]!);
+      p.object.quaternion.set(_hinge[3]!, _hinge[4]!, _hinge[5]!, _hinge[6]!);
     } else if (p.hinge === "door") {
       const sign = p.name === "doorL" ? -1 : 1;
       p.object.rotation.y = -sign * Math.max(t * DOOR_JAM, p.swing!.theta);
@@ -242,14 +241,6 @@ export abstract class CarParts extends CarGlass {
       const g = p.object.getWorldPosition(_doorW);
       const gy = activeGround().heightAt(g.x, g.z, g.y);
       if (gy !== NO_FLOOR && _box.min.y < gy + 0.04) p.object.position.y += gy + 0.04 - _box.min.y;
-    } else if (p.hinge === "bar") {
-      // Tilts on its far mount, the struck side dropping.
-      const dir = this.deform.impactInward.x < 0 ? -1 : 1;
-      const roll = dir * t * BAR_ROLL;
-      const px = dir * LIGHT_BAR_FOOT.x;
-      p.object.rotation.z = roll;
-      p.object.position.x += px * (1 - detCos(roll));
-      p.object.position.y -= px * detSin(roll);
     } else if (p.region) {
       if (p.folding) {
         if (!p.open || p.hingeT !== p.posed) this.shellPose(p);
@@ -499,20 +490,12 @@ export abstract class CarParts extends CarGlass {
       this.interior.position.set(0, 0, 0);
       return;
     }
-    const l = this.deform.massLocal("doorL");
-    const r = this.deform.massLocal("doorR");
-    const cell = this.deform.massLocal("cell");
-    const span = Math.max(0.35, r.x - l.x);
-    this.interior.scale.x = THREE.MathUtils.clamp(span / 1.56, 0.32, 1);
-    this.interior.position.x = (l.x + r.x) * 0.5;
-    this.interior.position.z = cell.z * 0.35;
-    this.interior.position.y = THREE.MathUtils.clamp(cell.y - 0.55, -0.08, 0.1);
-  }
-
-  /** Whether any pane could still crack or shatter: its rule reads the cages' strain, so the steps solve the cages for it. */
-  protected glassLeft(): boolean {
-    for (let k = 0; k < this.glassPanes.length; k++) if (this.glassPanes[k]!.state !== "shattered") return true;
-    return false;
+    const l = this.deform.massLocal(INTERIOR_MASSES[0]);
+    const r = this.deform.massLocal(INTERIOR_MASSES[1]);
+    const cell = this.deform.massLocal(INTERIOR_MASSES[2]);
+    interiorPose(l.x, r.x, cell.y, cell.z, _interior);
+    this.interior.scale.x = _interior[0]!;
+    this.interior.position.set(_interior[1]!, _interior[2]!, _interior[3]!);
   }
 
   /** Once a frame on a crashed car (`updateSkin`, after the skin): the parts' poses a step left pending are written first, door glass rides its door. */
