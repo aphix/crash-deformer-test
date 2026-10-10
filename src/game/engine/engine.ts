@@ -280,8 +280,10 @@ export class CrashEngine extends EngineGarage {
       sight: (focus) => this.sceneSight(focus, true),
       still: () => this.sceneSight(null, false),
       clock: this.clock,
-      impact: (contact, normal, closing) => this.beginCinematic(contact, normal, closing, true),
+      crash: (contact, normal) => this.cine.beginCrashCam(contact, normal, this.sceneSight(null, false), this.clock.hold),
+      impact: (contact, normal, closing) => this.beginCinematic(contact, normal, closing, false),
       hit: this.hitFx,
+      fudge: (at, normal) => this.fudgeContact(at, normal),
       eject: (e, ride) => { this.ragdolls.launch(e, this.live(), ride); if (ride) this.ragdolls.follow(); },
       ride: (camera, wallDt, subject) => this.ragdolls.rideAlong && this.ragdolls.frameCamera(camera, wallDt, false, this.cars.indexOf(subject), false, this.view.lens, () => this.sceneSight(subject, true)) !== "none",
     });
@@ -555,6 +557,7 @@ export class CrashEngine extends EngineGarage {
   private maybePreSlowmo(wallDt: number): void {
     if (this.derbyMode || this.race.active || !this.autoSlomo || this.rigScene || this.clock.phase !== "approach") return;
     preImpact(this.clock, this.contactEta(), this.elapsedSim, Math.max(PRE_IMPACT_LEAD, wallDt + FIXED), FIXED, this.throwSoon);
+    if (this.clock.targetScale < 1 && this.clock.userTimeScale == null) this.fudgePredicted();
   }
 
   /** Whether the coming hit will throw a driver: his exit then plays at 1× (`THROW_ONSET`). */

@@ -9,7 +9,7 @@ import { PistonBank } from "../present/engine-pistons.ts";
 import { DoorRig, type RamShot } from "../scenes/door-rig.ts";
 import { DoorRam } from "../present/engine-doors.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
-import { beginImpact, holdForThrow, pairEta, phaseClock } from "../match/phase.ts";
+import { beginImpact, FUDGE_GAP, holdForThrow, pairEta, phaseClock } from "../match/phase.ts";
 import { newWorld } from "./world-step.ts";
 import { EjectionWatch } from "../vehicle/ejection.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
@@ -32,7 +32,7 @@ import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio 
 import { FX_REACH, Witness } from "../present/witness.ts";
 import type { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { ChaseCamera } from "../present/engine-camera.ts";
-import { CompactorPress, JerseyBarrier, buildRampBalls, type LampPole, type RampBall } from "../scenes/engine-props.ts";
+import { CompactorPress, JerseyBarrier, buildRampBalls, type LampPole, type PredictedHit, type RampBall } from "../scenes/engine-props.ts";
 import type { FleetRamps } from "../scenes/fleet-ramps.ts";
 import { RIG_BALL_FIRST, RIG_BALLS, RigSolids } from "../scenes/rig-solids.ts";
 import type { Corkscrew } from "../scenes/corkscrew.ts";
@@ -58,6 +58,7 @@ import { FLOOR } from "../scenes/lab.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
 
 const _v = new THREE.Vector3();
+const _n = new THREE.Vector3();
 /** The masses a wreck's engine smoke rises from (`puffEngine`). */
 const ENGINE_MASSES = ["engineL", "engineR"] as const;
 /**
@@ -542,12 +543,30 @@ export abstract class EngineCore {
       ? this.cars[this.seat.carIndex]!
       : null;
   }
-  /** Sim seconds to the first hit coming between the live cars, or a car and the slab (`pairEta`), Infinity if none. */
+  /** Where the first hit coming lands, as of the last `contactEta`. */
+  protected readonly predicted: PredictedHit = { x: 0, y: 0, z: 0, nx: 1, nz: 0 };
+  private fudgedAt = -Infinity;
+  /** Sim seconds to the first hit coming between the live cars, or a car and the slab (`pairEta`), Infinity if none; `predicted` says where. */
   protected contactEta(): number {
     const cars = this.live();
     for (let i = 0; i < cars.length; i++) cars[i]!.refreshBasis();
-    const eta = pairEta(cars);
-    return this.barrierUp ? this.barrier.contactEta(cars, eta) : eta;
+    const eta = pairEta(cars, this.predicted);
+    return this.barrierUp ? this.barrier.contactEta(cars, eta, this.predicted) : eta;
+  }
+  /**
+   * Sparks and dust on a hit's point before the cars meet, where the contact is still being worked out: the slow-mo has
+   * eased in (the sandbox's `fudgePredicted`, the reel's `fudge`).
+   */
+  protected fudgeContact(at: THREE.Vector3, normal: THREE.Vector3): void {
+    this.sparks.poof(at, normal, 10 * this.fxDensity);
+    this.debris.burst(at, normal, 4 * this.fxDensity);
+  }
+  /** While the pre-impact slow-mo eases in, every `FUDGE_GAP` wall s: the fudge on the predicted contact point. */
+  protected fudgePredicted(): void {
+    if (this.elapsedWall - this.fudgedAt < FUDGE_GAP) return;
+    this.fudgedAt = this.elapsedWall;
+    const p = this.predicted;
+    this.fudgeContact(_v.set(p.x, p.y, p.z), _n.set(p.nx, 0, p.nz));
   }
   /** The crash's hit: slow-mo, kick, flash and burst; `crashCam` overrides the sandbox's rule for the crash cam (the reel always wants it). */
   protected beginCinematic(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number, crashCam?: boolean): void {

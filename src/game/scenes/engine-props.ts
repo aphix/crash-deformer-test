@@ -71,6 +71,19 @@ const _cn = new THREE.Vector3();
 const _cp = new THREE.Vector3();
 const _bRight = new THREE.Vector3();
 const _bFwd = new THREE.Vector3();
+
+/** Where a predicted hit lands: the point (a bumper's height above the ground) and the flat unit line the two meet along (`pairEta`: car a → car b; `contactEta`: car → slab). */
+export type PredictedHit = { x: number; y: number; z: number; nx: number; nz: number };
+
+/** `hit`: where `car` (moving on) meets the slab face along `axis`, `toward` (±1) the face's side: its footprint's edge `reach` ahead of its centre, `t` s on. */
+function predictFace(hit: PredictedHit, car: DeformableCar, t: number, axis: THREE.Vector3, toward: number, reach: number): void {
+  hit.x = car.group.position.x + car.velocity.x * t + axis.x * toward * reach;
+  hit.y = car.group.position.y + 0.4;
+  hit.z = car.group.position.z + car.velocity.z * t + axis.z * toward * reach;
+  hit.nx = axis.x * toward;
+  hit.nz = axis.z * toward;
+}
+
 const _hb = new THREE.Vector3();
 const _mtv = new THREE.Vector3();
 
@@ -327,8 +340,8 @@ export class JerseyBarrier {
     return ax * bx < 0 && Math.abs(ax) > pad && Math.abs(bx) > pad;
   }
 
-  /** Earliest time-to-contact of any car closing on the slab faces, folded into `eta`. */
-  contactEta(cars: readonly DeformableCar[], eta: number): number {
+  /** Earliest time-to-contact of any car closing on the slab faces, folded into `eta`; `hit` gets the point and the face line (car → slab) of the one that lowers it. */
+  contactEta(cars: readonly DeformableCar[], eta: number, hit?: PredictedHit): number {
     _bRight.set(detCos(this.yaw), 0, -detSin(this.yaw));
     _bFwd.set(detSin(this.yaw), 0, detCos(this.yaw));
     for (const car of cars) {
@@ -349,10 +362,14 @@ export class JerseyBarrier {
       const towardX = -(lx >= 0 ? 1 : -1) * vLx;
       const towardZ = -(lz >= 0 ? 1 : -1) * vLz;
       if (towardX > 0.4 && gapZ < 0.55) {
-        eta = Math.min(eta, Math.max(0, gapX) / towardX);
+        const t = Math.max(0, gapX) / towardX;
+        if (t < eta && hit) predictFace(hit, car, t, _bRight, lx >= 0 ? -1 : 1, rX);
+        eta = Math.min(eta, t);
       }
       if (towardZ > 0.4 && gapX < 0.55) {
-        eta = Math.min(eta, Math.max(0, gapZ) / towardZ);
+        const t = Math.max(0, gapZ) / towardZ;
+        if (t < eta && hit) predictFace(hit, car, t, _bFwd, lz >= 0 ? -1 : 1, rZ);
+        eta = Math.min(eta, t);
       }
     }
     return eta;

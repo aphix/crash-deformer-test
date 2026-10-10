@@ -177,7 +177,9 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
     sight,
     still: course,
     clock,
-    impact: (contact, normal) => crash.begin(contact, normal, course(), clock.hold),
+    crash: (contact, normal) => crash.begin(contact, normal, course(), clock.hold),
+    impact: () => {},
+    fudge: () => {},
     hit: () => {},
     eject: (e, ride) => {
       ragdolls.launch(e, w.live(), ride);

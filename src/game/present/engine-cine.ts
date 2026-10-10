@@ -485,6 +485,11 @@ export class Cinematics {
     if (crashCam) this.crash.begin(contact, normal, sight, hold);
   }
 
+  /** The crash cam alone, started apart from the impact (a reel's cut lands before its hit does). */
+  beginCrashCam(contact: THREE.Vector3, normal: THREE.Vector3, sight: Sight | null, hold: number): void {
+    if (this.tierNow !== "off") this.crash.begin(contact, normal, sight, hold);
+  }
+
   /**
    * After the physics and FX steps: hits from each car's velocity jump, tyre marks / smoke / scrape sparks
    * from wheel slip, boost blur for the driven car, and the decay of every punch value.

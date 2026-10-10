@@ -2,13 +2,13 @@ import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import type { CarSurfaces } from "../vehicle/car-surfaces.ts";
-import { beginImpact, CONTACT_HOLD, easeTimeScale, phaseClock, PRE_IMPACT_LEAD, SLOMO_HOLD, stepPhase, THROW_HOLD, type CrashPhase, type PhaseClock } from "../match/phase.ts";
+import { beginImpact, CONTACT_HOLD, easeTimeScale, FUDGE_GAP, impactScale, phaseClock, PRE_IMPACT_LEAD, SLOMO_HOLD, stepPhase, THROW_HOLD, type CrashPhase, type PhaseClock } from "../match/phase.ts";
 import { clipTitle, MAX_HITS, type HighlightClip, type Reel } from "../match/highlights.ts";
 import type { ReelHud, SaveResult, ViewBox } from "../match/types.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { AFTERS, OPENERS, pickShot, RUN_INS, ShotCam, type Shot as PickedShot, type ShotKind } from "../present/shot-cam.ts";
 import { CINE, type Sight } from "../present/spectate-cam.ts";
-import { crashCamEnd, hitAim, laterHits, type CrashCam, type CrashHold } from "../present/engine-cine.ts";
+import { crashCamEnd, CUTS, hitAim, laterHits, type CrashCam, type CrashHold } from "../present/engine-cine.ts";
 import { contextEye, contextPose, overheadPose } from "../present/highlight-cam.ts";
 import { ClipSim, type ReplayScene } from "./engine-replay.ts";
 
@@ -40,17 +40,20 @@ type Timeline = {
   sim: Float64Array;
   scale: Float32Array;
   phase: CrashPhase[];
-  /** Wall s of the hit: slow-mo begins `PRE_IMPACT_LEAD` sim s before the recorded first impact. */
+  /** Wall s the crash cam begins: `CUTS[0]` before `onset`, so its first cut lands as the slow-mo starts easing in (never before the clip). */
   impact: number;
-  /** Wall s of the recorded first impact itself (the cars meet). */
+  /** Wall s the slow-mo starts easing in, `PRE_IMPACT_LEAD` sim s before the recorded first impact. */
+  onset: number;
+  /** Wall s of the recorded first impact itself (the cars meet): the ease has reached the slow scale, the crash clock's `impact` phase starts, the flash and burst go off. */
   contact: number;
   /** Wall s from `impact` to the slow-mo's hand-back to 1× (or to the clip's end, if it comes first). */
   hold: number;
 };
 
 /**
- * The phase clock run at fixed wall steps over a `length` s clip: 1× to the impact, the auto slow-mo held over the cars
- * meeting and every throw (clip s, in order) that comes while it runs, then back to 1×.
+ * The phase clock run at fixed wall steps over a `length` s clip: 1× to `PRE_IMPACT_LEAD` before the first impact, the
+ * ease into the auto slow-mo (the live sandbox's `preImpact`), the slow-mo held over the cars meeting and every throw
+ * (clip s, in order) that comes while it runs, then back to 1×.
  */
 export function clipTimeline(firstImpact: number, length: number, throws: readonly number[]): Timeline {
   const c = phaseClock();
@@ -60,15 +63,16 @@ export function clipTimeline(firstImpact: number, length: number, throws: readon
   const sim: number[] = [];
   const scale: number[] = [];
   const phase: CrashPhase[] = [];
-  let impact = Infinity;
+  let onset = Infinity;
   let contact = Infinity;
   let next = 0;
   for (let t = 0; ; ) {
-    if (c.phase === "approach" && t >= lead) {
-      beginImpact(c, true);
-      impact = sim.length * TL_DT;
+    if (onset === Infinity && t >= lead) {
+      c.targetScale = impactScale(c);
+      onset = sim.length * TL_DT;
     }
     if (contact === Infinity && t >= firstImpact) {
+      beginImpact(c, true);
       contact = sim.length * TL_DT;
       c.hold = c.wallSinceImpact + CONTACT_HOLD;
     }
@@ -86,8 +90,9 @@ export function clipTimeline(firstImpact: number, length: number, throws: readon
     stepPhase(c, TL_DT);
   }
   const back = phase.indexOf("aftermath");
+  const impact = Math.max(0, onset - CUTS[0]);
   const hold = (back < 0 ? sim.length - 1 : back) * TL_DT - impact;
-  return { wall: (sim.length - 1) * TL_DT, sim: Float64Array.from(sim), scale: Float32Array.from(scale), phase, impact, contact, hold };
+  return { wall: (sim.length - 1) * TL_DT, sim: Float64Array.from(sim), scale: Float32Array.from(scale), phase, impact, onset, contact, hold };
 }
 
 /** Clip time at wall `w` s into the timeline. */
@@ -230,8 +235,12 @@ export type ReelHost = {
   still(): Sight;
   /** The engine's crash clock: the reel mirrors its slow-mo into it (letterbox, HUD). */
   clock: PhaseClock;
-  /** A clip's first impact as its slow-mo begins: the crash cam, flash and burst. */
+  /** A clip's crash cam begins (`CUTS[0]` before the slow-mo eases in): its letterbox, then its cut at the hit's point. */
+  crash(contact: THREE.Vector3, normal: THREE.Vector3): void;
+  /** A clip's first impact, the cars meet: the kick, flash and burst. */
   impact(contact: THREE.Vector3, normal: THREE.Vector3, closing: number): void;
+  /** The clip's first impact is still ahead, the slow-mo easing in: sparks and dust on its point (called every `FUDGE_GAP` wall s until the cars meet). */
+  fudge(contact: THREE.Vector3, normal: THREE.Vector3): void;
   /** A replay's car–car hit: sparks. */
   hit(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void;
   /** A driver in the clip was thrown out (`ClipSim.take`, `e.car` the engine slot): his dummy flies, from the recording's numbers; `ride`: he was thrown in the clip's own crash, so the camera follows his flight (only such a driver is ever framed by the ride). */
@@ -271,7 +280,11 @@ export class ReelDirector {
   private cur: Prepared | null = null;
   private pass = -1;
   private shot = -1;
-  private impacted = false;
+  /** The crash cam has begun / the cars have met (the flash and burst have gone off) on this pass of the clip. */
+  private began = false;
+  private met = false;
+  /** Wall s into the clip's timeline of the last fudge before its first impact. */
+  private fudgedAt = -Infinity;
   /** The clip time (s) the replay was last drawn at: what the ragdolls, debris and FX advance by, not the steps the replay ran to get there. */
   private presentedAt = 0;
   private sparkAt = -Infinity;
@@ -518,7 +531,9 @@ export class ReelDirector {
     this.cur = p;
     this.pass = pass;
     this.shot = -1;
-    this.impacted = false;
+    this.began = false;
+    this.met = false;
+    this.fudgedAt = -Infinity;
     this.host.resetProps();
     // The race's leftovers, torn parts of the cars hidden next and any dummy included, stay out of the clip; the clip's cars respawn after.
     this.host.clear();
@@ -533,15 +548,28 @@ export class ReelDirector {
     const { tl, sim, shots } = p;
     const k = Math.min(Math.floor(w / TL_DT), tl.phase.length - 1);
     const c = this.host.clock;
+    // The crash cam's cuts follow the clip's hold (`crashCamEnd`) from its start on.
+    c.hold = tl.hold;
+    if (!this.began && w >= tl.impact) {
+      this.began = true;
+      this.lookahead(p);
+      this.firstHit(p);
+      this.host.crash(_c, _n);
+    }
+    if (!this.met && w >= tl.contact) {
+      this.met = true;
+      this.firstHit(p);
+      this.host.impact(_c, _n, p.clip.peakKph / 3.6);
+    }
+    // The host's flash and burst (`beginCinematic`) restarted its clock: the timeline's own state goes in after it.
     c.phase = tl.phase[k]!;
     c.timeScale = tl.scale[k]!;
     c.targetScale = c.timeScale;
-    c.wallSinceImpact = w >= tl.impact ? w - tl.impact : 0;
-    // The crash cam's cuts follow the clip's hold (`crashCamEnd`) from the hit on.
-    c.hold = tl.hold;
-    if (!this.impacted && w >= tl.impact) {
-      this.impacted = true;
-      this.impact(p);
+    c.wallSinceImpact = w >= tl.contact ? w - tl.contact : 0;
+    if (w >= tl.onset && w < tl.contact && w - this.fudgedAt >= FUDGE_GAP) {
+      this.fudgedAt = w;
+      this.firstHit(p);
+      this.host.fudge(_c.setY(_c.y + 0.4), _n);
     }
     const target = simAt(tl, w);
     const deadline = performance.now() + this.stepBudgetMs;
@@ -590,7 +618,8 @@ export class ReelDirector {
     if (!cam.sees(still, hitAim(_c, clip.x, sim.cars[clip.firstA]!.group.position.y, clip.z, still))) cam.found = false;
   }
 
-  private impact(p: Prepared): void {
+  /** Clip `p`'s first impact: `_c` its recorded point (at the first car's height), `_n` the flat line the cars meet along (the car's heading if it hit alone). */
+  private firstHit(p: Prepared): void {
     const { clip, sim } = p;
     const a = sim.cars[clip.firstA]!.group.position;
     const b = clip.firstB >= 0 ? sim.cars[clip.firstB]!.group.position : null;
@@ -598,8 +627,7 @@ export class ReelDirector {
     else _n.set(sim.cars[clip.firstA]!.velocity.x, 0, sim.cars[clip.firstA]!.velocity.z);
     if (_n.lengthSq() < 1e-6) _n.set(1, 0, 0);
     _n.normalize();
-    this.lookahead(p);
-    this.host.impact(_c.set(clip.x, a.y, clip.z), _n, clip.peakKph / 3.6);
+    _c.set(clip.x, a.y, clip.z);
   }
 
   /** The clip's impacts after its first that come before the crash cam hands back (`CrashHold.later`), wall s into the crash cam, where each lands. */

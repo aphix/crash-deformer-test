@@ -6,7 +6,7 @@ import { blankPoint, Track } from "../world/track.ts";
 import stunt from "../world/tracks/stunt.json" with { type: "json" };
 import city from "../world/tracks/city.json" with { type: "json" };
 import { frame, makeWorld, type World } from "../world/race-world.test-util.ts";
-import { phaseClock } from "../match/phase.ts";
+import { FUDGE_GAP, impactScale, phaseClock, PRE_IMPACT_LEAD } from "../match/phase.ts";
 import { carLayout } from "../net/car-pose.ts";
 import { packReel, unpackReel } from "../net/reel-codec.ts";
 import { clipTimeline, FLIGHT_S, ReelDirector, simAt, type ReelHost } from "./engine-highlights.ts";
@@ -15,6 +15,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import type { Reel } from "../match/highlights.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 import { PoseBlend } from "../present/pose-blend.ts";
+import { CUTS } from "../present/engine-cine.ts";
 
 /** A ramming field on the city course: its first crash comes early in lap 1. */
 const FIELD = { trackId: "city", laps: 1, aiCount: 11, noReset: false, aggression: 1 };
@@ -35,14 +36,34 @@ function stageHeadOn(w: World, aMps: number, bMps: number): void {
   w.cars[3]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz) + Math.PI, bMps);
 }
 
+/** Canary: the time scale just before the cars meet, in multiples of the slow-mo's own scale; the ease is meant to have arrived (the exact rate lands within 1.2×, the timeline's step quantization costs a little more). */
+const REACHED_CANARY = 2;
+/** Canary: wall seconds the ease into the slow-mo may take (the 0.2 s of lead at the slow scale alone would crawl for 6 s). */
+const EASE_WALL_CANARY = 2;
+
 describe("given the highlight reel timeline of a 10 s clip whose first impact is at 4 s", () => {
-  it("when the clip plays, then it runs at normal speed up to the hit, holds the slow-motion over the hit, then catches up to the clip's last step", () => {
-    const tl = clipTimeline(4, 10, []);
-    // Slow-mo starts `PRE_IMPACT_LEAD` (0.07 s) before the recorded impact.
-    assert.ok(Math.abs(tl.impact - 3.93) <= 1 / 120 + 1e-9, `slow-mo began at wall ${tl.impact.toFixed(3)} s, not at 3.93`);
+  const tl = clipTimeline(4, 10, []);
+  const contactStep = Math.round(tl.contact * 120);
+
+  it("when the clip plays, then it runs at normal speed up to the lead before the hit and the slow-mo begins easing in there", () => {
+    assert.ok(Math.abs(tl.onset - (4 - PRE_IMPACT_LEAD)) <= 1 / 120 + 1e-9, `slow-mo began at wall ${tl.onset.toFixed(3)} s, not at ${4 - PRE_IMPACT_LEAD}`);
     assert.ok(Math.abs(simAt(tl, 2) - 2) < 1e-9, "1× before the hit");
+    assert.ok(Math.abs(tl.impact + CUTS[0] - tl.onset) < 1e-9, `the crash cam began at ${tl.impact.toFixed(3)} s, so its first cut lands at ${(tl.impact + CUTS[0]).toFixed(3)} s, not as the slow-mo starts (${tl.onset.toFixed(3)} s)`);
+  });
+
+  it("when the slow-mo eases in, then the clip moves the lead's worth of game time between its start and the cars meeting, and the ease has reached the slow scale by then", () => {
+    const played = simAt(tl, tl.contact) - simAt(tl, tl.onset);
+    assert.ok(Math.abs(played - PRE_IMPACT_LEAD) <= 1 / 120 + 1e-9, `${played.toFixed(4)} game s between slow-mo start and the hit, not ${PRE_IMPACT_LEAD}`);
+    const slow = impactScale(phaseClock());
+    assert.ok(tl.scale[contactStep - 1]! <= slow * REACHED_CANARY, `time scale ${tl.scale[contactStep - 1]} a step before the hit, slow scale ${slow}`);
+    assert.ok(tl.contact - tl.onset < EASE_WALL_CANARY, `the ease took ${(tl.contact - tl.onset).toFixed(2)} wall s`);
+    assert.equal(tl.phase[contactStep - 1], "approach");
+    assert.equal(tl.phase[contactStep], "impact");
+  });
+
+  it("when the cars have met, then the clip holds the slow-motion over the hit, then catches up to the clip's last step", () => {
     // Three wall seconds into the slow-mo the clip has moved about 0.1 s (0.032×).
-    const into = simAt(tl, tl.impact + 3) - simAt(tl, tl.impact);
+    const into = simAt(tl, tl.contact + 3) - simAt(tl, tl.contact);
     assert.ok(into > 0.05 && into < 0.15, `${into.toFixed(3)} clip s in 3 wall s of slow-mo`);
     assert.equal(simAt(tl, tl.wall), 10, "the timeline ends on the clip's last step");
     assert.ok(tl.wall > 16, `the clip played in ${tl.wall.toFixed(1)} wall s: no slow-mo hold`);
@@ -60,7 +81,9 @@ function hostOf(w: World): ReelHost {
     sight: () => w.race.courseSight()!,
     still: () => w.race.courseSight()!,
     clock: phaseClock(),
+    crash: () => {},
     impact: () => {},
+    fudge: () => {},
     hit: () => {},
     eject: () => {},
     ride: () => false,
@@ -139,6 +162,49 @@ describe("given two peers each playing the same recorded highlight reel on their
     } finally {
       a.race.exit();
       b.race.exit();
+      setGround(null);
+    }
+  });
+});
+
+describe("given a recorded highlight clip playing in the reel at 60 Hz", () => {
+  it("when its slow-mo eases in, then the crash cam begins before it, sparks and dust are asked for at the clip's recorded impact point every FUDGE_GAP until the cars meet and never after, and the flash and burst go off once, as they meet", async () => {
+    const a = makeWorld();
+    try {
+      race(a);
+      const reel = await recordedReel(a);
+      const clip = reel.clips[0]!;
+      const seen = { crash: [] as number[], impact: [] as number[], fudge: [] as number[], off: 0 };
+      let wall = 0;
+      const host = hostOf(a);
+      const d = new ReelDirector({
+        ...host,
+        crash: () => seen.crash.push(wall),
+        impact: () => seen.impact.push(wall),
+        fudge: (at) => {
+          seen.fudge.push(wall);
+          seen.off = Math.max(seen.off, Math.hypot(at.x - clip.x, at.z - clip.z));
+        },
+      });
+      d.stepBudgetMs = Infinity;
+      d.play(reel, 0);
+      const tl = d["clips"][0]!.tl;
+      for (let n = 1; (wall = n / 60) < FLIGHT_S + tl.wall; n++) d.frame(wall);
+      const at = (s: number): number => s + FLIGHT_S;
+      const frame = 1 / 60 + 1e-9;
+      assert.equal(seen.crash.length, 1, "the crash cam began once");
+      assert.ok(seen.crash[0]! >= at(tl.impact) && seen.crash[0]! < at(tl.impact) + frame, `the crash cam began at ${seen.crash[0]!.toFixed(3)} s, not at ${at(tl.impact).toFixed(3)}`);
+      assert.equal(seen.impact.length, 1, "the flash and burst went off once");
+      assert.ok(seen.impact[0]! >= at(tl.contact) && seen.impact[0]! < at(tl.contact) + frame, `the flash and burst went off at ${seen.impact[0]!.toFixed(3)} s, not as the cars meet (${at(tl.contact).toFixed(3)})`);
+      assert.ok(seen.fudge.length >= 1, "no sparks or dust before the hit");
+      assert.ok(seen.fudge[0]! >= at(tl.onset) && seen.fudge[0]! < at(tl.onset) + frame, `the first sparks at ${seen.fudge[0]!.toFixed(3)} s, not as the slow-mo starts (${at(tl.onset).toFixed(3)})`);
+      assert.ok(seen.fudge.at(-1)! < at(tl.contact), `sparks and dust still asked for at ${seen.fudge.at(-1)!.toFixed(3)} s, after the cars met (${at(tl.contact).toFixed(3)})`);
+      for (let k = 1; k < seen.fudge.length; k++) assert.ok(seen.fudge[k]! - seen.fudge[k - 1]! >= FUDGE_GAP - 1e-9, `sparks ${k} came ${(seen.fudge[k]! - seen.fudge[k - 1]!).toFixed(3)} s after the last`);
+      assert.ok(seen.off < 1e-6, `sparks were asked for ${seen.off} m off the recorded impact point`);
+      const wanted = (tl.contact - tl.onset) / FUDGE_GAP;
+      assert.ok(Math.abs(seen.fudge.length - wanted) <= 2, `${seen.fudge.length} sparks calls over ${(tl.contact - tl.onset).toFixed(2)} s, one per ${FUDGE_GAP}`);
+    } finally {
+      a.race.exit();
       setGround(null);
     }
   });
@@ -243,7 +309,7 @@ describe("given a city race whose first crash is a 30 m/s car meeting a 10 m/s c
           const car = d.focus();
           if (!car) continue;
           // The slow-mo's first three wall seconds (a step is 4 ms of clip time there: 8 frames at 60 Hz).
-          const into = t - FLIGHT_S - tl.impact;
+          const into = t - FLIGHT_S - tl.onset;
           if (into > 0.3 && into < 3.3 && Math.hypot(car.velocity.x, car.velocity.z) > 1) {
             frames++;
             if (car.group.position.equals(prev)) still++;
@@ -281,7 +347,7 @@ describe("given a recorded clip played at 60 Hz through its slow-motion, where a
         const drawnAt = simAt(tl, w);
         if (dt === null || Math.abs(dt - (drawnAt - last)) > 1e-9) wrong++;
         last = drawnAt;
-        if (w > tl.impact + 0.3 && w < tl.impact + 3.3) {
+        if (w > tl.onset + 0.3 && w < tl.onset + 3.3) {
           slowFrames++;
           if (dt !== null && dt > 0) advancing++;
         }

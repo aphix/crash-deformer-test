@@ -216,14 +216,21 @@ present the world pace's alpha while a reel plays. `engine/replay-blend.test.ts`
 the shot. A peer at 45 Hz and one at 60 Hz therefore frame the same camera at the same moment
 (`engine-highlights.test.ts`: under 1e-6 m or rad over 200+ moments).
 
-- **Timeline.** `clipTimeline` steps the phase.ts crash clock at a fixed 1/120 s: 1× up to `PRE_IMPACT_LEAD` (0.07 s)
-  before the recorded first impact, then the auto slow-mo, held `CONTACT_HOLD` (6.3 wall s) past the cars meeting and
+- **Timeline.** `clipTimeline` steps the phase.ts crash clock at a fixed 1/120 s: 1× up to `PRE_IMPACT_LEAD` (0.2 s of game
+  time, a driver's reaction time, owner 2026-10-09) before the recorded first impact, then the slow-mo eases in at the rate
+  that reaches the slow scale as the cars meet (`easeTimeScale`: about 0.8 wall s; the live sandbox's `preImpact` uses the
+  same constant and ease), the crash clock's `impact` phase starts at the meeting, and the slow-mo is held `CONTACT_HOLD`
+  (6.3 wall s) past the cars meeting and
   `THROW_HOLD` (7.3 wall s) past each of the crash's own throws that comes while it runs (owner 2026-10-07: +40 % and 2×
   of the 4.50 s and 3.65 s timed on main), then back to 1× to the clip's end. The reel mirrors it into the engine's
   clock, the clip's hold too (`PhaseClock.hold`), so the letterbox, the HUD and the crash cam behave as in a live crash.
   A race that ends as a driver is thrown (Survival's run-ending throw) would leave his clip no hold, so at "over" the
   recorder runs on (`CrashRecorder.over`) until `THROW_HOLD_SIM` (7.3 × 0.032 = 0.23 s of race) past the last throw,
   then files: every hold plays whole on recorded motion.
+- **Fudge.** The crash starts `PRE_IMPACT_LEAD` before the cars meet, where the replay's contact is still being worked
+  out. From the slow-mo's start until the meeting the reel calls `ReelHost.fudge` every `FUDGE_GAP` (0.08 wall s) with the
+  clip's recorded first-impact point: `SparkSystem.poof` and `DebrisSystem.burst`, nothing else. The live sandbox does the
+  same on the point `pairEta` (or the slab's `contactEta`) predicts. Race and derby have no live slow-mo, so no fudge.
 - **Stepping.** The replay runs up to 6 ms per frame (`stepBudgetMs`). A frame that falls behind catches up over the
   next ones.
 - **Late join.** A peer that reaches a clip more than `JOIN_LATE` (0.25 s) in (a late join, back from the solo view, a
