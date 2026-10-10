@@ -4,7 +4,7 @@ import { BOOST } from "../vehicle/car-drive.ts";
 import { COMPACTOR } from "../scenes/compactor.ts";
 import { KPH_PER_MS } from "../kernel/constants.ts";
 import { PISTON_ORBIT_RATE, pistonBearing } from "../present/engine-pistons.ts";
-import { VAPOR_DEPTH, edgeAction, layoutFleet, layoutDerby, respawnSlot } from "../scenes/fleet.ts";
+import { VAPOR_DEPTH, edgeAction, fleetEmptied, layoutFleet, layoutDerby, respawnSlot } from "../scenes/fleet.ts";
 import { RANGE } from "../scenes/range.ts";
 import { makeRangeArt } from "../present/range-art.ts";
 import { LAB_LIGHT, LabArt } from "../present/lab-art.ts";
@@ -774,6 +774,8 @@ export abstract class EngineScenes extends EngineDerby {
       else if (act === "vaporize") this.setVaporized(i, true);
       else if (act === "respawn") this.respawnOnDisc(i);
     }
+    // No hit ever ends the run once every car has driven off the rim: the loop's own reset (`updatePhase`) waits on a crash.
+    if (this.looping && !this.net.client && !this.showLab && !this.showGarage && fleetEmptied(cars, this.vaporAt, this.elapsedWall)) this.randomizeAndReset();
   }
 
   /**

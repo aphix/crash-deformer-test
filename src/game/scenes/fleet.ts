@@ -124,6 +124,23 @@ export const FAKE_DEPTH = 2;
 export const VAPOR_DEPTH = 20;
 /** The driven car is back on the disc this long (s) after vaporizing; AI cars stay gone until reset. */
 export const RESPAWN_S = 2;
+/**
+ * Fleet loop: wall seconds the disc stays empty (every car vaporized past the rim) before the run resets. The crash
+ * clock's reset only fires after a hit, so a run where no car meets another would otherwise never end. Under
+ * `RESPAWN_S`, so the driven car's respawn never keeps the disc from counting as empty.
+ */
+const FLEET_EMPTY_S = 1;
+
+/** Whether the fleet's disc has been empty for `FLEET_EMPTY_S`: every car vaporized, the last at `vaporAt` (wall s) per car, `now` wall s. */
+export function fleetEmptied(cars: readonly { vaporized: boolean }[], vaporAt: readonly (number | undefined)[], now: number): boolean {
+  let last = 0;
+  for (let i = 0; i < cars.length; i++) {
+    if (!cars[i]!.vaporized) return false;
+    last = Math.max(last, vaporAt[i] ?? 0);
+  }
+  return cars.length > 0 && now - last >= FLEET_EMPTY_S;
+}
+
 /** Respawn this far (m) out from the disc's centre. */
 const RESPAWN_R = 36;
 

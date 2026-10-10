@@ -238,7 +238,7 @@ export const INITIAL_HUD: CrashHudState = {
   squash: 0.32,
   buckle: 0.45,
   fxDensity: 0.7,
-  carCount: 3,
+  carCount: 5,
   speedMin: 10,
   speedMax: 32,
   traceSamples: 0,

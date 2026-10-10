@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { beginFakeFall, type DeformableCar } from "./car.ts";
 import { COM_Y } from "./car-air.ts";
 import { makeCar, makeWorld, runPair, tickWorld } from "../contact/crash-scenarios.test-util.ts";
-import { edgeAction, FAKE_DEPTH, FLEET_MIN_SEP, layoutFleet, respawnSlot, RESPAWN_S, VAPOR_DEPTH } from "../scenes/fleet.ts";
+import { edgeAction, FAKE_DEPTH, FLEET_MIN_SEP, fleetEmptied, layoutFleet, respawnSlot, RESPAWN_S, VAPOR_DEPTH } from "../scenes/fleet.ts";
 import { DISC_GROUND, DISC_RADIUS, FLAT_GROUND, setGround, type Ground } from "../world/ground.ts";
 import { assertSameDigest, assertSameNumbers } from "./test-support.ts";
 
@@ -176,5 +176,42 @@ describe("given the fleet course's disc-shaped ground (a round pad with a rim pa
     const disc = runPair(48, 48, "head-on");
     setGround(FLAT_GROUND);
     assertSameDigest(disc, runPair(48, 48, "head-on"), "head-on");
+  });
+
+  it("when 5 cars drive straight out from the centre on 5 bearings and never meet, then they all vaporize past the rim and the loop's empty-disc rule fires within 10 s", () => {
+    const n = 5;
+    const cars: DeformableCar[] = [];
+    for (let k = 0; k < n; k++) {
+      const a = (k / n) * 2 * Math.PI;
+      const car = launch(0, 0, false);
+      car.spawnFacing(Math.sin(a) * 10, Math.cos(a) * 10, a, 0);
+      car.velocity.set(Math.sin(a) * 20, 0, Math.cos(a) * 20);
+      car.speed = 20;
+      car.spawnSpeed = 20;
+      car.deform.bindKinematic(car.group, car.velocity, car.angular);
+      cars.push(car);
+    }
+    setGround(DISC_GROUND);
+    const w = makeWorld(cars, false, false);
+    const vaporAt: number[] = [];
+    let firedAt = -1;
+    // `CrashEngine.stepEdge`'s order, 60 frames a second: physics, the edge rule per car, then the empty-disc rule.
+    for (let frame = 0; frame < 600 && firedAt < 0; frame++) {
+      tickWorld(w);
+      const now = frame / 60;
+      for (let i = 0; i < n; i++) {
+        const car = cars[i]!;
+        const act = edgeAction(car.group.position.y, car.falling, car.vaporized, false, now - (vaporAt[i] ?? 0));
+        if (act === "fake") beginFakeFall(car);
+        else if (act === "vaporize") {
+          car.vaporized = true;
+          vaporAt[i] = now;
+        }
+      }
+      if (fleetEmptied(cars, vaporAt, now)) firedAt = frame;
+    }
+    assert.ok(firedAt >= 0, "the disc emptied but the loop never fired");
+    assert.ok(cars.every((c) => c.vaporized), "every car left the sim");
+    assert.ok(firedAt / 60 < 10, `fired at ${(firedAt / 60).toFixed(2)} s`);
   });
 });

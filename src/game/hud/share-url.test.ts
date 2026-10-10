@@ -18,8 +18,8 @@ describe("given the default share settings", () => {
   });
 
   it("when cars, minimum speed, ramps and a seed differ from the defaults, then only those are written, in a readable order, and a value equal to its default is dropped even when set explicitly", () => {
-    const s: ShareState = { ...DEFAULTS, cars: 5, smin: 12, ramps: true, seed: 0x3fa2c1 };
-    assert.equal(encodeShare(s), "cars=5&smin=12&ramps=1&seed=3fa2c1");
+    const s: ShareState = { ...DEFAULTS, cars: 7, smin: 12, ramps: true, seed: 0x3fa2c1 };
+    assert.equal(encodeShare(s), "cars=7&smin=12&ramps=1&seed=3fa2c1");
     // A value equal to its default is dropped even when it was set explicitly.
     assert.equal(encodeShare({ ...DEFAULTS, cars: INITIAL_HUD.carCount, night: false }), "");
   });
@@ -174,11 +174,11 @@ describe("given a share link that may carry a netplay room", () => {
   });
 
   it("when the # is written for a host, a guest and someone who left, then a host's carries its settings and room, a guest's only the room, and leaving drops the room", () => {
-    const hosting: ShareState = { ...DEFAULTS, room: "ABCD2345", cars: 5 };
-    assert.equal(shareFragment(hosting, false), "room=ABCD2345&cars=5");
+    const hosting: ShareState = { ...DEFAULTS, room: "ABCD2345", cars: 7 };
+    assert.equal(shareFragment(hosting, false), "room=ABCD2345&cars=7");
     assert.equal(shareFragment(hosting, true), "room=ABCD2345", "a guest's scene is the host's");
-    assert.equal(shareFragment({ ...hosting, room: "" }, false), "cars=5", "left: the room is gone from the #");
-    assert.equal(shareFragment({ ...DEFAULTS, cars: 5, room: "" }, true), "", "a guest that left writes nothing");
+    assert.equal(shareFragment({ ...hosting, room: "" }, false), "cars=7", "left: the room is gone from the #");
+    assert.equal(shareFragment({ ...DEFAULTS, cars: 7, room: "" }, true), "", "a guest that left writes nothing");
   });
 
   it("when a room link is built from a page URL, then it is the page URL plus the room alone, and the transport only when it is not the default", () => {
