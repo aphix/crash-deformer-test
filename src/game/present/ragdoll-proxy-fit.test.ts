@@ -51,6 +51,9 @@ async function proxyGaps(t: TestContext, testCase: ProxyCase): Promise<Record<st
   ragdolls.update(FRAME, [], true, true, 0, null);
   ragdolls["spawn"]({ car: 3, p: new THREE.Vector3(3, 1.2, 0), q: new THREE.Quaternion(), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false, rides: true });
   for (let f = 0; f < 3; f++) ragdolls.update(FRAME, [car], true, true, 0, null);
+  // The world holds only the leaves and slabs a dummy is near (`cull`); the fit is held over the whole car, in the world after one step (the rays read its scene queries).
+  ragdolls["cull"](0, true, FRAME);
+  ragdolls["world"]!.step();
   const world = ragdolls["world"]!;
   const R = ragdolls["R"]!;
   const body = ragdolls["carBodies"][0]!;

@@ -1,7 +1,7 @@
 /*
  * Thrown-driver ragdolls: a cosmetic crash-test dummy flung out through the windshield or a front side window
  * when one hit disables a car (`EjectionWatch`). Its own Rapier world (@dimforge/rapier3d-simd, Apache-2.0):
- * ground and walls are fixed colliders around the throw, every car within `WAKE_NEAR` of a dummy (and the sandbox's
+ * ground and walls are fixed colliders around the throw, every car near a dummy (`near`; and the sandbox's
  * jersey barrier) a kinematic box that follows its pose, so cars push dummies and nothing pushes back; no dummy state reaches the sim or the
  * netplay snapshots. The camera may ride along with the latest dummy's head (`follow`, `frameCamera`).
  *
@@ -37,7 +37,7 @@ import { DummyMesh } from "./ragdoll-mesh.ts";
 import { driverLook, pickedLook } from "./driver-look.ts";
 import type { PersonPick } from "../match/look-data.ts";
 import type { SprayBitmap } from "./spray.ts";
-import { Purses } from "./ragdoll-purse.ts";
+import { Purses, PURSE_BODIES } from "./ragdoll-purse.ts";
 import { CAR_BOX, PropBodies } from "./ragdoll-props.ts";
 import { BOX_FLOATS, PANE_GONE, PANE_HALF, PANES, PROXY_BOXES, ProxyFitter, UNDER } from "./ragdoll-proxy.ts";
 import type { PropTumble } from "./prop-tumble.ts";
@@ -110,6 +110,15 @@ const MAX_ACC = 0.05;
 /** A car moving faster than this (m/s) and this near (m) to a dummy that lies asleep keeps the world stepping (a car moves 1.2 m a frame at 70 m/s; a wreck lying beside him does not); the barrier's reach is its half diagonal. A sleeping knocked prop is stirred only by such a car that can touch it this frame (`PropBodies.touches`). */
 const WAKE_SPEED = 0.5;
 const WAKE_NEAR = 10;
+/**
+ * A car's proxy is in the world only while a dummy's torso is within `DOLL_REACH` (torso centre to the tip of a limb, m) plus
+ * `NEAR_MARGIN` (m) of the car's box, or a purse thing within `PURSE_REACH` (m) of its reach, and `NEAR_HOLD` (m) more once it is in:
+ * every collider in Rapier's world costs every step (`addCuboid`).
+ */
+const DOLL_REACH = 1.5;
+const PURSE_REACH = 0.5;
+const NEAR_MARGIN = 0.5;
+const NEAR_HOLD = 0.5;
 const BARRIER_REACH = hypot2(BARRIER_HALF.x, BARRIER_HALF.z);
 /** Rapier's solver iterations (default 4); no CCD on the parts (it tears the joints: 11–28 cm apart vs 0.9 cm at 8 iterations of 1/120). At 1/960 four hold a joint to 0.1 cm; two kicked one to 125 rad/s. */
 const ITERATIONS = 4;
@@ -253,11 +262,17 @@ export class RagdollSystem {
   /** Each car proxy's reach (m): the farthest point of its plan and height from the car's origin (`shape`; `FIRST_REACH` until it is first fitted). */
   private readonly reach = new Float32Array(MAX_CARS).fill(FIRST_REACH);
   /** Each car's leaves, `PROXY_BOXES` per car, and how many are fitted: its lower box, columns and slabs (`ProxyFitter`). */
-  private readonly shapes: Collider[] = [];
+  private readonly shapes: (Collider | null)[] = Array.from({ length: MAX_CARS * PROXY_BOXES }, () => null);
   private readonly shapeN = new Uint8Array(MAX_CARS);
   /** Each car's pane slabs, `PANES` per car, in `GLASS_NAMES` order. */
-  private readonly panes: Collider[] = [];
+  private readonly panes: (Collider | null)[] = Array.from({ length: MAX_CARS * PANES }, () => null);
   private readonly fitter = new ProxyFitter();
+  /** Each car's fitted leaves and pane slabs (`BOX_FLOATS` each), kept for `cull`, which puts those near a dummy in the world; and whether a knocked prop or purse thing is near it (all of them then). */
+  private readonly leafFits = new Float64Array(MAX_CARS * PROXY_BOXES * BOX_FLOATS);
+  private readonly paneFits = new Float64Array(MAX_CARS * PANES * BOX_FLOATS);
+  private readonly whole = new Uint8Array(MAX_CARS);
+  /** `cull`'s dummy points in a car's frame: x, y, z and the distance (m) a leaf's sphere must be within, 4 per dummy. */
+  private readonly pts = new Float64Array(4 * SLOTS * (1 + PURSE_BODIES));
   /** The car each slot's proxy was last fitted to (`fitProxy`), its glass corners, its body lift (m), the cage fit it was fitted from (`CarCage.serial`), and its glass state as the slabs show it (`glassBits`, -1: refit). */
   private readonly fitted: (DeformableCar | null)[] = Array.from({ length: MAX_CARS }, () => null);
   private readonly glass: Float32Array[] = Array.from({ length: MAX_CARS }, () => new Float32Array(0));
@@ -346,17 +361,7 @@ export class RagdollSystem {
     world.timestep = STEP;
     world.numSolverIterations = ITERATIONS;
     world.integrationParameters.numInternalPgsIterations = INTERNAL_PASSES;
-    for (let i = 0; i < MAX_CARS; i++) {
-      const body = world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(0, -100, i * 10));
-      // The car's leaves (columns from `UNDER` under the ground to the hood, deck and sill, slabs at the roof) and a slab at
-      // each pane, all out of the world until `fitProxy` fits them to the car's cage (car-local, origin on the ground, +z forward).
-      for (let k = 0; k < PROXY_BOXES; k++) this.shapes.push(world.createCollider(R.ColliderDesc.cuboid(0.5, 0.5, 0.5).setCollisionGroups(0), body));
-      for (let p = 0; p < PANES; p++) {
-        const slab = R.ColliderDesc.cuboid(0.5, 0.5, PANE_HALF).setRestitution(PANE_BOUNCE).setRestitutionCombineRule(R.CoefficientCombineRule.Max).setCollisionGroups(0);
-        this.panes.push(world.createCollider(slab, body));
-      }
-      this.carBodies.push(body);
-    }
+    for (let i = 0; i < MAX_CARS; i++) this.carBodies.push(world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(0, -100, i * 10)));
     this.barrierBody = world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(0, -100, -10));
     world.createCollider(R.ColliderDesc.cuboid(BARRIER_HALF.x, BARRIER_H / 2, BARRIER_HALF.z).setTranslation(0, BARRIER_H / 2, 0).setCollisionGroups(FIXED_GROUPS), this.barrierBody);
     for (let s = 0; s < SLOTS; s++) {
@@ -421,7 +426,10 @@ export class RagdollSystem {
     this.pending.length = 0;
     this.wake();
     this.props.here(this.course !== null && activeGround() === this.course.ground);
-    if (this.live === 0 && this.props.count === 0) return;
+    if (this.live === 0 && this.props.count === 0) {
+      for (let i = 0; i < MAX_CARS; i++) this.follow3(i, this.carBodies[i]!, null);
+      return;
+    }
     const dormant = this.dormant(cars, barrier, dt);
     // The proxies stood still while nothing stepped: jump them to where the cars are now instead of flinging dummies.
     this.teleport ||= this.slept;
@@ -430,7 +438,10 @@ export class RagdollSystem {
       const car = i < cars.length && !cars[i]!.falling && !cars[i]!.vaporized && this.near(i, cars[i]!, dt) ? cars[i]! : null;
       if (car) this.frame(i, car);
       this.follow3(i, this.carBodies[i]!, car ? this.frames[i]! : null);
-      if (car) this.fitProxy(i, car);
+      if (car) {
+        this.fitProxy(i, car);
+        this.cull(i, false, dt);
+      }
       // Its lower box where this frame's steps take it: a knocked prop it would squeeze against a wall lets it by.
       if (car) this.props.press(i, car.group.position, car.group.quaternion, this.boxes);
     }
@@ -531,25 +542,44 @@ export class RagdollSystem {
   }
 
   /**
-   * Does car `i` need its proxy in the world: a dummy out (his torso as last stepped) or a purse thing within `WAKE_NEAR`
-   * of it, or a knocked prop it can touch within a frame of `dt` (`touches`: both reaches plus both travels, so it is in a
-   * frame before it can meet the prop, and walks there)? A car further out cannot touch them this frame. A car that gets
-   * within `WAKE_NEAR` in one frame from outside it moved over 4 m, which `follow3` teleports for anyway, so the proxy it
-   * gets is the one it had.
+   * Does car `i` need its proxy in the world: a dummy out (his torso as last stepped) within `DOLL_REACH` (a limb's length) plus
+   * `NEAR_MARGIN` and two frames of both their travels of the car's box (`CAR_BOX`, its sphere of `reach` before its first fit), a
+   * purse thing within its reach, or a knocked prop it can touch within a frame of `dt` (`touches`: both reaches plus both
+   * travels)? A car further out cannot touch them this
+   * frame. A proxy already in the world stays until `NEAR_HOLD` m further out (no building and dropping a hundred colliders on
+   * a car hovering at the edge). A car that gets in from outside in one frame moved over 4 m, which `follow3` teleports for
+   * anyway, so the proxy it gets is the one it had.
    */
   private near(i: number, car: DeformableCar, dt: number): boolean {
     const p = car.group.position;
-    // The props first, as before any dummy: a car that can touch a knocked prop this frame gets its proxy.
-    if (this.props.touches(p, this.reach[i]!, car.velocity.length(), dt)) return true;
+    // The props first, as before any dummy: a car that can touch a knocked prop this frame gets its whole proxy (`cull`).
+    const whole = this.props.touches(p, this.reach[i]!, car.velocity.length(), dt);
+    this.whole[i] = whole ? 1 : 0;
+    if (whole) return true;
+    const hold = this.on[i] ? NEAR_HOLD : 0;
+    const frame = Math.min(dt, MAX_ACC);
+    const speed = car.velocity.length();
+    // The car's box as fitted (`CAR_BOX`: its centre height, forward offset and half extents, in the car's frame), else its reach sphere.
+    const b = i * CAR_BOX;
+    const boxed = this.boxes[b + 2]! > 0;
+    if (boxed) _cq.copy(car.group.quaternion).invert();
     for (let s = 0; s < SLOTS; s++) {
       const d = this.dolls[s]!;
       if (!d.live) continue;
-      const dx = d.cur[0]! - p.x;
-      const dy = d.cur[1]! - p.y;
-      const dz = d.cur[2]! - p.z;
-      if (dx * dx + dy * dy + dz * dz < WAKE_NEAR * WAKE_NEAR) return true;
+      const r = DOLL_REACH + NEAR_MARGIN + hold + 2 * (speed + d.speed) * frame;
+      _c.set(d.cur[0]! - p.x, d.cur[1]! - p.y, d.cur[2]! - p.z);
+      if (!boxed) {
+        const reach = r + this.reach[i]!;
+        if (_c.lengthSq() < reach * reach) return true;
+        continue;
+      }
+      _c.applyQuaternion(_cq);
+      const ex = Math.max(Math.abs(_c.x) - this.boxes[b + 2]!, 0);
+      const ey = Math.max(Math.abs(_c.y - this.boxes[b]!) - this.boxes[b + 3]!, 0);
+      const ez = Math.max(Math.abs(_c.z - this.boxes[b + 1]!) - this.boxes[b + 4]!, 0);
+      if (ex * ex + ey * ey + ez * ez < r * r) return true;
     }
-    return this.purses !== null && this.purses.near(p, WAKE_NEAR);
+    return this.purses !== null && this.purses.near(p, this.reach[i]! + PURSE_REACH + NEAR_MARGIN + hold);
   }
 
   /** Part `k` of `d` as drawn: `alpha` of the way from its pose one step before the last to the last. */
@@ -800,25 +830,46 @@ export class RagdollSystem {
       this.serial[i] = cage.serial;
       this.shape(i, cage, lift, bits);
     }
-    if (bits === this.paneBits[i]) return;
     this.paneBits[i] = bits;
-    this.collide(i);
   }
 
   /**
-   * Proxy i's colliders into the world (after `disable`, or onto new glass): the barrier's, or car i's leaves and slabs, the
-   * leaves past the fitted count and a gone pane's (`paneBits`) colliding with nothing.
+   * The cuboid at float offset `o` of `boxes` (`BOX_FLOATS` each) as a new collider of car `i`'s proxy. The world holds a collider only while it is
+   * fitted: each one in it costs every `world.step()`, a parked one with no contact included (measured, 32-car city race with one
+   * dummy out: 4 362 colliders, 35 ms a frame; 266 with the leaves removed, 0.8 ms).
    */
-  private collide(i: number): void {
-    if (i === MAX_CARS) return this.barrierBody!.collider(0).setCollisionGroups(FIXED_GROUPS);
-    const bits = this.paneBits[i]!;
-    for (let k = 0; k < PROXY_BOXES; k++) this.shapes[i * PROXY_BOXES + k]!.setCollisionGroups(k < this.shapeN[i]! ? carGroups(i) : 0);
-    for (let p = 0; p < PANES; p++) this.panes[i * PANES + p]!.setCollisionGroups(((bits >> (2 * p)) & 3) === PANE_GONE ? 0 : carGroups(i));
+  private addCuboid(i: number, boxes: Float64Array, o: number, pane: boolean): Collider {
+    const R = this.R!;
+    const desc = R.ColliderDesc.cuboid(boxes[o + 3]!, boxes[o + 4]!, boxes[o + 5]!)
+      .setTranslation(boxes[o]!, boxes[o + 1]!, boxes[o + 2]!)
+      .setRotation({ x: boxes[o + 6]!, y: boxes[o + 7]!, z: boxes[o + 8]!, w: boxes[o + 9]! })
+      .setCollisionGroups(carGroups(i));
+    if (pane) desc.setRestitution(PANE_BOUNCE).setRestitutionCombineRule(R.CoefficientCombineRule.Max);
+    return this.world!.createCollider(desc, this.carBodies[i]!);
   }
 
-  /** Cuboid `k` of `boxes` (`BOX_FLOATS` each) onto collider `c`: its size, its place and its turn on the car's body. */
-  private setCuboid(c: Collider, boxes: Float64Array, k: number): void {
-    const o = k * BOX_FLOATS;
+  /** Car `i`'s proxy out of the world (its leaves and slabs removed); `fitProxy` builds it again when a dummy or prop comes near. */
+  private drop(i: number): void {
+    const world = this.world!;
+    for (let k = 0; k < this.shapeN[i]!; k++) {
+      const c = this.shapes[i * PROXY_BOXES + k];
+      if (!c) continue;
+      world.removeCollider(c, false);
+      this.shapes[i * PROXY_BOXES + k] = null;
+    }
+    this.shapeN[i] = 0;
+    for (let p = 0; p < PANES; p++) {
+      const c = this.panes[i * PANES + p];
+      if (!c) continue;
+      world.removeCollider(c, false);
+      this.panes[i * PANES + p] = null;
+    }
+    this.paneBits[i] = -1;
+    this.fitted[i] = null;
+  }
+
+  /** The cuboid at float offset `o` of `boxes` (`BOX_FLOATS` each) onto collider `c`: its size, its place and its turn on the car's body. */
+  private setCuboid(c: Collider, boxes: Float64Array, o: number): void {
     _v.x = boxes[o + 3]!;
     _v.y = boxes[o + 4]!;
     _v.z = boxes[o + 5]!;
@@ -835,6 +886,70 @@ export class RagdollSystem {
   }
 
   /**
+   * Car `i`'s leaves and pane slabs in the world: those a dummy's torso may meet within `DOLL_REACH` and `NEAR_MARGIN` and two
+   * frames of travel (each leaf's bounding sphere), a purse thing within `PURSE_REACH` and `NEAR_MARGIN`, all of them while a knocked prop is near the car (`whole`)
+   * or for `all`. One in the world stays until `NEAR_HOLD` further out. A pane that is gone has no slab.
+   */
+  private cull(i: number, all: boolean, dt: number): void {
+    const everything = all || this.whole[i] === 1;
+    let m = 0;
+    if (!everything) {
+      const frame = this.frames[i]!;
+      _cq.copy(frame.quaternion).invert();
+      const speed = this.cars[i]!.velocity.length();
+      for (let s = 0; s < SLOTS; s++) {
+        const d = this.dolls[s]!;
+        if (!d.live) continue;
+        _c.set(d.cur[0]! - frame.position.x, d.cur[1]! - frame.position.y, d.cur[2]! - frame.position.z).applyQuaternion(_cq);
+        this.pts[4 * m] = _c.x;
+        this.pts[4 * m + 1] = _c.y;
+        this.pts[4 * m + 2] = _c.z;
+        this.pts[4 * m + 3] = DOLL_REACH + NEAR_MARGIN + 2 * (speed + d.speed) * Math.min(dt, MAX_ACC);
+        m++;
+      }
+      // Purse things too (their points come in the world's frame).
+      const m0 = m;
+      if (this.purses) m = this.purses.points(this.pts, m, PURSE_REACH + NEAR_MARGIN);
+      for (let j = m0; j < m; j++) {
+        _c.set(this.pts[4 * j]! - frame.position.x, this.pts[4 * j + 1]! - frame.position.y, this.pts[4 * j + 2]! - frame.position.z).applyQuaternion(_cq);
+        this.pts[4 * j] = _c.x;
+        this.pts[4 * j + 1] = _c.y;
+        this.pts[4 * j + 2] = _c.z;
+      }
+    }
+    const leafO = i * PROXY_BOXES * BOX_FLOATS;
+    for (let k = 0; k < this.shapeN[i]!; k++) {
+      const c = this.shapes[i * PROXY_BOXES + k];
+      const want = everything || this.reaches(this.leafFits, leafO + k * BOX_FLOATS, m, c ? NEAR_HOLD : 0);
+      if (want && !c) this.shapes[i * PROXY_BOXES + k] = this.addCuboid(i, this.leafFits, leafO + k * BOX_FLOATS, false);
+      else if (!want && c) {
+        this.world!.removeCollider(c, false);
+        this.shapes[i * PROXY_BOXES + k] = null;
+      }
+    }
+    const paneO = i * PANES * BOX_FLOATS;
+    for (let p = 0; p < PANES; p++) {
+      if (((this.paneBits[i]! >> (2 * p)) & 3) === PANE_GONE) continue;
+      const c = this.panes[i * PANES + p];
+      const want = everything || this.reaches(this.paneFits, paneO + p * BOX_FLOATS, m, c ? NEAR_HOLD : 0);
+      if (want && !c) this.panes[i * PANES + p] = this.addCuboid(i, this.paneFits, paneO + p * BOX_FLOATS, true);
+      else if (!want && c) {
+        this.world!.removeCollider(c, false);
+        this.panes[i * PANES + p] = null;
+      }
+    }
+  }
+
+  /** Is the cuboid at float offset `o` of `boxes` (its bounding sphere) within `hold` of any of `cull`'s `m` dummy points (car frame, reach)? */
+  private reaches(boxes: Float64Array, o: number, m: number, hold: number): boolean {
+    const rad = hypot3(boxes[o + 3]!, boxes[o + 4]!, boxes[o + 5]!);
+    for (let j = 0; j < m; j++) {
+      if (hypot3(this.pts[4 * j]! - boxes[o]!, this.pts[4 * j + 1]! - boxes[o + 1]!, this.pts[4 * j + 2]! - boxes[o + 2]!) - rad < this.pts[4 * j + 3]! + hold) return true;
+    }
+    return false;
+  }
+
+  /**
    * Car i's colliders fitted to `cage` raised by `lift` (`ProxyFitter`): each leaf and pane slab in its place, the leaves
    * unused (and those they replace) in or out of the world, and what the props' squeeze (`CAR_BOX`) and the reach read of the
    * car: the cage's plan extent, its height and `UNDER`.
@@ -845,10 +960,30 @@ export class RagdollSystem {
     const was = this.shapeN[i]!;
     fitter.fit(f, cage.style, cage.planField(), this.glass[i]!, paneBits);
     fitter.fitPanes(f, cage.style, this.glass[i]!);
-    for (let k = 0; k < fitter.count; k++) this.setCuboid(this.shapes[i * PROXY_BOXES + k]!, fitter.boxes, k);
-    for (let p = 0; p < PANES; p++) this.setCuboid(this.panes[i * PANES + p]!, fitter.panes, p);
+    // The fit is kept per car: `cull` builds the leaves and slabs a dummy is near from it.
+    const leafO = i * PROXY_BOXES * BOX_FLOATS;
+    for (let n = 0; n < fitter.count * BOX_FLOATS; n++) this.leafFits[leafO + n] = fitter.boxes[n]!;
+    const paneO = i * PANES * BOX_FLOATS;
+    for (let n = 0; n < PANES * BOX_FLOATS; n++) this.paneFits[paneO + n] = fitter.panes[n]!;
     this.shapeN[i] = fitter.count;
-    for (let k = Math.min(was, fitter.count); k < Math.max(was, fitter.count); k++) this.shapes[i * PROXY_BOXES + k]!.setCollisionGroups(k < fitter.count ? carGroups(i) : 0);
+    // Those in the world now: refitted, or out of it past the fitted count (and a pane that is gone).
+    for (let k = 0; k < was; k++) {
+      const c = this.shapes[i * PROXY_BOXES + k];
+      if (!c) continue;
+      if (k < fitter.count) this.setCuboid(c, this.leafFits, leafO + k * BOX_FLOATS);
+      else {
+        this.world!.removeCollider(c, false);
+        this.shapes[i * PROXY_BOXES + k] = null;
+      }
+    }
+    for (let p = 0; p < PANES; p++) {
+      const c = this.panes[i * PANES + p];
+      if (!c) continue;
+      if (((paneBits >> (2 * p)) & 3) === PANE_GONE) {
+        this.world!.removeCollider(c, false);
+        this.panes[i * PANES + p] = null;
+      } else this.setCuboid(c, this.paneFits, paneO + p * BOX_FLOATS);
+    }
     const width = Math.max(-f.planBox[0]!, f.planBox[1]!);
     const length = Math.max(-f.planBox[2]!, f.planBox[3]!);
     this.reach[i] = hypot3(width, Math.max(f.heightMax + lift, UNDER), length) + cage.style.step;
@@ -898,7 +1033,8 @@ export class RagdollSystem {
         for (let p = 0; p < PANES; p++) {
           if (((this.paneBits[i]! >> (2 * p)) & 3) === 2) continue;
           const bit = 1 << p;
-          const c = torso.contactCollider(this.panes[i * PANES + p]!, GLASS_SEE);
+          const pane = this.panes[i * PANES + p];
+          const c = pane ? torso.contactCollider(pane, GLASS_SEE) : null;
           const held = (this.touching[t]! & bit) !== 0;
           if (c === null || (held && c.distance > GLASS_SEP)) {
             this.touching[t] = this.touching[t]! & ~bit;
@@ -940,6 +1076,7 @@ export class RagdollSystem {
   private follow3(i: number, body: RigidBody, obj: THREE.Object3D | null): void {
     if (!obj) {
       if (this.on[i]) {
+        if (i < MAX_CARS) this.drop(i);
         disable(body);
         this.on[i] = 0;
       }
@@ -951,7 +1088,7 @@ export class RagdollSystem {
     const q = obj.quaternion;
     const jump = this.teleport || !this.on[i] || Math.abs(a[o + 7]! - p.x) + Math.abs(a[o + 8]! - p.y) + Math.abs(a[o + 9]! - p.z) > 4;
     if (!this.on[i]) {
-      this.collide(i);
+      if (i === MAX_CARS) body.collider(0).setCollisionGroups(FIXED_GROUPS);
       body.setEnabled(true);
       this.on[i] = 1;
     }

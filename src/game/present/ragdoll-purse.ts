@@ -48,6 +48,8 @@ const ITEMS = [
 const ITEMS_MAX = ITEMS.length;
 /** Bodies per set (the purse, then each item) and drawn pieces per set (the purse, its strap, each item). */
 const BODIES = 1 + ITEMS_MAX;
+/** Most things one set holds out at once (`Purses.points`). */
+export const PURSE_BODIES = BODIES;
 const PIECES = 1 + STRAP.length + ITEMS_MAX;
 /**
  * Damping (per s) in the air, and once a body lies on the ground. A light box landing at 15 m/s on the range's sand
@@ -251,6 +253,22 @@ export class Purses {
       }
     }
     return false;
+  }
+
+  /** Every thing out (as last stepped) into `out` from point `n` on, 4 floats each: its place (world) and `r`. Returns the new count of points. */
+  points(out: Float64Array, n: number, r: number): number {
+    for (let s = 0; s < this.sets; s++) {
+      for (let b = 0; b < BODIES; b++) {
+        if (!(this.on[s]! & (1 << b))) continue;
+        const o = (s * BODIES + b) * 7;
+        out[4 * n] = this.cur[o]!;
+        out[4 * n + 1] = this.cur[o + 1]!;
+        out[4 * n + 2] = this.cur[o + 2]!;
+        out[4 * n + 3] = r;
+        n++;
+      }
+    }
+    return n;
   }
 
   /** Poses after the last step (`cur`) or the one before it, for `pose`'s blend. */
