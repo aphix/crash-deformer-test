@@ -1,6 +1,6 @@
 import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import type * as THREE from "three";
-import { sightLine, solid, type Sight } from "./spectate-cam.ts";
+import { carsBlock, sightLine, solid, type Sight } from "./spectate-cam.ts";
 import { SHOT_FOV } from "./constants.ts";
 
 /** The reel's far-overhead flight between clips (docs/HIGHLIGHTS.md). */
@@ -133,9 +133,9 @@ export function inFrame(eye: Vec3, aim: Vec3, p: Vec3, fov: number): boolean {
 
 /**
  * An eye from which both `a` and `b` lie in frame and car-sized, looking at their midpoint, with a clear line to each over the
- * course's static solids `s`, standing in none; into `eye` and `aim`. Returns its lens (deg), 0 when none works (a wall or a
- * building in every way, or the points too far apart for any lens). The eyes are tried nearest first, each from the directions
- * starting at `turn` (rad).
+ * course's static solids `s`, standing in none, and (when `s` has the cars' boxes, `carsBlock`) in no car's box with none on
+ * either line; into `eye` and `aim`. Returns its lens (deg), 0 when none works (a wall or a building in every way, or the
+ * points too far apart for any lens). The eyes are tried nearest first, each from the directions starting at `turn` (rad).
  */
 export function contextEye(s: Sight, a: Vec3, b: Vec3, turn: number, eye: THREE.Vector3, aim: THREE.Vector3): number {
   const mx = (a.x + b.x) / 2;
@@ -153,6 +153,7 @@ export function contextEye(s: Sight, a: Vec3, b: Vec3, turn: number, eye: THREE.
       const tanH = Math.min(tanMax, CONTEXT.reach / Math.max(hypot3(a.x - e.x, a.y - e.y, a.z - e.z), hypot3(b.x - e.x, b.y - e.y, b.z - e.z)));
       if (Math.max(tanNeeded(a, e, _f, _r, _u), tanNeeded(b, e, _f, _r, _u)) > tanH) continue;
       if (sightLine(s, e.x, e.y, e.z, a.x, a.y, a.z) < 0 || sightLine(s, e.x, e.y, e.z, b.x, b.y, b.z) < 0) continue;
+      if (carsBlock(s, e, a) || carsBlock(s, e, b)) continue;
       eye.set(e.x, e.y, e.z);
       aim.set(mx, my, mz);
       return (2 * Math.atan(tanH) * 180) / Math.PI;

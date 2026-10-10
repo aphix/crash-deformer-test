@@ -285,7 +285,7 @@ export class CrashEngine extends EngineGarage {
       sight: (focus) => this.sceneSight(focus, true),
       still: () => this.sceneSight(null, false),
       clock: this.clock,
-      crash: (contact, normal) => this.cine.beginCrashCam(contact, normal, this.sceneSight(null, false), this.clock.hold),
+      crash: (contact, normal) => this.cine.beginCrashCam(contact, normal, this.crashSight(), this.clock.hold),
       impact: (contact, normal, closing) => this.beginCinematic(contact, normal, closing, false),
       hit: this.hitFx,
       fudge: (at, normal) => this.fudgeContact(at, normal),

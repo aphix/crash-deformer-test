@@ -23,7 +23,7 @@ import { WorldStage, makeLamp } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
 import { loadHdrEnv, STUDIO_ENV_URL } from "../present/look-env.ts";
 import { CarDetail } from "../present/car-detail.ts";
-import { addCars, occluder, type Occluder, type Sight } from "../present/spectate-cam.ts";
+import { addCars, occluder, withCars, type Occluder, type Sight } from "../present/spectate-cam.ts";
 import { activeGround } from "../world/ground.ts";
 import { BARRIER_HALF } from "../contact/sat.ts";
 import type { AutoFx } from "../present/auto-fx.ts";
@@ -574,7 +574,7 @@ export abstract class EngineCore {
     this.impactKph = impulse * 3.6;
     this.view.kick(this.carCount);
     const rigScene = this.rigScene;
-    this.cine.impact(contact, normal, impulse, crashCam ?? (!rigScene && this.autoSlomo && this.clock.userTimeScale == null && this.seat.mode === "global" && !this.view.userFramed), this.sceneSight(null, false), this.clock.hold);
+    this.cine.impact(contact, normal, impulse, crashCam ?? (!rigScene && this.autoSlomo && this.clock.userTimeScale == null && this.seat.mode === "global" && !this.view.userFramed), this.crashSight(), this.clock.hold);
     this.impactLight.position.copy(contact);
     this.impactLight.position.y = 0.8;
     this.impactLightLife = 0.35;
@@ -622,6 +622,12 @@ export abstract class EngineCore {
     }
     return { ground: activeGround(), path: null, wallTop: 0, rim: this.derbyMode ? this.derbyR : Infinity, occ };
   }
+
+  /** The scene's solids and the live cars' tight boxes as they stand now: what a crash cam's eye is picked against (`carsBlock`: no eye inside a car, none with a car on its line to the hit). */
+  protected crashSight(): Sight {
+    return withCars(this.sceneSight(null, false), this.live());
+  }
+
   /**
    * A driver is being thrown, his way out centred on `at` (`frame`'s z out of the pane): a heavy, very short shatter
    * (owner, 2026-10-03) fills it, pane to bonnet or door, as he crosses it, with bits of trim and dust.

@@ -35,6 +35,21 @@ export function addCars(occ: Occluder[], cars: readonly DeformableCar[], except:
   }
 }
 
+/**
+ * `s` with every visible car (not vaporized) as its tight box: `CAR_HALF`'s footprint turned with the car's flat heading, from
+ * the ground under it to its roof. What a crash cam's eye is picked against (`carsBlock`): the poses at the moment of the
+ * pick, nothing but the cars' own numbers.
+ */
+export function withCars(s: Sight, cars: readonly DeformableCar[]): Sight {
+  const boxes: Occluder[] = [];
+  for (const c of cars) {
+    if (c.vaporized || !c.group.visible) continue;
+    const p = c.group.position;
+    boxes.push({ x: p.x, z: p.z, cos: c.fwdFlat.z, sin: c.fwdFlat.x, hx: CAR_HALF.x, hz: CAR_HALF.z, circle: false, y0: p.y, y1: p.y + 2 * CAR_HALF.y });
+  }
+  return { ...s, cars: boxes };
+}
+
 /** The scene's solids, as the cinematic eye sees them. */
 export type Sight = {
   /** Terrain, roads and bridge decks: below a surface (within its slab) is solid. */
@@ -46,6 +61,11 @@ export type Sight = {
   /** Bowl wall radius (m) the eye stays inside (derby); Infinity elsewhere. */
   rim: number;
   occ: readonly Occluder[];
+  /**
+   * The cars' tight boxes (`withCars`), for a crash cam's eye (`carsBlock`): none (unset) where the cars are already in `occ`
+   * (the spectator rigs, as cylinders). The eye may not stand inside one, nor have one on its line to the point it films.
+   */
+  cars?: readonly Occluder[];
   /** Where `solid` starts its road projection (`roadGrid`); unset: from the whole path. */
   grid?: RoadGrid;
 };
@@ -297,6 +317,52 @@ export function clearSpot(s: Sight, x: number, y: number, z: number, radius: num
   return !solid(s, x, y + radius, z, pad, occ) && !solid(s, x, y - radius, z, pad, occ, false);
 }
 
+/**
+ * True when a crash cam's `eye` is in a car's tight box (`s.cars`, grown by `CLEAR.pad`; above or below it is clear) or a
+ * car's box stands on the straight line from `eye` to `target` (up to `CINE.stop` m short of it: the cars it films touch the
+ * point itself). The line is clipped to each box's footprint and height: a car over or under the line's height is no wall.
+ * A pure function of the boxes, the eye and the point; none when the sight has no `cars`.
+ */
+export function carsBlock(s: Sight, eye: Vec3, target: Vec3): boolean {
+  const boxes = s.cars;
+  if (!boxes) return false;
+  const dx = target.x - eye.x;
+  const dy = target.y - eye.y;
+  const dz = target.z - eye.z;
+  const len = hypot3(dx, dy, dz);
+  const end = len > CINE.stop ? (len - CINE.stop) / len : 0;
+  for (const o of boxes) {
+    const ex = eye.x - o.x;
+    const ez = eye.z - o.z;
+    const lx = ex * o.cos - ez * o.sin;
+    const lz = ex * o.sin + ez * o.cos;
+    if (Math.abs(lx) < o.hx + CLEAR.pad && Math.abs(lz) < o.hz + CLEAR.pad && eye.y > o.y0 - CLEAR.pad && eye.y < o.y1 + CLEAR.pad) return true;
+    if (end === 0) continue;
+    // Slab test of the segment's first `end` share against the box, in the box's own frame: the share inside each axis's slab, narrowed in turn.
+    _slab[0] = 0;
+    _slab[1] = end;
+    slab(lx, dx * o.cos - dz * o.sin, o.hx);
+    slab(lz, dx * o.sin + dz * o.cos, o.hz);
+    slab(eye.y - (o.y0 + o.y1) / 2, dy, (o.y1 - o.y0) / 2);
+    if (_slab[0]! <= _slab[1]!) return true;
+  }
+  return false;
+}
+
+const _slab = new Float64Array(2);
+
+/** Narrows `_slab` (a share of a line, from, to) to where the coordinate `p + t v` lies within ±`half`. */
+function slab(p: number, v: number, half: number): void {
+  if (Math.abs(v) < 1e-12) {
+    if (Math.abs(p) > half) _slab[1] = -1;
+    return;
+  }
+  const a = (-half - p) / v;
+  const b = (half - p) / v;
+  _slab[0] = Math.max(_slab[0]!, Math.min(a, b));
+  _slab[1] = Math.min(_slab[1]!, Math.max(a, b));
+}
+
 type Vec3 = { x: number; y: number; z: number };
 
 /**
@@ -377,9 +443,9 @@ export class SightLines {
     this.i = 0;
   }
 
-  /** `camUsable`'s question, begun: false when `eye` has no room (`clearSpot`; costs `CLEAR_COST`), else its lines are started. */
+  /** `camUsable`'s question, begun: false when `eye` has no room (`clearSpot`; costs `CLEAR_COST`) or a car's box holds it or stands on its line to `target` (`carsBlock`), else its lines are started. */
   begin(s: Sight, eye: Vec3, target: Vec3, vel: Vec3, horizon: number): boolean {
-    if (!clearSpot(s, eye.x, eye.y, eye.z)) return false;
+    if (!clearSpot(s, eye.x, eye.y, eye.z) || carsBlock(s, eye, target)) return false;
     this.start(s, eye.x, eye.y, eye.z, aheadPoints(s, target.x, target.y, target.z, vel.x, vel.z, horizon, this.points));
     return true;
   }

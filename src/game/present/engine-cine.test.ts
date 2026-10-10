@@ -8,8 +8,10 @@ import { blankPoint, Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import stunt from "../world/tracks/stunt.json" with { type: "json" };
 import { sampleAt } from "./track-mesh.ts";
-import { camUsable, CLEAR, occluder, raceSight, solid, type Sight } from "./spectate-cam.ts";
+import { camUsable, carsBlock, CLEAR, occluder, raceSight, solid, withCars, type Sight } from "./spectate-cam.ts";
 import { CrashCam, CrashPick, crashEye, CUTS, heldCut, hitAim, laterHits } from "./engine-cine.ts";
+import { contextEye } from "./highlight-cam.ts";
+import { DeformableCar } from "../vehicle/car.ts";
 import { SLOMO_HOLD } from "../match/phase.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 
@@ -393,5 +395,93 @@ describe("given the crash camera aiming at a hit on the stunt course's road", ()
 
   it(`when the car is ${SUNK_DEPTH} m into the road at the hit, then the camera aims that rise over the road, not over the car`, () => {
     assertAimsAt(roadHeight - SUNK_DEPTH, roadHeight + riseOverCar);
+  });
+});
+
+describe("given a crash in an open field and the cars of the pile standing about the hit", () => {
+  const open: Sight = { ground: FLAT_GROUND, path: null, wallTop: 0.6, rim: Infinity, occ: [] };
+  const at = new THREE.Vector3(0, 0.55, 0);
+  const axis = new THREE.Vector3(1, 0, 0);
+  const scene = new THREE.Scene();
+  /** The times through a cut the pick tries an eye at (`CUT_SAMPLES`). */
+  const PICKED = 9;
+  /** A parked car with its wheels at height `y`, its nose along `yaw` (rad from +z). */
+  const carAt = (x: number, y: number, z: number, yaw = 0): DeformableCar => {
+    const car = new DeformableCar({ body: 0x808080, accent: 0x404040, name: "car" }, scene);
+    car.group.position.set(x, y, z);
+    car.fwdFlat.set(Math.sin(yaw), 0, Math.cos(yaw));
+    return car;
+  };
+  const _eye = new THREE.Vector3();
+  /** The eye of cut `cut` at `reach`, a share `u` of the way through the cut. */
+  const eyeAt = (cut: number, reach: number, u: number): THREE.Vector3 => {
+    crashEye(_eye, CUTS[cut]! + (CUTS[cut + 1]! - CUTS[cut]!) * u, at, axis, 1, reach);
+    return _eye.clone();
+  };
+  /** Each cut's reach after one axis of the pick over `s`. */
+  const reachOf = (s: Sight): Float32Array => {
+    const reach = new Float32Array(3);
+    crashSeen(s, at, axis, reach);
+    return reach;
+  };
+  /** No eye the pick samples on cut `cut` at `reach` is inside a car or has one on its line to the hit. */
+  const eyesClear = (s: Sight, cut: number, reach: number): boolean => {
+    for (let i = 0; i < PICKED; i++) if (carsBlock(s, eyeAt(cut, reach, i / (PICKED - 1)), at)) return false;
+    return true;
+  };
+  const free = reachOf(open);
+
+  it("when a car stands where the bumper cam's eye would be, then that cut takes a nearer eye or none, and no eye the pick samples is inside the car", () => {
+    assert.equal(free[0], 1, "no cars: the bumper cam's eye at full reach");
+    const old = eyeAt(0, 1, 0.5);
+    const s = withCars(open, [carAt(old.x, 0, old.z)]);
+    assert.equal(carsBlock(s, old, at), true, "the eye the pick would take is inside the car");
+    const reach = reachOf(s);
+    assert.ok(reach[0]! < 1, `the bumper cam kept its eye in the car (reach ${reach[0]})`);
+    assert.ok(reach[0] === 0 || eyesClear(s, 0, reach[0]!), "an eye of the cut it took is in the car");
+  });
+
+  it("when a car stands between the long lens's eye and the hit, then that cut takes a nearer eye or none, and no eye the pick samples has a car on its line to the hit", () => {
+    assert.equal(free[2], 1, "no cars: the long lens's eye at full reach");
+    const old = eyeAt(2, 1, 0.5);
+    const car = carAt(old.x / 2, 0, old.z / 2);
+    const s = withCars(open, [car]);
+    assert.equal(carsBlock(s, old, at), true, "a car stands on the line from the eye the pick would take");
+    assert.ok(Math.hypot(old.x - car.group.position.x, old.z - car.group.position.z) > 4, "the eye itself is well clear of the car");
+    const reach = reachOf(s);
+    assert.ok(reach[2]! < 1, `the long lens kept its eye behind the car (reach ${reach[2]})`);
+    assert.ok(reach[2] === 0 || eyesClear(s, 2, reach[2]!), "an eye of the cut it took has the car on its line");
+  });
+
+  it("when the cars stand above and below the line and the eyes, then the pick answers as it does with no cars", () => {
+    const old = eyeAt(2, 1, 0.5);
+    const s = withCars(open, [carAt(old.x / 2, 6, old.z / 2), carAt(old.x / 2, -3, old.z / 2), carAt(old.x, 6, old.z), carAt(old.x, -3, old.z)]);
+    const reach = reachOf(s);
+    for (let cut = 0; cut < 3; cut++) assert.equal(reach[cut], free[cut], `cut ${cut} reach with cars over and under: ${reach[cut]}, without: ${free[cut]}`);
+  });
+
+  it("when a car stands on the context shot's eye, then it takes another eye that is outside every car and has none on its lines to either point", () => {
+    const a = new THREE.Vector3(0, 0.55, 0);
+    const b = new THREE.Vector3(10, 0.55, 0);
+    const old = new THREE.Vector3();
+    assert.ok(contextEye(open, a, b, 0.3, old, new THREE.Vector3()) > 0, "an open field has an eye");
+    const s = withCars(open, [carAt(old.x, old.y - 0.4, old.z, 0.7)]);
+    assert.equal(carsBlock(s, old, a), true, "the old eye is inside the car");
+    const eye = new THREE.Vector3();
+    assert.ok(contextEye(s, a, b, 0.3, eye, new THREE.Vector3()) > 0, "the field still has an eye");
+    assert.equal(carsBlock(s, eye, a) || carsBlock(s, eye, b), false, "the eye the shot takes is in a car or has one on its line");
+  });
+
+  it("when a car stands between the context shot's eye and one of its points, then it takes another eye with no car on either line", () => {
+    const a = new THREE.Vector3(0, 0.55, 0);
+    const b = new THREE.Vector3(10, 0.55, 0);
+    const old = new THREE.Vector3();
+    contextEye(open, a, b, 0.3, old, new THREE.Vector3());
+    const mid = old.clone().add(a).multiplyScalar(0.5);
+    const s = withCars(open, [carAt(mid.x, mid.y - 0.7, mid.z)]);
+    assert.equal(carsBlock(s, old, a), true, "a car stands on the old eye's line to the first point");
+    const eye = new THREE.Vector3();
+    assert.ok(contextEye(s, a, b, 0.3, eye, new THREE.Vector3()) > 0, "the field still has an eye");
+    assert.equal(carsBlock(s, eye, a) || carsBlock(s, eye, b), false, "the eye the shot takes has a car on a line");
   });
 });

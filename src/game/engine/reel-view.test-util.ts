@@ -8,7 +8,7 @@ import { phaseClock } from "../match/phase.ts";
 import type { ViewBox } from "../match/types.ts";
 import { CrashCam } from "../present/engine-cine.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
-import { addCars, sightLine, type Sight } from "../present/spectate-cam.ts";
+import { addCars, sightLine, withCars, type Sight } from "../present/spectate-cam.ts";
 import { coverLens, FLIGHT_S, ReelDirector, type ReelHost } from "./engine-highlights.ts";
 import { PoseBlend } from "../present/pose-blend.ts";
 
@@ -180,7 +180,7 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
     sight,
     still: course,
     clock,
-    crash: (contact, normal) => crash.begin(contact, normal, course(), clock.hold),
+    crash: (contact, normal) => crash.begin(contact, normal, withCars(course(), w.live()), clock.hold),
     impact: () => {},
     fudge: () => {},
     hit: () => {},
