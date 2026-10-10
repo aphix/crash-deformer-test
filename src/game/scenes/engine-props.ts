@@ -6,6 +6,7 @@ import { C_PY, HIT_SIZE } from "../world/surfaces.ts";
 import { BARRIER_HALF, BARRIER_MASS, BARRIER_TOP, clipCarToBarrier } from "../contact/sat.ts";
 import { strikeCar, bodyHit, makeBox, type ContactBox } from "../contact/external-contact.ts";
 import { detSin, detCos, hypot2, hypot3 } from "../kernel/physics-core.js";
+import { LAMP_POSTS, LAMP_RING_R } from "./fleet.ts";
 
 /** Fraction of a ramp ball's diameter left above the asphalt. */
 export const BALL_EXPOSE = 0.25;
@@ -391,10 +392,10 @@ export function scatterRampBalls(balls: readonly RampBall[], visible: boolean, r
 export function resetLampPoles(poles: readonly LampPole[]): void {
   for (let i = 0; i < poles.length; i++) {
     const pole = poles[i]!;
-    const a = (i / 6) * Math.PI * 2;
+    const a = (i / LAMP_POSTS) * Math.PI * 2;
     pole.intact = true;
     pole.kicked.clear();
-    pole.group.position.set(detSin(a) * 16, 0, detCos(a) * 16);
+    pole.group.position.set(detSin(a) * LAMP_RING_R, 0, detCos(a) * LAMP_RING_R);
     pole.group.rotation.set(0, 0, 0);
   }
 }

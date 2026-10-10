@@ -10,6 +10,26 @@ export const MAX_CARS = 32;
 /** Closest two fleet spawns sit, centre to centre (m): one 4.44 m car (2 × CAR_HALF.z) plus ~1 m. From the initial
  *  export (7a09b34); fleet.test.ts holds every layout to it and `respawnSlot` keeps it from every other car. */
 export const FLEET_MIN_SEP = 5.4;
+/** The six lamp posts stand on a ring this far (m) from the pad's centre, at bearings `k / LAMP_POSTS` of a turn from +z (`resetLampPoles`). */
+export const LAMP_RING_R = 16;
+export const LAMP_POSTS = 6;
+/** A spawn keeps this far (m) from every lamp post and from the path its car drives to the centre (a car's half width 1 + the post 0.12 + a margin). */
+const LAMP_CLEAR = 2;
+
+/** Whether a car at (x, z) driving straight at the centre passes within `LAMP_CLEAR` of a lamp post (or starts on one). */
+function lampInPath(x: number, z: number): boolean {
+  const len = hypot2(x, z);
+  if (len < 1e-6) return false;
+  for (let k = 0; k < LAMP_POSTS; k++) {
+    const a = (k / LAMP_POSTS) * Math.PI * 2;
+    const px = detSin(a) * LAMP_RING_R;
+    const pz = detCos(a) * LAMP_RING_R;
+    // The post's position along the spawn-to-centre line, clamped to the segment, and its distance from that line.
+    const t = Math.max(0, Math.min(1, (px * x + pz * z) / (len * len)));
+    if (hypot2(px - x * t, pz - z * t) < LAMP_CLEAR) return true;
+  }
+  return false;
+}
 
 /** Slot cycle (fleet and derby share the pool): every fleet body style in its own class, then a monster truck. */
 const SLOT_STYLES: readonly CarStyleId[] = [...FLEET_STYLE_IDS, CLASSES.monster.style];
@@ -84,8 +104,8 @@ export function layoutFleet(
       const r = 6.4 + rng() * padR;
       x = detSin(ang) * r;
       z = detCos(ang) * r;
-      placed = true;
-      for (let j = 0; j < i; j++) {
+      placed = !lampInPath(x, z);
+      for (let j = 0; j < i && placed; j++) {
         const o = slots[j]!;
         if (hypot2(x - o.x, z - o.z) < FLEET_MIN_SEP) {
           placed = false;

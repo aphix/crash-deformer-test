@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { FLEET_MIN_SEP, MAX_CARS, fleetClass, fleetStyle, layoutDerby, layoutFleet, slotType } from "./fleet.ts";
+import { FLEET_MIN_SEP, LAMP_POSTS, LAMP_RING_R, MAX_CARS, fleetClass, fleetStyle, layoutDerby, layoutFleet, slotType } from "./fleet.ts";
 import { scatterRampBalls, type RampBall } from "./engine-props.ts";
 import { mulberry32 } from "../world/placements.ts";
 
@@ -72,6 +72,35 @@ describe("given a fleet of cars laid out around the arena (where each car spawns
   it("when 99 cars and then 0 cars are asked for, then the fleet is capped at the maximum car count and never drops below 1 car", () => {
     assert.equal(layoutFleet(99, 1, 2, rngFrom(4)).length, MAX_CARS);
     assert.equal(layoutFleet(0, 1, 2, rngFrom(4)).length, 1);
+  });
+});
+
+describe("given the six lamp posts on the 16 m ring", () => {
+  it("when fleets of 3 to 32 cars are laid out over 200 seeds, then no car spawns within 2 m of a post or has one within 2 m of its straight path to the centre", () => {
+    const posts = Array.from({ length: LAMP_POSTS }, (_, k) => {
+      const a = (k / LAMP_POSTS) * Math.PI * 2;
+      return { x: Math.sin(a) * LAMP_RING_R, z: Math.cos(a) * LAMP_RING_R };
+    });
+    const clearance = (x: number, z: number): number => {
+      const len2 = x * x + z * z;
+      let least = Infinity;
+      for (const p of posts) {
+        const t = Math.max(0, Math.min(1, (p.x * x + p.z * z) / len2));
+        least = Math.min(least, Math.hypot(p.x - x * t, p.z - z * t));
+      }
+      return least;
+    };
+    let worst = Infinity;
+    let cases = 0;
+    for (const n of [3, 5, 8, 14, 20, 32]) {
+      for (let seed = 1; seed <= 200; seed++) {
+        for (const s of layoutFleet(n, 10, 30, mulberry32(seed))) {
+          worst = Math.min(worst, clearance(s.x, s.z));
+          cases++;
+        }
+      }
+    }
+    assert.ok(worst >= 2 - 1e-9, `after ${cases} spawns the closest a post comes to a spawn's path is ${worst.toFixed(2)} m`);
   });
 });
 
