@@ -277,6 +277,7 @@ turns to the impact `HIT_LEAD` (0.75 s) before it lands and stays `HIT_KEEP` (0.
 whose eye has room and sees the car and every impact still to come, falling back to the cuts that see the car alone when
 none sees them all. A driver thrown in the clip's scope is one more such beat, aimed at his torso as he leaves the pane
 (owner 10-06: the throw is visible from the camera at the moment it happens; the ride-along no longer takes it).
+The held cam's lens opens past its cut's own to keep every beat of the moment in the frame of the narrowest screen (`fovFor`, never past `WIDEN_MAX` 70°), eased like the aim, except on the first frame of a held cut: a cut change (`heldCut` moved the shot, say crane to long lens as two drivers are thrown) is a new eye with a new own lens, so the opening is taken whole there (`CrashCam.widenCut`), not eased up from the last cut's. Eased, the long lens (21°) stood at 26° on the frame the throw came and one of two drivers thrown 3.2 m apart sat at NDC 0.81 on the phone-portrait layout (margin 0.8); now 36° there, in frame.
 
 A shot is one of: chase (behind the car along its travel), trackside cinematic (`CineCam.pick`, searched in full when
 the shot starts, so the pick depends only on the poses and the seed), wheel-well dutch (`DutchCam.place` on a seeded

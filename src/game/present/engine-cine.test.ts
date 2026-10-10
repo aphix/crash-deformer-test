@@ -10,7 +10,7 @@ import stunt from "../world/tracks/stunt.json" with { type: "json" };
 import { sampleAt } from "./track-mesh.ts";
 import { camUsable, carsBlock, CLEAR, occluder, raceSight, solid, withCars, type Sight } from "./spectate-cam.ts";
 import { CrashCam, CrashPick, crashEye, CUTS, heldCut, hitAim, laterHits } from "./engine-cine.ts";
-import { contextEye } from "./highlight-cam.ts";
+import { contextEye, fovFor } from "./highlight-cam.ts";
 import { DeformableCar } from "../vehicle/car.ts";
 import { SLOMO_HOLD } from "../match/phase.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
@@ -483,5 +483,40 @@ describe("given a crash in an open field and the cars of the pile standing about
     const eye = new THREE.Vector3();
     assert.ok(contextEye(s, a, b, 0.3, eye, new THREE.Vector3()) > 0, "the field still has an eye");
     assert.equal(carsBlock(s, eye, a) || carsBlock(s, eye, b), false, "the eye the shot takes has a car on a line");
+  });
+});
+
+describe("given a reel's crash camera holding the crane with two drivers thrown 6 m apart, and a wall that then hides the crane's eye", () => {
+  const open: Sight = { ground: FLAT_GROUND, path: null, wallTop: 0.6, rim: Infinity, occ: [] };
+  const at = new THREE.Vector3(0, 0.55, 0);
+  const n = new THREE.Vector3(1, 0, 0);
+
+  it("when the held cut changes to the long lens as they are thrown, then its lens is open to keep both in frame of the narrowest screen on the new cut's first frame, not eased open after it", () => {
+    const eye = new THREE.Vector3();
+    crashEye(eye, CUTS[1]!, at, n, 0, 1);
+    const d = Math.hypot(eye.x - at.x, eye.z - at.z);
+    const walled: Sight = { ...open, occ: [occluder(at.x + ((eye.x - at.x) / d) * 3.3, at.z + ((eye.z - at.z) / d) * 3.3, Math.atan2(eye.x - at.x, eye.z - at.z), 8, 0.5, false, 0, 30)] };
+    let wall = false;
+    const later = laterHits(2);
+    later.n = 2;
+    for (let k = 0; k < 2; k++) {
+      later.from[k] = 2.0;
+      later.until[k] = 3.4;
+      later.at[k]!.set(0, 1, k === 0 ? -3 : 3);
+    }
+    const hold = { target: new THREE.Vector3(0, 0.55, 0), sight: () => (wall ? walled : open), hit: 0.3, later };
+    const cam = new CrashCam(false);
+    const camera = new THREE.PerspectiveCamera();
+    cam.begin(at.clone(), n.clone(), open, SLOMO_HOLD);
+    let held = cam["held"];
+    let changed = false;
+    for (let i = 0; i < 80 && !changed; i++) {
+      wall = cam.camT >= 2.1;
+      cam.direct(camera, 0.05, true, hold);
+      changed = held === 1 && cam["held"] === 2;
+      held = cam["held"];
+    }
+    assert.ok(changed, "the wall moved the cam from the crane to the long lens");
+    for (const p of later.at.slice(0, 2)) assert.ok(fovFor(camera.position, cam["aim"], p, camera.fov) <= camera.fov + 1e-6, `the thrown driver at z ${p.z} needs a ${fovFor(camera.position, cam["aim"], p, camera.fov).toFixed(1)} deg lens, the long lens's first frame has ${camera.fov.toFixed(1)}`);
   });
 });

@@ -310,9 +310,10 @@ export class CrashCam {
   private held = -1;
   private aimSet = false;
   private readonly aim = new THREE.Vector3();
-  /** The lens a held cut opens beyond its own (deg) to keep the moment's points in frame, eased; unset until the cut's first frame. */
+  /** The lens a held cut opens beyond its own (deg) to keep the moment's points in frame, eased; unset until the cut's first frame, and again when the held cut changes (a new eye has a new own lens: the opening is its first frame's, not eased from the last cut's). */
   private widen = 0;
   private widenSet = false;
+  private widenCut = -1;
   /** Wall s into the crash cam at which it hands the camera back (`crashCamEnd` of `begin`'s hold). */
   private end: number = CUTS[3];
 
@@ -340,6 +341,7 @@ export class CrashCam {
     this.aimSet = false;
     this.widen = 0;
     this.widenSet = false;
+    this.widenCut = -1;
   }
 
   /** Off, with no letterbox. */
@@ -395,6 +397,10 @@ export class CrashCam {
         this.held = heldCut(hold.sight(), this.camAt, this.camN, this.camReach, hold.target, this.held, hold.later, ahead);
       }
       cut = this.held;
+      if (cut !== this.widenCut) {
+        this.widenCut = cut;
+        this.widenSet = false;
+      }
       eyeT = cut < 0 ? u : CUTS[cut]!;
       // The hit itself until it has landed (the reel's moment, framed at the lens's centre), each later impact of the window as it comes, else the car.
       const want = holdAim(hold, this.camAt, t);

@@ -154,7 +154,7 @@ describe("given highlight reels from a ramming city race; staged head-ons, wall 
       kinds.set(v.kind, k);
     }
     const missed = views.filter((v) => !v.seen);
-    t.diagnostic(`seen ${views.length - missed.length}/${views.length}: ${[...kinds].map(([k, [a, n]]) => `${k} ${a}/${n}`).join(", ")}`);
+    t.diagnostic(`seen ${views.length - missed.length}/${views.length}: ${[...kinds].map(([k, [a, n]]) => `${k} ${a}/${n}`).join(", ")}; widest crash-cam lens ${Math.max(0, ...views.filter((v) => v.rig === "crash").map((v) => v.fov)).toFixed(1)} deg`);
     for (const v of missed) {
       t.diagnostic(`${v.scene} "${v.title}" ${v.kind} at ${v.at.toFixed(2)} s by ${v.rig}: ndc ${v.ndcX.toFixed(2)},${v.ndcY.toFixed(2)}${v.front ? "" : " behind"}, ${v.clear ? "clear" : "BLOCKED"}, share ${v.share.toFixed(3)} (${v.note})`);
     }
@@ -167,7 +167,7 @@ describe("given highlight reels from a ramming city race; staged head-ons, wall 
     const missed: string[] = [];
     for (const [i, { name }] of LAYOUTS.entries()) {
       const seen = covered[i]!.filter((v) => v.seen).length;
-      t.diagnostic(`${name}: seen ${seen}/${covered[i]!.length}, under a panel ${covered[i]!.filter((v) => v.covered).length}`);
+      t.diagnostic(`${name}: seen ${seen}/${covered[i]!.length}, under a panel ${covered[i]!.filter((v) => v.covered).length}, widest crash-cam lens ${Math.max(0, ...covered[i]!.filter((v) => v.rig === "crash").map((v) => v.fov)).toFixed(1)} deg`);
       for (const v of covered[i]!) {
         if (!v.seen) missed.push(`${name}: ${v.scene} "${v.title}" ${v.kind} at ${v.at.toFixed(2)} s by ${v.rig}: ndc ${v.ndcX.toFixed(2)},${v.ndcY.toFixed(2)}${v.front ? "" : " behind"}${v.covered ? " UNDER A PANEL" : ""}, ${v.clear ? "clear" : "BLOCKED"}, share ${v.share.toFixed(3)}`);
       }

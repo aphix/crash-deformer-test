@@ -80,6 +80,8 @@ export type MomentView = {
   end: number;
   /** What the camera stack was doing: the moment's car is the clip's subject or not, the crash cam's clock. */
   note: string;
+  /** The camera's lens (deg) at the moment. */
+  fov: number;
 };
 
 /** A reel clip's wall timeline as `clipTimeline` steps it: per fixed wall step the clip second and the time scale. */
@@ -221,7 +223,7 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
       const rig = rode ? "ride" : cut ? "crash" : reel["flying"] ? "flight" : shot.ctx ? "shot:context" : `shot:${shot.kind === "chase" || reel["shotCam"].found ? shot.kind : "chase"}`;
       trace?.push({ clip: i, wall: k * FRAME, at: sim.time, rig, hold: clock.hold });
       const cam = `${rig}|${reel["shot"]}|${crash["held"]}`;
-      const view = (kind: MomentKind, at: number, p: THREE.Vector3, car: number): MomentView => ({ scene, title, kind, at, hitAt: clip.firstImpact, rig, x: p.x, y: p.y, z: p.z, ...judge(camera, s, p, screen), cam, back: null, hold: holdAfter(tl, at), wall: (stepOf(tl, at) * wall) / (tl.sim.length - 1), end: wall, note: `${car === clip.focus ? "subject" : "other car"}, hit at ${clip.firstImpact.toFixed(2)} s, eye ${camera.position.toArray().map((v) => v.toFixed(1))}` });
+      const view = (kind: MomentKind, at: number, p: THREE.Vector3, car: number): MomentView => ({ scene, title, kind, at, hitAt: clip.firstImpact, rig, x: p.x, y: p.y, z: p.z, ...judge(camera, s, p, screen), cam, back: null, hold: holdAfter(tl, at), wall: (stepOf(tl, at) * wall) / (tl.sim.length - 1), end: wall, fov: camera.fov, note: `${car === clip.focus ? "subject" : "other car"}, hit at ${clip.firstImpact.toFixed(2)} s, eye ${camera.position.toArray().map((v) => v.toFixed(1))}` });
       for (const m of moments) {
         if (m.at > sim.time + 1e-9 || m.at < 0) continue;
         const p = m.point ?? new THREE.Vector3(m.x, sim.cars[m.car]!.group.position.y + 0.55, m.z);
