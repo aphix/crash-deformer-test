@@ -145,7 +145,7 @@ export class ClipSim {
     const w = newWorld(cars);
     const slots = clip.cars.map((c) => c.slot);
     w.collide = (car, k, h) => scene.collide(car, slots[k]!, h);
-    w.pairHit = (a, b, hit, first) => this.noteHit(a, b, hit.impulse, first);
+    w.pairHit = (a, b, hit) => this.noteHit(a, b, hit.impulse);
     this.world = w;
     this.dress = scene.dress;
     this.restoreCar = scene.restore;
@@ -285,9 +285,8 @@ export class ClipSim {
     if (counts && c.firstB < 0 && j === c.firstA) this.markHit();
   }
 
-  /** The recorded first impact's pair touched at `closing` m/s (first SAT pass: the contact they came in with). */
-  private noteHit(a: number, b: number, closing: number, first: boolean): void {
-    if (!first) return;
+  /** The recorded first impact's pair touched at `closing` m/s. */
+  private noteHit(a: number, b: number, closing: number): void {
     const { firstA, firstB } = this.clip;
     const k = a * this.cars.length + b;
     const counts = countsAsImpact(this.time - this.pairAt[k]!, closing);

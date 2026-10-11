@@ -17,7 +17,6 @@ import {
   regionCrushBands,
   leftoverPass,
   TRANSFER,
-  cancelClosing,
   satPushCap,
   hypot2,
   hypot3,
@@ -281,25 +280,8 @@ describe("given leftoverPass (the share of the closing speed that a crushed regi
   });
 });
 
-describe("given cancelClosing (how much closing speed one step cancels) and satPushCap (the cap on one step's push), where slow motion must not rocket the cars", () => {
-  const inv = 1 / 1500 + 1 / 1500;
-
-  it("when a 1/60 s step cancels 20 m/s of closing, then the speed change is no more than the 20 m/s that remained", () => {
-    const j = cancelClosing(20, 1, inv, 1 / 60, 0);
-    const dv = j * inv;
-    assert.ok(dv <= 20 + 1e-6, `dv ${dv}`);
-  });
-
-  it("when the step is 1/240 s instead of 1/60 s, then the amount cancelled is under 40 % of the 1/60 s step's and the push cap under 35 %", () => {
-    const slow = cancelClosing(20, TRANSFER.belowMiddle, inv, 1 / 240, 0);
-    const fast = cancelClosing(20, TRANSFER.belowMiddle, inv, 1 / 60, 0);
-    assert.ok(slow < fast * 0.4, `slomo ${slow} vs 1/60 ${fast}`);
+describe("given satPushCap (the cap on one step's push), where slow motion must not rocket the cars", () => {
+  it("when the step is 1/240 s instead of 1/60 s, then the push cap is under 35 % of the 1/60 s step's", () => {
     assert.ok(satPushCap(1 / 240) < satPushCap(1 / 60) * 0.35);
-  });
-
-  it("when 20 m/s of closing meets a region at rest crumple (transfer 0.1) versus a packed one, then the packed region cancels more than 5 times as much", () => {
-    const rest = cancelClosing(20, TRANSFER.belowMiddle, inv, 1 / 60, 0);
-    const packed = cancelClosing(20, TRANSFER.packed, inv, 1 / 60, 0);
-    assert.ok(packed > rest * 5);
   });
 });

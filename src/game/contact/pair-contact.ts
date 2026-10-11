@@ -2,11 +2,12 @@ import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { armPairWithRows, MU_BODY, rowsClosing, WALL_CRUSH } from "../vehicle/car-air.ts";
 import type { MassNode } from "../deform/deform-rig.ts";
-import { leftoverCrumple, cancelClosing, satPushCap, hypot2, CRASH } from "../deform/physics-util.ts";
+import { leftoverCrumple, satPushCap, hypot2, CRASH } from "../deform/physics-util.ts";
 import { satCars } from "./sat.ts";
 import { bandsMeet, OUTLINE_REACH } from "./cage-outline.ts";
-import { strikeCar, faceDepth, type ContactBox } from "./external-contact.ts";
-import { ARM_CLOSING, SOLID_E } from "./constants.ts";
+import { strikeCar, faceDepth, carRow, takeRow, type ContactBox } from "./external-contact.ts";
+import { bodyContact, BODY_SIZE, BODY_VX, BODY_VZ, BODY_W, BODY_X, BODY_Z, CT_DEPTH, CT_E, CT_JMAX, CT_MU, CT_NX, CT_NZ, CT_SIZE, CT_X, CT_Z, OUT_EBS_A, OUT_EBS_B, OUT_SIZE } from "./body-contact.ts";
+import { ARM_CLOSING, PAIR_MU, SOLID_E } from "./constants.ts";
 import { TYRE_HALF_W } from "../deform/deform-contact.ts";
 import { FOOT_HALF_L } from "../vehicle/car-mesh.ts";
 import { SOLID_AT_REST } from "../world/constants.ts";
@@ -181,115 +182,162 @@ export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz:
  * per-slice budget (`takePush`): the three SAT passes of one slice each pushing a full `satPushCap` moved a wedged wreck
  * 0.11 m in 6 ms (derby group pops), and one cap a slice, shared with the sphere shifts and wall translations, still put
  * 0.04–0.05 m a step on a slow wedged wreck against a zip bound of 3·v·h + 0.05 m: the cap is a push-out speed that grows
- * only with the speed of the cars touching.
- *
- * A shove moves positions, so the cars' velocities carry it: what two closing cars push apart in a slice is the momentum that
- * stops their closing, shared by mass (the pair's momentum is kept) and never more than the `closing` speed (m/s, along the
- * push) there is, and a car's share of it is carried by its velocity one slice on, not also moved by position. Before this a
- * pusher kept its drive speed while its shoves moved the car it drove into 3.6–8.4 m/s at a reported speed under 1 m/s (derby
- * 10 cars, 40 s: 791 car-frames over 0.06 m in 1/60 s at under 1 m/s in the browser on main ef6611a, 221 a heat headless).
- * With `closing` 0 (the COM-gap floor, the tyres' stop: the closing is held or spent already) the shove is a position
- * correction alone. Returns the closing speed (m/s) it took.
+ * only with the speed of the cars touching. A shove is a position correction alone: the pair's momentum is the exchange's
+ * (`exchangePair`), never a push's (a pusher kept its drive speed while its shoves moved the car it drove into 3.6–8.4 m/s at a
+ * reported speed under 1 m/s: derby 10 cars, 40 s, 791 car-frames over 0.06 m in 1/60 s at under 1 m/s on main ef6611a).
  */
-function pushApart(carA: DeformableCar, carB: DeformableCar, nx: number, nz: number, aAmt: number, bAmt: number, dt: number, closing: number): number {
+function pushApart(carA: DeformableCar, carB: DeformableCar, nx: number, nz: number, aAmt: number, bAmt: number, dt: number): void {
   const touchSpeed = Math.max(hypot2(carA.velocity.x, carA.velocity.z), hypot2(carB.velocity.x, carB.velocity.z));
   const okA = carA.deform.massActive ? carA.deform.takePush(nx, nz, aAmt, dt, touchSpeed) : aAmt;
   const okB = carB.deform.massActive ? carB.deform.takePush(-nx, -nz, bAmt, dt, touchSpeed) : bAmt;
-  const dv = Math.max(0, Math.min((okA + okB) / dt, closing));
-  const kA = (dv * carB.deform.totalMass) / (carA.deform.totalMass + carB.deform.totalMass);
-  const kB = dv - kA;
-  // The velocity a car takes carries its share of the shove one slice on: only what it does not carry is moved by position.
-  pushCar(carA, nx, 0, nz, Math.max(0, okA - kA * dt), kA);
-  pushCar(carB, -nx, 0, -nz, Math.max(0, okB - kB * dt), kB);
-  return dv;
-}
-
-/** The speed (m/s) car A and B close along the unit (nx, nz), which points from B to A. */
-function closingAlong(carA: DeformableCar, carB: DeformableCar, nx: number, nz: number): number {
-  return (carB.velocity.x - carA.velocity.x) * nx + (carB.velocity.z - carA.velocity.z) * nz;
-}
-
-/** A car's momentum over its mass (m/s) along the unit (nx, nz): its masses' mean velocity, whatever its frame last read. */
-function momentumAlong(car: DeformableCar, nx: number, nz: number): number {
-  if (!car.deform.massActive) return car.velocity.x * nx + car.velocity.z * nz;
-  let p = 0;
-  let m = 0;
-  for (const q of car.deform.masses) {
-    if (!q.dynamic) continue;
-    p += (q.vel.x * nx + q.vel.z * nz) * q.mass;
-    m += q.mass;
-  }
-  return m > 0 ? p / m : 0;
+  pushCar(carA, nx, 0, nz, okA);
+  pushCar(carB, -nx, 0, -nz, okB);
 }
 
 /**
- * Rigid 2.15 m COM gap launches crushed cars whose noses already occupy that space. It is the packed structure's floor, so it
- * holds only once the crush along the contact is spent on both cars (`spent`, from `strokeUsed`: the struck face's stroke, a
- * door on a flank, not the nose the hit never touched; the minimum gap too reads the struck face's travel, `faceTravel`),
- * and while they are still closing. Before that the crush and the hit's impulse carry the exchange. Once it holds, the pair
- * meets as a rigid inelastic impact along the line of centres (`stopClosing`, once a slice); the position push after it
- * only takes the pair out of the floor, so a push never becomes velocity.
+ * The packed structure's floor: a rigid 2.15 m centre gap launches crushed cars whose noses already occupy that space, so it holds
+ * only once the crush along the contact is spent on both cars (`spent`, from `strokeUsed`: the struck face's stroke, a door on a
+ * flank, not the nose the hit never touched; the minimum gap too reads the struck face's travel, `faceTravel`), and while they are
+ * still closing. The pair's momentum is the exchange's (rigid then); this position push only takes the pair out of the floor.
  */
-function holdComGap(carA: DeformableCar, carB: DeformableCar, leftoverA: number, leftoverB: number, dist: number, feed: boolean, dt: number): void {
+function holdComGap(carA: DeformableCar, carB: DeformableCar, leftoverA: number, leftoverB: number, dist: number, dt: number): void {
   const minSep = 2.15 + leftoverA * 0.28 + leftoverB * 0.28;
   if (dist >= minSep) return;
   _w.copy(carA.group.position).sub(carB.group.position).setY(0);
   if (_w.lengthSq() < 1e-8) return;
   _w.normalize();
-  if (feed) stopClosing(carA, carB, _w.x, _w.z);
   const extra = Math.min((minSep - dist) * 0.5, satPushCap(dt));
-  pushApart(carA, carB, _w.x, _w.z, extra, extra, dt, 0);
+  pushApart(carA, carB, _w.x, _w.z, extra, extra, dt);
+}
+
+/** Share of a hit's stroke (`strokeUsed`) both noses must have crushed before the packed structure (B1) stops a pair's closing. */
+const PACKED_STROKE = 0.9;
+
+// The kernel's rows (`contact/body-contact.ts`) of the pair's exchange: car A, car B, the contact and the result, reused by every call.
+const pairRows = new Float64Array(2 * BODY_SIZE);
+const pairContact = new Float64Array(CT_SIZE);
+const pairResult = new Float64Array(OUT_SIZE);
+
+/**
+ * Both cars of the pair as rows of `pairRows` (`carRow`: each a rigid body in plan, its velocity the mean of the masses still closing
+ * on the other's, those moving along the normal slower than the pair's common speed `vc`) and the contact at `p` along the unit `n`
+ * (out of B into A), plastic, with the friction of sheet metal on sheet metal and at most `maxJ` of normal impulse.
+ */
+function loadPair(carA: DeformableCar, carB: DeformableCar, n: THREE.Vector3, p: THREE.Vector3, vc: number, maxJ: number): void {
+  carRow(pairRows, 0, carA, n.x, n.z, Infinity);
+  carRow(pairRows, BODY_SIZE, carB, -n.x, -n.z, Infinity);
+  pairContact[CT_X] = p.x;
+  pairContact[CT_Z] = p.z;
+  pairContact[CT_NX] = n.x;
+  pairContact[CT_NZ] = n.z;
+  pairContact[CT_DEPTH] = 0;
+  pairContact[CT_E] = 0;
+  pairContact[CT_MU] = PAIR_MU;
+  pairContact[CT_JMAX] = maxJ;
 }
 
 /**
- * A rigid inelastic impact: every dynamic mass of both cars takes the speed the pair's momentum gives along the unit (nx, nz),
- * from B to A (`vc`), so they leave together, momentum kept and no internal speed left. Spent structures are one body: a mass
- * given only the pair's mean closing (an equal dv) kept the speed it had inside its car (a bumper pushed back at 21 m/s, the
- * cabin on at 14) and the shift rang the crush (200 km/h head-on: nose 0.775 m, clamped masses at ±8 m/s that a quiet wreck
- * let go 0.2 s later). A car's reported velocity is then the one its masses carry.
+ * The crush force (N) a car's armed hit yields at: the energy of its barrier speed over the stroke that speed crushes
+ * (`m·ebs²/(2·stroke)`, the rigs' `strikeCar` reads the same); 0 before the hit is armed.
  */
-function stopClosing(carA: DeformableCar, carB: DeformableCar, nx: number, nz: number): void {
-  const vA = momentumAlong(carA, nx, nz);
-  const vB = momentumAlong(carB, nx, nz);
-  if (vB - vA <= 0) return;
-  const mA = carA.deform.totalMass;
-  const mB = carB.deform.totalMass;
-  const vc = (mA * vA + mB * vB) / (mA + mB);
-  matchAlong(carA, nx, nz, vA, vc);
-  matchAlong(carB, nx, nz, vB, vc);
+function crushForce(d: DeformableCar["deform"]): number {
+  const ebs = Math.max(0, d.hitSpeedValue);
+  return (d.totalMass * ebs * ebs) / (2 * Math.max(0.05, d.hitStroke()));
 }
 
-/** Set every dynamic mass's speed along the unit (nx, nz) to `vc`; the car's mean there was `mean`. */
-function matchAlong(car: DeformableCar, nx: number, nz: number, mean: number, vc: number): void {
-  if (car.deform.massActive) {
-    for (const q of car.deform.masses) {
-      if (!q.dynamic) continue;
-      const d = vc - (q.vel.x * nx + q.vel.z * nz);
-      q.vel.x += nx * d;
-      q.vel.z += nz * d;
+/**
+ * The pair's one momentum exchange: `bodyContact` between the two cars at the patch `p`, normal `n` out of B into A, the normal
+ * impulse at most `maxJ`. Each car's change of speed and spin goes onto every mass (or onto the car of a body that is no wreck), as
+ * the rigs' strike does (`takeRow`). A rigid contact (`maxJ` infinite: the crush is spent, packed, or too slow to crush) leaves each
+ * car one body: every mass at the rigid motion of its car, as a spent structure is, so no internal speed is left to crush the
+ * structure further (200 km/h head-on: clamped masses at ±8 m/s that a quiet wreck let go 0.2 s later).
+ */
+function exchangePair(carA: DeformableCar, carB: DeformableCar, n: THREE.Vector3, p: THREE.Vector3, vc: number, maxJ: number): void {
+  loadPair(carA, carB, n, p, vc, maxJ);
+  const axv = pairRows[BODY_VX]!;
+  const azv = pairRows[BODY_VZ]!;
+  const aw = pairRows[BODY_W]!;
+  const bxv = pairRows[BODY_SIZE + BODY_VX]!;
+  const bzv = pairRows[BODY_SIZE + BODY_VZ]!;
+  const bw = pairRows[BODY_SIZE + BODY_W]!;
+  if (bodyContact(pairRows, 0, BODY_SIZE, pairContact, pairResult) === 0) return;
+  takeRow(carA, pairRows, 0, axv, azv, aw, n.x, n.z, Infinity);
+  takeRow(carB, pairRows, BODY_SIZE, bxv, bzv, bw, -n.x, -n.z, Infinity);
+  if (maxJ === Infinity) {
+    moveAsOneBody(carA, 0);
+    moveAsOneBody(carB, BODY_SIZE);
+  }
+}
+
+/** Every dynamic mass of `car` takes the rigid motion of the row at `o` of `pairRows` (its velocity and spin about its centre): momentum and angular momentum kept, the internal motion gone. */
+function moveAsOneBody(car: DeformableCar, o: number): void {
+  if (!car.deform.massActive) return;
+  const vx = pairRows[o + BODY_VX]!;
+  const vz = pairRows[o + BODY_VZ]!;
+  const w = pairRows[o + BODY_W]!;
+  const cx = pairRows[o + BODY_X]!;
+  const cz = pairRows[o + BODY_Z]!;
+  for (const q of car.deform.masses) {
+    if (!q.dynamic) continue;
+    q.vel.x = vx + w * (q.world.z - cz);
+    q.vel.z = vz - w * (q.world.x - cx);
+  }
+}
+
+/** The pair's momentum before the crush layer's feed (`pairMomentum`: x, z, and the mass it is over). */
+const _momentum = new Float64Array(3);
+
+/** `out` ← the momentum (kg m/s, x then z) and mass (kg) of the two cars' dynamic masses; a car that is no wreck is its own velocity and mass. */
+function pairMomentum(carA: DeformableCar, carB: DeformableCar, out: Float64Array): void {
+  out.fill(0);
+  for (let c = 0; c < 2; c++) {
+    const car = c === 0 ? carA : carB;
+    if (car.deform.massActive) {
+      for (const q of car.deform.masses) {
+        if (!q.dynamic) continue;
+        out[0] += q.mass * q.vel.x;
+        out[1] += q.mass * q.vel.z;
+        out[2] += q.mass;
+      }
+    } else {
+      const m = car.deform.totalMass;
+      out[0] += m * car.velocity.x;
+      out[1] += m * car.velocity.z;
+      out[2] += m;
     }
   }
-  car.velocity.x += nx * (vc - mean);
-  car.velocity.z += nz * (vc - mean);
 }
 
-/** Centre-to-centre gap (m, about a car's width) that `closingCap` stops a pair's closing before. */
-const STOP_GAP = 2;
+/** Give every dynamic mass of both cars (a car that is no wreck: its velocity) the one velocity change that brings the pair's momentum back to `before`. */
+function restoreMomentum(carA: DeformableCar, carB: DeformableCar, before: Float64Array): void {
+  pairMomentum(carA, carB, _after);
+  const dvx = (before[0]! - _after[0]!) / before[2]!;
+  const dvz = (before[1]! - _after[1]!) / before[2]!;
+  for (let c = 0; c < 2; c++) {
+    const car = c === 0 ? carA : carB;
+    car.velocity.x += dvx;
+    car.velocity.z += dvz;
+    if (!car.deform.massActive) continue;
+    for (const q of car.deform.masses) {
+      if (!q.dynamic) continue;
+      q.vel.x += dvx;
+      q.vel.z += dvz;
+    }
+  }
+}
+const _after = new Float64Array(3);
 
-/** Share of a hit's stroke (`strokeUsed`) both noses must have crushed before the packed structure (B1) or the tyres stop a pair's closing. */
-const PACKED_STROKE = 0.9;
-/** |cos| between a tyre contact's normal and each car's heading above which the contact is end-on (head-on, nose into tail). */
-const END_ON = 0.7;
+/** A car's momentum (kg m/s) along the unit (nx, nz): its dynamic masses' (a car that is no wreck: its own velocity's). */
+function momentumAlong(car: DeformableCar, nx: number, nz: number): number {
+  if (!car.deform.massActive) return car.deform.totalMass * (car.velocity.x * nx + car.velocity.z * nz);
+  let p = 0;
+  for (const q of car.deform.masses) if (q.dynamic) p += q.mass * (q.vel.x * nx + q.vel.z * nz);
+  return p;
+}
 
-/**
- * Most closing impulse (N·s) one slice may cancel: 18 + 36·pass lets a hit grind on through the crumple,
- * raised to the impulse that stops the closing before the centres come within STOP_GAP. Uncapped, a derby
- * shove spun a pinned car past 5 rad/s (ten-car derby, 4 of 12 heats; main 1) and slid a squeezed one
- * 6–9 cm a slice (3 of 12; main 0). The bare cap shoved a t-bone's struck car at ~17 m/s² while the bullet
- * ground on, and from 58 m/s its nose came out of the struck car's far side (barrier.test.ts).
- */
-function closingCap(remain: number, pass: number, invSum: number, dist: number, dt: number): number {
-  return Math.max(18 + pass * 36, (remain * remain * dt) / (2 * Math.max(dist - STOP_GAP, 0.05) * invSum));
+/** How far (m) a car's structure has crushed in the hit that is still on (`crushing`: a contact within the last 0.28 s), 0 for a car with none. */
+function crushedSoFar(d: DeformableCar["deform"]): number {
+  return d.massActive && d.crushing ? d.hitStroke() * d.strokeUsed() : 0;
 }
 
 /**
@@ -298,7 +346,7 @@ function closingCap(remain: number, pass: number, invSum: number, dist: number, 
  * offers each car a hit: the first one starts its crash, a fresh hard one on
  * a wreck re-arms a new hit (`DeformableCar.applyImpact`). The closing impulse is capped by `closingCap`.
  */
-export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: boolean, dt: number): PairHit | null {
+export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, dt: number): PairHit | null {
   const pa = carA.group.position;
   const pb = carB.group.position;
   const gx = pa.x - pb.x;
@@ -307,34 +355,35 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
   const dist = Math.sqrt(gx * gx + gy * gy + gz * gz);
   if (dist > 5.2) return null;
 
-  const hit = satCars(carA, carB, _n, _p);
-  if (hit === null) {
-    // The drawn bodies can be apart while the tyres, which never crush, already meet: in a
-    // 100 km/h head-on the bodies missed for a frame and the tyres passed 0.25 m through each other.
-    if (!tyreStop(carA, carB, dt, _tn)) return null;
-    _hit.impulse = 0;
-    _hit.contact.copy(_p.copy(carA.group.position).add(carB.group.position).multiplyScalar(0.5));
-    _hit.normal.copy(_tn);
-    return _hit;
-  }
-
+  // The contact begins before the overlap, as the rigs' does (`strikeCar`): while the bodies are apart by less than the travel the
+  // pair closes in this slice, and, once the hit is on, by less than the crush has taken both faces back (a crush that keeps up with
+  // the closing leaves the faces apart by what it has eaten: the contact does not end where it works), the hit goes on.
+  const eaten = crushedSoFar(carA.deform) + crushedSoFar(carB.deform);
+  const hit = satCars(carA, carB, _n, _p, hypot2(carA.velocity.x - carB.velocity.x, carA.velocity.z - carB.velocity.z) * dt + eaten);
   const n = _n;
   n.y = 0;
   if (n.lengthSq() > 1e-8) n.normalize();
   const rel = _v.copy(carA.velocity).sub(carB.velocity);
   const closing = -rel.dot(n);
+  if (hit === null || hit < -(Math.max(0, closing) * dt + eaten)) return null;
+
   // What the pair met with: the rows of the rigid step that met it this slice have traded part of it already (read before `armPairWithRows` takes them).
   const met = Math.max(closing, rowsClosing(carA, carB));
 
-  if (closing > ARM_CLOSING && hit > 0.006) {
-    // Equivalent barrier speed: each car takes the closing share the other's mass pushes into it. The rows of the rigid step that met
-    // this pair in this slice (a car's nose on the other's top) read the same contact from before their exchange: it is armed once, at
-    // the larger reading, as it stood before it (`armPairWithRows`).
+  const mA = carA.deform.totalMass;
+  const mB = carB.deform.totalMass;
+  // Where the contact masses of both cars are driven to along the normal, and what the exchange ends at: the pair's common speed.
+  const vc = (mA * carA.velocity.dot(n) + mB * carB.velocity.dot(n)) / (mA + mB);
+  if (closing > ARM_CLOSING) {
+    // Equivalent barrier speed: each car takes the share of the pair's plastic exchange the kernel gives it at the contact point (a hit
+    // through both centres: the closing times the other's mass share). The rows of the rigid step that met this pair in this slice (a
+    // car's nose on the other's top) read the same contact from before their exchange: it is armed once, at the larger reading, as it
+    // stood before it (`armPairWithRows`).
     // Before notifyContact: a wreck's re-arm reads how long it has been quiet.
-    const mA = carA.deform.totalMass;
-    const mB = carB.deform.totalMass;
-    const shareA = (closing * mB) / (mA + mB);
-    const shareB = (closing * mA) / (mA + mB);
+    loadPair(carA, carB, n, _p, vc, 0);
+    bodyContact(pairRows, 0, BODY_SIZE, pairContact, pairResult);
+    const shareA = pairResult[OUT_EBS_A]!;
+    const shareB = pairResult[OUT_EBS_B]!;
     if (!armPairWithRows(carA, carB, _p, n, closing, shareA, shareB)) {
       carA.applyImpact(_p, n, closing, shareA);
       carB.applyImpact(_p, _w.copy(n).negate(), closing, shareB);
@@ -348,98 +397,52 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
     carB.deform.notifyContact();
   }
 
-  let remain = Math.max(0, closing);
-  if (feed) {
-    // A side contact drives each car's contact masses to the pair's common speed along the normal: a
-    // fixed-face kill (0) stopped a T-bone bullet's nose dead while the struck car got no momentum, only
-    // whole-body pushes, so its door never crushed (0.02 m vs the 0.12–0.28 m band).
-    // ponytail: end-on pairs keep the fixed-face kill, which the piston rig's frontal parity is matched
-    // to; driving a struck nose to the common speed makes its tail lag into crush (beams have no yield
-    // force). Upgrade path: car-car through external-contact's bodyContact (CONTACT_PARITY.md).
-    let vc = 0;
-    const rA = carA.rightFlat, fA = carA.fwdFlat, rB = carB.rightFlat, fB = carB.fwdFlat;
-    const sideA = Math.abs(_n.x * rA.x + _n.z * rA.z) > Math.abs(_n.x * fA.x + _n.z * fA.z);
-    if (sideA || Math.abs(_n.x * rB.x + _n.z * rB.z) > Math.abs(_n.x * fB.x + _n.z * fB.z)) {
-      const mA = carA.deform.totalMass;
-      const mB = carB.deform.totalMass;
-      vc = (mA * carA.velocity.dot(_n) + mB * carB.velocity.dot(_n)) / (mA + mB);
-    }
-    // The crush a hit feeds scales with the depth of the overlap, and the drawn bodies' contact begins where their surfaces do (the
-    // cage): a hit's first slice is as deep as the closing travelled after the touch, anywhere up to the slice's whole travel, so the
-    // feed is never less than that travel (`closing * dt`).
-    const fed = Math.max(hit, closing * dt);
-    const remainA = carA.deform.feedOverlap(_p, _n, fed, Math.max(0, closing), dt, vc);
-    const remainB = carB.deform.feedOverlap(_p, _w.copy(_n).negate(), fed, Math.max(0, closing), dt, -vc);
-    remain = Math.max(0, Math.min(remainA, remainB));
-  }
+  pairMomentum(carA, carB, _momentum);
+  const preA = momentumAlong(carA, n.x, n.z);
+  const preB = momentumAlong(carB, -n.x, -n.z);
+  // Each car's contact masses are driven to the pair's common speed along the normal (a fixed face at 0 stopped a T-bone bullet's nose
+  // dead while the struck car got no momentum; end-on the common speed is 0 for equal cars, the fixed face's).
+  // The crush a hit feeds scales with the depth of the overlap, and the drawn bodies' contact begins where their surfaces do (the
+  // cage): a hit's first slice is as deep as the closing travelled after the touch, anywhere up to the slice's whole travel, so the
+  // feed is never less than that travel (`closing * dt`).
+  const fed = Math.max(hit, closing * dt);
+  carA.deform.feedOverlap(_p, n, fed, Math.max(0, closing), dt, vc);
+  carB.deform.feedOverlap(_p, _w.copy(n).negate(), fed, Math.max(0, closing), dt, -vc);
+  // The momentum (N·s) the feed took off each car's closing along the normal: the structure's force already at work this slice.
+  const killed = 0.5 * (momentumAlong(carA, n.x, n.z) - preA + momentumAlong(carB, -n.x, -n.z) - preB);
   const spent = carA.crashed && carB.crashed && Math.min(carA.deform.strokeUsed(), carB.deform.strokeUsed()) >= PACKED_STROKE;
-  if (feed && closing > 0 && spent) {
-    // Both noses have crushed their stroke for this hit (B1): the packed
-    // structure stops the relative closing, toward the pair's common velocity.
-    const mA = carA.deform.totalMass;
-    const mB = carB.deform.totalMass;
-    const j = ((mA * mB) / (mA + mB)) * closing;
-    const comVn = (mA * carA.velocity.dot(_n) + mB * carB.velocity.dot(_n)) / (mA + mB);
-    carA.deform.shiftBody((_n.x * j) / mA, (_n.z * j) / mA, 0, 0, 0, _n.x, _n.z, comVn);
-    carB.deform.shiftBody((-_n.x * j) / mB, (-_n.z * j) / mB, 0, 0, 0, -_n.x, -_n.z, -comVn);
-  }
-
+  // A face whose crumple travel is used up (`leftoverCrumple`) is stiff: it takes whatever the pair's other face passes on.
   const leftoverA = leftoverCrumple(carA.deform.faceTravel());
   const leftoverB = leftoverCrumple(carB.deform.faceTravel());
-  const leftover = Math.min(leftoverA, leftoverB);
-  const pass = Math.min(carA.deform.frontTransfer(), carB.deform.frontTransfer());
-  const packed = leftover < 0.12;
-  // The hit's pushes trade momentum (`pushApart`); the COM-gap floor below exchanges the pair's momentum itself once the crush is spent.
+  const stiffA = leftoverA < 0.12;
+  const stiffB = leftoverB < 0.12;
+  if (closing > 0) {
+    // The one exchange of the pair, at the patch, once per slice: the normal impulse that closes the approach of the two cars' contact
+    // points (the lever of each about its centre in the kernel's effective mass), at the most what the crush force over the slice has
+    // left after the feed's kill while a structure still yields (the hit's own barrier speed over its stroke: that of the face that
+    // is not stiff, a T-bone's packed bullet nose passes on what the struck door yields), rigid once both are stiff or the crush is
+    // spent or too slow to crush.
+    const crushes = closing > CRASH.grazeMps && !spent && !(stiffA && stiffB);
+    const force = Math.min(stiffA ? Infinity : crushForce(carA.deform), stiffB ? Infinity : crushForce(carB.deform));
+    exchangePair(carA, carB, n, _p, vc, crushes ? Math.max(0, force * dt - Math.max(0, killed)) : Infinity);
+  }
+  // The crush layer's kills are the lattice's, not an exchange: the pair's momentum is the one it had, the kernel's impulse the only
+  // thing that moved it between the cars.
+  restoreMomentum(carA, carB, _momentum);
+
   // The cage's overlap is the crush's to take (`feedOverlap`): as deep as this slice's own travel explains it (`closing * dt`, how
   // deep a body that was clear at the last slice can be) or as the stroke this hit has left on either face (`hitStroke`, the speed's
-  // crush length, less what `strokeUsed` has taken). Only what is deeper is a push.
-  // A push moves the cars apart by position, so it carries the closing it trades (`pushApart`) on a slice that does not feed the crush (on a
-  // feed slice `feedOverlap` drives the contact masses to the pair's common speed: the exchange is its), unless the zone is packed and not
-  // spent (its momentum is the zone-spent path's, `kickCore` below). A shove that kept no velocity moved the struck car 0.06 m a frame at a
-  // reported speed under 1 m/s (shove-momentum), and a pair held at its closing for 15 frames against a heavy flank (ejection-matrix:
-  // t-bone sedan into monster, thrown at 17.4 m/s).
+  // crush length, less what `strokeUsed` has taken). Only what is deeper is a push, by position: the momentum is the exchange's.
   const give = Math.max(carA.deform.hitStroke() * (1 - carA.deform.strokeUsed()), carB.deform.hitStroke() * (1 - carB.deform.strokeUsed()));
   const extra = Math.max(0, hit - OUTLINE_REACH - Math.max(give, closing * dt));
   if (extra > 0) {
     const push = Math.min(extra + 0.006, satPushCap(dt));
     const both = carA.deform.massActive && carB.deform.massActive;
     const aAmt = both ? push * 0.5 : carA.deform.massActive ? push * 0.62 : push * 0.38;
-    remain = Math.max(0, remain - pushApart(carA, carB, _n.x, _n.z, aAmt, push - aAmt, dt, !feed && (spent || !packed) ? closingAlong(carA, carB, _n.x, _n.z) : 0));
+    pushApart(carA, carB, n.x, n.z, aAmt, push - aAmt, dt);
   }
 
-  if (spent && closing > 0 && dist > 1e-4) holdComGap(carA, carB, leftoverA, leftoverB, dist, feed, dt);
-
-  if (feed && extra > 0 && remain > 0.25) {
-    const e = pass >= 0.97 ? 0.02 : 0;
-    const invA = 1 / carA.deform.totalMass;
-    const invB = 1 / carB.deform.totalMass;
-    if (!packed) {
-      const j = Math.min(cancelClosing(remain, pass, invA + invB, dt, e), closingCap(remain, pass, invA + invB, dist, dt));
-      impulseCar(carA, _n.x, 0, _n.z, j);
-      impulseCar(carB, -_n.x, 0, -_n.z, j);
-
-      const tAx = carA.velocity.x - carB.velocity.x;
-      const tAz = carA.velocity.z - carB.velocity.z;
-      const relT = tAx * _n.z - tAz * _n.x;
-      const mu = 0.45;
-      const jt = Math.max(-mu * j, Math.min(mu * j, relT / (invA + invB)));
-      impulseCar(carA, _n.z, 0, -_n.x, -jt);
-      impulseCar(carB, _n.z, 0, -_n.x, jt);
-    } else {
-      // Zone spent: kill leftover closing on the cabin, not the bumper.
-      const j = Math.min(cancelClosing(remain, 1, invA + invB, dt, 0), remain / (invA + invB));
-      const dvA = j * invA;
-      const dvB = j * invB;
-      carA.deform.kickCore(_n.x, 0, _n.z, dvA);
-      carB.deform.kickCore(-_n.x, 0, -_n.z, dvB);
-      carA.velocity.x += _n.x * dvA;
-      carA.velocity.z += _n.z * dvA;
-      carB.velocity.x -= _n.x * dvB;
-      carB.velocity.z -= _n.z * dvB;
-    }
-  }
-
-  tyreStop(carA, carB, dt, _tn);
+  if (spent && closing > 0 && dist > 1e-4) holdComGap(carA, carB, leftoverA, leftoverB, dist, dt);
   _hit.impulse = Math.max(met, hit * 6);
   _hit.contact.copy(_p);
   _hit.normal.copy(n);
@@ -483,127 +486,4 @@ export function tyreOverlap(carA: DeformableCar, carB: DeformableCar): number {
     }
   }
   return depth;
-}
-
-/**
- * The tyres are the pair's final stop: the owner's dead-on showed them passing through each other (64 km/h
- * head-on: 0.091 m, 72+: 0.22 m). A swept test of every tyre pair over this slice of `dt` finds the first to
- * meet, and its normal (B → A, into `normalOut`): the closing that would carry those tyres in goes to the
- * pair's common speed, as for packed noses (B1), and tyres already overlapping part within the push budget.
- * Stopping only once they overlapped let one slice carry them its whole travel through (80 km/h: 0.17 m).
- * That stop is final for packed noses and for hits too soft to reach the wheels (`hubReach`); end-on with stroke
- * left (`PACKED_STROKE`) the touching wheels tear off their hubs and the noses crush on, so a harder hit crushes at least as far.
- */
-function tyreStop(carA: DeformableCar, carB: DeformableCar, dt: number, normalOut: THREE.Vector3): boolean {
-  if (!carA.deform.massActive || !carB.deform.massActive) return false;
-  tyreAxes(carA, carB);
-  // A's travel relative to B over the slice.
-  const wx = (carA.velocity.x - carB.velocity.x) * dt;
-  const wz = (carA.velocity.z - carB.velocity.z) * dt;
-  let first = Infinity,
-    depth = 0,
-    hubA: MassNode | null = null,
-    hubB: MassNode | null = null;
-  for (let ai = 0; ai < carA.deform.masses.length; ai++) {
-    const a = carA.deform.masses[ai]!;
-    if (!a.hub || a.popped) continue;
-    for (let bi = 0; bi < carB.deform.masses.length; bi++) {
-      const b = carB.deform.masses[bi]!;
-      if (!b.hub || b.popped) continue;
-      const dx = a.world.x - b.world.x;
-      const dz = a.world.z - b.world.z;
-      // Clear of each other along some axis by more than the travel along it: no overlap now, none within the slice.
-      let apart = false;
-      for (let k = 0; k < 12; k += 3) {
-        const ux = _axes[k]!,
-          uz = _axes[k + 1]!;
-        if (Math.abs(dx * ux + dz * uz) - _axes[k + 2]! > Math.abs(wx * ux + wz * uz) + 1e-9) {
-          apart = true;
-          break;
-        }
-      }
-      if (apart) continue;
-      let enter = -Infinity,
-        exit = Infinity,
-        ex = 0,
-        ez = 0,
-        pen = Infinity,
-        px = 0,
-        pz = 0;
-      for (let k = 0; k < 12; k += 3) {
-        const ux = _axes[k]!,
-          uz = _axes[k + 1]!,
-          r = _axes[k + 2]!;
-        const c = dx * ux + dz * uz;
-        const s = wx * ux + wz * uz;
-        if (r - Math.abs(c) < pen) {
-          pen = r - Math.abs(c);
-          px = c < 0 ? -ux : ux;
-          pz = c < 0 ? -uz : uz;
-        }
-        if (Math.abs(s) < 1e-9) {
-          if (Math.abs(c) >= r) exit = -Infinity;
-          continue;
-        }
-        const t1 = (-r - c) / s;
-        const t2 = (r - c) / s;
-        if (Math.min(t1, t2) > enter) {
-          enter = Math.min(t1, t2);
-          const side = c + enter * s;
-          ex = side < 0 ? -ux : ux;
-          ez = side < 0 ? -uz : uz;
-        }
-        exit = Math.min(exit, Math.max(t1, t2));
-      }
-      if (pen > 0) {
-        if (first > 0 || pen > depth) {
-          first = 0;
-          depth = pen;
-          normalOut.set(px, 0, pz);
-          hubA = a;
-          hubB = b;
-        }
-      } else if (enter <= exit && enter >= 0 && enter <= 1 && enter < first) {
-        first = enter;
-        normalOut.set(ex, 0, ez);
-        hubA = a;
-        hubB = b;
-      }
-    }
-  }
-  if (first > 1) return false;
-  const n = normalOut;
-  // Head-on (or nose into tail) whose crush stroke reaches both wheels and has some left in either nose: the wheel that
-  // met a wheel is torn back off its hub, as a nose crushed onto its tyre tears it (`HUB_OVERRUN`), and the noses go
-  // on crushing. Stopping the whole pair at the tyres here cut a 55 m/s head-on's stroke at 45 % (engine block 0.37 m,
-  // alive) while 30 m/s crushed on through it (0.52 m, dead). A hit too soft to reach the wheels meets them as a rigid stop.
-  if (
-    hubA &&
-    hubB &&
-    Math.abs(n.x * carA.fwdFlat.x + n.z * carA.fwdFlat.z) > END_ON &&
-    Math.abs(n.x * carB.fwdFlat.x + n.z * carB.fwdFlat.z) > END_ON &&
-    carA.deform.hitStroke() >= carA.deform.hubReach(hubA) &&
-    carB.deform.hitStroke() >= carB.deform.hubReach(hubB) &&
-    Math.min(carA.deform.strokeUsed(), carB.deform.strokeUsed()) < PACKED_STROKE
-  ) {
-    carA.deform.popHub(hubA);
-    carB.deform.popHub(hubB);
-    return true;
-  }
-  const mA = carA.deform.totalMass;
-  const mB = carB.deform.totalMass;
-  const vA = carA.velocity.x * n.x + carA.velocity.z * n.z;
-  const vB = carB.velocity.x * n.x + carB.velocity.z * n.z;
-  // Closing that the gap can't take this slice: the tyres just meet at its end.
-  const excess = (vB - vA) * (1 - first);
-  if (excess > 0) {
-    const j = ((mA * mB) / (mA + mB)) * excess;
-    carA.deform.shiftBody((n.x * j) / mA, (n.z * j) / mA, 0, 0, 0, n.x, n.z, vA + (excess * mB) / (mA + mB));
-    carB.deform.shiftBody((-n.x * j) / mB, (-n.z * j) / mB, 0, 0, 0, -n.x, -n.z, -(vB - (excess * mA) / (mA + mB)));
-  }
-  if (depth > 0) {
-    // The closing the tyres' stop took is spent already (`shiftBody`): what is left of the depth is a position correction.
-    pushApart(carA, carB, n.x, n.z, (depth * mB) / (mA + mB), (depth * mA) / (mA + mB), dt, 0);
-  }
-  return true;
 }

@@ -355,9 +355,8 @@ describe("given 2-lap Watch races of 4 AI rivals on a course with police cars on
       // facing each racer's travel and one against it, so both full-throttle lead-ins met head-on).
       const leadInPairs = new Set<number>();
       const hit = w.step.pairHit;
-      w.step.pairHit = (a, b, h, first) => {
-        hit?.(a, b, h, first);
-        if (!first) return;
+      w.step.pairHit = (a, b, h) => {
+        hit?.(a, b, h);
         if (a >= racers && b >= racers && t < leadEnd[a]! && t < leadEnd[b]!) leadInPairs.add((a * 64 + b) * 1e4 + Math.round(leadEnd[a]!));
         if (a >= racers) bumped[a] = t;
         if (b >= racers) bumped[b] = t;

@@ -29,7 +29,7 @@ function record(cars: DeformableCar[], barrier: boolean, seconds: number, wall?:
     if (c) clusters.push(c);
     return c;
   };
-  w.world.pairHit = (a, b, hit, first) => rec.pairHit(a, b, hit, first);
+  w.world.pairHit = (a, b, hit) => rec.pairHit(a, b, hit);
   let touching = false;
   for (let s = 0; s < seconds / H; s++) {
     if (again && s === Math.round(again.at / H)) again.run();

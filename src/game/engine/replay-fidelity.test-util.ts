@@ -118,7 +118,7 @@ export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boo
   const rec = new CrashRecorder();
   rec.begin("flat", HANDLING.realism, false, cars.length, (i) => `c${i}`, 1);
   const world = newWorld(cars);
-  world.pairHit = (a, b, hit, first) => rec.pairHit(a, b, hit, first);
+  world.pairHit = (a, b, hit) => rec.pairHit(a, b, hit);
   world.partTouch = (a, b) => rec.touch(a, b);
   const trace: Float64Array[] = [];
   const times = new Map<number, number>();

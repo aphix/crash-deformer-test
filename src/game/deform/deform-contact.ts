@@ -153,7 +153,12 @@ export abstract class DeformContact extends DeformState {
   abstract undoTurn(): void;
   protected abstract yawMomentum(slot: number, restore: boolean): void;
 
-  /** Sphere contact between two cars' masses for one physics slice of `dt` seconds; whether any mass of one met a mass of the other. */
+  /**
+   * Sphere contact between two cars' masses for one physics slice of `dt` seconds; whether any mass of one met a mass of the other.
+   * Stage 4 item 6 (wreck split) deletes it (the lattice's crush comes from the contact impulses only); until then it carries the crush through a car pair
+   * to the engine block: dropped (Stage 4 item 5 (car-car through the kernel)), a car hitting a car at 20 and 40 km/h crushes the engine 8 mm to the piston's 50
+   * (contact-parity 'piston and a car of the same mass', bumperFL 46 / 29 mm) and engine-replay seed 9's race keeps no clip.
+   */
   collideWith(other: StreamedDeformation, dt: number): boolean {
     if (this.quietTime() > 0.22 && other.quietTime() > 0.22) return false;
     const massesA = this.masses;

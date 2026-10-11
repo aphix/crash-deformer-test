@@ -23,6 +23,8 @@ export const STEP_CEIL = 0.045;
  * solver's iteration budget does. Before it, the pushes of one slice shared one `satPushCap` and the structure step,
  * the re-fits and the clip came after them, each debited to the next slice's: a wedged wreck moved 0.04–0.05 m a step
  * from pushes alone, and a derby `o6` 0.066 m with the pushes at the cap, against a zip bound of 3·v·h + 0.05 m.
+ * Stage 4 item 6 (wreck split) (the wreck split goes: a wreck is one rigid body whose pose no correction moves) deletes it with `takePush`,
+ * `settleDrift` and `collideWith`; until then the derby zip bound needs it.
  */
 export class PushBudget {
   /** Net translation (m) taken at sim time `at`. */

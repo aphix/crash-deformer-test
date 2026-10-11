@@ -212,7 +212,7 @@ const result = new Float64Array(OUT_SIZE);
  * the masses moving into the face faster than `faceVn` along the normal, so the cabin piling into the stopped nose is the closing the
  * crush force acts on, and `shiftBody` gives the increment to those masses alone. With none driving, or no wreck, it is every mass.
  */
-function carRow(car: DeformableCar, nx: number, nz: number, faceVn: number): void {
+export function carRow(out: Float64Array, o: number, car: DeformableCar, nx: number, nz: number, faceVn: number): void {
   const masses = car.deform.masses;
   const live = car.deform.massActive;
   let mass = 0;
@@ -252,14 +252,30 @@ function carRow(car: DeformableCar, nx: number, nz: number, faceVn: number): voi
     spin += m.mass * (rz * (m.vel.x - meanX) - rx * (m.vel.z - meanZ));
   }
   const driving = live && drivingMass > 0;
-  rows[BODY_M] = mass;
-  rows[BODY_I] = inertia;
-  rows[BODY_X] = cx;
-  rows[BODY_Z] = cz;
-  rows[BODY_VX] = driving ? drivingX / drivingMass : meanX;
-  rows[BODY_VZ] = driving ? drivingZ / drivingMass : meanZ;
-  rows[BODY_W] = live ? spin / inertia : car.angular.y;
-  rows[BODY_HARD] = 1;
+  out[o + BODY_M] = mass;
+  out[o + BODY_I] = inertia;
+  out[o + BODY_X] = cx;
+  out[o + BODY_Z] = cz;
+  out[o + BODY_VX] = driving ? drivingX / drivingMass : meanX;
+  out[o + BODY_VZ] = driving ? drivingZ / drivingMass : meanZ;
+  out[o + BODY_W] = live ? spin / inertia : car.angular.y;
+  out[o + BODY_HARD] = 1;
+}
+
+/**
+ * The kernel's change of the car's row `o` of `rows` (its velocity and spin now, against `vx`, `vz`, `w` before the call) onto every mass of
+ * the car (the normal part along (`nx`, `nz`), into the car, to the masses still driving in faster than the face's `refVn`: `shiftBody`),
+ * or onto the car's own velocity and spin when it is no wreck. Returns the normal momentum taken (N·s).
+ */
+export function takeRow(car: DeformableCar, rows: Float64Array, o: number, vx: number, vz: number, w: number, nx: number, nz: number, refVn: number): number {
+  const dvx = rows[o + BODY_VX]! - vx;
+  const dvz = rows[o + BODY_VZ]! - vz;
+  const dw = rows[o + BODY_W]! - w;
+  if (car.deform.massActive) return car.deform.shiftBody(dvx, dvz, dw, rows[o + BODY_X]!, rows[o + BODY_Z]!, nx, nz, refVn);
+  car.velocity.x += dvx;
+  car.velocity.z += dvz;
+  car.angular.y += dw;
+  return (dvx * nx + dvz * nz) * rows[o + BODY_M]!;
 }
 
 /** Row 1 of `rows`: the striker box on rails (no spin of its own), its mass (`Infinity` kinematic) and the hardness of its face. */
@@ -281,7 +297,7 @@ function strikerRow(box: ContactBox): void {
  * read back by the caller as the momentum returned. Plastic (the cars leave together): the rebound of a light touch is `wallBounce`'s.
  */
 function exchange(car: DeformableCar, box: ContactBox, depth: number, maxJ: number): number {
-  carRow(car, _n.x, _n.z, box.vx * _n.x + box.vz * _n.z);
+  carRow(rows, 0, car, _n.x, _n.z, box.vx * _n.x + box.vz * _n.z);
   strikerRow(box);
   contact[CT_X] = pressure.x;
   contact[CT_Z] = pressure.z;
@@ -296,15 +312,8 @@ function exchange(car: DeformableCar, box: ContactBox, depth: number, maxJ: numb
   const w = rows[BODY_W]!;
   const j = bodyContact(rows, 0, STRIKER, contact, result);
   if (j === 0) return 0;
-  const dvx = rows[BODY_VX]! - vx;
-  const dvz = rows[BODY_VZ]! - vz;
-  const dw = rows[BODY_W]! - w;
-  const d = car.deform;
-  if (d.massActive) return d.shiftBody(dvx, dvz, dw, rows[BODY_X]!, rows[BODY_Z]!, _n.x, _n.z, box.vx * _n.x + box.vz * _n.z);
-  car.velocity.x += dvx;
-  car.velocity.z += dvz;
-  car.angular.y += dw;
-  return j;
+  const taken = takeRow(car, rows, 0, vx, vz, w, _n.x, _n.z, box.vx * _n.x + box.vz * _n.z);
+  return car.deform.massActive ? taken : j;
 }
 
 /** Most masses one slab can hold rows for (a car has 20); `faceHits` drops the rest. */
@@ -782,10 +791,9 @@ function slowStriker(car: DeformableCar, nx: number, nz: number, du: number): vo
 }
 
 /**
- * Car-car share of the shared contact model, once per physics slice per close pair, right after
- * the pair's `collideWith`: each body against the other's doors and mirrors. Car-car does not
- * report struck ends yet (docs/CONTACT_PARITY.md, "Open"): the squeeze mode's deform rules
- * assume a car held at the origin. Returns whether a door, mirror or panel met the other body: a sideswipe moves
+ * Car-car share of the shared contact model, once per physics slice per close pair: each body, as its cage's plan box (`carBox`),
+ * against the other's doors and mirrors. Car-car does not report struck ends yet (docs/CONTACT_PARITY.md, "Open"): the squeeze
+ * mode's deform rules assume a car held at the origin. Returns whether a door, mirror or panel met the other body: a sideswipe moves
  * and breaks parts with no SAT contact, and the highlight recorder keeps both cars of it.
  */
 export function partContactPair(a: DeformableCar, b: DeformableCar, dt: number): boolean {

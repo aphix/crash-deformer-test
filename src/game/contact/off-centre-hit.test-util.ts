@@ -87,31 +87,42 @@ export function ownerHit(aim: number, speedA = 27.301): OwnerHit {
   const world = newWorld(cars, null, null);
   let touchedAt = -1;
   let step = 0;
-  world.pairHit = (_i, _j, hit, first) => {
-    if (touchedAt < 0 && first && hit.impulse > 0.2) touchedAt = step;
+  // The rigid answer is taken at the contact the engine reports for the first touch (the overlap patch's centre: the nose's face
+  // against a flat flank presses at its middle, half a nose's width from the corner that touches first), along the struck car's side.
+  const point = new THREE.Vector3();
+  world.pairHit = (_i, _j, hit) => {
+    if (touchedAt < 0 && hit.impulse > 0.2) {
+      touchedAt = step;
+      point.copy(hit.contact);
+    }
   };
   let before: [Motion, Motion] = [motionOf(a), motionOf(b)];
-  const point = new THREE.Vector3();
+  const normal = new THREE.Vector3();
   for (; step < 240 * 3; step++) {
     const last: [Motion, Motion] = [motionOf(a), motionOf(b)];
     stepWorld(world, SLICE);
     settleStep(cars, SLICE, false);
     if (touchedAt === step) {
       before = last;
-      point.copy(a.group.position).addScaledVector(a.rightFlat, 0.51).addScaledVector(a.fwdFlat, 2.08);
+      normal.set(b.rightFlat.x, 0, b.rightFlat.z);
     }
     if (touchedAt >= 0 && step === touchedAt + READ_AFTER) break;
   }
   if (touchedAt < 0) throw new Error("the restaged cars never touched");
-  return { before, after: [motionOf(a), motionOf(b)], point, normal: new THREE.Vector3(b.rightFlat.x, 0, b.rightFlat.z) };
+  return { before, after: [motionOf(a), motionOf(b)], point, normal };
 }
 
-/** What a rigid-body impulse with no rebound at the touching point gives each car (momentum and angular momentum kept, the points leave together): the textbook answer, from vectors. */
+/**
+ * What a rigid-body impulse with no rebound at the touching point gives each car (momentum and angular momentum kept, the points leave
+ * together), then Coulomb friction `mu` on the sliding of the points that is left, along the contact's tangent: the textbook answer,
+ * from vectors.
+ */
 export type Rigid = { impulse: number; dvA: THREE.Vector3; dvB: THREE.Vector3; dwA: number; dwB: number; crushJ: number };
 
-export function rigidExchange(hit: OwnerHit): Rigid {
+export function rigidExchange(hit: OwnerHit, mu: number): Rigid {
   const [a, b] = hit.before;
   const n = hit.normal;
+  const t = new THREE.Vector3(-n.z, 0, n.x);
   const rA = new THREE.Vector3(hit.point.x - a.x, 0, hit.point.z - a.z);
   const rB = new THREE.Vector3(hit.point.x - b.x, 0, hit.point.z - b.z);
   const leverA = new THREE.Vector3().crossVectors(rA, n).y;
@@ -119,12 +130,22 @@ export function rigidExchange(hit: OwnerHit): Rigid {
   const closing = -((a.vx - b.vx) * n.x + (a.vz - b.vz) * n.z);
   const inverse = 1 / a.mass + 1 / b.mass + (leverA * leverA) / a.inertia + (leverB * leverB) / b.inertia;
   const impulse = closing / inverse;
-  return {
-    impulse,
-    dvA: n.clone().multiplyScalar(impulse / a.mass),
-    dvB: n.clone().multiplyScalar(-impulse / b.mass),
-    dwA: (impulse * leverA) / a.inertia,
-    dwB: (-impulse * leverB) / b.inertia,
-    crushJ: 0.5 * closing * closing / inverse,
-  };
+  const dvA = n.clone().multiplyScalar(impulse / a.mass);
+  const dvB = n.clone().multiplyScalar(-impulse / b.mass);
+  let dwA = (impulse * leverA) / a.inertia;
+  let dwB = (-impulse * leverB) / b.inertia;
+  // The points' velocities (v + w x r = (vx + w rz, vz - w rx)) after the normal impulse, and the sliding along the tangent.
+  const wA = a.yawRate + dwA;
+  const wB = b.yawRate + dwB;
+  const slide =
+    (a.vx + dvA.x + wA * rA.z - (b.vx + dvB.x + wB * rB.z)) * t.x + (a.vz + dvA.z - wA * rA.x - (b.vz + dvB.z - wB * rB.x)) * t.z;
+  const leverAt = new THREE.Vector3().crossVectors(rA, t).y;
+  const leverBt = new THREE.Vector3().crossVectors(rB, t).y;
+  const tangential = 1 / a.mass + 1 / b.mass + (leverAt * leverAt) / a.inertia + (leverBt * leverBt) / b.inertia;
+  const friction = Math.max(-mu * impulse, Math.min(mu * impulse, -slide / tangential));
+  dvA.addScaledVector(t, friction / a.mass);
+  dvB.addScaledVector(t, -friction / b.mass);
+  dwA += (friction * leverAt) / a.inertia;
+  dwB -= (friction * leverBt) / b.inertia;
+  return { impulse, dvA, dvB, dwA, dwB, crushJ: (0.5 * closing * closing) / inverse };
 }

@@ -49,7 +49,7 @@ describe(`given the highlight recorder fed a ${MAX_CARS}-car race with a third o
     const grind: ContactHit = { impulse: 2, contact: new THREE.Vector3(), normal: new THREE.Vector3(1, 0, 0) };
     const step = (): void => {
       rec.startStep(cars);
-      for (let i = 0; i + 1 < MAX_CARS; i += 2) rec.pairHit(i, i + 1, grind, true);
+      for (let i = 0; i + 1 < MAX_CARS; i += 2) rec.pairHit(i, i + 1, grind);
       rec.wallHit(5, 1, 0, 0);
       rec.endStep(cars, H, 0);
     };
@@ -109,7 +109,7 @@ function firstImpacts(racers: number): number[][] {
   const rec = new CrashRecorder();
   rec.begin("flat", HANDLING.realism, false, racers, (i) => `c${i}`, 1);
   const world = newWorld(cars);
-  world.pairHit = (a, b, hit, first) => rec.pairHit(a, b, hit, first);
+  world.pairHit = (a, b, hit) => rec.pairHit(a, b, hit);
   const input: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
   for (let s = 0; s < 6 * 240; s++) {
     rec.startStep(cars);
@@ -200,7 +200,7 @@ describe("given a racer that hits a cop, and the cop being destroyed later", () 
       const hit: ContactHit = { impulse: 20, contact: new THREE.Vector3(), normal: new THREE.Vector3(1, 0, 0) };
       for (let s = 0; s <= Math.round(killAt / H); s++) {
         rec.startStep(cars);
-        if (s === 0) rec.pairHit(0, 2, hit, true);
+        if (s === 0) rec.pairHit(0, 2, hit);
         if (s === Math.round(killAt / H)) cars[2]!.deform.drivetrainAlive = false;
         rec.endStep(cars, H, 0);
       }

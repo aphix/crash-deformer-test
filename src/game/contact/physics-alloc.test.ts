@@ -50,15 +50,11 @@ function pileUp(): { cars: DeformableCar[]; step: () => void } {
         partContactPair(ca, cb, h);
       }
     }
-    for (let k = 0; k < 3; k++) {
-      for (let i = 0; i < CARS; i++) {
-        if (cars[i]!.deform.massActive) cars[i]!.syncPose(0);
-        else cars[i]!.refreshBasis();
-      }
-      let moved = false;
-      for (let a = 0; a < CARS; a++) for (let b = a + 1; b < CARS; b++) if (resolveCarPair(cars[a]!, cars[b]!, k === 0, h)) moved = true;
-      if (!moved) break;
+    for (let i = 0; i < CARS; i++) {
+      if (cars[i]!.deform.massActive) cars[i]!.syncPose(0);
+      else cars[i]!.refreshBasis();
     }
+    for (let a = 0; a < CARS; a++) for (let b = a + 1; b < CARS; b++) resolveCarPair(cars[a]!, cars[b]!, h);
     for (let i = 0; i < CARS; i++) {
       const c = cars[i]!;
       if (c.deform.massActive) {

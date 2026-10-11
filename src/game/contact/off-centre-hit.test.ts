@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { PAIR_MU } from "./constants.ts";
 import { ownerHit, rigidExchange } from "./off-centre-hit.test-util.ts";
 
 // The owner's clip (2026-10-07, docs/UNIFIED_CONTACT.md section 5, stage 4): a hatchback at 98 km/h met a coupe's right-rear
@@ -15,38 +16,16 @@ const hitCases = [
   { it: "a front wheel 1.65 m ahead of the coupe's centre", aim: -3.4 },
 ] as const;
 
-/**
- * The rows car-car still answers with `resolveCarPair`'s own rule (a position push and the tyres' stop, not the kernel's impulse at
- * the point): todo until Stage 4 item 5 (car-car through the kernel) puts the pair on `bodyContact`. Measured on the lane (the coupe's yaw-rate change against the
- * rigid body's; the speed changes of the pair are 13-15 m/s where the rigid answer is 5.5-5.8 m/s):
- *   owner's clip: coupe 0.03 vs 8.64 rad/s, hatchback 0.08 vs 2.56 rad/s;  coupe's middle: hatchback 0.17 vs 5.82 rad/s;
- *   front wheel: coupe -0.67 vs -8.50 rad/s, hatchback -0.00 vs 3.70 rad/s.
- */
-const PAIR_PATH: Record<string, true> = {
-  "0:coupeTurned": true,
-  "0:hatchbackLost": true,
-  "0:coupeGained": true,
-  "0:hatchbackTurned": true,
-  "-1.7:hatchbackTurned": true,
-  "-3.4:coupeTurned": true,
-  "-3.4:hatchbackLost": true,
-  "-3.4:coupeGained": true,
-  "-3.4:hatchbackTurned": true,
-};
-
-function then(aim: number, row: string): typeof it.todo {
-  return PAIR_PATH[`${aim}:${row}`] ? it.todo : it;
-}
 
 describe("given a hatchback at 98 km/h driving across a coupe's path, its front-right corner meeting the coupe's right side", () => {
   for (const testCase of hitCases) {
     describe(`when the corner meets ${testCase.it}`, () => {
       const hit = ownerHit(testCase.aim);
-      const rigid = rigidExchange(hit);
+      const rigid = rigidExchange(hit, PAIR_MU);
       const [a0, b0] = hit.before;
       const [a1, b1] = hit.after;
 
-      then(testCase.aim, "coupeTurned")("then the coupe turns at the rate a rigid body's impulse at that lever gives, in the same direction", () => {
+      it("then the coupe turns at the rate a rigid body's impulse at that lever gives, in the same direction", () => {
         const got = b1.yawRate - b0.yawRate;
         const lever = Math.hypot(hit.point.x - b0.x, hit.point.z - b0.z);
         assert.ok(
@@ -55,19 +34,24 @@ describe("given a hatchback at 98 km/h driving across a coupe's path, its front-
         );
       });
 
-      then(testCase.aim, "hatchbackLost")("then the hatchback loses the speed the rigid exchange takes, no more", () => {
+      it("then the hatchback loses the speed the rigid exchange takes, no more", () => {
         const lost = Math.hypot(a1.vx - a0.vx, a1.vz - a0.vz);
         const expected = Math.hypot(rigid.dvA.x, rigid.dvA.z);
         assert.ok(Math.abs(lost - expected) <= TOLERANCE * expected, `hatchback speed change ${lost.toFixed(2)} m/s vs rigid ${expected.toFixed(2)} m/s`);
       });
 
-      then(testCase.aim, "coupeGained")("then the coupe gains the speed the rigid exchange gives it, no more", () => {
+      it("then the coupe gains the speed the rigid exchange gives it, no more", () => {
         const gained = Math.hypot(b1.vx - b0.vx, b1.vz - b0.vz);
         const expected = Math.hypot(rigid.dvB.x, rigid.dvB.z);
         assert.ok(Math.abs(gained - expected) <= TOLERANCE * expected, `coupe speed change ${gained.toFixed(2)} m/s vs rigid ${expected.toFixed(2)} m/s`);
       });
 
-      then(testCase.aim, "hatchbackTurned")("then the hatchback is turned by the reaction at its own corner, in the same direction", () => {
+      // todo -> Stage 4 item 6 (wreck split) (the wreck is one rigid body: the contact lasts one step, not the lattice's 29 ms crush). Measured (kernel per slice,
+      // middle case): the hatchback's turn is the friction torque of the crush's slices (dw = -dvz·m·1.9 m/I: 0.87 of the 0.88 rad/s got, with
+      // dvz -0.50 against the rigid -0.53), where the single-instant reference turns it 0.13: the coupe turns 0.08 rad while the nose crushes
+      // (flank normal tilting -0.06 to +0.02) and the lever moves from +0.08 to -0.06 m, and the turn is J·Δ(lever)/I = 9941·0.1/940 = 1.1 rad/s
+      // per 0.1 m of either. Owner's clip: 1.98 against 0.88 rad/s, the same mechanism. The speeds and the coupe's spin rows pass.
+      it("then the hatchback is turned by the reaction at its own corner, in the same direction", { todo: "hatchback's turn is the crush's friction torque over 29 ms against the instant rigid answer (1.98 vs 0.88, 0.88 vs 0.13 rad/s): Stage 4 item 6 (wreck split)" }, () => {
         const got = a1.yawRate - a0.yawRate;
         assert.ok(
           Math.abs(got - rigid.dwA) <= Math.max(0.5, TOLERANCE * Math.abs(rigid.dwA)),

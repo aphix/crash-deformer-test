@@ -6,9 +6,13 @@ import { DeformRig, type DeformMode, type MassNode } from "./deform-rig.ts";
 import { FACES, FACE_AXIS } from "./load-crush.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
 
-/** Most (m/s) a wheel freed by the plant may slide off the body's speed (`seatHubs`). */
+/** Most (m/s) a wheel freed by the plant may slide off the body's speed (`seatHubs`). Goes with the plant hand-over: Stage 4 item 6 (wreck split). */
 const HUB_SLIP = 8;
-/** A wreck takes a new hit only after this long (s) without contact: spikes inside one hit never re-arm. */
+/**
+ * A wreck takes a new hit only after this long (s) without contact: spikes inside one hit never re-arm. Measured with the gate dropped
+ * (Stage 4 item 5 (car-car through the kernel)): hit-slice, symmetry and floor-momentum go red (every slice of one pulse re-arms the hit and its stroke is spent twice).
+ * It goes when the hit's pulse is the kernel's one impulse per pair, with the wreck split: Stage 4 item 6 (wreck split).
+ */
 const REARM_QUIET = 0.3;
 /** Smallest EBS (m/s, 10 km/h) that counts as a new hit on a wreck: the IIHS low-speed bumper test's
  *  6 mph full-width impact, where bumper systems start taking damage (research 12). The old 6 m/s

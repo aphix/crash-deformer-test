@@ -88,15 +88,12 @@ describe("given a flat strip of ground 0.894 m high over four car lengths, and t
     });
   }
 
-  // todo -> Stage 4 item 5 (car-car through the kernel) (the pair on `bodyContact`; owner's call on `WALL_CRUSH` vs a flat-topped flank). Measured on integ/s3-s4a
-  // with the whole-body lift: the strip rows 20 / 28 m/s pass (the plain sedan rises 0.91 / 0.89 / 1.03 m at 8 / 12 / 20 with a lever-shared lift). Over the four
-  // held cars the driven sedan is struck in its first touch slice: the pair SAT (`satCars` on the cages' plan outlines) answers with an
-  // impulse equal to the whole closing speed (7.88 at 8 m/s, driver z -2.05, bumper under the pressed top of 0.894 m), `crashed` is
-  // set and it ends at 0.19-0.20 m/s, rise 0.00-0.08 m (strip 7.85 / 11.46 / 19.49 / 27.22 m/s, 0.89-1.03 m). The
-  // strip has no flank (a plane top with reach `STEP_UP`: its kerb lifts the bumper rows), the cars' flank is the SAT's, and a body
-  // point closing on another car's top at more than `WALL_CRUSH` (5.5 m/s) from the side is the pair's crash by design
-  // (`readPoints`, `crossedPlanFromSide`): 8-28 m/s all crash. Experiment: car-top patches given the strip's reach (1.2 m), the tyre
-  // `topCap` 1.2 m and the side-entry rule off: the same SAT hit lands in the same slice (7.88) before the rigid step lifts the body.
+  // todo -> Stage 5: the pressed held cars' cage top is not a slab: `shapeCar` fits the skin, not `cage.fields.top` (ridge / trough
+  // +0.37 / -0.50 m, ny 0.06 over a 0.894 m slab); the contact law (a kerb top in the store, the held belly-edge rows) is solved
+  // separately. Measured (E6Review, kerb rule on): the sedan mounts but misses parity at every speed (8 m/s: end 0.002 vs 7.815 m/s, yMax
+  // 0.83 vs 1.29 m; 20 m/s: yMax 2.6 vs 0.94 m; 28 m/s: yMax 3.3 vs 0.92 m). Without the kerb rule the pair SAT answers the first touch
+  // slice with an impulse equal to the closing speed and the sedan ends at 0.19-0.20 m/s. Closes with the cage top fitted to the
+  // layer in the rig: Stage 5.
   for (const v of [8, 12, 20, 28]) {
     it.todo(`when a sedan drives onto each at ${v} m/s, then its speed is within 5 %, it rises within 0.05 m, turns within 1 deg, drives over the same wheel sequence and never crashes`, (t) => {
       const real: DriveSetup = { x: 0, z: -14, v, ground: strip, ref: strip, held: [], seconds: 7, stopZ: END + 6 };
@@ -119,9 +116,9 @@ describe("given the fleet's jump wedge, and a car pressed into its profile and h
     assert.ok(gap <= 0.2, `skin ${gap.toFixed(3)} m off the wedge`);
   });
 
-  // todo -> Stage 4 item 5 (car-car through the kernel), the same cause as the strip rows above. Measured: the driven sedan's first pair hit is the plan SAT's with an
-  // impulse equal to its closing speed (7.88 at 8 m/s, 11.70 at 12 m/s, both at driver z -8.6 m, y 0.00): it ends crashed with rise
-  // 0.00-0.01 m (real wedge 1.36 / 1.72 m), air 0.00 s (0.13 / 0.68 s), wheels [4] (real [4,2,0,2,4]).
+  // todo -> Stage 5, the same cause as the held-cars strip rows: the pressed held car's cage top is not a slab (`shapeCar` fits the skin, not
+  // `cage.fields.top`). Measured: the driven sedan ends crashed or stopped at the face, rise 0.00-0.01 m (real wedge 1.36 / 1.72 m), air
+  // 0.00 s (0.13 / 0.68 s), wheels [4] (real [4,2,0,2,4]). Closes with the cage top fitted to the layer in the rig: Stage 5.
   for (const v of [8, 12]) {
     it.todo(`when a sedan drives up each at ${v} m/s, then it rises within 0.1 m, stays in the air within 0.1 s, lands within 0.5 m, turns within ${HEADING} deg and touches down on the same wheels`, (t) => {
       // Past the landing: a flight is recorded when it ends, and the 12 m/s jump comes down about 10 m beyond the high end.
@@ -141,10 +138,11 @@ describe("given the corkscrew channel, and cars pressed into its floor along its
       return shapeCar({ top, bottom: (z) => top(z) - 0.5 }, pose);
     });
 
-  // todo -> Stage 4 item 5 (car-car through the kernel), the same cause as the strip rows, plus one of its own. Measured: the pressed cars lie along the twisting
-  // floor with plans that overlap their neighbours, so the pair SAT hits the held cars against each other in the first slice (cars 1-2
-  // impulse 0.45, 2-3 impulse 2.30, before any driver contact, driver at z -39.9) and the road crushes itself; the driven sedan never
-  // leaves the floor level (crashed at 6 m/s): rise 0.00-0.01 m (real 1.96 / 6.02 / 11.37 / 15.16 m), air 0.00 s (real 0 / 1.42 / 2.47 / 3.00 s).
+  // todo -> Stage 5, the same cause as the held-cars strip rows: the pressed held cars' cage top is not a slab (`shapeCar` fits the skin,
+  // not `cage.fields.top`; ridge / trough +0.37 / -0.50 m, ny 0.06), plus one of its own: the pressed cars lie along the twisting floor
+  // with plans that overlap their neighbours, so the pair SAT hits the held cars against each other in the first slice (cars 1-2 impulse
+  // 0.45, 2-3 impulse 2.30, before any driver contact). Measured with the pair on the kernel: rise 0.00-0.01 m (real 1.96 / 6.02 / 11.37 /
+  // 15.16 m), air 0.00 s (real 0 / 1.42 / 2.47 / 3.00 s). Closes with the cage top fitted to the layer in the rig: Stage 5.
   for (const v of [6, 14, 22, 27]) {
     it.todo(`when a driverless sedan is launched at ${v} m/s 6 m short of each, then it rises within 0.1 m, stays in the air within 0.1 s, lands within 0.5 m, turns within ${HEADING} deg and touches down on the same wheels`, (t) => {
       const real: DriveSetup = { x: 0, z: CORKSCREW.mouthZ - 6, v, ground: cork, collide: (c) => cork.contact(c), ref: cork, held: [], seconds: 12, coast: true, stopStill: 90 };

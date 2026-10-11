@@ -84,7 +84,7 @@ function record(): Recorded {
   const rec = new CrashRecorder({ recall: (_i, out) => out.set([-1]), knocks: () => new Uint8Array(16) });
   rec.begin("flat", HANDLING.realism, false, ALL, (i) => `c${i}`, 1);
   const world = newWorld(cars);
-  world.pairHit = (a, b, hit, first) => rec.pairHit(a, b, hit, first);
+  world.pairHit = (a, b, hit) => rec.pairHit(a, b, hit);
   const graze: ContactHit = { impulse: 2, contact: new THREE.Vector3(), normal: new THREE.Vector3(1, 0, 0) };
   const trace: Float64Array[] = [];
   const input: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
@@ -92,7 +92,7 @@ function record(): Recorded {
   for (let s = 0; s < STEPS; s++) {
     if (s === JUMP_STEP) cars[JUMPER]!.spawnFacing(IMPACT_X, -400, Math.PI / 2, 12);
     rec.startStep(cars);
-    if (s === TOUCH_STEP) rec.pairHit(NEAR, TOUCHER, graze, true);
+    if (s === TOUCH_STEP) rec.pairHit(NEAR, TOUCHER, graze);
     if (s === KNOCK_STEP) {
       rec.knock(OUTSIDE_PROP, FAR);
       rec.knock(INSIDE_PROP, NEAR);
@@ -224,7 +224,7 @@ function recordStack(): Recorded {
   const rec = new CrashRecorder({ recall: (_i, out) => out.set([-1]), knocks: () => new Uint8Array(16) });
   rec.begin("flat", HANDLING.realism, false, cars.length, (i) => `c${i}`, 1);
   const world = newWorld(cars);
-  world.pairHit = (a, b, hit, first) => rec.pairHit(a, b, hit, first);
+  world.pairHit = (a, b, hit) => rec.pairHit(a, b, hit);
   // As the race wires it (`RaceDirector.partTouch`).
   world.partTouch = (a, b) => rec.touch(a, b);
   const graze: ContactHit = { impulse: 2, contact: new THREE.Vector3(), normal: new THREE.Vector3(1, 0, 0) };
@@ -232,7 +232,7 @@ function recordStack(): Recorded {
   const input: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
   for (let s = 0; s < STEPS; s++) {
     rec.startStep(cars);
-    if (s === TOUCH_STEP) rec.pairHit(A, ON_TOP, graze, true);
+    if (s === TOUCH_STEP) rec.pairHit(A, ON_TOP, graze);
     // Every car takes its input each step, as in a race (and as the replay drives every clip car): the pair full throttle, the stack none.
     for (const [i, car] of cars.entries()) {
       input.throttle = i === A || i === B ? 1 : 0;

@@ -88,21 +88,23 @@ const _grad = new Float64Array(2);
 
 /**
  * How deep (m) the nodes of `a`'s plan outline reach into `b`'s plan (the signed distance field, the outline half a step further out
- * than its node), counting only nodes where the two bodies' heights overlap by more than `VERTICAL_CLEAR` there; 0 when none does.
- * That depth goes to `found[F_BEST]`; every such node also adds to `found`'s sums with its depth as weight: the overlap patch's
- * centre and outward normal (b's outline) in `b`'s frame, and its height in the world. Both cars' bases are fresh. (Out through
+ * than its node, and `look` further: the travel the pair's closing carries it in the slice, so a contact whose crush keeps its faces
+ * apart by that travel stays one), counting only nodes where the two bodies' heights overlap by more than `VERTICAL_CLEAR` there; 0
+ * when none does. That depth goes to `found[F_BEST]`; every such node also adds to `found`'s sums with its depth as weight: the overlap
+ * patch's centre and outward normal (b's outline) in `b`'s frame, and its height in the world. Both cars' bases are fresh. (Out through
  * `found` and `SAMPLE`: a double returned or passed across a call V8 does not inline is a heap number.)
  */
-function deepestIn(a: DeformableCar, b: DeformableCar, found: Float64Array): void {
+function deepestIn(a: DeformableCar, b: DeformableCar, found: Float64Array, look: number): void {
   const outline = outlineOf(a);
   const style = b.cage.style;
   const plan = b.cage.planField();
   const fb = b.cage.fields;
   const box = fb.planBox;
-  const xMin = box[0]! - OUTLINE_REACH;
-  const xMax = box[1]! + OUTLINE_REACH;
-  const zMin = box[2]! - OUTLINE_REACH;
-  const zMax = box[3]! + OUTLINE_REACH;
+  const reach = OUTLINE_REACH + look;
+  const xMin = box[0]! - reach;
+  const xMax = box[1]! + reach;
+  const zMin = box[2]! - reach;
+  const zMax = box[3]! + reach;
   const ra = a.rightFlat;
   const fwA = a.fwdFlat;
   const rb = b.rightFlat;
@@ -130,7 +132,7 @@ function deepestIn(a: DeformableCar, b: DeformableCar, found: Float64Array): voi
     SAMPLE[0] = bx;
     SAMPLE[1] = bz;
     sampleAt(plan, style);
-    const depth = OUTLINE_REACH - SAMPLE[2]!;
+    const depth = reach - SAMPLE[2]!;
     if (!(depth > 0)) continue;
     const yA = ea[13]! + ea[1]! * x + ea[9]! * z;
     const aLow = yA + ea[5]! * (outline.lows[n]! + liftA);
@@ -183,12 +185,14 @@ function outlineNormal(plan: Float32Array, style: CageStyle): void {
 
 /**
  * Whether two cars' drawn bodies overlap in the plan, where their heights meet (the cage's top and bottom at each outline node; a
- * car over another or on its roof never does). Returns the depth (m) of the deeper side, or null. The contact is the overlap patch
+ * car over another or on its roof never does), or come within `look` m of it (the travel the pair closes in the slice: a crush that
+ * takes the faces back as fast as the cars close keeps them apart by it, and the contact does not end where the crush keeps up).
+ * Returns the depth (m) of the deeper side, negative for the gap while only within `look`, or null. The contact is the overlap patch
  * itself, both ways: `contactOut` is the depth-weighted centre of every covered outline node of either cage (the point the contact's
  * pressure acts at), `normalOut` the depth-weighted mean of the outline normals there, pointing b → a (turned to the side of the
  * centres where the two cross). Neither car's list order nor one corner node picks them. The cages are as of the last slice's sync.
  */
-export function satCars(a: DeformableCar, b: DeformableCar, normalOut: THREE.Vector3, contactOut: THREE.Vector3): number | null {
+export function satCars(a: DeformableCar, b: DeformableCar, normalOut: THREE.Vector3, contactOut: THREE.Vector3, look = 0): number | null {
   const pa = a.group.position;
   const pb = b.group.position;
   const dx = pb.x - pa.x;
@@ -197,8 +201,8 @@ export function satCars(a: DeformableCar, b: DeformableCar, normalOut: THREE.Vec
 
   a.refreshBasis();
   b.refreshBasis();
-  deepestIn(a, b, _inA);
-  deepestIn(b, a, _inB);
+  deepestIn(a, b, _inA, look);
+  deepestIn(b, a, _inB, look);
   const depthA = _inA[F_BEST]!;
   const depthB = _inB[F_BEST]!;
   if (depthA <= 0 && depthB <= 0) return null;
@@ -234,5 +238,5 @@ export function satCars(a: DeformableCar, b: DeformableCar, normalOut: THREE.Vec
   contactOut.x = (pb.x * wA + rb.x * _inA[F_X]! + fb.x * _inA[F_Z]! + pa.x * wB + ra.x * _inB[F_X]! + fa.x * _inB[F_Z]!) / w;
   contactOut.y = (_inA[F_Y]! + _inB[F_Y]!) / w;
   contactOut.z = (pb.z * wA + rb.z * _inA[F_X]! + fb.z * _inA[F_Z]! + pa.z * wB + ra.z * _inB[F_X]! + fa.z * _inB[F_Z]!) / w;
-  return Math.max(depthA, depthB);
+  return Math.max(depthA, depthB) - look;
 }

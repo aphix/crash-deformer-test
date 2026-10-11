@@ -326,9 +326,9 @@ export class CrashRecorder {
     if (i < MAX_CARS) this.draft[i] = 1;
   }
 
-  /** `World.pairHit`: a car–car SAT contact; the slice's first pass only (the contact the cars came in with). */
-  pairHit(a: number, b: number, hit: ContactHit, first: boolean): void {
-    if (this.on && first) this.meet(a, b, hit.impulse, hit.contact.x, hit.contact.y, hit.contact.z);
+  /** `World.pairHit`: a car–car SAT contact. */
+  pairHit(a: number, b: number, hit: ContactHit): void {
+    if (this.on) this.meet(a, b, hit.impulse, hit.contact.x, hit.contact.y, hit.contact.z);
   }
 
   /** Cars `a` < `b` are in contact this step, closing at `closing` m/s at (x, y, z): an impact (`countsAsImpact`) when they had been apart and it is hard. */

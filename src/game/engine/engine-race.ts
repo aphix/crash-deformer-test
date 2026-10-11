@@ -74,7 +74,7 @@ export class RaceDirector extends RaceWatch {
   }
 
   /** `World.pairHit` while racing: car–car hits feed the highlight recorder. */
-  readonly pairHit = (a: number, b: number, hit: ContactHit, first: boolean): void => this.recorder.pairHit(a, b, hit, first);
+  readonly pairHit = (a: number, b: number, hit: ContactHit): void => this.recorder.pairHit(a, b, hit);
   /** `World.partTouch` while racing: a door or mirror sideswipe keeps both its cars in a highlight clip. */
   readonly partTouch = (a: number, b: number): void => this.recorder.touch(a, b);
 

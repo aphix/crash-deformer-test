@@ -208,8 +208,8 @@ export function chase(fleer: Fleer, seed: number, seconds: number, course?: unkn
     const reach = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
     if (pair) {
       const hit = w.step.pairHit!;
-      w.step.pairHit = (a, b, contact, first) => {
-        hit(a, b, contact, first);
+      w.step.pairHit = (a, b, contact) => {
+        hit(a, b, contact);
         pair(a, b);
       };
     }

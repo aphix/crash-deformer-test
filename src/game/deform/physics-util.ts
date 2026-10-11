@@ -13,7 +13,6 @@ export {
   leftoverPass,
   leftoverCrumple,
   crushStroke,
-  cancelClosing,
   satPushCap,
   round4,
   hypot2,

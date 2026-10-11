@@ -89,16 +89,6 @@ function crushStroke(ebs, squash) {
   return (0.035 * (ebs > 0 ? ebs : 0) + 0.02) * (0.6 + squash);
 }
 
-function cancelClosing(closing, pass, invSum, dt, e) {
-  if (e === undefined) e = 0;
-  if (closing <= 1e-6 || invSum < 1e-12) return 0;
-  const used = leftoverPass(closing, pass);
-  const dtS = dtImpulseScale(dt);
-  const bounce = 1 + clamp(e, 0, 0.08);
-  const dv = Math.min(used * dtS * bounce, closing * bounce);
-  return dv / invSum;
-}
-
 function satPushCap(dt) {
   return 0.01 + 0.08 * dtImpulseScale(dt);
 }
@@ -359,7 +349,6 @@ export {
   leftoverPass,
   leftoverCrumple,
   crushStroke,
-  cancelClosing,
   satPushCap,
   round4,
   hypot2,

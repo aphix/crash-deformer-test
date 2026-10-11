@@ -125,8 +125,8 @@ function policeRace(course: string, seed: number): string[] {
     w.seat.mode = "follow";
     const watch = new StuckWatch(`${course} police race, seed ${seed}`, w.live().length);
     const hit = w.step.pairHit!;
-    w.step.pairHit = (a, b, contact, first) => {
-      hit(a, b, contact, first);
+    w.step.pairHit = (a, b, contact) => {
+      hit(a, b, contact);
       watch.pair(a, b);
     };
     const state = { acc: 0 };

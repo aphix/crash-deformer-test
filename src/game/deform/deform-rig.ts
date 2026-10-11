@@ -209,7 +209,8 @@ export abstract class DeformRig {
   protected vertexCount: number;
   protected elapsed = 0;
   protected lastContact = -10;
-  protected crushing = false;
+  /** A contact within the last `PLANT_QUIET` s keeps the hit on (the pair contact reads it to extend its reach by the crush so far). */
+  crushing = false;
   protected impulse = -0;
   /** Equivalent barrier speed (m/s, −1 before any hit) of the current hit: the root-sum-square of every
    *  hit's EBS on the struck end. Crush energy grows with EBS² on a linear-stiffness end, so repeated hits
