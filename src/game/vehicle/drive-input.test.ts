@@ -462,7 +462,7 @@ describe("given a driver who slides the car with the handbrake", () => {
     const late = { ...r.seat.drift };
     assert.ok(early > 0.2 && late.s > early + 0.4, `${early.toFixed(2)} s then ${late.s.toFixed(2)} s`);
     assert.deepEqual([late.clean, late.paid], [true, 0], "clean, nothing paid yet");
-    hold(r, ["KeyW"], 1.5);
+    hold(r, [], 1.5);
     assert.equal(r.seat.drift.s, 0, "the slide ended");
     assert.equal(r.seat.drift.paid, 1, "one payout");
     assert.ok(r.seat.boost >= Math.min(1, 0.3 + driftPay(late.s)) - 1e-9, `boost ${r.seat.boost.toFixed(3)} after ${late.s.toFixed(2)} s`);
