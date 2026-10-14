@@ -41,6 +41,11 @@ Treat model-written prose as leads, not facts; cite the listed sources.
 | `perplexity/2026-10-13-ai-error-models-formulas.md` | Formulas for AI driver error: smoothed line-offset noise, corner-speed overcook factor, reaction delay buffers, steering gain, per-corner mistake odds, seeded determinism (AI difficulty lane) |
 | `perplexity/2026-10-14-bmw-m5-active-sound-loudness.md` | BMW M5 Active Sound Design: loudness as a surface of load (dominant), rpm and mode; game gain table (idle −25…−18 dB, full load 0 dB), lift-off release τ 0.15–0.6 s (engine loudness law) |
 | `perplexity/2026-10-14-engine-spl-vs-rpm-load.md` | Real engine SPL vs rpm and load: WOT 8–20 dB over part throttle at the same rpm, ~6 dB per rpm doubling, 25–50 dB idle-to-redline range; how racing games layer on/off-load (engine loudness law) |
+| `perplexity/2026-10-14-physics-in-web-worker.md` | Car physics on a Web Worker: SharedArrayBuffer + Atomics (COOP/COEP) vs transferables, snapshot interpolation, input latency, mobile Firefox/Chrome support (perf pass) |
+| `perplexity/2026-10-14-wasm-simd-soft-body.md` | WASM simd128 for shape-matching and contact queries: speedups vs scalar WASM and JS, SoA layout, per-call and copy overheads, Firefox/Chrome Android support (perf pass) |
+| `perplexity/2026-10-14-spidermonkey-hot-loop-pitfalls.md` | SpiderMonkey (Firefox, Android) JIT pitfalls in hot TypedArray loops vs V8: polymorphism, closures, `Math.hypot`, huge functions, GC nursery; profiling with JIT tiers (perf pass) |
+| `perplexity/2026-10-14-threejs-mobile-gpu-perf.md` | three.js on Adreno/Mali: batching, partial buffer uploads, packed normals, shadow and AA cost, pixel ratio, precision, recompiles, deformed-bounds culling (perf pass) |
+| `perplexity/2026-10-14-pileup-physics-cost.md` | Cutting physics cost in 20-30 car pile-ups: island sleep and wake, speculative contacts vs substeps, warm starting, broadphase choice, contact caching, adaptive iterations, physics LOD (perf pass) |
 
 ## Papers (`papers/`)
 
