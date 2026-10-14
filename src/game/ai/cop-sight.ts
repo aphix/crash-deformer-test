@@ -4,14 +4,14 @@ import { blankProjection, projectPath, type Projection, type Track } from "../wo
 import type { AiCar } from "./derby-ai.ts";
 
 /** What a racer sees (m): everything within `near` by straight line; along the road, `ahead` m down it and `behind` m back in its mirrors. */
-export interface SightRange {
+interface SightRange {
   near: number;
   ahead: number;
   behind: number;
 }
 
 /** A course this long (m) or longer is seen at the full ranges; a shorter one, whose whole lap a few racers would cover, at the share of them its length is of this. */
-export const SIGHT_COURSE = 2000;
+const SIGHT_COURSE = 2000;
 const SIGHT_NEAR = 100;
 const SIGHT_AHEAD = 200;
 const SIGHT_BEHIND = 40;
