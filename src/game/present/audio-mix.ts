@@ -1,6 +1,6 @@
-/** The loudest the music bus ever gets, whatever the slider or share link says. Engines must stay audible above it. */
+/** The loudest the music slider goes, whatever the share link says (the bus sits a further `MUSIC_TRIM` under it). Engines must stay audible above it. */
 export const MUSIC_MAX_GAIN = 0.6;
-/** How far the player's engine at full load pulls the music down: x(1 - 0.35). With the 0.6 cap that leaves the music at 0.39 at most. */
+/** How far the player's engine at full load pulls the music down: x(1 - 0.35). */
 const ENGINE_DUCK_DEPTH = 0.35;
 /** A crash drops the music to this share, holds it for `CRASH_HOLD_S`, then lets it back with time constant `CRASH_RECOVER_TAU_S`. */
 const CRASH_DUCK = 0.4;

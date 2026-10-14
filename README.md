@@ -28,7 +28,7 @@ Each row links the document that covers the system; [`docs/ARCHITECTURE.md`](doc
 | Unified contact | One contact model for car against car, prop, wall, ground and the rigs; the rigs are held to the same bars as a car-car hit. | [`UNIFIED_CONTACT`](docs/UNIFIED_CONTACT.md), [`CONTACT_PARITY`](docs/CONTACT_PARITY.md) |
 | Parts, glass, panels | Doors hinge, latch and tear off, mirrors break away, glass cracks and bursts, panels stretch and flap, wheels come loose. | [`PANEL_FLAP`](docs/PANEL_FLAP.md), [`DOOR_RIG`](docs/DOOR_RIG.md) |
 | Load crush | A roof or a face crushes under the weight stacked on it; the Stack scene drops cars onto a column. | [`LOAD_CRUSH`](docs/LOAD_CRUSH.md) |
-| Wreck sleep | A wreck that has lain still for about a second goes to sleep; a replay restores it asleep or resting on the same second. | [`HIGHLIGHTS`](docs/HIGHLIGHTS.md) |
+| Wreck sleep | A wreck that has lain still for about a second goes to sleep; a replay restores each wreck's rest timer, so it starts the clip asleep, or partway to sleep, exactly as it was live. | [`HIGHLIGHTS`](docs/HIGHLIGHTS.md) |
 | Ragdolls | Drivers are thrown through the windscreen on big hits; purses, loose props and cones tumble in a Rapier world that meets the same solids a car does. | [`CINEMATIC`](docs/CINEMATIC.md) |
 
 ### Driving and cameras
@@ -46,7 +46,7 @@ Each row links the document that covers the system; [`docs/ARCHITECTURE.md`](doc
 |---|---|---|
 | Fleet | The sandbox: up to 32 cars at a spawn speed you set, with a jersey barrier, ramp balls and jump ramps. | [`CONTROLS`](docs/CONTROLS.md) |
 | Derby | Demolition derby with AI drivers that pick targets, ram, reverse out and keep a hit clock; the score board ranks them. | [`DERBY_AI`](docs/DERBY_AI.md) |
-| Race | Eight courses and a campaign, 2 to 16 racers, NPC traffic, designed shortcuts, respawn or no-reset, AI difficulty (easy, medium, hard) and aggression, drafting. | [`RACE_DESIGN`](docs/RACE_DESIGN.md) |
+| Race | Eight courses and a campaign, 2 to 16 racers from the setup menu, NPC traffic, designed shortcuts, respawn or no-reset, AI difficulty (easy, medium, hard) and aggression, drafting. | [`RACE_DESIGN`](docs/RACE_DESIGN.md) |
 | Police chase | A race option: cops stake out, pursue and bust a car held slow within 20 m. | [`RACE_DESIGN`](docs/RACE_DESIGN.md) |
 | Survival | Driver 2's mode on Havana's Plaza de la Revolución: a pack of cops that grows, the stopwatch is the score; co-op in a room. | [`SURVIVAL`](docs/SURVIVAL.md) |
 | Press | Two plates close on a car. | [`CONTACT_PARITY`](docs/CONTACT_PARITY.md) |
@@ -126,8 +126,8 @@ run it through `scripts/with-app-env.mjs`. `npm run build` then `npm run preview
 
 | Command | What it does |
 |---|---|
-| `npm run test:app` | the `src/game`, `src/lib/multiplayer`, `src/lib/submissions` and `src/lib/deploy` suites (`node --test`); **the gate** |
-| `npm test` | the same suites plus the `scripts/` tests |
+| `npm run test:app` | the `src/game`, `src/lib/multiplayer`, `src/lib/submissions` and `src/lib/deploy` suites plus `scripts/with-app-env.test.mjs` (`node --test`); **the gate** |
+| `npm test` | `src/game`, `src/lib/submissions`, `src/lib/deploy`, the multiplayer rate-limit test and every `scripts/**/*.test.mjs` |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check:boundaries` | the structural rules of [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), ratcheted against `scripts/boundary-caps.json` |
 | `npm run check:programs` | plays every scene, FX tier and course in headless Chromium against a running server and fails if a GPU program links mid-play ([`docs/PERF_HITCH.md`](docs/PERF_HITCH.md)) |
@@ -150,7 +150,7 @@ To remake the pictures above: build, serve the build, and run `node scripts/read
 
 ## Architecture
 
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the place to start: eleven bounded contexts in a layer order (kernel,
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the place to start: thirteen bounded contexts in twelve layers (kernel,
 world, deform, vehicle, contact, scenes, ai, match, present and net, hud, engine, ui), the frame loop and the rules
 `npm run check:boundaries` enforces. Every other document covers one system and is linked from the tables above.
 
