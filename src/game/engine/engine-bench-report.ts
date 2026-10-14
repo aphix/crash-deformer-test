@@ -279,6 +279,16 @@ const replayLines = (r: ReplayResult | null, why: string | null): string[] =>
         ),
       ];
 
+/**
+ * The window's page changes after its first entry (`pageEvents`): a phone's OS holds a page it is leaving (the app switcher, the notification
+ * shade), so the frames around the change carry that stall into max and p99 (a card showed a 1.1 s sim frame there; the game ran no work to match).
+ * No line when the page stayed shown and focused.
+ */
+const leftPage = (events: readonly PageEvent[]): string[] => {
+  const changes = events.filter((e) => e.phase === PAGE_PHASES[PHASE_WINDOW] && e.atS > 0).map((e) => `${e.visible ? (e.focused ? "back" : "unfocused") : "hidden"} ${f1(e.atS)} s`);
+  return changes.length ? [`PAGE LEFT during the window: ${changes.join(", ")}. The slowest frames (max, p99) there are the OS's, not the game's`] : [];
+};
+
 /** The results card's text, top line first: the numbers the owner reads off a screenshot. */
 export function describeBench(r: BenchResult): string[] {
   const d = r.device;
@@ -292,6 +302,7 @@ export function describeBench(r: BenchResult): string[] {
     `fps each second: ${r.fpsPerSecond.join(" ")}`,
     `sim ms each second: ${r.simMsPerSecond.join(" ")}`,
     `SIM SPEED ${Math.round(r.simSpeedPct)} %   pacer cut ${r.cutFrames} of ${r.frames} frames, gave up ${f1(r.lostSimS)} sim-s   1/120 s steps in ${Math.round(r.coarsePct)} % of frames   wrecks: mean ${f1(r.crashed.mean)}, end ${r.crashed.end}`,
+    ...leftPage(r.pageEvents),
     row("frame", r.frameMs),
     row("CPU", r.cpuMs),
     row("  sim", r.simMs) + `   ${f1(r.stepsPerFrame)} steps/frame, ${r.msPerStep.toFixed(2)} ms/step, ${Math.round(r.simMsPerSimS)} ms per sim-second, ${f1(r.fineCutsPerSimS)} fine-slice cuts/sim-s`,

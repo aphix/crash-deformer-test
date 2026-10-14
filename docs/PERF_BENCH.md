@@ -61,6 +61,7 @@ The ultra arm is each step's own: the loop runs the same three steps with `&ultr
 | `FPS   1% low   by thirds` | mean fps over the 30 s window, the 1 % low, and the mean of each third |
 | `fps each second` / `sim ms each second` | per wall second: frames, and the ms `SimPacer.run` (physics, AI, breakage) took, scaled to 1000 ms |
 | `SIM SPEED … %` | race-clock seconds per wall second; `pacer cut` frames and `gave up` sim-s (`SimPacer.lost` / `cut`); the share of frames at the 1/120 s step; wrecks (mean, end) |
+| `PAGE LEFT during the window: …` (only when it happened) | the page lost focus or was hidden mid-window (`pageEvents`, window phase): each change with its time into the window. A phone's OS holds a page it is leaving, so the slowest frames (max, p99) around it are the OS's: one 2278f1c phone card's `sim ms each second` read 2355 and 2180 in the two seconds around its blur (18.5 s) and hide (19.0 s), 750 elsewhere |
 | `frame`, `CPU`, `  sim`, `  draw` | p50 / p95 / p99 / max ms of the frame interval, the main-thread tick, its sim part (plus steps per frame, ms per step, **ms per sim-second** and fine-slice cuts per sim-second) and its render submit. Compare ms per sim-second across browsers, not ms per step, which grows with the step |
 | `GPU` | timer-query ms (absent on Firefox and some phones). It spans the draw, so a wait inside it counts: when p95 is one frame long the card says so, and p50 is the work |
 | `draw … calls … tris   cops` | draw calls and triangles per frame; police stakeouts, pursuits, largest pack |

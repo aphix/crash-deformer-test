@@ -138,6 +138,24 @@ describe("given the bench result of a phone running the city course (describeBen
   });
 });
 
+describe("given a bench window the owner left for another app (the 2278f1c phone card: blur at 18.5 s, hidden at 19.0 s, back at 45.0 s)", () => {
+  test("when the card is written, then a line names each change of the page in the window, and a card whose page never left has none", () => {
+    const left = describeBench({
+      ...RESULT,
+      pageEvents: [
+        { phase: "warm", atS: 0, visible: true, focused: true, fullscreen: false },
+        { phase: "window", atS: 0, visible: true, focused: true, fullscreen: false },
+        { phase: "window", atS: 18.469, visible: true, focused: false, fullscreen: false },
+        { phase: "window", atS: 19.016, visible: false, focused: false, fullscreen: false },
+        { phase: "window", atS: 44.977, visible: true, focused: true, fullscreen: false },
+        { phase: "ab-pace", atS: 0, visible: true, focused: false, fullscreen: false },
+      ],
+    });
+    assert.ok(left.includes("PAGE LEFT during the window: unfocused 18.5 s, hidden 19.0 s, back 45.0 s. The slowest frames (max, p99) there are the OS's, not the game's"));
+    assert.ok(!describeBench(RESULT).some((l) => l.startsWith("PAGE LEFT")));
+  });
+});
+
 describe("given the bench result of the Lab's throws (?bench=lab)", () => {
   test("when the card is written, then its second line names the throws in turn, how often and when they leave, that time was held at 1x, and how many the window saw; a race's card has no such line", () => {
     const lines = describeBench({ ...RESULT, course: "lab", cars: 4, cops: null, labThrown: 4 });
