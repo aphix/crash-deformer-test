@@ -252,6 +252,12 @@ Owner, live c5e5cba (seed 5449605, 12 cars): wrecks twitch through the slow-mo c
 
 A clip saved before this rule replays a pile's push-out with the sign of the offset: `REPLAY_VERSION` 72.
 
+### A torn part leaves with the car's spin (`REPLAY_VERSION` 75)
+
+`detachPart` gave a part the car's centre-of-mass velocity, a radial kick and a hashed tumble, and ignored the car's turn: a hood 1.5 m off the centre of a wreck spinning at 3 rad/s left 4.5 m/s off the speed its mount had, with a random angular momentum (PBDBodies Eq. 29). The part now leaves at `car.velocity + car.angular × r` (r from the body's centre of mass, a wreck's masses' centroid, to the part's middle, before the launch's 0.14 m nudge) plus the existing kick, and its spin is `car.angular` plus the same hashed tumble and hinge terms (`loose-step.test.ts` "front bumper torn off a car … spinning at 3 rad/s about y": no-kick velocity is exactly ω × r; the launch case against the same car at rest differs by exactly ω in spin and by ω × r in velocity, within the nudge's 0.4 m/s). Parts only: no crush row, no `CRUSH_CALIBRATION` bar reads a part's motion.
+
+A clip saved before this rule replays its torn parts flying off a turning car with the car's linear velocity only: `REPLAY_VERSION` 75.
+
 ## Fixed solids: race walls, props and ramp flanks meet the car as the jersey slab does
 
 Owner, 2026-10-04: a fixed, very hard object does what the range's jersey slab does, on every map. Race walls

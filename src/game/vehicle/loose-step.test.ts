@@ -11,7 +11,7 @@ import type { DetachPart, LooseBody } from "./car-core.ts";
 import { CAR_HALF } from "./car-mesh.ts";
 import { crownY } from "./car-cage-rig.ts";
 import { SKIN } from "./car-surfaces.ts";
-import { RESTITUTION, invInertia } from "./car-air-body.ts";
+import { COM_Y, RESTITUTION, invInertia } from "./car-air-body.ts";
 import { newLooseShape, stepLoose } from "./loose-step.ts";
 import { corner, LIES_FLAT, lowest, RESTS, thinAxisUp } from "./loose-step.test-util.ts";
 import { assertSameDigest, paint } from "./test-support.ts";
@@ -330,5 +330,36 @@ describe("given a body with unequal inertias turned to any orientation", () => {
       worst = Math.max(worst, invInertia(x.clone(), q, q.clone().invert(), shape.invI).distanceTo(want));
     }
     assert.ok(worst < 1e-9, `worst miss ${worst} over 100 orientations`);
+  });
+});
+
+describe("given a front bumper torn off a car with no linear velocity spinning at 3 rad/s about y", () => {
+  const SPIN = 3;
+  /** The car spinning at `spin` rad/s about y, its bumper torn off with `push` (or the crash launch, undefined) at `impulse`; and where the bumper is about the car's centre of mass. */
+  function tear(spin: number, push: THREE.Vector3 | undefined, impulse: number): { part: DetachPart; r: THREE.Vector3 } {
+    const car = new DeformableCar(paint(), new THREE.Scene());
+    car.spawnFacing(0, 0, 0, 0);
+    car.angular.set(0, spin, 0);
+    const part = car["parts"].find((p) => p.name === "bumperF")!;
+    car["detachPart"](part, impulse, push);
+    const com = new THREE.Vector3(0, COM_Y, 0).applyQuaternion(car.group.quaternion).add(car.group.position);
+    return { part, r: part.object.position.clone().sub(com) };
+  }
+
+  it("when it is torn off with no kick, then it leaves at ω × r about the car's centre of mass: along +x for a bumper ahead of it", () => {
+    const { part, r } = tear(SPIN, new THREE.Vector3(), 0);
+    const want = new THREE.Vector3(0, SPIN, 0).cross(r);
+    assert.ok(part.velocity.distanceTo(want) < 1e-9, `velocity ${part.velocity.toArray()} vs ω × r ${want.toArray()}`);
+    assert.ok(part.velocity.x > 4, `a bumper ${r.z.toFixed(2)} m ahead of the centre is flung sideways at ${part.velocity.x.toFixed(2)} m/s`);
+  });
+
+  it("when it is torn off by the crash launch, then it leaves with the car's spin on top of the tumble and ω × r on top of the launch, as against the same car at rest", () => {
+    const spun = tear(SPIN, undefined, 20);
+    const still = tear(0, undefined, 20);
+    const turn = new THREE.Vector3(0, SPIN, 0);
+    assert.ok(spun.part.angular.distanceTo(still.part.angular.clone().add(turn)) < 1e-9, `spin ${spun.part.angular.toArray()} vs ${still.part.angular.toArray()} + ${turn.toArray()}`);
+    const carried = spun.part.velocity.clone().sub(still.part.velocity);
+    assert.ok(carried.distanceTo(turn.clone().cross(spun.r)) < 0.5, `carried ${carried.toArray()} vs ω × r ${turn.clone().cross(spun.r).toArray()}`);
+    assert.ok(carried.x > 4, `carried ${carried.x.toFixed(2)} m/s sideways`);
   });
 });

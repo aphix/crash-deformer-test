@@ -118,10 +118,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 73: a held reset leaves the parts and wheels already off a car where they lie (it threw them again from the new spot) and a car's net
  * skin inputs follow the state written to it (a second hold crushed the body flat), so a replayed clip's held reset moves its debris and skins differently;
  * 74: the start/finish seam of a looped course is smooth (four-count's start node was banked 8° over unbanked neighbours, the road's
- * edges 1.4 m up and down across the chequers; the builder now refuses a bend there), so a car crossing four-count's line replays on a level road.
+ * edges 1.4 m up and down across the chequers; the builder now refuses a bend there), so a car crossing four-count's line replays on a level road;
+ * 75: a torn part leaves with the car's spin (its velocity is the car's plus ω × r about the body's centre of mass, its angular velocity the car's plus the tumble),
+ * so a replayed clip's debris torn off a turning car flies and lands elsewhere.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 74;
+const REPLAY_VERSION = 75;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

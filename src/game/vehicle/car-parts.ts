@@ -10,6 +10,8 @@ import { flutterShell, makeShell, poseShell, recentre, setPrimer, shellBox } fro
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { applyDents } from "./loose-dent.ts";
 import { stepLoose, wheelShape } from "./loose-step.ts";
+import { CAR_CENTRE } from "./car-air-body.ts";
+import { wreckCentre } from "./car-air.ts";
 import { CarGlass } from "./car-glass-break.ts";
 import {
   BUMPER_TEAR_MPS,
@@ -54,6 +56,7 @@ const _box = new THREE.Box3();
 const _lampQ = new THREE.Quaternion();
 const _doorW = new THREE.Vector3();
 const _c = new THREE.Vector3();
+const _com = new THREE.Vector3();
 /**
  * Glass against its frame's strain (`cageStrain`, m): the windshield and rear glass read their own cage, side glass its
  * door's. Peaks measured over the standard crashes: an unloaded pane reads ≤ 0.055 (the far door of a 30–50 km/h side hit),
@@ -638,15 +641,18 @@ export abstract class CarParts extends CarGlass {
     // Loose, the part is the world's, not the car's: the distance detail's cuts (`CarDetail`) took its meshes off the camera while it was on the car.
     p.object.traverse(showOnCamera);
     if (p.region) this.trackShell(p);
+    // Where the part sits about the body's centre of mass (a wreck's masses' centroid, else the box's): the car's spin carries it at ω × r, whatever else it is thrown with.
+    _com.copy(this.deform.massActive ? wreckCentre(this) : CAR_CENTRE).applyQuaternion(this.group.quaternion).add(this.group.position);
+    _n.crossVectors(this.angular, _n.copy(wpos).sub(_com));
     p.object.position.copy(wpos);
     p.object.quaternion.copy(wquat);
     if (push) {
-      p.velocity.copy(push).applyQuaternion(this.group.quaternion).add(this.velocity);
+      p.velocity.copy(push).applyQuaternion(this.group.quaternion).add(this.velocity).add(_n);
     } else {
       _p.copy(wpos).sub(this.group.position).setY(0);
       if (_p.lengthSq() < 1e-6) _p.set(p.restPos.x, 0, p.restPos.z).applyQuaternion(this.group.quaternion);
       _p.normalize();
-      p.velocity.copy(this.velocity);
+      p.velocity.copy(this.velocity).add(_n);
       p.velocity.addScaledVector(_p, 2.2 + Math.min(5, impulse * 0.06));
       p.velocity.y += 2.1 + p.hingeT * 1.2;
       p.object.position.addScaledVector(_p, 0.14);
@@ -657,7 +663,8 @@ export abstract class CarParts extends CarGlass {
       const s = detSin((this.parts.indexOf(p) + 1) * 12.9898 + k * 78.233 + impulse * 0.37) * 43758.5453;
       return s - Math.floor(s) - 0.5;
     };
-    p.angular.set(hash(1) * 6, hash(2) * 5, hash(3) * 6);
+    // It leaves turning with the car, its own tumble on top.
+    p.angular.set(hash(1) * 6, hash(2) * 5, hash(3) * 6).add(this.angular);
     if (p.hinge === "door") p.angular.y += (p.name === "doorL" ? -1 : 1) * (3.2 + p.hingeT * 2.4);
     else if (p.hinge === "cowl") p.angular.x -= 3.4;
     else if (p.hinge === "tail") p.angular.x += 3.4;

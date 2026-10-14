@@ -465,7 +465,7 @@ export const wreckInvI = new THREE.Vector3();
  * masses' mean, so the body must turn about it) and its inverse yaw inertia per unit mass their spread about it (`_wreckInvI`, the
  * rest the car box's). Returns the centre.
  */
-export function wreckCentre(car: DeformableCar): THREE.Vector3 {
+export function wreckCentre(car: Pick<DeformableCar, "deform">): THREE.Vector3 {
   const ms = car.deform.masses;
   let m = 0;
   let cx = 0;
