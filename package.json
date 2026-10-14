@@ -21,6 +21,7 @@
     "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types scripts/run-tests.mjs src/lib/multiplayer/rate-limit.test.ts 'src/lib/submissions/**/*.test.ts' 'src/lib/deploy/**/*.test.ts' 'src/game/**/*.test.ts'",
     "test:game": "node --experimental-strip-types scripts/run-tests.mjs 'src/game/**/*.test.ts'",
     "test:app": "node --experimental-strip-types scripts/run-tests.mjs 'src/game/**/*.test.ts' 'src/lib/multiplayer/**/*.test.ts' 'src/lib/submissions/**/*.test.ts' 'src/lib/deploy/**/*.test.ts' scripts/with-app-env.test.mjs",
+    "t": "node --experimental-strip-types scripts/run-tests.mjs",
     "bench": "node scripts/bench-physics.mjs",
     "sweep": "node --experimental-strip-types --no-warnings scripts/crush-sweep.mjs",
     "bake:env": "node scripts/bake-env.mjs",

@@ -27,6 +27,7 @@ are in `docs/ARCHITECTURE.md` and enforced by `npm run check:boundaries`.
 | Command | What it does |
 |---|---|
 | `npm run test:app` | the `src/game`, `src/lib/multiplayer`, `src/lib/submissions` and `src/lib/deploy` suites; the gate |
+| `npm run t -- <files or globs> [--concurrency=2]` | the same runner on just the files named (one process per file); `--concurrency=` also works after `test:app` |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check:boundaries` | the structural rules, ratcheted against `scripts/boundary-caps.json` |
 | `npm run lint` | `oxlint` (`docs/TOOLCHAIN.md`) |
