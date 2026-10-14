@@ -24,6 +24,11 @@ export const RESPAWN_DELAY = 3;
 export const RESPAWN_REQUEST_DELAY = 1.5;
 /** A respawn spot keeps this far (m) from every other car. */
 export const CLEARANCE = 6;
+/** A respawn waits for a car racing down on its spot: braking at this (m/s², the AI guard's budget for a sedan: 0.72 of its 28) it must be able to stop `CLEARANCE` short; within this lane (m) of the spot's line. */
+export const RESPAWN_BRAKE = 20;
+const RESPAWN_LANE = 2.5;
+/** Seconds past its due time a respawn waits for such a car to pass before it drops in anyway. */
+const RESPAWN_WAIT = 2;
 /**
  * After the winner, every other car finishes the next time it crosses the line, classified by laps completed. A car not there by its
  * deadline is DNF: `FINISH_GRACE` after the winner, or `LAP_SLACK` × its own lap pace after its current lap started, whichever is later.
@@ -136,6 +141,8 @@ export class RaceSession {
   /** `stretch`'s result (a field, not a returned object: it runs per car per step). */
   private readonly span = { lo: 0, hi: 0, u: 0, at: NaN };
   private readonly io = new Float64Array(IO_COUNT);
+  /** This step's poses, for the respawn's look at the cars about (`unthreatened`). */
+  private poses: readonly CarPose[] = [];
 
   /** `entrants` in grid order (index 0 on pole). */
   constructor(track: Track, entrants: readonly Entrant[], opts: { laps: number; noReset: boolean; survival?: { bustTime: number } }) {
@@ -219,6 +226,7 @@ export class RaceSession {
     this.io[WIN_FROM_IDX] = from;
     this.io[WIN_SPAN_IDX] = span;
     this.finishers.length = 0;
+    this.poses = poses;
     for (let i = 0; i < this.cars.length; i++) this.stepCar(i, poses[i]!);
     this.drafting(poses, span);
     this.busting(poses, cops, span);
@@ -389,7 +397,7 @@ export class RaceSession {
       // The wreck still occupies the road and is where the respawn is measured from.
       c.x = pose.x;
       c.z = pose.z;
-      if (this.time >= c.respawnAt!) this.respawn(i);
+      if (this.time >= c.respawnAt! && (this.time >= c.respawnAt! + RESPAWN_WAIT || this.unthreatened(i))) this.respawn(i);
       return;
     }
     if (!pose.alive) {
@@ -719,6 +727,26 @@ export class RaceSession {
       const dx = o.x - x;
       const dz = o.z - z;
       if (dx * dx + dz * dz < CLEARANCE * CLEARANCE) return false;
+    }
+    return true;
+  }
+
+  /**
+   * No car is racing down on car `i`'s spot faster than it can stop: one within `RESPAWN_LANE` m of the spot's line and ahead of it by less than
+   * `CLEARANCE` plus its braking distance (at `RESPAWN_BRAKE`) would meet the respawned car with nothing left to do (city x4: a racer at 31 m/s, a car put 8.8 m in front of it).
+   */
+  private unthreatened(i: number): boolean {
+    const spot = this.spot(i);
+    for (let j = 0; j < this.cars.length; j++) {
+      const q = this.poses[j];
+      if (j === i || !q || !q.alive || this.cars[j]!.status !== "racing") continue;
+      const v = hypot2(q.vx, q.vz);
+      if (v < 1) continue;
+      const dx = spot.x - q.x;
+      const dz = spot.z - q.z;
+      const ahead = (dx * q.vx + dz * q.vz) / v;
+      const off = Math.abs(dx * q.vz - dz * q.vx) / v;
+      if (ahead > -CAR_HALF.z && ahead < CLEARANCE + (v * v) / (2 * RESPAWN_BRAKE) && off < RESPAWN_LANE) return false;
     }
     return true;
   }

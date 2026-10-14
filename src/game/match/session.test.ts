@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Track, blankPoint, blankProjection, pointOn } from "../world/track.ts";
-import { BUST, CLEARANCE, COUNTDOWN, DRAFT, FINISH_GRACE, GRID_TIME, RESPAWN_DELAY, RaceSession, WRONG_WAY_ON, startLights } from "./session.ts";
+import { BUST, CLEARANCE, COUNTDOWN, DRAFT, FINISH_GRACE, GRID_TIME, RESPAWN_BRAKE, RESPAWN_DELAY, RaceSession, WRONG_WAY_ON, startLights } from "./session.ts";
 import { Campaign, CAMPAIGN_POINTS } from "./campaign.ts";
 import type { CarPose, RaceEvent, RaceResultRow } from "./types.ts";
 import { DT, along, centreline, field, fromGrid, polyline, runTo, samples, shortcutLine, type Driver, type Pt } from "./session-drive.test-util.ts";
@@ -209,6 +209,26 @@ describe("given a three-lap race of two cars on the square track, where car 0 di
     assert.ok(Math.cos(rs.yaw - heading) > 0.99, "facing the race direction");
     assert.ok(Math.abs(p.s - (15 * dieAt - 6)) <= 2 * CLEARANCE + 1, `near the wreck (s ${p.s.toFixed(1)})`);
     assert.ok(Math.hypot(rs.x - park.x, rs.z - park.z) >= CLEARANCE, "clear of the parked car");
+  });
+});
+
+describe("given car 0 whose wreck is due to respawn just as car 1 comes down the road at 30 m/s, 15 m short of the spot", () => {
+  it("when the respawn falls due, then it waits until the car has passed (never a car dropped in front of one that cannot stop for it), and still comes within the 2 s it waits at most", () => {
+    const s = new RaceSession(square, field(2), { laps: 3, noReset: false });
+    const L = square.length;
+    const dieAt = 4;
+    const crash = along(square, L - 6, 15, 3);
+    const wreck = { ...crash(dieAt), vx: 0, vz: 0 };
+    const dying: Driver = (t) => (t < dieAt ? crash(t) : { ...wreck, alive: false });
+    const due = dieAt + RESPAWN_DELAY;
+    const fast = along(square, 15 * dieAt - 6 - 30 * (due + 0.5) + 3 * L, 30);
+    const ev = runTo(s, [dying, fast], due + 3, (x) => x.cars[0]!.status === "racing" && x.time > dieAt);
+    const rs = ev.find((e) => e.type === "respawn");
+    assert.ok(rs && rs.type === "respawn", "the car respawned");
+    assert.ok(s.time > due + 0.3 && s.time < due + 2.1, `respawned at ${s.time.toFixed(2)} s (due ${due} s)`);
+    const q = fast(s.time);
+    const ahead = ((rs.x - q.x) * q.vx + (rs.z - q.z) * q.vz) / 30;
+    assert.ok(ahead < -CAR_HALF.z || ahead > CLEARANCE + (30 * 30) / (2 * RESPAWN_BRAKE), `dropped ${ahead.toFixed(1)} m ahead of a car at 30 m/s`);
   });
 });
 
