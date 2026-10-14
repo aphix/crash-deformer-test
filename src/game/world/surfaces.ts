@@ -2093,6 +2093,64 @@ function take(out: Float64Array, hit: Float64Array, r: number, k: number): void 
 /** The car tops `wheelContact`'s footprint asks (`null`: none whose edge is within the tyre's reach) and their patches whose box is within reach of its hub. */
 const treadReach: { tops: Surface | null; list: Int32Array; count: number } = { tops: null, list: new Int32Array(8), count: 0 };
 
+/** Slack (cells) on `noneInReach`'s cell range: a point's own reading of its cell rounds apart from the range's. */
+const CELL_PAD = 1e-6;
+
+/**
+ * Whether car top `i` of `s` answers none of the points of the square of half side `r` about plan (`x`, `z`) asked by a tyre from height `y`
+ * (`live.topCap` 0 there): `offer` finds NaN (no node height or per-node factor on the cell, or off the grid) or a surface above the hub's
+ * reach, so it leaves the best as it was. A roof grid alone (no crease, no hills, no disc, its frame's up axis up); read from the nodes as they
+ * stand, a cell's lowest node less the greatest drop bounds every height over it. False when it cannot tell.
+ */
+function noneInReach(s: Surface, i: number, x: number, z: number, r: number, y: number): boolean {
+  const qo = i * Q_STRIDE;
+  const o = i * P_STRIDE;
+  const P = s.p;
+  const by = P[o + P_BX + 1]!;
+  const step = P[o + P_STEP]!;
+  const stepV = P[o + P_STEPV]!;
+  if (s.q[qo + Q_KIND] !== GRID || s.lat[i]!.length > 0 || s.q[qo + Q_SURF2]! >= 0 || P[o + P_RAD2]! > 0 || !(by > 0 && step > 0 && stepV > 0)) return false;
+  const nu = s.q[qo + Q_NU]!;
+  const nv = s.q[qo + Q_NV]!;
+  // The square in the frame (`gridAt`'s lu, lv): each is least and greatest at the corners its axis components pick.
+  const dy = y - P[o + P_OY]!;
+  const xLo = x - r - P[o + P_OX]!;
+  const xHi = x + r - P[o + P_OX]!;
+  const zLo = z - r - P[o + P_OZ]!;
+  const zHi = z + r - P[o + P_OZ]!;
+  const ax = P[o + P_AX]!;
+  const ay = P[o + P_AX + 1]!;
+  const az = P[o + P_AX + 2]!;
+  const cx = P[o + P_CX]!;
+  const cy = P[o + P_CX + 1]!;
+  const cz = P[o + P_CX + 2]!;
+  const uLo = ax * (ax >= 0 ? xLo : xHi) + ay * dy + az * (az >= 0 ? zLo : zHi);
+  const uHi = ax * (ax >= 0 ? xHi : xLo) + ay * dy + az * (az >= 0 ? zHi : zLo);
+  const vLo = cx * (cx >= 0 ? xLo : xHi) + cy * dy + cz * (cz >= 0 ? zLo : zHi);
+  const vHi = cx * (cx >= 0 ? xHi : xLo) + cy * dy + cz * (cz >= 0 ? zHi : zLo);
+  const i0 = Math.max(0, Math.floor((uLo - P[o + P_U0]!) / step - CELL_PAD));
+  const i1 = Math.min(nu - 2, Math.floor((uHi - P[o + P_U0]!) / step + CELL_PAD));
+  const j0 = Math.max(0, Math.floor((vLo - P[o + P_V0]!) / stepV - CELL_PAD));
+  const j1 = Math.min(nv - 2, Math.floor((vHi - P[o + P_V0]!) / stepV + CELL_PAD));
+  const nodes = s.nodes[i]!;
+  const aux = s.auxs[i]!;
+  const drop = P[o + P_DROP]!;
+  let low = Infinity;
+  for (let cj = j0; cj <= j1; cj++) {
+    for (let c = cj * nu + i0; c <= cj * nu + i1; c++) {
+      let cell = Math.min(nodes[c]!, nodes[c + 1]!, nodes[c + nu]!, nodes[c + nu + 1]!);
+      if (aux.length > 0) cell -= Math.max(drop * Math.min(aux[c]!, aux[c + 1]!, aux[c + nu]!, aux[c + nu + 1]!), drop * Math.max(aux[c]!, aux[c + 1]!, aux[c + nu]!, aux[c + nu + 1]!));
+      else cell -= drop;
+      // A NaN cell answers none: it never lowers the bound.
+      if (cell < low) low = cell;
+    }
+  }
+  if (low === Infinity) return true;
+  const lowest = P[o + P_OY]! + Math.min(ay * uLo, ay * uHi) + Math.min(cy * vLo, cy * vHi) + by * low;
+  const reach = P[o + P_REACH]!;
+  return lowest > y + (reach > live.topCap ? live.topCap : reach) + TOP_SLACK;
+}
+
 /**
  * Footprint point `k` (wheel frame at wheel scale 1, turned and scaled by `_foot`) asked from the hub's height over the statics and
  * the tops within reach (`treadReach`): its rise, patch and point into the footprint's store, and into `out` as the wheel's contact when
@@ -2163,14 +2221,14 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   if (tops !== null) {
     tops.near(skip, x, z);
     if (treadReach.list.length < tops.nAlways) treadReach.list = new Int32Array(tops.always.length);
-    // A top whose box ends farther than the tyre's reach from the hub holds none of the footprint's points (every one is within it), and
-    // one `offer` leaves out for the asker (`leftOut`) is never asked.
+    // A top whose box ends farther than the tyre's reach from the hub holds none of the footprint's points (every one is within it); one
+    // `offer` leaves out for the asker (`leftOut`) is never asked, nor one that answers none of them (`noneInReach`).
     const P = tops.p;
     for (let k = 0; k < tops.nAlways; k++) {
       const i = tops.always[k]!;
       const o = i * P_STRIDE;
       if (x < P[o + P_MINX]! - r || x > P[o + P_MAXX]! + r || z < P[o + P_MINZ]! - r || z > P[o + P_MAXZ]! + r) continue;
-      if (leftOut(tops, o, tops.q[i * Q_STRIDE + Q_OWNER]!, skip)) continue;
+      if (leftOut(tops, o, tops.q[i * Q_STRIDE + Q_OWNER]!, skip) || noneInReach(tops, i, x, z, r, y)) continue;
       treadReach.list[treadReach.count++] = i;
     }
   }
