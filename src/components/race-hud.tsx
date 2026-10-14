@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
   Ban,
   ChevronLeft,
@@ -33,6 +33,7 @@ import { useReelCover } from "@/components/use-reel-cover";
 import { AI_DIFFICULTIES } from "@/game/ai/constants";
 import { missedCheckpointText, type ResetInput } from "@/game/hud/reset-prompt";
 import { courseTap, selectAll } from "@/game/hud/setup-patch";
+import { LEAVE_MS, STANDING_LI, withLeavers, type StandingSlot } from "@/game/hud/standings-motion";
 import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/match/types";
 import { fmtGap, fmtTime } from "@/game/hud/race-clock";
 import { cn } from "@/lib/utils";
@@ -49,14 +50,67 @@ const STATUS_ICON: Partial<Record<CarStatus, { Icon: typeof Flag; label: string 
   dnf: { Icon: Ban, label: "Did not finish" },
 };
 
+/** FLIP over `ref`'s rows: one whose top moved since the last commit starts at its old place, and its CSS transition (`STANDING_LI`) slides it home. */
+function useSlide(ref: RefObject<HTMLOListElement | null>): void {
+  const tops = useRef(new Map<Element, number>());
+  useLayoutEffect(() => {
+    const ol = ref.current;
+    if (!ol) return;
+    const next = new Map<Element, number>();
+    for (const li of Array.from(ol.children) as HTMLElement[]) {
+      const top = li.offsetTop;
+      const was = tops.current.get(li);
+      next.set(li, top);
+      if (was === undefined || was === top) continue;
+      li.style.transition = "none";
+      li.style.transform = `translateY(${was - top}px)`;
+      void li.offsetHeight;
+      li.style.transition = "";
+      li.style.transform = "";
+    }
+    tops.current = next;
+  });
+}
+
+/** `rows` plus the rows that left in the last `LEAVE_MS`, flagged leaving, so they fade out instead of vanishing. */
+function useLeavers(rows: readonly RaceHudRow[]): StandingSlot[] {
+  const seen = useRef(rows);
+  const [gone, setGone] = useState<readonly RaceHudRow[]>([]);
+  useEffect(() => {
+    const left = seen.current.filter((p) => !rows.some((r) => r.id === p.id));
+    seen.current = rows;
+    if (left.length === 0) return;
+    setGone((g) => [...g, ...left]);
+    setTimeout(() => setGone((g) => g.filter((r) => !left.includes(r))), LEAVE_MS);
+  }, [rows]);
+  return withLeavers(rows, gone);
+}
+
+/** One standings row's `li`: it mounts faded (`data-fading`) and a frame later fades in; a leaver (`leaving`) fades out. A row the DOM only moves keeps its state, so a pass never re-fades it. */
+function StandingItem({ leaving, className, children }: { leaving: boolean; className: string; children: ReactNode }) {
+  const [arrived, setArrived] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setArrived(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  return (
+    <li data-fading={leaving || !arrived ? "" : undefined} className={className}>
+      {children}
+    </li>
+  );
+}
+
 /**
  * Live order, panel-free. A name click follows that car (spectating or finished). Phones show P1, you, and the cars around
- * you (around the watched car while spectating). Over the results reel its box goes to the engine (`useReelCover`).
+ * you (around the watched car while spectating). Over the results reel its box goes to the engine (`useReelCover`). A pass
+ * slides the two rows past each other, a row that arrives or leaves fades (`STANDING_LI`).
  */
 export function RaceStandings({ race, onCommand }: { race: RaceHud; onCommand: Send }) {
   const ref = useRef<HTMLOListElement>(null);
   const shown = race.phase !== null && race.standings.length > 0;
   useReelCover(ref, "standings", shown && race.reel ? onCommand : null);
+  useSlide(ref);
+  const slots = useLeavers(race.standings);
   if (!shown) return null;
   const watched = race.standings.find((r) => r.watched)?.place;
   const focusPlace = (race.spectating !== null ? watched : race.you?.place) ?? watched ?? 1;
@@ -67,10 +121,14 @@ export function RaceStandings({ race, onCommand }: { race: RaceHud; onCommand: S
           <AutoRow on={race.auto} onWatch={() => onCommand({ type: "watch", id: -1 })} />
         </li>
       ) : null}
-      {race.standings.map((row) => (
-        <li key={row.id} className={cn(row.place !== 1 && !row.you && row.place !== focusPlace && "max-sm:hidden", row.place !== 1 && row.place !== focusPlace && "phone-landscape:hidden")}>
+      {slots.map(({ row, leaving }) => (
+        <StandingItem
+          key={row.id}
+          leaving={leaving}
+          className={cn(STANDING_LI, row.place !== 1 && !row.you && row.place !== focusPlace && "max-sm:hidden", row.place !== 1 && row.place !== focusPlace && "phone-landscape:hidden")}
+        >
           <StandingRow row={row} lead={race.standings[0]!.lap} onWatch={() => onCommand({ type: "watch", id: row.id })} />
-        </li>
+        </StandingItem>
       ))}
     </ol>
   );

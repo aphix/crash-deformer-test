@@ -212,14 +212,14 @@ describe("given a sedan flicked at 30 m/s with the automatic slow-mo on", () => 
     assert.ok(Number.isNaN(seen.freedAt), `time went back to 1x at sim ${seen.freedAt.toFixed(3)} s, before the hit at ${seen.hitAt.toFixed(3)} s`);
   });
 
-  it("when it is flicked past a parked sedan alongside it with 1.2 m to spare, then the slow-mo that came on for it hands back to 1x one step after the hit was due and stays off", () => {
+  it("when it is flicked past a parked sedan alongside it with 1.2 m to spare, then the slow-mo that came on for it climbs back to 1x from one step after the hit was due (a ramp of under 0.45 s, not a snap) and stays off", () => {
     const r = labRig([car(at(-14, 0, Math.PI / 2)), car(at(6, 3, Math.PI / 2))]);
     runLab(r, 0.5);
     r.lab.launch(0, new THREE.Vector3(30 * Math.cos(0.15), 30 * Math.sin(0.15), 0));
     const seen = watchSlowmo(r, 10);
     assert.ok(Number.isNaN(seen.hitAt), `it hit something at sim ${seen.hitAt.toFixed(3)} s`);
     assert.ok(seen.slowedAt > 0, "the slow-mo never came on");
-    assert.ok(seen.freedAt > seen.slowedAt && seen.freedAt <= seen.slowedAt + LEAD + 2 * FRAME, `slowed at sim ${seen.slowedAt.toFixed(3)} s, back to 1x at ${seen.freedAt.toFixed(3)} s`);
+    assert.ok(seen.freedAt > seen.slowedAt && seen.freedAt <= seen.slowedAt + LEAD + 2 * FRAME + 0.45, `slowed at sim ${seen.slowedAt.toFixed(3)} s, back to 1x at ${seen.freedAt.toFixed(3)} s`);
     assert.equal(r.w.clock.timeScale, 1);
   });
 });

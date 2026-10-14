@@ -68,8 +68,19 @@ export function impactScale(c: PhaseClock): number {
   return c.reduceMotion ? CALM_SCALE : IMPACT_SCALE;
 }
 
-/** How near the slow scale (× it) the time scale is when the pre-impact ease has run its `PRE_IMPACT_LEAD` (and `beginImpact` snaps the rest). */
+/** How near the slow scale (× it) the time scale is when the pre-impact ease has run its `PRE_IMPACT_LEAD`; the ramp (`RAMP_RATE`) finishes the rest after the hit. */
 const REACH = 1.2;
+
+/**
+ * Rate (1/s of wall) of every other change of the time scale (the hit on a hit nobody saw coming, a throw's 1× exit and its slow-mo
+ * back, an aborted pre-impact slow-mo): an exponential ease, 95 % of a change in 0.19 s and 99 % in 0.29 s, so no change of the
+ * scale is a snap (masterclass 23:34, "fade them in or out over some parameter, even if that parameter is time"). One frame at
+ * 60 Hz moves it at most 1 − e^(−RAMP_RATE/60) = 23 % of the gap.
+ */
+const RAMP_RATE = 16;
+
+/** A scale this near its target (absolute) is there: the exponential never arrives, and callers compare against 1. */
+const SETTLED = 1e-3;
 
 /**
  * The rate (1/s of wall) at which the time scale eases from 1× down to `target` so it is within `REACH`× of it as the
@@ -83,17 +94,18 @@ function onsetRate(target: number): number {
 
 /**
  * Ease the time scale toward its target: into the auto slow-mo before a hit (approach, the user's scale not set) at the
- * rate that reaches the slow scale by the hit, whatever the frame rate; fast into slow-mo after it, slow back out in the aftermath.
+ * rate that reaches the slow scale by the hit, whatever the frame rate; every other change at `RAMP_RATE`; slow back out in the aftermath.
  */
 export function easeTimeScale(c: PhaseClock, wallDt: number): void {
   if (c.phase === "approach" && c.userTimeScale == null && c.targetScale < c.timeScale) {
     c.timeScale += (c.targetScale - c.timeScale) * (1 - Math.exp(-wallDt * onsetRate(c.targetScale)));
     return;
   }
-  c.timeScale += (c.targetScale - c.timeScale) * Math.min(1, wallDt * (c.phase === "aftermath" ? 1.15 : 3.2));
+  c.timeScale += (c.targetScale - c.timeScale) * (1 - Math.exp(-wallDt * (c.phase === "aftermath" ? 1.15 : RAMP_RATE)));
+  if (Math.abs(c.targetScale - c.timeScale) < SETTLED) c.timeScale = c.targetScale;
 }
 
-/** The hit: the clock restarts and time drops to the user's fixed scale, auto slow-mo (at once, or `slomoAt` on), or 1×. */
+/** The hit: the clock restarts and the time scale's target becomes the user's fixed scale, auto slow-mo (at once, or `slomoAt` on), or 1×; `easeTimeScale` ramps to it. */
 export function beginImpact(c: PhaseClock, autoSlomo: boolean): void {
   c.phase = "impact";
   c.wallSinceImpact = 0;
@@ -101,27 +113,22 @@ export function beginImpact(c: PhaseClock, autoSlomo: boolean): void {
   if (c.userTimeScale != null) {
     c.slomoAt = 0;
     c.targetScale = c.userTimeScale;
-    c.timeScale = c.userTimeScale;
   } else if (autoSlomo && c.slomoAt === 0) {
-    const scale = impactScale(c);
-    c.targetScale = scale;
-    if (c.timeScale > scale * 1.15) c.timeScale = scale;
+    c.targetScale = impactScale(c);
   } else {
     if (!autoSlomo) c.slomoAt = 0;
     c.targetScale = 1;
-    c.timeScale = 1;
   }
 }
 
 /**
- * A driver thrown out while the auto slow-mo runs (a later hit, or one nobody saw coming): 1× again for his exit,
- * the slow-mo back `THROW_ONSET` on.
+ * A driver thrown out while the auto slow-mo runs (a later hit, or one nobody saw coming): back up to 1× for his exit
+ * (a ramp, `RAMP_RATE`), the slow-mo back `THROW_ONSET` on.
  */
 export function holdForThrow(c: PhaseClock): void {
   if (c.phase === "approach" || c.phase === "aftermath" || c.userTimeScale != null || c.targetScale >= 1) return;
   c.slomoAt = c.wallSinceImpact + THROW_ONSET;
   c.targetScale = 1;
-  c.timeScale = 1;
 }
 
 /**
@@ -136,7 +143,6 @@ export function preImpact(c: PhaseClock, eta: number, simT: number, lead: number
   if (c.phase !== "approach" || c.userTimeScale != null) return;
   if (c.targetScale <= scale || c.slomoAt > 0) {
     if (simT > c.preImpactBy) {
-      c.timeScale = 1;
       c.targetScale = 1;
       c.slomoAt = 0;
       c.preImpactBy = Infinity;
@@ -206,7 +212,6 @@ export function stepPhase(c: PhaseClock, wallDt: number): void {
     c.slomoAt = 0;
     if (c.userTimeScale == null && c.phase !== "aftermath") {
       c.targetScale = impactScale(c);
-      c.timeScale = c.targetScale;
     }
   }
   if (c.phase === "impact") {

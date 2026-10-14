@@ -69,16 +69,34 @@ export const CHASE = {
   /**
    * A landing (`LANDING`, masterclass 31:18): for `hold` s the eye's vertical spring runs at `zetaUp` so its momentum carries it below the target
    * ("reduce the damping so the momentum carries it further downwards", 31:39; "a large camera movement that doesn't obscure the
-   * road ahead for long", 30:47; ratio and window: playtest), and the view wobbles in pitch and roll at `wobbleHz` (30 Hz, 31:23)
-   * fading out over `hold` (the talk says 0.5 s, 31:27) at `wobble` deg (playtest); roll is `wobbleRoll` of the pitch.
+   * road ahead for long", 30:47; ratio and window: playtest), and the view wobbles in pitch and roll at `wobbleHz` (9 Hz: the talk says
+   * 30 Hz, 31:23, but that is the Nyquist rate of a 60 fps display, so pitch and roll flip sign every frame and alias at 90 Hz: the
+   * strobe the impact shake lost at 100 Hz, so the knob stops at 15) fading out over `hold` (the talk says 0.5 s, 31:27) at `wobble` deg
+   * (playtest) after easing in over `attack` s (23:34); roll is `wobbleRoll` of the pitch.
    */
-  landing: { zetaUp: 0.6, hold: 0.5, wobble: 0.8, wobbleHz: 30, wobbleRoll: 0.6 },
-  /** Forward speed (m/s) from which the view looks into a slide and the aim follows the velocity. */
-  followSpeed: 3,
+  landing: { zetaUp: 0.6, hold: 0.5, wobble: 0.8, wobbleHz: 9, wobbleRoll: 0.6, attack: 0.08 },
+  /** Forward speed (m/s) band over which the view fades into a slide and the aim into the velocity (masterclass 23:34): none below `followFrom`, all from `followTo`. */
+  followFrom: 2,
+  followTo: 5,
   /** Impact shake strength: a multiple of the jolt's trauma (0 off); the first crash's kick scales with it too. The hood view shakes `shakeHood` of the chase views' amount (the eye sits in the car). */
   shake: 1,
   shakeHood: 0.4,
 };
+
+/** The weight (0..1, smoothstep) the chase view gives the car's velocity over its heading at forward speed `along`: 0 up to `followFrom`, 1 from `followTo`, continuous between. */
+export function followBlend(along: number): number {
+  const t = THREE.MathUtils.clamp((along - CHASE.followFrom) / (CHASE.followTo - CHASE.followFrom), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * A landing wobble's amplitude share (0..1) with `left` s of its `hold` still to run: a linear fade out, and a smoothstep fade in
+ * over the first `attack` s, so the view starts at rest instead of at full amplitude.
+ */
+export function wobbleEnvelope(left: number, hold: number, attack: number): number {
+  const t = THREE.MathUtils.clamp((hold - left) / attack, 0, 1);
+  return (t * t * (3 - 2 * t) * left) / hold;
+}
 
 /**
  * The lowest a chase eye may stand (m) at (x, z): `CHASE.floor` over the surface there as the car's feet at height `y` see it
@@ -134,7 +152,7 @@ export const CHASE_KNOBS: readonly ChaseKnob[] = [
   knob("Landing", "cam.landing.zetaUp", "Bounce", 0.2, 1, 0.01, () => CHASE.landing.zetaUp, (v) => void (CHASE.landing.zetaUp = v)),
   knob("Landing", "cam.landing.hold", "Window (s)", 0.1, 1.5, 0.05, () => CHASE.landing.hold, (v) => void (CHASE.landing.hold = v)),
   knob("Landing", "cam.landing.wobble", "Wobble (deg)", 0, 2, 0.05, () => CHASE.landing.wobble, (v) => void (CHASE.landing.wobble = v)),
-  knob("Landing", "cam.landing.wobbleHz", "Wobble (Hz)", 10, 40, 1, () => CHASE.landing.wobbleHz, (v) => void (CHASE.landing.wobbleHz = v)),
+  knob("Landing", "cam.landing.wobbleHz", "Wobble (Hz)", 4, 15, 1, () => CHASE.landing.wobbleHz, (v) => void (CHASE.landing.wobbleHz = v)),
   knob("Impact", "cam.shake", "Shake strength", 0, 2, 0.05, () => CHASE.shake, (v) => void (CHASE.shake = v)),
   knob("Impact", "cam.shiftKick", "Gear-change kick", 0, 3, 0.05, () => LOAD_FEEL.shiftKick, (v) => void (LOAD_FEEL.shiftKick = v)),
 ];
@@ -218,9 +236,11 @@ export class DriveCam {
     const fwd = car.fwdFlat;
     const vel = car.velocity;
     const along = vel.x * fwd.x + vel.z * fwd.z;
+    // The view looks into a slide as the car gets going, not at a speed: `followBlend` is 0 below `followFrom`, 1 from `followTo`.
+    const follow = followBlend(along);
     let yawT = Math.atan2(fwd.x, fwd.z);
-    if (along > CHASE.followSpeed && view !== "first") {
-      yawT += THREE.MathUtils.clamp(wrapPiClosed(Math.atan2(vel.x, vel.z) - yawT), -0.5, 0.5) * 0.4;
+    if (follow > 0 && view !== "first") {
+      yawT += THREE.MathUtils.clamp(wrapPiClosed(Math.atan2(vel.x, vel.z) - yawT), -0.5, 0.5) * 0.4 * follow;
     }
 
     const enter = this.car !== car;
@@ -276,14 +296,16 @@ export class DriveCam {
       const lead = THREE.MathUtils.clamp(along * CHASE.aheadVel, -0.5, CHASE.aheadMax);
       let lx = fwd.x * lead;
       let lz = fwd.z * lead;
-      if (along > CHASE.followSpeed) {
-        lx = vel.x * CHASE.aheadVel;
-        lz = vel.z * CHASE.aheadVel;
-        const l = hypot2(lx, lz);
+      if (follow > 0) {
+        let vx = vel.x * CHASE.aheadVel;
+        let vz = vel.z * CHASE.aheadVel;
+        const l = hypot2(vx, vz);
         if (l > CHASE.aheadMax) {
-          lx *= CHASE.aheadMax / l;
-          lz *= CHASE.aheadMax / l;
+          vx *= CHASE.aheadMax / l;
+          vz *= CHASE.aheadMax / l;
         }
+        lx += (vx - lx) * follow;
+        lz += (vz - lz) * follow;
       }
       _w.set(p.x + lx, p.y + c.aimUp, p.z + lz);
       if (enter && camera.position.distanceToSquared(p) <= CHASE.blendRange * CHASE.blendRange) {
@@ -329,11 +351,11 @@ export class DriveCam {
     easeFov(camera, fov, dt);
   }
 
-  /** A landing's wobble: pitch and roll at `wobbleHz`, fading out linearly over `hold` s of the landing's own clock (not the wall's). */
+  /** A landing's wobble: pitch and roll at `wobbleHz`, eased in over `attack` s and fading out linearly over `hold` s of the landing's own clock (not the wall's): `wobbleEnvelope`. */
   private landingWobble(camera: THREE.PerspectiveCamera): void {
     if (this.landS <= 0 || this.reduceMotion) return;
     const l = CHASE.landing;
-    const a = (l.wobble * THREE.MathUtils.DEG2RAD * this.landS) / l.hold;
+    const a = l.wobble * THREE.MathUtils.DEG2RAD * wobbleEnvelope(this.landS, l.hold, l.attack);
     const phase = 2 * Math.PI * l.wobbleHz * (l.hold - this.landS);
     camera.rotateX(a * Math.sin(phase));
     camera.rotateZ(l.wobbleRoll * a * Math.cos(phase));

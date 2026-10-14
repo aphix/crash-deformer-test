@@ -24,6 +24,15 @@ const HIT_FULL = 14;
 /** Hit-stop: wall seconds of near-freeze on the driven car's big hits, and the sim rate during it. */
 const HIT_STOP = 0.09;
 const HIT_STOP_SCALE = 0.05;
+/** The hit-stop's ease rates (1/s of wall): in 95 % in 50 ms, out 95 % in 150 ms, so the freeze is a dip, not a switch. */
+const WARP_IN = 60;
+const WARP_OUT = 20;
+
+/** The hit-stop's sim rate one frame of `dt` wall s on: `warp` eased toward `HIT_STOP_SCALE` while a stop runs (`stop`) and back to 1 after, exactly 1 once within a thousandth. */
+export function easeWarp(warp: number, stop: boolean, dt: number): number {
+  const next = warp + ((stop ? HIT_STOP_SCALE : 1) - warp) * (1 - Math.exp(-dt * (stop ? WARP_IN : WARP_OUT)));
+  return next > 0.999 ? 1 : next;
+}
 
 /** Crash cam: cut times (wall s after the first impact) for the three replay angles, then hand back, under the sandbox's `SLOMO_HOLD`. */
 export const CUTS = [1.3, 2.9, 4.5, 6.1] as const;
@@ -458,6 +467,8 @@ export class Cinematics {
   private readonly sparkAcc: Float32Array;
   private havePrev = false;
   private hitStop = 0;
+  /** The hit-stop's sim rate: eased toward `HIT_STOP_SCALE` while a stop runs and back to 1, never snapped. */
+  private warp = 1;
   private flash = 0;
   private punch = 0;
   /** The crash cam (the camera half of the crash): `impact` starts it, `direct` runs it. */
@@ -502,9 +513,9 @@ export class Cinematics {
     if (!on) this.reset();
   }
 
-  /** Sim time multiplier for this frame: below 1 during a hit-stop. */
+  /** Sim time multiplier for this frame: eased below 1 during a hit-stop (`WARP_IN`/`WARP_OUT`). */
   get timeWarp(): number {
-    return this.hitStop > 0 ? HIT_STOP_SCALE : 1;
+    return this.warp;
   }
 
   /** Scene reset: wipe marks, drop the crash cam and hit history. */
@@ -512,6 +523,7 @@ export class Cinematics {
     this.marks.clear();
     this.havePrev = false;
     this.hitStop = 0;
+    this.warp = 1;
     this.flash = 0;
     this.punch = 0;
     this.crash.reset();
@@ -549,6 +561,7 @@ export class Cinematics {
     if (this.tierNow === "off") return;
     this.hitStop = Math.max(0, this.hitStop - wallDt);
     if (simDt > MIN_SIM_DT) this.detectHits(cars, followed, driving, wallDt, velocityHits);
+    this.warp = easeWarp(this.warp, this.hitStop > 0, wallDt);
     this.marks.update(cars, simDt);
     if (this.marks.slipping) this.emitSlipFx(cars.length, wallDt, fxDensity);
     this.tyreSmoke.update(Math.max(simDt, wallDt * 0.6), this.view.camera);
@@ -586,7 +599,7 @@ export class Cinematics {
   render(scene: THREE.Scene, camera: THREE.Camera, wallDt: number): void {
     this.gpu?.begin();
     this.marks.flush(this.renderer, wallDt);
-    this.post.render(scene, camera);
+    this.post.render(scene, camera, wallDt);
     this.gpu?.end();
   }
 

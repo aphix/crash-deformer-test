@@ -179,9 +179,10 @@ describe("given a camera slider in a share link, keyed cam.<chase path>", () => 
   it("when one slider is off its default, then only its key is written, one at its default is dropped even when set explicitly, and the fragment reads back", () => {
     assert.equal(encodeShare({ ...DEFAULTS, "cam.pos.lon": 9.5 }), "cam.pos.lon=9.5");
     assert.equal(encodeShare({ ...DEFAULTS, "cam.pos.lon": INITIAL_HUD["cam.pos.lon"] }), "");
-    assert.equal(encodeShare({ ...DEFAULTS, "cam.landing.wobbleHz": 22, "cam.driftLean": 0.25 }), "cam.driftLean=0.25&cam.landing.wobbleHz=22");
-    assert.equal(decodeShare("#cam.pos.lon=9.5&cam.landing.wobbleHz=22")["cam.pos.lon"], 9.5);
-    assert.equal(decodeShare("#cam.pos.lon=9.5&cam.landing.wobbleHz=22")["cam.landing.wobbleHz"], 22);
+    assert.equal(encodeShare({ ...DEFAULTS, "cam.landing.wobbleHz": 12, "cam.driftLean": 0.25 }), "cam.driftLean=0.25&cam.landing.wobbleHz=12");
+    assert.equal(decodeShare("#cam.pos.lon=9.5&cam.landing.wobbleHz=12")["cam.pos.lon"], 9.5);
+    assert.equal(decodeShare("#cam.pos.lon=9.5&cam.landing.wobbleHz=12")["cam.landing.wobbleHz"], 12);
+    assert.equal(decodeShare("cam.landing.wobbleHz=30")["cam.landing.wobbleHz"], 15, "an old link's 30 Hz clamps to the new range");
   });
 
   it("when a slider is out of range or unreadable, then it clamps to the slider's range or is the default", () => {

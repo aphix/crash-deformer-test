@@ -97,7 +97,6 @@ export abstract class EngineInput extends EngineRigs {
     this.autoSlomo = !this.autoSlomo;
     if (!this.autoSlomo) {
       if (this.clock.userTimeScale == null) {
-        this.clock.timeScale = 1;
         this.clock.targetScale = 1;
       }
     }

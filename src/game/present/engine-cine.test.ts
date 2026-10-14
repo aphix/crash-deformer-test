@@ -9,7 +9,7 @@ import { TRACKS } from "../world/tracks/index.ts";
 import stunt from "../world/tracks/stunt.json" with { type: "json" };
 import { sampleAt } from "./track-mesh.ts";
 import { camUsable, carsBlock, CLEAR, occluder, raceSight, solid, withCars, type Sight } from "./spectate-cam.ts";
-import { CrashCam, CrashPick, crashEye, CUTS, heldCut, hitAim, laterHits } from "./engine-cine.ts";
+import { CrashCam, CrashPick, crashEye, CUTS, easeWarp, heldCut, hitAim, laterHits } from "./engine-cine.ts";
 import { contextEye, fovFor } from "./highlight-cam.ts";
 import { DeformableCar } from "../vehicle/car.ts";
 import { SLOMO_HOLD } from "../match/phase.ts";
@@ -518,5 +518,23 @@ describe("given a reel's crash camera holding the crane with two drivers thrown 
     }
     assert.ok(changed, "the wall moved the cam from the crane to the long lens");
     for (const p of later.at.slice(0, 2)) assert.ok(fovFor(camera.position, cam["aim"], p, camera.fov) <= camera.fov + 1e-6, `the thrown driver at z ${p.z} needs a ${fovFor(camera.position, cam["aim"], p, camera.fov).toFixed(1)} deg lens, the long lens's first frame has ${camera.fov.toFixed(1)}`);
+  });
+});
+
+describe("given the hit-stop's sim rate over the frames of a 90 ms stop at 60 Hz", () => {
+  it("when the stop begins and ends, then the rate dips and recovers without a snap, and is 1 again within half a second", () => {
+    const FRAME = 1 / 60;
+    let warp = 1;
+    let biggest = 0;
+    let lowest = 1;
+    for (let f = 0; f < 36; f++) {
+      const next = easeWarp(warp, f * FRAME < 0.09, FRAME);
+      biggest = Math.max(biggest, Math.abs(next - warp));
+      lowest = Math.min(lowest, next);
+      warp = next;
+    }
+    assert.ok(biggest < 0.7, `the rate moved ${biggest.toFixed(2)} in one frame`);
+    assert.ok(lowest < 0.5, `the stop barely slowed the sim: ${lowest.toFixed(2)}`);
+    assert.equal(warp, 1);
   });
 });

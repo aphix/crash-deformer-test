@@ -16,12 +16,29 @@ const STRAIGHT = arc(350);
 
 describe("given the oval and a sedan", () => {
   it("when it does 50 m/s 25 m before the sharpest bend, then the cue is on", () => {
-    assert.equal(brakeCueAt(path, sedan, HAIRPIN - 25, 50, 1), true);
+    assert.ok(brakeCueAt(path, sedan, HAIRPIN - 25, 50, 1) > 0);
   });
-  it("when it does 8 m/s at the same point, then the cue is off", () => {
-    assert.equal(brakeCueAt(path, sedan, HAIRPIN - 25, 8, 1), false);
+  it("when it does 60 m/s at the same point, then the cue is full", () => {
+    assert.equal(brakeCueAt(path, sedan, HAIRPIN - 25, 60, 1), 1);
   });
-  it("when it does 50 m/s mid-straight with no bend in braking reach, then the cue is off", () => {
-    assert.equal(brakeCueAt(path, sedan, STRAIGHT, 50, 1), false);
+  it("when it does 8 m/s at the same point, then the cue is 0", () => {
+    assert.equal(brakeCueAt(path, sedan, HAIRPIN - 25, 8, 1), 0);
+  });
+  it("when it does 50 m/s mid-straight with no bend in braking reach, then the cue is 0", () => {
+    assert.equal(brakeCueAt(path, sedan, STRAIGHT, 50, 1), 0);
+  });
+  it("when its speed climbs through the plan's, then the cue rises from 0 to 1 and never falls or jumps", () => {
+    const STEP = 0.05;
+    let prev = 0;
+    let seenPartial = false;
+    for (let v = 8; v <= 70; v += STEP) {
+      const cue = brakeCueAt(path, sedan, HAIRPIN - 25, v, 1);
+      assert.ok(cue >= prev, `cue fell at ${v.toFixed(2)} m/s: ${prev} -> ${cue}`);
+      assert.ok(cue - prev <= 0.1, `cue jumped at ${v.toFixed(2)} m/s: ${prev} -> ${cue}`);
+      if (cue > 0 && cue < 1) seenPartial = true;
+      prev = cue;
+    }
+    assert.ok(seenPartial, "the cue went from 0 to 1 with nothing between");
+    assert.equal(prev, 1);
   });
 });

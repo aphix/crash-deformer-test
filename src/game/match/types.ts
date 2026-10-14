@@ -356,8 +356,8 @@ export type RaceView = {
   drift: DriftView;
   /** Wheels off the car, 0–4 (`4 - deform.wheelsOn`). */
   wheelsOff: number;
-  /** The next corner is closer than this car can brake for at its speed (`brakeCueAt`): the speed readout tints. */
-  brakeCue: boolean;
+  /** How far the next corner is past what this car can brake for at its speed, 0..1 (`brakeCueAt`): the speed readout tints from its own colour to amber with it. */
+  brakeCue: number;
   /** Police chasing this car, null when none is (`BUST`'s chasers): `cops` units; `hold` is the 0–1 share of the bust hold already run (the car held slow beside one) and `left` the seconds before the bust at this rate. */
   chase: { cops: number; hold: number; left: number } | null;
   /** The reset key (R, D-pad ↓, the thumb pad's button) would act on this car right now: the HUD's reset prompt shows only then. */

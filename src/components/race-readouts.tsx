@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { showsDriveReadouts } from "@/components/drive-readouts";
-import { nitroGlowClass } from "@/components/nitro-glow";
+import { brakeTint } from "@/components/brake-tint";
+import { nitroGlowStyle } from "@/components/nitro-glow";
 import { DriveCluster } from "@/components/race-gauge";
 import { fmtGap, fmtTime } from "@/game/hud/race-clock";
 import { useSpeedUnit } from "@/components/use-speed-unit";
@@ -115,7 +116,7 @@ export function Gauge({ view, corner, spectated = false }: { view: RaceView; cor
           <p className="grid size-7 place-items-center self-center rounded-md text-lg font-semibold leading-none shadow-[var(--shadow-border)]" aria-label="Gear">
             {view.gear === 0 ? "R" : view.gear}
           </p>
-          <p className="text-3xl font-semibold leading-none tracking-tight data-[brake]:text-signal-amber" aria-label="Speed" data-brake={view.brakeCue ? "1" : undefined}>
+          <p className="text-3xl font-semibold leading-none tracking-tight transition-colors duration-[var(--motion-quick)]" style={{ color: brakeTint(view.brakeCue) }} aria-label="Speed">
             {formatSpeed(view.speedKph / KPH_PER_MS, unit)}
             <span className="ml-0.5 text-xs font-medium text-fg/70">{unit}</span>
           </p>
@@ -124,7 +125,8 @@ export function Gauge({ view, corner, spectated = false }: { view: RaceView; cor
           {view.racer?.drafting ? <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Draft</span> : null}
           <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-fg/70">{boost === null ? "No boost" : "Boost"}</span>
           <div
-            className={cn("flex h-2 w-24 gap-0.5", nitroGlowClass("bar", boost, view.boosting))}
+            className="flex h-2 w-24 gap-0.5 transition-[filter] duration-[var(--motion-fast)]"
+            style={nitroGlowStyle("bar", boost, view.boosting)}
             role="meter"
             aria-label="Boost"
             aria-valuenow={Math.round((boost ?? 0) * 100)}

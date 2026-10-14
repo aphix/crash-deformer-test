@@ -82,6 +82,7 @@ uniform sampler2D tNoise;
 uniform float uVignette;
 uniform float uSat;
 uniform float uContrast;
+uniform float uGrade;
 uniform float uLetterbox;
 uniform float uCel;
 varying vec2 vUv;
@@ -114,7 +115,7 @@ void main() {
   vec3 g = gl_FragColor.rgb;
   float l = dot(g, vec3(0.2126, 0.7152, 0.0722));
   g = mix(vec3(l), g, uSat);
-  g *= mix(vec3(0.96, 0.99, 1.05), vec3(1.04, 1.0, 0.95), smoothstep(0.15, 0.7, l));
+  g *= mix(vec3(1.0), mix(vec3(0.96, 0.99, 1.05), vec3(1.04, 1.0, 0.95), smoothstep(0.15, 0.7, l)), uGrade);
   g = clamp(g, 0.0, 1.0);
   g = mix(g, g * g * (3.0 - 2.0 * g), uContrast);
   if (uCel > 0.001) {
@@ -152,6 +153,15 @@ const TIER: Record<PostTier, TierSpec> = {
 };
 /** Length of the shared bloom chain: ½, ¼, ⅛, 1/16, 1/32 of the canvas. */
 const CHAIN = 5;
+
+/** Rate (1/s of wall) at which a tier switch's strengths ease in: 95 % in 0.3 s. */
+const FADE_RATE = 10;
+
+/** `fade` (0..1) one frame of `dt` s later, easing toward 1 at `FADE_RATE`; 1 once within a hundredth, so a settled chain is exactly the tier's. */
+export function easeFade(fade: number, dt: number): number {
+  const k = fade + (1 - fade) * (1 - Math.exp(-dt * FADE_RATE));
+  return k > 0.99 ? 1 : k;
+}
 
 /** What a tier runs, for the bench page's card: the passes of `PostFX.render` and the numbers from `TIER`. */
 export function describePost(tier: FxTier): string {
@@ -199,6 +209,10 @@ export class PostFX {
   /** 0–1: scene-switch cel look (posterized bands, Sobel outlines), low / high tiers only (`scene-fade.ts`). */
   cel = 0;
   private tierNow: FxTier = "off";
+  /** 0–1: the share of the post chain's grade, bloom, vignette and radial blur in the frame; eases up after a switch from a plain tier (`easeFade`). */
+  private fade = 0;
+  /** The grain amplitude now: eases to the tier's (`TIER`) after a switch. */
+  private grain = DITHER;
   private readonly renderer: THREE.WebGLRenderer;
   /** The low / high tiers' HDR scene target (the warm-up draws into it once). */
   readonly sceneRT: THREE.WebGLRenderTarget;
@@ -246,6 +260,7 @@ export class PostFX {
           uVignette: { value: GRADE.vignette },
           uSat: { value: GRADE.saturation },
           uContrast: { value: GRADE.contrast },
+          uGrade: { value: 1 },
           uLetterbox: { value: 0 },
           uCel: { value: 0 },
         },
@@ -268,7 +283,12 @@ export class PostFX {
     return this.tierNow;
   }
 
+  /** A tier with no post chain (`off`, `minimal`) leaves the strengths at nothing, so the next post tier fades in from the plain frame; a switch between post tiers keeps them and eases the grain. */
   setTier(tier: FxTier): void {
+    if (tier === "off" || tier === "minimal") {
+      this.fade = 0;
+      this.grain = DITHER;
+    }
     this.tierNow = tier;
   }
 
@@ -307,7 +327,8 @@ export class PostFX {
     return Promise.all(jobs);
   }
 
-  render(scene: THREE.Scene, camera: THREE.Camera): void {
+  /** `dt`: the frame's wall seconds, for the strengths' ease after a tier switch. */
+  render(scene: THREE.Scene, camera: THREE.Camera, dt: number): void {
     const r = this.renderer;
     if (this.tierNow === "off" || this.tierNow === "minimal") {
       r.render(scene, camera);
@@ -344,12 +365,22 @@ export class PostFX {
     r.autoClear = ac;
 
     const composite = this.composites[this.tierNow];
+    // A tier switch eases the chain's strengths in (`FADE_RATE`), never a cut: no second scene target, so a phone pays nothing.
+    this.fade = easeFade(this.fade, dt);
+    this.grain += (spec.grain - this.grain) * (1 - Math.exp(-dt * FADE_RATE));
+    const k = this.fade;
     const u = composite.uniforms;
     u.tScene!.value = this.sceneRT.texture;
     u.tBloom!.value = mips[spec.mip0]!.texture;
+    u.uBloom!.value = GRADE.bloom * k;
+    u.uVignette!.value = GRADE.vignette * k;
+    u.uSat!.value = 1 + (GRADE.saturation - 1) * k;
+    u.uContrast!.value = GRADE.contrast * k;
+    u.uGrade!.value = k;
+    u.uGrain!.value = this.grain;
     u.uFlash!.value = this.flash;
     u.uPunch!.value = this.punch;
-    u.uRadial!.value = this.radial;
+    u.uRadial!.value = this.radial * k;
     u.uLetterbox!.value = this.letterbox;
     u.uCel!.value = this.cel;
     u.uPhase!.value = (u.uPhase!.value as number + GOLDEN) % 1;

@@ -10,7 +10,7 @@ const view = (wheelsOff: number, canReset = true): RaceView => ({
   speedKph: 0,
   gear: 1,
   rpm: 0.3,
-  brakeCue: false,
+  brakeCue: 0,
   damage: 1,
   chase: null,
   boost: null,

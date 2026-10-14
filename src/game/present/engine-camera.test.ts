@@ -398,6 +398,28 @@ describe("given the chase camera on a car driven by its own drive", () => {
     assert.ok(still.roll < 1e-6, `a still landing rolled ${still.roll}`);
   });
 
+  it("when the landing's pitch is sampled every millisecond, then the wobble crosses zero at most 12 times in its half second (a 9 Hz wobble, not a 30 Hz strobe at a 60 fps display's Nyquist rate), and starts from rest", () => {
+    const ms = 1 / 1000;
+    const l = landing(ms, false);
+    const was = CHASE.landing.wobble;
+    CHASE.landing.wobble = 0;
+    const still = landing(ms, false);
+    CHASE.landing.wobble = was;
+    let crossings = 0;
+    let prev = 0;
+    let first = NaN;
+    for (let i = 0; i < l.pitch.length; i++) {
+      const d = l.pitch[i]! - still.pitch[i]!;
+      if (Number.isNaN(first) && Math.abs(d) > 1e-9) first = Math.abs(d);
+      if (Math.abs(d) < 1e-7) continue;
+      if (prev !== 0 && Math.sign(d) !== Math.sign(prev)) crossings++;
+      prev = d;
+    }
+    assert.ok(crossings >= 2, `the wobble crossed zero ${crossings} times: it never swung`);
+    assert.ok(crossings <= 12, `${crossings} zero crossings in the landing window (${(crossings / 2 / CHASE.landing.hold).toFixed(0)} Hz)`);
+    assert.ok(first < 0.001, `the wobble began at ${first} of pitch, not from rest`);
+  });
+
   it("when motion is reduced, then the landing neither dips the eye past 1 cm nor wobbles the view", () => {
     const l = landing(H, true);
     assert.ok(l.dip <= 0.01, `the eye dipped ${(l.dip * 100).toFixed(1)} cm`);

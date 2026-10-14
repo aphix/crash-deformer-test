@@ -52,7 +52,7 @@ export abstract class EngineHud extends EngineWarm {
       id,
       racer: null,
       ...carGauge(viewed),
-      brakeCue: false,
+      brakeCue: 0,
       boost: this.meterOf(id),
       drift: seatDrift,
       chase: null,

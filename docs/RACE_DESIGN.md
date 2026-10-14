@@ -408,6 +408,12 @@ none in Survival), lap / last / best, the split, and the gauge. On a wide screen
 the gear under it (the **revs are faked**, `carRpm`: 0.3 at the foot of the gear's bucket, 1 at its top), a **damage arc**
 (the weaker of the engine block's health and wheels on / 4: amber under 0.6, red under 0.25), a **wrench** lit while the
 game would accept a reset (`canReset`), and the **nitrous bottle** (the boost meter, "Draft" above it while drafting).
+Cues are graded, not switched (masterclass 23:34, "fade them in or out over some parameter"): the speed digits tint toward amber
+by `RaceView.brakeCue` (0..1: `brakeCueAt` is 0 at the AI plan's speed for the next corner and rises linearly to 1 at 30 % over it,
+the worst corner in braking reach; `brakeTint`, a `color-mix` with a 150 ms transition between the HUD's ticks); the boost bottle
+and bar glow by a continuous level (`nitroGlowLevel`: the fill up to 0.6, a burn 1; `transition-shadow` / `transition-[filter]`);
+a standings row slides to its new place on a pass (a FLIP offset the CSS transform transition takes home) and fades in or out
+when it arrives or leaves (`standings-motion.ts` `STANDING_LI`, `withLeavers`, 300 ms).
 Phones and narrow windows keep the compact speed / gear / segmented boost line. **Status strips** (`race-status.tsx`): the
 **pursuit strip** (bottom centre) shows "CHASED BY N COPS" with the bust hold running down under it; the **near-goal
 banner** (top centre) counts the last 500 yd / 500 m of the last lap down in 10s. There is no minimap. The HUD republishes

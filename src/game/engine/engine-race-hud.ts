@@ -34,8 +34,8 @@ export abstract class RaceHudLayer extends RaceWatch {
     return (this.free ? id === this.self : this.seatDrives(id)) ? { ...this.host.seat.drift } : NO_DRIFT;
   }
 
-  /** The braking cue for car `id` on the main loop: its forward speed against what the planned braking allows for a corner ahead. No allocation. */
-  private brakeCue(id: number, car: DeformableCar, path: TrackPath): boolean {
+  /** The braking cue (0..1) for car `id` on the main loop: its forward speed against what the planned braking allows for a corner ahead. No allocation. */
+  private brakeCue(id: number, car: DeformableCar, path: TrackPath): number {
     const p = car.group.position;
     const pr = projectPath(path, p.x, p.z, this.seg[id]!, this.proj);
     const along = car.velocity.x * car.fwdFlat.x + car.velocity.z * car.fwdFlat.z;
