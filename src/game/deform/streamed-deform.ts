@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { computeNormalsFast } from "./fast-normals.ts";
 import { matchSkinLocal, type ShapeCluster } from "./shape-match.ts";
 import { DeformSolve } from "./deform-solve.ts";
-import { RES_SLOTS, SIM_SCALAR_NUMBERS, SKIN_K, type Beam, type MassNode, type Sensor } from "./deform-rig.ts";
+import { RES_SLOTS, SIM_SCALAR_NUMBERS, SKIN_K, type Beam, type MassNode, type RigOverrides, type Sensor } from "./deform-rig.ts";
 import { INF_K } from "./deform-build.ts";
 import { cageAxis, cageCoeffs } from "./deform-state.ts";
 import { skinKernel, skinKey, type SkinDynamic, type SkinKernel, type SkinStatic, type SkinTables } from "./skin-kernel.ts";
@@ -21,6 +21,15 @@ const _axis = new THREE.Vector3();
 const SUNK_ROOF = 0.075;
 /** The share of a cage's `maxCrush` its sensor-driven lift may use before the 0.85 m cap. */
 const CAGE_CRUSH_SHARE = 0.9;
+
+/** `skinKey` per style: the rig object every car of a style shares, the rest skin and triangle count it was hashed for, and the key. */
+const styleKeys = new WeakMap<RigOverrides, { rest: Float32Array; indexLen: number; key: string }>();
+
+function sameRest(a: Float32Array, b: Float32Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
 
 /** `simState`: `v` into `buf` at `o`, or with `write` from it; returns the next offset. */
 function simVec(buf: Float64Array, o: number, v: THREE.Vector3, write: boolean): number {
@@ -417,9 +426,10 @@ export class StreamedDeformation extends DeformSolve {
   /** This car's style in the kernel's memory (shared by every car of the style). */
   private kernelSet: SkinTables | null = null;
 
-  private placeKernelTables(kernel: SkinKernel, index: ArrayLike<number>, d: SkinDynamic): SkinTables {
+  /** The static tables the skin kernel places for this car, built from its own arrays (`index`: the geometry's triangle list). */
+  private skinStatic(index: ArrayLike<number>): SkinStatic {
     const n = this.vertexCount;
-    const s: SkinStatic = {
+    return {
       rest: this.restPos,
       rC: this.resC.subarray(0, n * 3),
       sN: this.skinN,
@@ -434,7 +444,19 @@ export class StreamedDeformation extends DeformSolve {
       seed: this.wrinkleSeed,
       idx: index instanceof Uint32Array ? index : Uint32Array.from(index),
     };
-    return kernel.tables(skinKey(s, d), () => s, d);
+  }
+
+  /**
+   * The tables are a function of the style's rig and its rest skin, so a car that shares a rig object and rest skin with one that already
+   * hashed them (`styleKeys`) takes its key and builds nothing: the hash of ~13 arrays runs once per style, not once per car.
+   */
+  private placeKernelTables(kernel: SkinKernel, index: ArrayLike<number>, d: SkinDynamic): SkinTables {
+    const memo = styleKeys.get(this.rig);
+    if (memo && memo.indexLen === index.length && sameRest(memo.rest, this.restPos)) return kernel.tables(memo.key, () => this.skinStatic(index), d);
+    const s = this.skinStatic(index);
+    const key = skinKey(s, d);
+    styleKeys.set(this.rig, { rest: this.restPos, indexLen: index.length, key });
+    return kernel.tables(key, () => s, d);
   }
 
   /** The kernel's wheel-arch inputs: per mass, 5 numbers (popped, local x and z, rest x and z). */

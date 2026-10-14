@@ -363,7 +363,7 @@ export abstract class DeformRig {
   readonly imprint = Float64Array.of(IMPRINT_NONE, 0, 0);
   protected readonly loadW: Float64Array;
   protected readonly loadDirty = new Uint8Array(1);
-  private readonly rig: RigOverrides;
+  protected readonly rig: RigOverrides;
 
   constructor(geometry: THREE.BufferGeometry, rig: RigOverrides = {}) {
     this.rig = rig;
