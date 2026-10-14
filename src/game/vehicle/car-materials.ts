@@ -197,8 +197,8 @@ export function makePaintMaterial(color: number): THREE.MeshPhysicalMaterial {
       capHighlights(
         new THREE.MeshPhysicalMaterial({
           color,
-          map: maps.map ?? undefined,
-          roughnessMap: maps.roughness ?? undefined,
+          map: maps.map ?? null,
+          roughnessMap: maps.roughness ?? null,
           metalness: 0.2,
           roughness: 0.42,
           clearcoat: 0.72,
