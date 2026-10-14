@@ -121,6 +121,10 @@ Node city32 (aggression 1): 801 ms/sim-s; 27 wrecks; readPoints 17 µs inclusive
 | 2.5 still tops for parts, reverted | 0.967–1.033 (bar 0.97) | — | — | resting pile 4.83 → 3.57 ms (0.74); probe: 3898 kept-asleep steps would have read a top row (bar 0) | car digests equal |
 | 2.9 WASM raster + plan field, dropped (leads A8) | — | — | — | aftermath 0.979/0.986 (bar 0.95) | yes (bit-identical) |
 | **Landing: Phase 2 (2.2a, 2.6, 2.3, 2.8 EDT) + Phase 4 minus 4.6 vs main da075e56** (worker, load 1.0–1.4, both arm orders) | 0.986–1.056 | 0.941–1.025 (`same true`) | 0.978–1.066 (`same true`) | RAG=0 0.99; RAG=1 aftermath 27.3 → 24.0 (0.88); resting pile 16.1 → 5.0 ms (0.31), 32 of 32 asleep | sim (REPLAY 69) |
+| jit-tidy 259dec3c scene hooks: four stable engine functions, not a closure per scene | no timing (box busy: same-build wall swings 2.5×) | — | — | fleet 32, seed 4242, 1200 fr: digest 955787178 both | yes (engine-drive dam-spine digest 290651693 both; replay-fidelity, engine-replay-hold green) |
+| jit-tidy 6d07b6c6 indexed loops (settleStep, pairMomentum, restoreMomentum, momentumAlong) | no timing | — | — | same digests | yes |
+| jit-tidy 5479c7ea `skinKey` hashed once per rig, not per car (node, 32 sedans, first skin of each): total 50.8 / 36.9 ms → 24.2 / 19.4 ms; later cars 1.36 / 0.91 → 0.42 / 0.33 ms each | — | — | — | same digests | yes (key is a function of the rig object and its rest skin, both compared) |
+| jit-tidy Firefox 155 headless, dam-spine 22 cars, one profile per arm (content process): Bailout 5345 → 5359, Invalidate 576 → 584, DiscardJit 2 → 2, GCMajor 2 → 2 | — | — | — | — | the three cuts do not change SpiderMonkey's bailout or discard counts: 2868/2881 are FirstExecution and ~2150 TranspiledCacheIR in prefabs, three, bench-loop and engine bundles; `engine` bundle 271 → 277 |
 
 Phase 1 fleet settle (1.1; 32 cars, seed 4242, 12000 frames = 2.84 sim-s, RAG=0, worker): 0c8dd5c6 last hit at 1.67 s, a wreck still gliding at 3.81 m/s at 2.83 s; bbf470cc last hit at 1.62 s, every wreck under 0.5 m/s from 1.75 s (0.13 s after it), the fastest at 0.13 m/s at the end. Bar (< 0.5 m/s within 3 s of the last hit) holds.
 
