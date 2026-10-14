@@ -340,7 +340,9 @@ function pairMomentum(carA: DeformableCar, carB: DeformableCar, out: Float64Arra
   for (let c = 0; c < 2; c++) {
     const car = c === 0 ? carA : carB;
     if (car.deform.massActive) {
-      for (const q of car.deform.masses) {
+      const masses = car.deform.masses;
+      for (let k = 0; k < masses.length; k++) {
+        const q = masses[k]!;
         if (!q.dynamic) continue;
         out[0] += q.mass * q.vel.x;
         out[1] += q.mass * q.vel.z;
@@ -365,7 +367,9 @@ function restoreMomentum(carA: DeformableCar, carB: DeformableCar, before: Float
     car.velocity.x += dvx;
     car.velocity.z += dvz;
     if (!car.deform.massActive) continue;
-    for (const q of car.deform.masses) {
+    const masses = car.deform.masses;
+    for (let k = 0; k < masses.length; k++) {
+      const q = masses[k]!;
       if (!q.dynamic) continue;
       q.vel.x += dvx;
       q.vel.z += dvz;
@@ -378,7 +382,11 @@ const _after = new Float64Array(3);
 function momentumAlong(car: DeformableCar, nx: number, nz: number): number {
   if (!car.deform.massActive) return car.deform.totalMass * (car.velocity.x * nx + car.velocity.z * nz);
   let p = 0;
-  for (const q of car.deform.masses) if (q.dynamic) p += q.mass * (q.vel.x * nx + q.vel.z * nz);
+  const masses = car.deform.masses;
+  for (let k = 0; k < masses.length; k++) {
+    const q = masses[k]!;
+    if (q.dynamic) p += q.mass * (q.vel.x * nx + q.vel.z * nz);
+  }
   return p;
 }
 

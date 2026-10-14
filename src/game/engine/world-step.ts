@@ -274,7 +274,8 @@ export function stepWorld(w: World, dt: number): void {
  * follow the crash (`stepBreakage`: hinges, tears, lamps, glass) once for the whole step, never by the frame rate.
  */
 export function settleStep(cars: readonly DeformableCar[], h: number, bleed: boolean): void {
-  for (const car of cars) {
+  for (let i = 0; i < cars.length; i++) {
+    const car = cars[i]!;
     if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(h);
     if (bleed && car.crashed) bleedAfterSlide(car, h);
     car.stepBreakage(h);
