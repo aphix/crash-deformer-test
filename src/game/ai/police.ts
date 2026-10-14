@@ -7,7 +7,7 @@ import { wrapPi } from "../kernel/scalar.ts";
 import type { RaceBrain } from "./race-ai.ts";
 import { blankPoint, blankProjection, projectPath, type Track } from "../world/track.ts";
 import { ATTACK, attackTarget, BEHIND, CATCH_UP, CopBrain, HEAD_ON, PULL_OUT, pursuitSteer, RAM_TIME, WAIT_BEHIND, type HunterWorld, type PoliceWorld } from "./cop-brain.ts";
-import { CORRIDOR, RacerSight, SIGHT_AHEAD, SIGHT_MARGIN, SIGHT_NEAR } from "./cop-sight.ts";
+import { CORRIDOR, RacerSight, SIGHT_MARGIN } from "./cop-sight.ts";
 
 /**
  * Most police cars in one race (all packs together; fewer when the field and traffic leave fewer car
@@ -26,13 +26,12 @@ const GAP_MIN = 6;
 const GAP_SPAN = 10;
 const RETRY = 1;
 /**
- * A stakeout parks this far (m) ahead of the racer it waits for, plus up to `AHEAD_SPAN`: past what a racer sees down the road. A reinforcement parks
- * `REINF_AHEAD` ahead of its target, or comes up from `REINF_BEHIND` m behind it: outside the racers' mirrors and `SIGHT_NEAR`.
+ * A stakeout parks `PAST_SIGHT` m beyond what a racer sees down the road (`RacerSight.range`, plus its margin), plus up to `AHEAD_SPAN`; a
+ * reinforcement parks that far ahead of its target, or comes up from `PAST_NEAR` m beyond the straight-line range behind it, outside the racers' mirrors.
  */
-const AHEAD_MIN = SIGHT_AHEAD + SIGHT_MARGIN + 10;
+const PAST_SIGHT = 10;
+const PAST_NEAR = 20;
 const AHEAD_SPAN = 60;
-const REINF_AHEAD = SIGHT_AHEAD + SIGHT_MARGIN + 10;
-const REINF_BEHIND = SIGHT_NEAR + SIGHT_MARGIN + 20;
 /** Units of one stakeout park this far apart (m) along the road. */
 const PARK_SPACING = 12;
 /** Half width and half length (m) of a car's footprint, for the parking spot. */
@@ -70,11 +69,13 @@ const IMMUNE = 4;
 /**
  * A parked unit nobody came near is put away after `PARK_MAX` s and a knocked-out one after `DOWN_STORE` s, a given-up one once it is out of every racer's
  * sight (`RacerSight`), none of them while a racer can see it. A unit put on the road is not put away for `MIN_LIFE` s unless it is knocked
- * out or `OUT_RANGE` m from every racer. The director's stall recall (`CopBrain.recall`, a unit that gained no ground for 8 s) puts a stopped unit away at once and a moving one by the same rules.
+ * out or `OUT_RANGE` m from every racer; one on the road `STALE_LIFE` s goes wherever no racer is near. The director's stall recall (`CopBrain.recall`, a unit that gained no
+ * ground for 8 s) puts a stopped unit away at once and a moving one by the same rules.
  */
 const PARK_MAX = 45;
 const DOWN_STORE = 6;
 export const MIN_LIFE = 12;
+export const STALE_LIFE = 75;
 export const OUT_RANGE = 300;
 
 type UnitState = "stored" | "parked" | "pursuit" | "down";
@@ -124,6 +125,9 @@ export class PoliceBrain extends CopBrain {
   private armed = false;
   private nextAt = 0;
   private readonly sight: RacerSight;
+  /** Metres ahead of its racer a stakeout (and a reinforcement parked ahead) goes, and behind its target a reinforcement comes up from: out of this course's sight. */
+  private readonly parkAhead: number;
+  private readonly comeUpBehind: number;
   /** Per unit: race time it was put on the road. Scratch: the last patrol's race time and cars (`recall` has only an id). */
   private readonly bornAt: Float64Array;
   private now = 0;
@@ -146,6 +150,8 @@ export class PoliceBrain extends CopBrain {
     this.age = new Float64Array(count);
     this.bornAt = new Float64Array(count);
     this.sight = new RacerSight(track, line.racers);
+    this.parkAhead = this.sight.range.ahead + SIGHT_MARGIN + PAST_SIGHT;
+    this.comeUpBehind = this.sight.range.near + SIGHT_MARGIN + PAST_NEAR;
     for (let u = 0; u < count; u++) this.state.push("stored");
   }
 
@@ -205,6 +211,11 @@ export class PoliceBrain extends CopBrain {
       out.throttle = Math.min(line.throttle, 0.5);
       out.steer = line.steer;
       out.brake = line.brake;
+      // A given-up unit that has been out `STALE_LIFE` s comes to a stop: the racers go round it and the stall rule puts it away, where at their pace it never got clear of them.
+      if (p < 0 && this.now - this.bornAt[u]! >= STALE_LIFE) {
+        out.throttle = 0;
+        out.brake = 1;
+      }
       return out;
     }
     const tg = cars[t]!;
@@ -367,8 +378,8 @@ export class PoliceBrain extends CopBrain {
         const side = this.roll() < 0.5 ? 1 : -1;
         if (u < 0) continue;
         // Parked ahead where no racer sees it; else it comes up from behind, already chasing.
-        if (this.spot(tg, REINF_AHEAD, side, 1, cars)) this.place(u, p, size, cars, world);
-        else if (this.spot(tg, -REINF_BEHIND, side, 1, cars)) {
+        if (this.spot(tg, this.parkAhead, side, 1, cars)) this.place(u, p, size, cars, world);
+        else if (this.spot(tg, -this.comeUpBehind, side, 1, cars)) {
           this.place(u, p, size, cars, world);
           this.setState(u, "pursuit");
         }
@@ -377,12 +388,14 @@ export class PoliceBrain extends CopBrain {
   }
 
   /**
-   * Unit `u` may be put away: no racer sees it (`RacerSight`: never one moving or standing within `SIGHT_NEAR` m of a racer), and it has
-   * been on the road for `MIN_LIFE` s, unless it is `knockedOut` (or stuck) or out of range of every racer.
+   * Unit `u` may be put away: no racer sees it (`RacerSight`: never one moving or standing within its near range of a racer), and it has
+   * been on the road for `MIN_LIFE` s, unless it is `knockedOut` (or stuck) or out of range of every racer. A unit on the road for `STALE_LIFE`
+   * s that is still seen (a short course the racers cover, a given-up cop driving among them) goes once no racer is within its near range.
    */
   private mayStore(u: number, knockedOut: boolean): boolean {
-    if (!this.sight.hiddenCar(this.fieldCars[this.first + u]!)) return false;
-    return knockedOut || this.now - this.bornAt[u]! >= MIN_LIFE || this.sight.gap > OUT_RANGE;
+    const age = this.now - this.bornAt[u]!;
+    if (this.sight.hiddenCar(this.fieldCars[this.first + u]!)) return knockedOut || age >= MIN_LIFE || this.sight.gap > OUT_RANGE;
+    return age >= STALE_LIFE && this.sight.gap >= this.sight.range.near + SIGHT_MARGIN;
   }
 
   /** Park a fresh pack of `PACK_START` ahead of a random racer still racing. False when no spot out of sight was found for it: the cars are still free. */
@@ -399,7 +412,7 @@ export class PoliceBrain extends CopBrain {
     let pick = Math.floor(this.roll() * racers);
     let r = 0;
     for (; r < this.line.racers; r++) if (this.huntable(r, hunt, time) && pick-- === 0) break;
-    const ahead = AHEAD_MIN + AHEAD_SPAN * this.roll();
+    const ahead = this.parkAhead + AHEAD_SPAN * this.roll();
     for (let k = 0; k < PACK_START; k++) {
       const u = this.free();
       // The second car of a stakeout parks facing the oncoming racers: a head-on rammer.

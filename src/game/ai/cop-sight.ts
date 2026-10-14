@@ -3,20 +3,34 @@ import { MAX_CARS } from "../scenes/fleet.ts";
 import { blankProjection, projectPath, type Projection, type Track } from "../world/track.ts";
 import type { AiCar } from "./derby-ai.ts";
 
-/** Straight-line distance (m) inside which a racer sees everything: no cop is put on the road or taken off it this close to any racer. */
-export const SIGHT_NEAR = 100;
-/** Metres of road ahead of a racer that it sees down (a stakeout parks beyond this), and behind it that still show in its mirrors. */
-export const SIGHT_AHEAD = 200;
-export const SIGHT_BEHIND = 40;
+/** What a racer sees (m): everything within `near` by straight line; along the road, `ahead` m down it and `behind` m back in its mirrors. */
+export interface SightRange {
+  near: number;
+  ahead: number;
+  behind: number;
+}
+
+/** A course this long (m) or longer is seen at the full ranges; a shorter one, whose whole lap a few racers would cover, at the share of them its length is of this. */
+export const SIGHT_COURSE = 2000;
+const SIGHT_NEAR = 100;
+const SIGHT_AHEAD = 200;
+const SIGHT_BEHIND = 40;
 /** Metres a racer drives, flat out, in the 0.25 s between the beat that reads its place and the frame a cop put on the road shows. */
 export const SIGHT_MARGIN = 20;
 /** Metres a racer may be past the road's run-off and still be on its corridor (`projectPath`'s own margin): beyond it the racer is not on this road. */
 export const CORRIDOR = 8;
 
+/** The ranges a racer sees on a course `length` m round. */
+export function sightRange(length: number): SightRange {
+  const scale = Math.min(1, length / SIGHT_COURSE);
+  return { near: SIGHT_NEAR * scale, ahead: SIGHT_AHEAD * scale, behind: SIGHT_BEHIND * scale };
+}
+
 /** Whether a point on the course is out of every racer's sight, by where the racers are and the road between: no camera is read. */
 export class RacerSight {
   /** The straight-line distance (m) from the last queried point to the nearest racer. */
   gap = Infinity;
+  readonly range: SightRange;
   private readonly track: Track;
   private readonly racers: number;
   private cars: readonly AiCar[] = [];
@@ -30,6 +44,7 @@ export class RacerSight {
   constructor(track: Track, racers: number) {
     this.track = track;
     this.racers = racers;
+    this.range = sightRange(track.length);
   }
 
   /** The racers' places this beat (`cars[0 … racers − 1]`); every query after reads them. */
@@ -50,25 +65,26 @@ export class RacerSight {
   }
 
   /**
-   * (x, z), at road arc `s` and on the road's corridor or not, is out of sight of every racer: `SIGHT_NEAR` m or more from each, and for
-   * a racer on the road, more than `SIGHT_BEHIND` m behind it or `SIGHT_AHEAD` m ahead along the road (a racer off the road, whose
-   * heading says nothing of the road, sees `SIGHT_AHEAD` m round it), each with `SIGHT_MARGIN` m to spare for the metres a racer
+   * (x, z), at road arc `s` and on the road's corridor or not, is out of sight of every racer: `range.near` m or more from each, and for
+   * a racer on the road, more than `range.behind` m behind it or `range.ahead` m ahead along the road (a racer off the road, whose
+   * heading says nothing of the road, sees `range.ahead` m round it), each with `SIGHT_MARGIN` m to spare for the metres a racer
    * drives between the beat that read its place and the frame the cop shows. Sets `gap`.
    */
   hiddenAt(x: number, z: number, s: number, onCorridor: boolean): boolean {
     const L = this.track.length;
+    const { near, ahead: seesAhead, behind: seesBehind } = this.range;
     let hidden = true;
     this.gap = Infinity;
     for (let i = 0; i < this.racers; i++) {
       const racer = this.cars[i]!;
       const dist = hypot2(racer.x - x, racer.z - z);
       if (dist < this.gap) this.gap = dist;
-      if (dist < SIGHT_NEAR + SIGHT_MARGIN) hidden = false;
-      else if (!onCorridor || this.onRoad[i] === 0) hidden = hidden && dist >= SIGHT_AHEAD + SIGHT_MARGIN;
+      if (dist < near + SIGHT_MARGIN) hidden = false;
+      else if (!onCorridor || this.onRoad[i] === 0) hidden = hidden && dist >= seesAhead + SIGHT_MARGIN;
       else {
         const along = s - this.arc[i]!;
         const ahead = along - L * Math.round(along / L);
-        hidden = hidden && (ahead <= -(SIGHT_BEHIND + SIGHT_MARGIN) || ahead >= SIGHT_AHEAD + SIGHT_MARGIN);
+        hidden = hidden && (ahead <= -(seesBehind + SIGHT_MARGIN) || ahead >= seesAhead + SIGHT_MARGIN);
       }
     }
     return hidden;

@@ -2,8 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { blankAiCar, type AiCar } from "./derby-ai.ts";
 import { guardMates } from "./pack-guard.ts";
-import { MIN_LIFE, OUT_RANGE, PoliceBrain } from "./police.ts";
-import { SIGHT_AHEAD, SIGHT_BEHIND, SIGHT_NEAR } from "./cop-sight.ts";
+import { MIN_LIFE, OUT_RANGE, PoliceBrain, STALE_LIFE } from "./police.ts";
+import { sightRange } from "./cop-sight.ts";
 import type { PoliceWorld } from "./cop-brain.ts";
 import { RaceBrain } from "./race-ai.ts";
 import { idleDrive } from "../vehicle/car-drive.ts";
@@ -11,6 +11,8 @@ import { blankPoint, blankProjection, Track } from "../world/track.ts";
 import oval from "../world/tracks/oval.json" with { type: "json" };
 
 const track = new Track(oval);
+/** The oval is short, so its racers see a third of the full ranges (`sightRange`). */
+const SIGHT = sightRange(track.length);
 const BEAT = 0.25;
 const pt = blankPoint();
 
@@ -64,7 +66,7 @@ function rig(units = 2, seed = 1) {
 }
 
 /** The racer far enough past the units (m along the road) that no racer sees them, but within `OUT_RANGE`. */
-const PAST_SIGHT = SIGHT_NEAR + 50;
+const PAST_SIGHT = SIGHT.near + 50;
 
 describe("given a racer with a stakeout of two cops parked ahead of it, the first just woken by the racer passing and the second still parked", () => {
   it("when the racer stops racing and no chaser is near another racer so the pack stands down, then the parked cop never pulls out onto the road and is put away only once the racer is out of sight and the cop is MIN_LIFE s old", () => {
@@ -298,11 +300,11 @@ function against(racer: { x: number; z: number }, spot: { x: number; z: number }
 
 function racerSees(racer: { x: number; z: number }, spot: { x: number; z: number }): boolean {
   const { dist, ahead } = against(racer, spot);
-  return dist < SIGHT_NEAR || (ahead > -SIGHT_BEHIND && ahead < SIGHT_AHEAD);
+  return dist < SIGHT.near || (ahead > -SIGHT.behind && ahead < SIGHT.ahead);
 }
 
 describe("given a racer on the road with stakeouts parked for it and a reinforcement called once a woken cop has stayed beside it", () => {
-  it("when every spot a cop is put on is checked against the racer where it stood, then none is within 100 m of it, none ahead of it within its sight along the road and none in its mirrors", () => {
+  it("when every spot a cop is put on is checked against the racer where it stood, then none is within its near range of it, none ahead of it within its sight along the road and none in its mirrors", () => {
     let reinforcements = 0;
     let spots = 0;
     for (let seed = 1; seed <= 6; seed++) {
@@ -339,6 +341,40 @@ describe("given a pack that has stood down (its racer stopped racing) with a cop
     drive(r.cars, -150);
     r.beat();
     assert.ok(r.stored.includes(1), "a cop 150 m behind the racer is put away");
+  });
+});
+
+describe("given a stood-down pack's cop that keeps driving in a racer's sight along the road for a long time", () => {
+  /** Seconds after the stakeout the cop (kept `ahead` m along from the racer, moving) is put away, or Infinity within `limit` s. */
+  const goneAfter = (ahead: number, limit: number): number => {
+    const r = rig();
+    r.hunt[0] = 0;
+    const s = track.project(r.cars[0]!.x, r.cars[0]!.z, -1, blankProjection()).s;
+    for (let n = 0; n < limit / BEAT; n++) {
+      const p = track.pointAt(s + ahead, pt);
+      Object.assign(r.cars[1]!, { x: p.x, z: p.z, vx: 0, vz: 10 });
+      r.beat();
+      if (r.stored.includes(1)) return r.clock();
+    }
+    return Infinity;
+  };
+
+  it("when it is clear of the racers' near range, then it is put away once it has been on the road STALE_LIFE s, and when it is inside that range, then it never is", () => {
+    const clear = goneAfter(SIGHT.near + 20 + 6, STALE_LIFE + 20);
+    assert.ok(clear >= STALE_LIFE && clear < STALE_LIFE + 5, `a cop in sight but clear of the near range went at ${clear} s, not at STALE_LIFE`);
+    assert.equal(goneAfter(SIGHT.near, STALE_LIFE + 60), Infinity, "a cop inside the near range was put away");
+  });
+
+  it("when it is doing 25 m/s, then it keeps driving before STALE_LIFE s and brakes to a stop once it is that old, so the racers go round it and the stall rule can put it away", () => {
+    const r = rig();
+    r.hunt[0] = 0;
+    r.beat();
+    Object.assign(r.cars[1]!, { vx: 0, vz: 25 });
+    const young = r.police.think(r.cars[1]!, r.cars, 0);
+    assert.ok(young.brake < 0.5 && young.throttle > 0, `a young given-up cop braked: throttle ${young.throttle}, brake ${young.brake}`);
+    r.run(STALE_LIFE);
+    const old = r.police.think(r.cars[1]!, r.cars, 0);
+    assert.ok(old.brake >= 0.5 && old.throttle === 0, `a stale given-up cop did not brake: throttle ${old.throttle}, brake ${old.brake}`);
   });
 });
 

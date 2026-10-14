@@ -269,12 +269,18 @@ class); they are never entrants, so rules, standings and results never see them,
   reel): a cop is put on the road, and put away, only where no racer (every racer car, not only the player's) sees it: 100 m
   or more from each by straight line, and, for a racer on the road, 200 m or more ahead of it along the road or 40 m or more
   behind it (a racer off the road sees 200 m all round), each with 20 m to spare for the metres a racer drives between the
-  beat that read its place and the frame the cop shows. So a stakeout parks 230–290 m ahead, a reinforcement 230 m ahead
-  of its target or comes up from 140 m behind, and no cop is ever put away moving within 100 m of a racer. A cop put on the
-  road stays 12 s (`MIN_LIFE`) unless it is knocked out or 300 m from every racer. A stakeout whose spots are all in sight
-  tries again after 1 s. The stall rule (a cop out driving that gains under 25 m in 8 s, untouched, is put away) puts a cop
-  that has stopped away where it stands, but a stuck cop still moving (shoving a car or wall) only once out of sight, and
-  never within 100 m of a racer; it is asked again after each further 8 s.
+  beat that read its place and the frame the cop shows. On a course shorter than 2000 m (the Brickyard Oval and Harbour
+  Streets are about 690 m: a few racers would otherwise cover the whole lap and nothing could ever be hidden) the three
+  ranges are cut in proportion to its length, the 20 m margin kept. So on a long course a stakeout parks 230–290 m ahead,
+  a reinforcement 230 m ahead of its target or comes up from 140 m behind, and no cop is ever put away moving within 100 m
+  of a racer. A cop put on the road stays 12 s (`MIN_LIFE`) unless it is knocked out or 300 m from every racer; one on the
+  road 75 s (`STALE_LIFE`) that is still seen goes as soon as no racer is within its near range plus the margin; a given-up
+  cop that old brakes to a stop (a cop crawling on at the pack's pace had the racers queue behind it for ever, and one at
+  their pace never gets clear of them, so cops piled up and no new stakeout could form), the racers go round it and the stall
+  rule puts it away. A stakeout whose spots are all in sight tries again after 1 s. The stall rule (a cop
+  out driving that gains under 25 m in 8 s, untouched, is put away) puts a cop that has stopped away where it stands, but a
+  stuck cop still moving (shoving a car or wall) only once out of sight, and never within the near range of a racer; it is
+  asked again after each further 8 s.
 - **Busted** (`BUST`, `RaceSession`): a racing car held under 20 km/h within 20 m of a chasing unit for more than 4 s in a
   row is out the way a DNF is: `dnf`, or `out` in a no-reset race. Results show "Busted". The busted player gets a BUSTED
   banner (`race-busted.tsx`) for 2.5 s, then the camera follows the leader.
