@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { approach, CEILING, ceilingCurve, crashDuck, engineBusGain, engineDuck, IMPACT, MASTER_LIMITER, musicGain, slowmoCutoff } from "./audio-mix.ts";
+import { approach, CEILING, ceilingCurve, crashDuck, engineBusGain, engineDuck, IMPACT, MASTER_LIMITER, musicGain, slowmoCutoff, squealHz, squealLevel, thudGain, TYRE } from "./audio-mix.ts";
 
 const EPS = 1e-9;
 
@@ -131,5 +131,62 @@ describe("given the crash hit (owner: 'a cereal bag'; wanted lower, roomier, a l
   it("when the room is set, then it sends a wet reverb about a second long", () => {
     assert.ok(IMPACT.roomWet > 0);
     assert.ok(IMPACT.roomS >= 1);
+  });
+});
+
+describe("given the tyre squeal level (slide, lock, spin, ground speed, wheels down)", () => {
+  const testCases = [
+    { name: "a straight cruise", slide: 0, lock: 0, spin: 0, speed: 30, grounded: true, expected: 0 },
+    { name: "a slide under the threshold", slide: TYRE.slideFrom, lock: 0, spin: 0, speed: 30, grounded: true, expected: 0 },
+    { name: "a full slide at speed", slide: 1, lock: 0, spin: 0, speed: 30, grounded: true, expected: 1 },
+    { name: "a full slide in the air", slide: 1, lock: 0, spin: 0, speed: 30, grounded: false, expected: 0 },
+    { name: "a full slide at a crawl", slide: 1, lock: 0, spin: 0, speed: 1, grounded: true, expected: 0 },
+    { name: "a full lock-up braking", slide: 0, lock: 1, spin: 0, speed: 30, grounded: true, expected: TYRE.lockShare },
+    { name: "a burnout from rest", slide: 0, lock: 0, spin: 1, speed: 0, grounded: true, expected: TYRE.spinShare },
+    { name: "a lock-up in the air", slide: 0, lock: 1, spin: 1, speed: 30, grounded: false, expected: 0 },
+  ];
+  for (const c of testCases) {
+    it(`when the car is in ${c.name}, then the squeal is ${c.expected}`, () => {
+      assert.ok(Math.abs(squealLevel(c.slide, c.lock, c.spin, c.speed, c.grounded) - c.expected) < EPS);
+    });
+  }
+  it("when the slide deepens past the threshold, then the squeal rises and never falls", () => {
+    let last = 0;
+    for (let s = 0; s <= 1.0001; s += 0.05) {
+      const level = squealLevel(s, 0, 0, 30, true);
+      assert.ok(level >= last, `falls at slide ${s}`);
+      last = level;
+    }
+    assert.ok(squealLevel(0.6, 0, 0, 30, true) > 0 && squealLevel(0.6, 0, 0, 30, true) < 1);
+  });
+  it("when the speed rises through the gate, then the same slide gets louder", () => {
+    assert.ok(squealLevel(1, 0, 0, 5, true) > 0 && squealLevel(1, 0, 0, 5, true) < squealLevel(1, 0, 0, 8, true));
+  });
+});
+
+describe("given the tyre squeal pitch and fade", () => {
+  it("when the car is stopped and at speed, then the band sits at 1 kHz and 2.5 kHz and never leaves them", () => {
+    assert.equal(squealHz(0), TYRE.hzLow);
+    assert.equal(squealHz(TYRE.hzFullSpeed), TYRE.hzHigh);
+    assert.equal(squealHz(1000), TYRE.hzHigh);
+    assert.ok(TYRE.hzLow >= 1000 && TYRE.hzHigh <= 2500);
+  });
+  it("when the gain follows its time constant, then 95% is there within 60-100 ms", () => {
+    const t95 = -TYRE.fadeTau * Math.log(0.05);
+    assert.ok(t95 >= 0.06 && t95 <= 0.1, `${t95} s`);
+  });
+});
+
+describe("given the landing thud gain", () => {
+  it("when the fall is zero or upward, then it is silent", () => {
+    assert.equal(thudGain(0), 0);
+    assert.equal(thudGain(-4), 0);
+  });
+  it("when the fall grows, then the thud grows up to its cap and no further", () => {
+    assert.ok(thudGain(5) > 0 && thudGain(5) < thudGain(10));
+    assert.equal(thudGain(100), TYRE.thudMax);
+  });
+  it("when the thud is shaped, then it is a 60-to-35 Hz sine about 0.25 s long", () => {
+    assert.ok(TYRE.thudStartHz === 60 && TYRE.thudEndHz === 35 && TYRE.thudS === 0.25);
   });
 });

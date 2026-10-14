@@ -53,6 +53,63 @@ export const IMPACT = {
   roomDampHz: 1800,
 } as const;
 
+/**
+ * The focus car's tyres (masterclass 22:48, 31:18, 32:30), both through the engine bus so the Engines slider, the pause fade and the slow-mo
+ * lowpass carry them. Squeal: a looped noise through a bandpass (`bandQ`) centred `hzLow`..`hzHigh` by ground speed, wobbled `wobbleCents` at `wobbleHz`,
+ * at up to `squealGain`; `fadeTau` s is the gain's time constant (95% in 3x: ~75 ms). It starts at `slideFrom` of `drive.slide` (full at
+ * `slideTo`), `speedFrom`..`speedTo` m/s gates a slide by speed, and a locked brake or wheelspin squeal at `lockShare` / `spinShare` of their 0..1.
+ * Thud: a sine `thudStartHz` -> `thudEndHz` over `thudS` plus a lowpassed noise burst (`noiseHz`, `noiseS`, `noiseShare` of the sine), at
+ * `thudPerMs` per m/s of the fall, at most `thudMax`.
+ */
+export const TYRE = {
+  squealGain: 0.06,
+  hzLow: 1000,
+  hzHigh: 2500,
+  hzFullSpeed: 40,
+  bandQ: 3,
+  wobbleHz: 6,
+  wobbleCents: 70,
+  fadeTau: 0.025,
+  slideFrom: 0.3,
+  slideTo: 0.9,
+  speedFrom: 2,
+  speedTo: 8,
+  lockShare: 0.8,
+  spinShare: 0.8,
+  thudStartHz: 60,
+  thudEndHz: 35,
+  thudS: 0.25,
+  noiseHz: 400,
+  noiseS: 0.12,
+  noiseShare: 0.4,
+  thudPerMs: 0.015,
+  thudMax: 0.2,
+} as const;
+
+function clamp01(x: number): number {
+  return Math.min(1, Math.max(0, x));
+}
+
+/**
+ * The squeal's level (0..1) from the car's drive state: `slide` (drift or sideways slip, 0..1) past `slideFrom`, only at speed; `lock` (brakes
+ * locked) and `spin` (wheelspin) as they come. The loudest of the three; none with a wheel off the ground.
+ */
+export function squealLevel(slide: number, lock: number, spin: number, speed: number, grounded: boolean): number {
+  if (!grounded) return 0;
+  const s = clamp01((slide - TYRE.slideFrom) / (TYRE.slideTo - TYRE.slideFrom)) * clamp01((speed - TYRE.speedFrom) / (TYRE.speedTo - TYRE.speedFrom));
+  return clamp01(Math.max(s, TYRE.lockShare * lock, TYRE.spinShare * spin));
+}
+
+/** The squeal's bandpass centre (Hz): `hzLow` at a standstill to `hzHigh` at `hzFullSpeed` m/s of ground speed. */
+export function squealHz(speed: number): number {
+  return TYRE.hzLow + (TYRE.hzHigh - TYRE.hzLow) * clamp01(speed / TYRE.hzFullSpeed);
+}
+
+/** The landing thud's peak gain for a landing at `fall` m/s of vertical speed. */
+export function thudGain(fall: number): number {
+  return Math.min(TYRE.thudMax, Math.max(0, fall) * TYRE.thudPerMs);
+}
+
 /** The ceiling's WaveShaper curve over inputs -1..1 (`n` points): unity below the knee, never past `CEILING`. */
 export function ceilingCurve(n: number): Float32Array<ArrayBuffer> {
   const out = new Float32Array(new ArrayBuffer(n * 4));

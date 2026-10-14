@@ -60,6 +60,15 @@ export function lowpass(context: AudioContext, hz: number): BiquadFilterNode {
   return filter;
 }
 
+/** A bandpass filter at `hz` with quality `q`: the crash hit's noise band and the tyre squeal. */
+export function bandpass(context: AudioContext, hz: number, q: number): BiquadFilterNode {
+  const filter = context.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = hz;
+  filter.Q.value = q;
+  return filter;
+}
+
 /**
  * The engine voices: a pool of `slots` voices that follow the priority car and its nearest neighbours (`VoicePool`). Each
  * runs the vendored engine-sound-generator worklet, tuned per vehicle class and damage stage, and is panned in 3D from the

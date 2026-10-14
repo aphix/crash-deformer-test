@@ -199,6 +199,12 @@ distance, so the player's car is at unity), rolloff 2. The engine bus is the sli
 compressor, a peak limiter and a -1 dBFS ceiling (`MASTER_GLUE`, `MASTER_LIMITER`, `ceilingCurve`); the music bus (slider at most 0.6, default 0.15, x0.5 trim) shares the master.
 The crash hit (`IMPACT` in `audio-mix.ts`) is a 65 Hz sine thump under a dark noise band (300 Hz, soft 12 ms attack, 0.5 s decay) on an impact bus at 0.42 (-3 dB from
 the old 0.6); the bus also feeds a ~1 s stereo noise-impulse convolver (lowpassed at 1.8 kHz, wet 0.45) into the master, so a hit sits in a room beside the engines and music.
+The focus car's tyres (`TyreSound`, `present/tyre-sound.ts`; `TYRE` and the pure `squealLevel`, `squealHz`, `thudGain` in `audio-mix.ts`) run through the engine bus, so the Engines slider, the pause fade and the slow-mo lowpass carry them,
+and `GameAudio.frame` hands them the priority car (nothing for any other car). Squeal: one 2 s noise buffer, looped, through a bandpass (Q 3, 1 kHz at a standstill to 2.5 kHz at 40 m/s, wobbled +-70 cents at 6 Hz) and a gain
+(at most 0.06, time constant 25 ms, so 95% in 75 ms) set every 1/30 s from `drive.slide` (drift or sideways slip: from 0.3, full at 0.9, gated by ground speed 2-8 m/s), `drive.lock` and `drive.spin` (x0.8 each); none with every wheel off the ground.
+Measured muted in a browser (handbrake slide, then a hard stop, sedan, Engines at 0.25): the squeal's RMS sits 5 dB under the engine's in a slide and 10 dB under it braking hard. Thud: a 60 to 35 Hz sine over 0.25 s plus a short 400 Hz lowpassed burst of the same noise, at 0.015 per m/s of
+fall (at most 0.2), on each landing. A landing is `LandingWatch` (`present/landing.ts`), which the chase camera's wobble reads too, so the two cannot disagree: four wheels down within 0.3 s of a flight of at least 0.3 s whose fastest fall passed `LANDING.fall` (5 m/s, the camera's "Fall" knob);
+the reported fall is that fastest speed, because the touchdown has eaten most of the last frame's (a nose-first landing takes the wheels down over a few frames). Audio imports `landing.ts`, never the camera.
 The race menus (setup, pause) carry the Sound, Music and Engines rows, since their modal covers the settings panel.
 Engine loudness (`engine-law.ts`): a voice's level follows how a real car's audible level moves with load and revs (BMW M5 Active Sound
 Design: load is the dominant control). `engineLawDb(rpmFrac, load)` is the target in dB under a redline at full load (which keeps the

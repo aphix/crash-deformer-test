@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { ceilingCurve, crashDuck, engineBusGain, engineDuck, GLUE_TRIM, IMPACT, MASTER_GLUE, MASTER_LIMITER, musicGain, slowmoCutoff } from "./audio-mix.ts";
-import { lowpass, MotorSound } from "./motor-sound.ts";
+import { bandpass, lowpass, MotorSound } from "./motor-sound.ts";
 import { MusicPlayer } from "./music.ts";
 import { musicBase } from "./music-manifest.ts";
+import { TyreSound } from "./tyre-sound.ts";
 
 const LATENCY_HINT = "interactive";
 /** Time constant of the master gain ramp when audio is toggled. */
@@ -34,6 +35,7 @@ function voiceSlots(desktop: boolean): number {
  * The one audio façade: a single AudioContext, the three listener on the camera, and the busses
  *
  *   listener.gain -> engineBus -> slowmoFilter -> master -> glue -> trim -> limiter -> ceiling (-1 dBFS) -> destination
+ *   tyre squeal and landing thud (the focus car) -> engineBus
  *   impact one-shots -> impactBus ------------/   (impactBus -> room convolver -> lowpass -> wet gain -> master)
  *   music -> musicBus ------------------------/
  *
@@ -50,6 +52,7 @@ export class GameAudio {
   private impactBus: GainNode | null = null;
   private musicBus: GainNode | null = null;
   private motor: MotorSound | null = null;
+  private tyres: TyreSound | null = null;
   private music: MusicPlayer | null = null;
   private on = false;
   /** Whether the game is running (not paused or held): a pause fades the engines out, the music plays on. */
@@ -146,6 +149,7 @@ export class GameAudio {
     this.musicBus = musicBus;
     const motor = new MotorSound(voiceSlots(this.desktop));
     this.motor = motor;
+    this.tyres = new TyreSound(context, engineBus);
     motor.load(context, listener).catch((reason: Error) => console.warn("motor sound: unavailable", reason));
     this.music = new MusicPlayer(context, musicBus, musicBase(import.meta.env));
     if (this.on) this.music.play();
@@ -180,7 +184,7 @@ export class GameAudio {
   /**
    * The per-frame seam (the engine calls it with audio on): moves the engine voices, and on each voice tick sets the engine
    * bus (silent while `live` is false), the slow-mo lowpass from `rate`, and the music's duck under the player's engine and a crash.
-   * `cars` are the ones drawn (the reel's, while it plays); `priority` is the car that always has a voice.
+   * `cars` are the ones drawn (the reel's, while it plays); `priority` is the car that always has a voice, and the one whose tyres squeal and land.
    */
   frame(dt: number, cars: readonly DeformableCar[], priority: DeformableCar | null, rate: number, live: boolean): void {
     const context = this.context;
@@ -188,6 +192,7 @@ export class GameAudio {
     if (!context || !motor || !this.engineBus || !this.slowmoFilter || !this.musicBus) return;
     this.sinceImpactS += dt;
     this.live = live;
+    this.tyres?.frame(dt, priority);
     if (!motor.update(dt, cars, this.camera, priority, rate, this.engineLevel === 0)) return;
     const now = context.currentTime;
     this.engineBus.gain.setTargetAtTime(live ? engineBusGain(this.engineLevel) : 0, now, BUS_TAU_S);
@@ -225,10 +230,7 @@ export class GameAudio {
     for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
     noise.buffer = nbuf;
     const ng = context.createGain();
-    const bp = context.createBiquadFilter();
-    bp.type = "bandpass";
-    bp.frequency.value = IMPACT.noiseHz;
-    bp.Q.value = IMPACT.noiseQ;
+    const bp = bandpass(context, IMPACT.noiseHz, IMPACT.noiseQ);
     ng.gain.setValueAtTime(0.001, t);
     ng.gain.exponentialRampToValueAtTime(Math.min(0.45, 0.12 + impulse * 0.008), t + IMPACT.noiseAttackS);
     ng.gain.exponentialRampToValueAtTime(0.001, t + IMPACT.noiseDecayS);
@@ -250,6 +252,7 @@ export class GameAudio {
     this.impactBus = null;
     this.musicBus = null;
     this.motor = null;
+    this.tyres = null;
     this.music = null;
     this.on = false;
     this.sinceImpactS = Infinity;

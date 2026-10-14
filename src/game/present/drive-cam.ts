@@ -4,6 +4,7 @@ import { DRIVE, type SeatView } from "../vehicle/car-drive.ts";
 import { LOAD_FEEL } from "../vehicle/car-load.ts";
 import { hypot2 } from "../kernel/physics-core.js";
 import { wrapPiClosed } from "../kernel/scalar.ts";
+import { LANDING, LandingWatch } from "./landing.ts";
 import { Spring, Spring3, type Axes } from "./spring.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 
@@ -66,13 +67,12 @@ export const CHASE = {
   /** Taking a car up from a shot farther off than this (m) cuts to the chase shot: a swoop from the fleet's orbit to a course 400 m away showed after the fade. */
   blendRange: 40,
   /**
-   * A landing: the car's four wheels meet the ground after `minAir` s in the air falling faster than `fall` m/s (masterclass 31:18,
-   * no speed given: playtest). For `hold` s the eye's vertical spring runs at `zetaUp` so its momentum carries it below the target
+   * A landing (`LANDING`, masterclass 31:18): for `hold` s the eye's vertical spring runs at `zetaUp` so its momentum carries it below the target
    * ("reduce the damping so the momentum carries it further downwards", 31:39; "a large camera movement that doesn't obscure the
    * road ahead for long", 30:47; ratio and window: playtest), and the view wobbles in pitch and roll at `wobbleHz` (30 Hz, 31:23)
    * fading out over `hold` (the talk says 0.5 s, 31:27) at `wobble` deg (playtest); roll is `wobbleRoll` of the pitch.
    */
-  landing: { minAir: 0.3, fall: 5, zetaUp: 0.6, hold: 0.5, wobble: 0.8, wobbleHz: 30, wobbleRoll: 0.6 },
+  landing: { zetaUp: 0.6, hold: 0.5, wobble: 0.8, wobbleHz: 30, wobbleRoll: 0.6 },
   /** Forward speed (m/s) from which the view looks into a slide and the aim follows the velocity. */
   followSpeed: 3,
   /** Impact shake strength: a multiple of the jolt's trauma (0 off); the first crash's kick scales with it too. The hood view shakes `shakeHood` of the chase views' amount (the eye sits in the car). */
@@ -130,7 +130,7 @@ export const CHASE_KNOBS: readonly ChaseKnob[] = [
   knob("Slide", "cam.fovSlide", "FOV (deg)", 0, 10, 0.1, () => CHASE.fovSlide, (v) => void (CHASE.fovSlide = v)),
   knob("Slide", "cam.driftTilt", "Tilt (deg)", 0, 4, 0.1, () => CHASE.driftTilt, (v) => void (CHASE.driftTilt = v)),
   knob("Slide", "cam.driftLean", "Drift lean", 0, 1.2, 0.01, () => LOAD_FEEL.driftLean, (v) => void (LOAD_FEEL.driftLean = v)),
-  knob("Landing", "cam.landing.fall", "Fall (m/s)", 2, 12, 0.1, () => CHASE.landing.fall, (v) => void (CHASE.landing.fall = v)),
+  knob("Landing", "cam.landing.fall", "Fall (m/s)", 2, 12, 0.1, () => LANDING.fall, (v) => void (LANDING.fall = v)),
   knob("Landing", "cam.landing.zetaUp", "Bounce", 0.2, 1, 0.01, () => CHASE.landing.zetaUp, (v) => void (CHASE.landing.zetaUp = v)),
   knob("Landing", "cam.landing.hold", "Window (s)", 0.1, 1.5, 0.05, () => CHASE.landing.hold, (v) => void (CHASE.landing.hold = v)),
   knob("Landing", "cam.landing.wobble", "Wobble (deg)", 0, 2, 0.05, () => CHASE.landing.wobble, (v) => void (CHASE.landing.wobble = v)),
@@ -171,9 +171,8 @@ export class DriveCam {
   ride = false;
   /** Reduced motion: every axis stays critically damped and a landing does not wobble the view. */
   reduceMotion = false;
-  /** Seconds in the air so far, the last frame's vertical speed, and the seconds left of a landing (`CHASE.landing`). */
-  private airS = 0;
-  private vyPrev = 0;
+  /** The landing detector (`LANDING`) and the seconds left of a landing's wobble (`CHASE.landing`). */
+  private readonly land = new LandingWatch();
   private landS = 0;
   private readonly rideY = new Spring();
   private readonly rideTilt = new Spring();
@@ -230,15 +229,10 @@ export class DriveCam {
     this.car = car;
     this.lastCarPos.copy(p);
     if (cut) {
-      this.airS = 0;
+      this.land.reset();
       this.landS = 0;
     }
-    if (car.airborne) this.airS += dt;
-    else {
-      if (this.airS >= CHASE.landing.minAir && this.vyPrev < -CHASE.landing.fall && (car.wheelsDown & 15) === 15) this.landS = CHASE.landing.hold;
-      this.airS = 0;
-    }
-    this.vyPrev = vel.y;
+    if (this.land.step(car, dt) > 0) this.landS = CHASE.landing.hold;
     if (cut) this.heading.snap(yawT);
     else this.heading.step(this.heading.x + wrapPiClosed(yawT - this.heading.x), view === "first" ? CHASE.eyeOmega : CHASE.headOmega, dt);
 
