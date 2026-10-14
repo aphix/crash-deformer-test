@@ -473,7 +473,6 @@ describe("given a three-lap race with one car on the oval and a PARKED stakeout 
         Object.assign(cars[id]!, { x, z, vx: 0, vz: 0 });
       },
       store: () => {},
-      seen: () => false,
       down: () => false,
       sirens: () => {},
     };

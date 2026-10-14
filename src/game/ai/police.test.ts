@@ -2,7 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { blankAiCar, type AiCar } from "./derby-ai.ts";
 import { guardMates } from "./pack-guard.ts";
-import { PoliceBrain } from "./police.ts";
+import { MIN_LIFE, OUT_RANGE, PoliceBrain } from "./police.ts";
+import { SIGHT_AHEAD, SIGHT_BEHIND, SIGHT_NEAR } from "./cop-sight.ts";
 import type { PoliceWorld } from "./cop-brain.ts";
 import { RaceBrain } from "./race-ai.ts";
 import { idleDrive } from "../vehicle/car-drive.ts";
@@ -13,32 +14,37 @@ const track = new Track(oval);
 const BEAT = 0.25;
 const pt = blankPoint();
 
-/** One racer (car 0) and a stakeout of two units (cars 1 and 2) parked ahead of it; whether the camera `seen` them is the test's to set. Unit 1 has just woken (the racer passed it); unit 2, 12 m on, is still parked. */
-function rig() {
-  const cars: AiCar[] = [0, 1, 2].map(blankAiCar);
+/** One racer (car 0) and a stakeout of two units (cars 1 and 2) parked ahead of it, `units` cops in all. Unit 1 has just woken (the racer passed it); unit 2, 12 m on, is still parked. */
+function rig(units = 2, seed = 1) {
+  const cars: AiCar[] = Array.from({ length: units + 1 }, (_, i) => blankAiCar(i));
   const hunt = new Uint8Array(cars.length);
   hunt[0] = 1;
   const stored: number[] = [];
   const spots: { x: number; z: number }[] = [];
-  const view = { seen: false };
+  /** Every placement, with the racer's place at that moment. */
+  const parks: { id: number; x: number; z: number; racer: { x: number; z: number } }[] = [];
+  const knockedOut = new Set<number>();
   const world: PoliceWorld = {
     park: (id, x, _y, z, yaw) => {
       spots[id] = { x, z };
+      parks.push({ id, x, z, racer: { x: cars[0]!.x, z: cars[0]!.z } });
       Object.assign(cars[id]!, { x, z, vx: 0, vz: 0, yaw });
     },
     store: (id) => {
       stored.push(id);
     },
-    seen: () => view.seen,
-    down: () => false,
+    down: (id) => knockedOut.has(id),
     sirens: () => {},
   };
-  const police = new PoliceBrain(track, new RaceBrain(track, 1), 1, 2, 1);
+  const police = new PoliceBrain(track, new RaceBrain(track, 1), 1, units, seed);
   const lead = track.length * 0.4;
   let time = 0;
   const beat = () => {
     police.update(time, BEAT, cars, hunt, lead, world);
     time += BEAT;
+  };
+  const run = (seconds: number) => {
+    for (let n = 0; n < seconds / BEAT; n++) beat();
   };
   /** Car 0 on the centreline `ds` m along from unit 1's spot. */
   const sit = (ds: number) => {
@@ -54,27 +60,33 @@ function rig() {
   beat();
   assert.deepEqual(police.chasers(cars, []).map((c) => c.id), [1], "unit 1 chases");
   assert.equal(stored.length, 0);
-  return { police, cars, hunt, stored, view, beat, world };
+  return { police, cars, hunt, stored, parks, knockedOut, beat, run, sit, world, clock: () => time };
 }
 
+/** The racer far enough past the units (m along the road) that no racer sees them, but within `OUT_RANGE`. */
+const PAST_SIGHT = SIGHT_NEAR + 50;
+
 describe("given a racer with a stakeout of two cops parked ahead of it, the first just woken by the racer passing and the second still parked", () => {
-  it("when the racer stops racing and no chaser is near another racer so the pack stands down, then the parked cop nobody sees is put away at once and never pulls out onto the road", () => {
+  it("when the racer stops racing and no chaser is near another racer so the pack stands down, then the parked cop never pulls out onto the road and is put away only once the racer is out of sight and the cop is MIN_LIFE s old", () => {
     const r = rig();
     r.hunt[0] = 0;
     r.beat();
-    assert.deepEqual(r.stored, [2]);
     assert.equal(r.police.think(r.cars[2]!, r.cars, BEAT).throttle, 0, "unit 2 still drives");
+    r.sit(PAST_SIGHT);
+    r.run(MIN_LIFE - 2);
+    assert.ok(!r.stored.includes(2), "unit 2 is younger than MIN_LIFE");
+    r.run(3);
+    assert.ok(r.stored.includes(2), "unit 2 is put away past MIN_LIFE");
   });
 
-  it("when the racer stops racing while the camera sees the parked cop, then it is not put away in view and is put away once nobody sees it", () => {
+  it("when the racer stops racing beside the parked cop, then it is not put away while the racer is there, and is put away once the racer has driven out of sight", () => {
     const r = rig();
     r.hunt[0] = 0;
-    r.view.seen = true;
+    r.run(MIN_LIFE + 30);
+    assert.ok(!r.stored.includes(2), "nothing vanishes beside the racer");
+    r.sit(PAST_SIGHT);
     r.beat();
-    assert.ok(!r.stored.includes(2), "nothing vanishes in view");
-    r.view.seen = false;
-    r.beat();
-    assert.ok(r.stored.includes(2), "gone once unseen");
+    assert.ok(r.stored.includes(2), "gone once the racer is out of sight");
   });
 });
 
@@ -230,7 +242,6 @@ describe("given two packs of cops, each with a parked stakeout, and a racer pass
       const world: PoliceWorld = {
         park: (id, x, _y, z) => placed.push({ id, x, z }),
         store: () => {},
-        seen: () => false,
         down: () => false,
         sirens: () => {},
       };
@@ -275,5 +286,115 @@ describe("given two packs of cops, each with a parked stakeout, and a racer pass
       }
     }
     assert.ok(doubled >= 2, `only ${doubled} beats called two reinforcements: the test proves nothing`);
+  });
+});
+
+/** Where a spot lies against a racer: straight-line metres, and metres of road it is ahead of the racer (negative: behind it). */
+function against(racer: { x: number; z: number }, spot: { x: number; z: number }) {
+  const proj = blankProjection();
+  const along = track.project(spot.x, spot.z, -1, proj).s - track.project(racer.x, racer.z, -1, proj).s;
+  return { dist: Math.hypot(spot.x - racer.x, spot.z - racer.z), ahead: along - track.length * Math.round(along / track.length) };
+}
+
+function racerSees(racer: { x: number; z: number }, spot: { x: number; z: number }): boolean {
+  const { dist, ahead } = against(racer, spot);
+  return dist < SIGHT_NEAR || (ahead > -SIGHT_BEHIND && ahead < SIGHT_AHEAD);
+}
+
+describe("given a racer on the road with stakeouts parked for it and a reinforcement called once a woken cop has stayed beside it", () => {
+  it("when every spot a cop is put on is checked against the racer where it stood, then none is within 100 m of it, none ahead of it within its sight along the road and none in its mirrors", () => {
+    let reinforcements = 0;
+    let spots = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const r = rig(4, seed);
+      r.run(40);
+      for (const park of r.parks) {
+        spots++;
+        const { dist, ahead } = against(park.racer, park);
+        assert.ok(!racerSees(park.racer, park), `seed ${seed}: unit ${park.id} put ${dist.toFixed(0)} m from the racer, ${ahead.toFixed(0)} m ahead of it along the road`);
+      }
+      if (r.parks.some((park) => park.id === 3)) reinforcements++;
+    }
+    assert.ok(spots >= 18, `${spots} cops put on the road: the test proves nothing`);
+    assert.ok(reinforcements >= 1, "no reinforcement was called: the test proves nothing");
+  });
+});
+
+describe("given a pack that has stood down (its racer stopped racing) with a cop of it still driving", () => {
+  /** Unit 1 on the road `ahead` m along from the racer (car 0), moving. */
+  const drive = (cars: readonly AiCar[], ahead: number) => {
+    const s = track.project(cars[0]!.x, cars[0]!.z, -1, blankProjection()).s;
+    const p = track.pointAt(s + ahead, pt);
+    Object.assign(cars[1]!, { x: p.x, z: p.z, vx: 0, vz: 10 });
+  };
+
+  it("when the cop keeps driving 60 m from the racer for a minute, then it is never put away, and when it falls 150 m behind the racer, then it is", () => {
+    const r = rig();
+    r.hunt[0] = 0;
+    for (let n = 0; n < 60 / BEAT; n++) {
+      drive(r.cars, 60);
+      r.beat();
+      assert.ok(!r.stored.includes(1), `a cop moving 60 m from the racer was put away at ${r.clock().toFixed(2)} s`);
+    }
+    drive(r.cars, -150);
+    r.beat();
+    assert.ok(r.stored.includes(1), "a cop 150 m behind the racer is put away");
+  });
+});
+
+describe("given a woken cop the race's stall rule has asked to put away", () => {
+  it("when it is driving 36 km/h 56 m from the racer, then it is not put away, and once it is stopped there, or driving out of every racer's sight, then it is", () => {
+    const r = rig();
+    const s = track.project(r.cars[0]!.x, r.cars[0]!.z, -1, blankProjection()).s;
+    const place = (ahead: number, speed: number) => {
+      const p = track.pointAt(s + ahead, pt);
+      Object.assign(r.cars[1]!, { x: p.x, z: p.z, vx: 0, vz: speed });
+    };
+    place(56, 10);
+    r.beat();
+    r.police.recall(1, { ...r.world, hidden: () => true });
+    assert.equal(r.stored.length, 0, "a cop driving 36 km/h 56 m from the racer was recalled");
+    place(56, 0);
+    r.police.recall(1, { ...r.world, hidden: () => true });
+    assert.deepEqual(r.stored, [1], "a stopped cop is recalled where it stands");
+  });
+
+  it("when it is driving 36 km/h 400 m ahead of the racer, then it is put away", () => {
+    const r = rig();
+    const p = track.pointAt(track.project(r.cars[0]!.x, r.cars[0]!.z, -1, blankProjection()).s + 400, pt);
+    Object.assign(r.cars[1]!, { x: p.x, z: p.z, vx: 0, vz: 10 });
+    r.beat();
+    r.police.recall(1, { ...r.world, hidden: () => true });
+    assert.deepEqual(r.stored, [1], "a moving cop out of every racer's sight is recalled");
+  });
+});
+
+describe("given a stakeout parked and its pack stood down half a second later, the racer far past it", () => {
+  it("when the cops are younger than MIN_LIFE, then they stay, and when they have been on the road MIN_LIFE s, then they are put away", () => {
+    const r = rig();
+    r.hunt[0] = 0;
+    r.sit(PAST_SIGHT);
+    r.run(MIN_LIFE - 3);
+    assert.equal(r.stored.length, 0, "a cop was put away before MIN_LIFE");
+    r.run(4);
+    assert.ok(r.stored.includes(1) && r.stored.includes(2), "both cops are put away once MIN_LIFE has passed");
+  });
+
+  it("when the racer is farther than OUT_RANGE away, then the cops are put away at once", () => {
+    const r = rig();
+    r.hunt[0] = 0;
+    Object.assign(r.cars[0]!, { x: OUT_RANGE * 10, z: OUT_RANGE * 10 });
+    r.run(1);
+    assert.ok(r.stored.includes(1) && r.stored.includes(2), "out of range, both go before MIN_LIFE");
+  });
+
+  it("when a cop is knocked out, then it is put away DOWN_STORE s on, before MIN_LIFE", () => {
+    const r = rig();
+    r.knockedOut.add(2);
+    r.sit(PAST_SIGHT);
+    r.beat();
+    r.run(7);
+    assert.ok(r.stored.includes(2), "the wreck is put away before MIN_LIFE");
+    assert.ok(!r.stored.includes(1), "unit 1, not wrecked and younger than MIN_LIFE, stays");
   });
 });

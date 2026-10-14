@@ -210,7 +210,6 @@ export abstract class RaceField {
       this.place(car, x, z, yaw, y);
     },
     store: (id) => this.putAway(id, this.host.live()[id]!),
-    seen: (x, z) => this.seen(x, z),
     hidden: (x, z) => this.hidden(x, z),
     down: (id) => this.deadFor[id]! > 0,
     sirens: (id, on) => {

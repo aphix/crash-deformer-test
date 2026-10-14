@@ -206,8 +206,6 @@ export interface PoliceWorld {
   park(id: number, x: number, y: number, z: number, yaw: number): void;
   /** Put car `id` away: hidden, still, off the course. */
   store(id: number): void;
-  /** (x, z) is in the local camera's view (nothing pops in there). */
-  seen(x: number, z: number): boolean;
   /** Car `id` is knocked out: drivetrain dead or upside down too long. */
   down(id: number): boolean;
   /** Car `id`'s sirens on or off. */

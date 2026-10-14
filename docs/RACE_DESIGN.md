@@ -244,8 +244,8 @@ Setup "Police: Off / Chase" (`RaceOptions.police`, off by default). The director
 the racers and traffic (up to `POLICE_CAP` = 6 and the free slots), built as the police cruiser (`"police"` body and
 class); they are never entrants, so rules, standings and results never see them, and a race with police off builds none.
 
-- **Stakeouts:** from a third of the leader's first lap, every 6–16 s a pack of 2 parks on the run-off 90–140 m ahead of a
-  random racer still racing, either side, out of the local camera's view, nosed toward the road.
+- **Stakeouts:** from a third of the leader's first lap, every 6–16 s a pack of 2 parks on the run-off 230–290 m ahead of a
+  random racer still racing, either side, out of every racer's sight, nosed toward the road.
 - **Wake:** each unit stays parked until a racer's road progress passes its own spot, then joins its pack's pursuit (the
   first unit passed sets the target). A racer outside the road's corridor (run-off plus 8 m) passes nothing.
 - **Lead-in (2 s):** full throttle along the road toward where the target is heading (1 s of its speed ahead of it, at least
@@ -262,8 +262,19 @@ class); they are never entrants, so rules, standings and results never see them,
   like a driven one; a STOPPED mate is not read when the steer on the wheel, held `STEER_HOLD` = 0.5 s, already clears it.
 - **Packs build:** 5 s sustained within 45 m calls one more car, up to 5.
 - **Stand-down:** a target that finishes, dies or respawns (left alone 4 s) hands the pack to another racer within 45 m,
-  else the pack gives up, as it does after 160 m off for 4 s or 40 s of pursuit. Given-up units are put away out of view;
-  a knocked-out unit after 6 s; a stakeout nobody came near after 45 s.
+  else the pack gives up, as it does after 160 m off for 4 s or 40 s of pursuit. Given-up units drive on and are put away
+  once out of sight (below); a knocked-out unit after 6 s and out of sight; a stakeout nobody came near after 45 s and out
+  of sight; a stakeout whose pack gives up stays parked until out of sight.
+- **Out of sight** (`RacerSight`, `ai/cop-sight.ts`; no camera is read, so the rule is the same live, in a replay and in a
+  reel): a cop is put on the road, and put away, only where no racer (every racer car, not only the player's) sees it: 100 m
+  or more from each by straight line, and, for a racer on the road, 200 m or more ahead of it along the road or 40 m or more
+  behind it (a racer off the road sees 200 m all round), each with 20 m to spare for the metres a racer drives between the
+  beat that read its place and the frame the cop shows. So a stakeout parks 230–290 m ahead, a reinforcement 230 m ahead
+  of its target or comes up from 140 m behind, and no cop is ever put away moving within 100 m of a racer. A cop put on the
+  road stays 12 s (`MIN_LIFE`) unless it is knocked out or 300 m from every racer. A stakeout whose spots are all in sight
+  tries again after 1 s. The stall rule (a cop out driving that gains under 25 m in 8 s, untouched, is put away) puts a cop
+  that has stopped away where it stands, but a stuck cop still moving (shoving a car or wall) only once out of sight, and
+  never within 100 m of a racer; it is asked again after each further 8 s.
 - **Busted** (`BUST`, `RaceSession`): a racing car held under 20 km/h within 20 m of a chasing unit for more than 4 s in a
   row is out the way a DNF is: `dnf`, or `out` in a no-reset race. Results show "Busted". The busted player gets a BUSTED
   banner (`race-busted.tsx`) for 2.5 s, then the camera follows the leader.

@@ -44,7 +44,6 @@ function rig(opts: { hidden?: (x: number, z: number) => boolean; colliders?: Pro
       Object.assign(cars[id]!, { x: FAR, z: FAR });
       stored.push({ t: now, id });
     },
-    seen: () => false,
     hidden: (x, z) => {
       const h = opts.hidden ? opts.hidden(x, z) : true;
       asked.push({ x, z, hidden: h });

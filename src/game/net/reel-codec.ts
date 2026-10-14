@@ -125,9 +125,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 0.12 rad of slip, and a brake press catches any held drift, so a replayed clip's drifting car released to 0 steer slides on and a braked one is caught.
  * 77: a bumper hung by one corner rests on the road under its free end (it was rolled up to 34° whatever the road, 0.4-0.6 m under it), and a
  * bumper torn off leaves in that pose, so a replayed crash's hanging and torn bumpers start above the road and fly differently.
+ * 78: a police car is put on the road, and put away, only out of every racer's sight (100 m or more from each, 200 m or more ahead of it along the road, 40 m
+ * or more behind it, each with 20 m to spare) and a cop put on the road stays 12 s unless it is knocked out, stuck or 300 m from every racer, so a replayed race's stakeouts, reinforcements and stand-downs happen elsewhere and later.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 77;
+const REPLAY_VERSION = 78;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

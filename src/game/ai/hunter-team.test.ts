@@ -34,7 +34,6 @@ function rig(humans: number, at: (k: number) => { x: number; z: number } = (k) =
       drops.push({ t: now, id, x, z });
     },
     store: (id) => Object.assign(cars[id]!, { x: FAR, z: FAR }),
-    seen: () => false,
     hidden: () => true,
     down: () => false,
     sirens: () => {},
