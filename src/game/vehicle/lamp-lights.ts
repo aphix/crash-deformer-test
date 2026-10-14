@@ -17,11 +17,12 @@ export const FULL_POOL: LampPool = { spots: 4, points: 4 };
 /** The lean pool a phone can opt into (`?lamps=lean`): every lit fragment loops over every light, and these are 4 of the 8 pooled ones. */
 export const PHONE_POOL: LampPool = { spots: 2, points: 2 };
 
-const HEAD = { color: 0xfff1d8, intensity: 40, distance: 22, angle: 0.5, penumbra: 0.55, decay: 2 };
+/** Headlamp spot (exported for the fade tests: a lamp at weight 1 shows `intensity`). */
+export const HEAD = { color: 0xfff1d8, intensity: 40, distance: 22, angle: 0.5, penumbra: 0.55, decay: 2 };
 const TAIL = { color: 0xff2414, intensity: 0.5, distance: 2.5, decay: 2 };
-/** A lit siren washes the car and the road round it; it outranks every tail lamp but the followed car's. It sits
+/** A lit siren washes the car and the road round it; it outranks every tail lamp but the followed car's (`SIREN_RANK`). It sits
  *  `out` m over the lens: closer, it blew the lens itself out to orange under ACES (first cut: 6 at 0.3 m). */
-const SIREN = { red: 0xff1810, blue: 0x2848ff, intensity: 3, distance: 8, out: 0.8, rank: 1e8 };
+const SIREN = { red: 0xff1810, blue: 0x2848ff, intensity: 3, distance: 8, out: 0.8 };
 /** Headlamp aim: a point AIM m ahead dipped DIP m (≈5°), so the beam pools on the road. */
 const AIM = 10;
 const DIP = 0.9;
@@ -36,21 +37,45 @@ const GLOW_TAIL = [0.55, 0.03, 0.015] as const;
 const GLOW_RED = [1, 0.06, 0.04] as const;
 const GLOW_BLUE = [0.08, 0.2, 1] as const;
 
-/** Fake pools. A headlamp's quad runs from the lamp's foot POOL_LEN times the way to where its beam meets the ground (to at most POOL_MAX m),
- *  POOL_WIDTH as wide as long; a tail lamp's is a TAIL_POOL m square straight back. Colours are the additive peak (the sprite's alpha
- *  shapes it); none is drawn beyond POOL_FAR_SQ (m², from the camera). */
-const POOL_LEN = 1.5;
-const POOL_MAX = 14;
-const POOL_WIDTH = 0.45;
-const TAIL_POOL = 2.6;
+/** Fake pools, shaped like the real spot's pool on the road (dark at the lamp, brightest about a fifth along, then a fading fan). A headlamp's
+ *  quad runs from the lamp's foot POOL_LEN times the way to where its beam meets the ground (to at most POOL_MAX m), POOL_WIDTH as wide as
+ *  long; a tail lamp's is a TAIL_POOL m square straight back. Colours are the additive peak at full opacity (the sprite's alpha shapes it);
+ *  none is drawn beyond POOL_FAR_SQ (m², from the camera). */
+const POOL_LEN = 0.75;
+const POOL_MAX = 6;
+const POOL_WIDTH = 0.65;
+const TAIL_POOL = 1.6;
 const POOL_LIFT = 0.02;
 const POOL_FAR_SQ = 80 * 80;
-const POOL_HEAD = [0.42, 0.36, 0.25] as const;
-const POOL_TAIL = [0.3, 0.02, 0.01] as const;
-/** A car's disc (m) for the middle-tile test, and the tile's half size in normalised device coordinates (a third of the viewport). */
-const CAR_RADIUS = 2.4;
-const MIDDLE_TILE = 1 / 3;
+/** Exported for the fade tests: a lamp at weight 1 shows a spot of `HEAD.intensity`; at weight 0 a decal of this colour. Tuned so a
+ *  decal's ground luminance (summed over the pool, top-down at night) matches the real light's: spot 40 on a dark road is a dim, short pool. */
+export const POOL_HEAD = [0.033, 0.028, 0.02] as const;
+const POOL_TAIL = [0.019, 0.0015, 0.0008] as const;
+/**
+ * Fade between a lamp's painted pool and its real light. A lamp's target weight is 1 within REAL_R0 (NDC radius from the centre of
+ * the view) and REAL_D0 m of the camera, easing to 0 by REAL_R1 / REAL_D1; it slews there over FADE_S (a frame's step is capped at
+ * FADE_DT_MAX s). A lamp already holding a light ranks HYSTERESIS higher (no chatter at the cut) and one is admitted only at a
+ * target of ADMIT or more. The followed car's lamps rank FOLLOWED_BONUS higher, the highlight's HIGHLIGHT_BONUS.
+ */
+const REAL_R0 = 0.25;
+const REAL_R1 = 0.7;
+const REAL_D0 = 14;
+const REAL_D1 = 40;
+const FADE_S = 0.3;
+const FADE_DT_MAX = 0.1;
+const HYSTERESIS = 0.2;
+const ADMIT = 0.1;
+const FOLLOWED_BONUS = 4;
+const HIGHLIGHT_BONUS = 2;
+/** A siren ranks behind the followed car's lamps (-(1 + FOLLOWED_BONUS) - HYSTERESIS) and ahead of all else. */
+const SIREN_RANK = -(FOLLOWED_BONUS + 0.5);
 const NO_CARS: readonly never[] = [];
+
+/** 1 at or under `lo`, 0 at or over `hi`, smooth between. */
+function near01(x: number, lo: number, hi: number): number {
+  const t = Math.min(1, Math.max(0, (x - lo) / (hi - lo)));
+  return 1 - t * t * (3 - 2 * t);
+}
 
 /** What a lamp slot shows: a body lamp, or a police light bar's red or blue siren. */
 export type GlowKind = LampKind | "red" | "blue";
@@ -168,13 +193,22 @@ class Ranking {
   }
 }
 
+/** A car's lamps' fade state, kept across frames: weight `w` (0 painted pool … 1 real light) and whether the lamp holds a pooled light. */
+interface LampFade {
+  readonly w: Float32Array;
+  readonly act: Uint8Array;
+}
+const NO_FADE: LampFade = { w: new Float32Array(0), act: new Uint8Array(0) };
+
 /**
- * Every intact lamp glows (one additive point sprite each, one draw for all cars). The fixed light pools go to the
- * highest-priority intact lamps each frame: the followed car first, then the cars of the clip being played, then (desktop) cars
- * touching the middle tile of the viewport, nearest its centre first. White spots for headlamps, short red points for tail
- * lamps; a lit police siren takes a point too, recoloured red or blue (colour and range are uniforms: the lights hash never
- * changes). Every other head and tail lamp shows its pool as a fake ground decal (`pools`, one instanced draw), so a lamp never
- * goes dark as the view turns; a lamp with a real light shows no decal.
+ * Every intact lamp glows (one additive point sprite each, one draw for all cars). Every head and tail lamp also shows its pool as
+ * a fake ground decal (`pools`, one instanced draw) and, fading with it, a real light: a lamp's weight w (0..1) scales its real
+ * light to `w × full` and its decal to `(1 − w) × full`, so the sum looks constant as a lamp slides from painted to real as it nears
+ * the middle of the view and the camera, and back as it leaves. The fixed light pools go to the best-ranked lamps: the followed car
+ * (weight 1), then the cars of the clip being played (1), then (desktop) any lamp by how central and near it is (`realness`). A
+ * lamp is only handed a pooled light when one is free, and gives it back when its weight is back at 0, so no lit light is ever
+ * swapped for another. White spots for headlamps, short red points for tail lamps; a lit police siren takes a point too, recoloured
+ * red or blue (colour and range are uniforms: the lights hash never changes) and cutting the weakest tail lamp if need be.
  */
 export class LampLights {
   readonly spots: THREE.SpotLight[] = [];
@@ -186,16 +220,23 @@ export class LampLights {
   private readonly tails: Ranking;
   private readonly frustum = new THREE.Frustum();
   private readonly viewProj = new THREE.Matrix4();
-  /** Whether cars touching the middle tile of the viewport earn real lights (desktop; a phone's budget keeps them to the followed car and the highlight). */
+  /** Whether any car's lamps may earn real lights by screen position (desktop; a phone's budget keeps them to the followed car and the highlight). */
   middleTile = true;
-  /** Fake pools: one instanced ground decal for every head and tail lamp without a real light. */
+  /** Fake pools: one instanced ground decal for every head and tail lamp, at (1 − weight) of its colour. */
   readonly pools: THREE.InstancedMesh;
-  /** This frame's head and tail lamps: world seat and axis (6 floats each), kind (1 head), and whether a real light took it. */
+  /** This frame's head and tail lamps: world seat and axis (6 floats each), kind (1 head), fade state and lamp index, target weight and rank score. */
   private readonly stash: Float32Array;
   private readonly stashHead: Uint8Array;
-  private readonly taken: Uint8Array;
-  private scaleX = 1;
-  private scaleY = 1;
+  private readonly stashFade: LampFade[];
+  private readonly stashIdx: Uint8Array;
+  private readonly stashQ: Float32Array;
+  private readonly stashScore: Float32Array;
+  /** Scratch for `settle`: 1 where the lamp is in its kind's best-ranked set this frame. */
+  private readonly want: Uint8Array;
+  private readonly fades = new WeakMap<LampHost, LampFade>();
+  /** Seconds of this frame's fade (0 on the first frame, which snaps instead of fading in). */
+  private fadeDt = 0;
+  private primed = false;
 
   constructor(scene: THREE.Scene, maxLamps: number, pool: LampPool = FULL_POOL) {
     this.heads = new Ranking(pool.spots);
@@ -231,7 +272,11 @@ export class LampLights {
     scene.add(this.glow);
     this.stash = new Float32Array(maxLamps * 6);
     this.stashHead = new Uint8Array(maxLamps);
-    this.taken = new Uint8Array(maxLamps);
+    this.stashFade = Array.from({ length: maxLamps }, () => NO_FADE);
+    this.stashIdx = new Uint8Array(maxLamps);
+    this.stashQ = new Float32Array(maxLamps);
+    this.stashScore = new Float32Array(maxLamps);
+    this.want = new Uint8Array(maxLamps);
     // The engine makes `pools` a ground decal (`groundMaterial`, `levelOrder`): that layer is above this one.
     this.pools = new THREE.InstancedMesh(
       poolQuad(),
@@ -247,15 +292,14 @@ export class LampLights {
 
   /**
    * After the cars' skin and the camera are final for the frame, before render. `now` (s) clocks the sirens; `highlight` is the
-   * cars of the clip being played.
+   * cars of the clip being played; `dt` (s) is the frame's wall time, which paces every lamp's fade (0 holds them where they are).
    */
-  update(cars: readonly LampHost[], camera: THREE.Camera, followed: LampHost | null, now = performance.now() / 1000, highlight: readonly LampHost[] = NO_CARS): void {
+  update(cars: readonly LampHost[], camera: THREE.Camera, followed: LampHost | null, now = performance.now() / 1000, highlight: readonly LampHost[] = NO_CARS, dt = 0): void {
     camera.updateMatrixWorld();
     this.viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.viewProj);
     _cam.setFromMatrixPosition(camera.matrixWorld);
-    this.scaleX = camera.projectionMatrix.elements[0]!;
-    this.scaleY = camera.projectionMatrix.elements[5]!;
+    this.fadeDt = this.primed ? Math.min(Math.max(dt, 0), FADE_DT_MAX) : 0;
     this.heads.count = 0;
     this.tails.count = 0;
     const gp = this.glowPos.array as Float32Array;
@@ -265,12 +309,23 @@ export class LampLights {
     let ns = 0;
     for (let ci = 0; ci < cars.length; ci++) {
       const car = cars[ci]!;
-      if (!car.group.visible) continue;
+      let fade = this.fades.get(car);
+      if (!car.group.visible) {
+        fade?.act.fill(0);
+        fade?.w.fill(0);
+        continue;
+      }
+      if (!fade || fade.w.length < car.lampCount) this.fades.set(car, (fade = { w: new Float32Array(car.lampCount), act: new Uint8Array(car.lampCount) }));
       car.flashSirens(now);
-      const rank = this.rank(car, followed, highlight);
+      const bonus = this.bonus(car, followed, highlight);
       for (let i = 0; i < car.lampCount; i++) {
         const kind = car.lampWorld(i, _pos, _dir);
-        if (!kind || n * 3 >= gp.length) continue;
+        if (!kind) {
+          fade.w[i] = 0;
+          fade.act[i] = 0;
+          continue;
+        }
+        if (n * 3 >= gp.length) continue;
         _e.copy(_pos).addScaledVector(_dir, GLOW_OUT).toArray(gp, n * 3);
         const c = kind === "head" ? GLOW_HEAD : kind === "tail" ? GLOW_TAIL : kind === "red" ? GLOW_RED : GLOW_BLUE;
         gc[n * 3] = c[0];
@@ -280,14 +335,21 @@ export class LampLights {
         if (kind === "head" || kind === "tail") {
           _pos.toArray(st, ns * 6);
           _dir.toArray(st, ns * 6 + 3);
+          const q = bonus > 0 ? 1 : this.realness(_pos);
+          const score = q > 0 ? q + bonus : 0;
           this.stashHead[ns] = kind === "head" ? 1 : 0;
-          if (rank < Infinity) (kind === "head" ? this.heads : this.tails).offer(rank, _pos, _dir, kind, ns);
+          this.stashFade[ns] = fade;
+          this.stashIdx[ns] = i;
+          this.stashQ[ns] = q;
+          this.stashScore[ns] = score;
+          if (score > 0) (kind === "head" ? this.heads : this.tails).offer(-score - (fade.act[i] === 1 ? HYSTERESIS : 0), _pos, _dir, kind, ns);
           ns++;
         } else {
-          let score = _pos.distanceToSquared(_cam);
-          if (car === followed) score -= 1e9;
-          else if (!this.frustum.containsPoint(_pos)) score += 1e9;
-          this.tails.offer(score - SIREN.rank, _pos, _dir, kind, -1);
+          // Ahead of every lamp but the followed car's (scores down to -(1 + FOLLOWED_BONUS)); the followed car's own siren is first, one behind the view last.
+          let score = SIREN_RANK + _pos.distanceToSquared(_cam) * 1e-6;
+          if (car === followed) score = -2 * FOLLOWED_BONUS - 1;
+          else if (!this.frustum.containsPoint(_pos)) score = 10;
+          this.tails.offer(score, _pos, _dir, kind, -1);
         }
       }
     }
@@ -295,70 +357,143 @@ export class LampLights {
     this.glowPos.needsUpdate = true;
     this.glowCol.needsUpdate = true;
 
-    for (let k = 0; k < this.spots.length; k++) {
-      const s = this.spots[k]!;
-      if (k >= this.heads.count) {
-        s.intensity = 0;
-        continue;
-      }
-      const p = this.heads.pos[k]!;
-      const d = this.heads.dir[k]!;
-      s.position.copy(p);
-      s.target.position.copy(p).addScaledVector(d, AIM);
-      s.target.position.y -= DIP;
-      s.intensity = HEAD.intensity;
-    }
-    for (let k = 0; k < this.points.length; k++) {
-      const l = this.points[k]!;
-      if (k >= this.tails.count) {
-        l.intensity = 0;
-        continue;
-      }
-      const kind = this.tails.kind[k]!;
-      const tail = kind === "tail";
-      l.position.copy(this.tails.pos[k]!).addScaledVector(this.tails.dir[k]!, tail ? TAIL_OUT : SIREN.out);
-      l.color.setHex(tail ? TAIL.color : kind === "red" ? SIREN.red : SIREN.blue);
-      l.distance = tail ? TAIL.distance : SIREN.distance;
-      l.intensity = tail ? TAIL.intensity : SIREN.intensity;
-    }
+    this.settle(true, ns);
+    this.settle(false, ns);
+    this.primed = true;
 
-    // A head or tail lamp without a real light shows its pool as a decal instead.
-    const taken = this.taken.fill(0, 0, ns);
-    for (let k = 0; k < this.heads.count; k++) taken[this.heads.id[k]!] = 1;
-    for (let k = 0; k < this.tails.count; k++) if (this.tails.id[k]! >= 0) taken[this.tails.id[k]!] = 1;
+    // A head or tail lamp shows its pool as a decal in the share its real light leaves: (1 − weight) of the full pool.
     let np = 0;
-    for (let s = 0; s < ns; s++) if (taken[s] === 0) np = this.addPool(np, s);
+    for (let s = 0; s < ns; s++) {
+      const a = this.stashFade[s]!.act[this.stashIdx[s]!] === 1 ? 1 - this.stashFade[s]!.w[this.stashIdx[s]!]! : 1;
+      if (a > 0) np = this.addPool(np, s, a);
+    }
     this.pools.count = np;
     this.pools.instanceMatrix.needsUpdate = true;
     this.pools.instanceColor!.needsUpdate = true;
   }
 
-  /**
-   * Where `car` ranks for a real light, lowest first; Infinity gets none and shows fake pools only. The followed car comes first,
-   * then the highlight's cars, then (desktop, `middleTile`) cars whose disc touches the middle tile of a 3x3 split of the
-   * viewport, nearest the screen centre first.
-   */
-  private rank(car: LampHost, followed: LampHost | null, highlight: readonly LampHost[]): number {
-    const p = car.group.position;
-    if (car === followed) return p.distanceToSquared(_cam) - 3e9;
-    for (let i = 0; i < highlight.length; i++) if (highlight[i] === car) return p.distanceToSquared(_cam) - 2e9;
-    if (!this.middleTile) return Infinity;
-    const v = this.viewProj.elements;
-    const w = v[3]! * p.x + v[7]! * p.y + v[11]! * p.z + v[15]!;
-    if (w <= 0) return Infinity;
-    const x = (v[0]! * p.x + v[4]! * p.y + v[8]! * p.z + v[12]!) / w;
-    const y = (v[1]! * p.x + v[5]! * p.y + v[9]! * p.z + v[13]!) / w;
-    const r = CAR_RADIUS / w;
-    return Math.abs(x) - r * this.scaleX < MIDDLE_TILE && Math.abs(y) - r * this.scaleY < MIDDLE_TILE ? x * x + y * y : Infinity;
+  /** What `car`'s lamps add to their rank for a real light: the followed car outranks the highlight's cars, and both are fully real. */
+  private bonus(car: LampHost, followed: LampHost | null, highlight: readonly LampHost[]): number {
+    if (car === followed) return FOLLOWED_BONUS;
+    for (let i = 0; i < highlight.length; i++) if (highlight[i] === car) return HIGHLIGHT_BONUS;
+    return 0;
   }
 
   /**
-   * Pool instance `k` for stashed lamp `s`: a flat quad on the ground, its near edge at the lamp's foot and its far edge where the
+   * How real a lamp at `p` wants to be, 0 (painted decal) to 1 (real light): 1 near the middle of the view and near the camera,
+   * easing out to 0 towards the screen edge (NDC radius) and with distance, 0 behind the camera or on a phone (`middleTile` off).
+   */
+  private realness(p: THREE.Vector3): number {
+    if (!this.middleTile) return 0;
+    const v = this.viewProj.elements;
+    const w = v[3]! * p.x + v[7]! * p.y + v[11]! * p.z + v[15]!;
+    if (w <= 0) return 0;
+    const x = (v[0]! * p.x + v[4]! * p.y + v[8]! * p.z + v[12]!) / w;
+    const y = (v[1]! * p.x + v[5]! * p.y + v[9]! * p.z + v[13]!) / w;
+    return near01(Math.sqrt(x * x + y * y), REAL_R0, REAL_R1) * near01(p.distanceTo(_cam), REAL_D0, REAL_D1);
+  }
+
+  /**
+   * Settle the real lights of one kind (`head`: spots, else points) and every lamp's weight for this frame. A lamp's weight slews
+   * towards its target over `FADE_S`; a lamp holds a pooled light (`act`) from the frame it is admitted at weight 0 until its weight
+   * is back at 0, and a lamp is only admitted into a free light (never over a lit one), best-ranked first. Lights are packed best-first,
+   * unused ones at intensity 0. A siren takes its point at once, cutting the weakest tail lamps if it must.
+   */
+  private settle(head: boolean, ns: number): void {
+    const rank = head ? this.heads : this.tails;
+    const lights = head ? this.spots.length : this.points.length;
+    const { want, stashFade, stashIdx, stashHead, stashScore, stashQ } = this;
+    const kindOf = head ? 1 : 0;
+    let cap = lights;
+    want.fill(0, 0, ns);
+    for (let k = 0; k < rank.count; k++) {
+      const id = rank.id[k]!;
+      if (id < 0) cap--;
+      else want[id] = 1;
+    }
+    const step = this.fadeDt / FADE_S;
+    let live = 0;
+    for (let s = 0; s < ns; s++) {
+      if (stashHead[s] !== kindOf) continue;
+      const f = stashFade[s]!;
+      const i = stashIdx[s]!;
+      if (f.act[i] === 0) continue;
+      const target = want[s] === 1 ? stashQ[s]! : 0;
+      const w = f.w[i]!;
+      const next = w < target ? Math.min(target, w + step) : Math.max(target, w - step);
+      f.w[i] = next;
+      if (next === 0 && target === 0) f.act[i] = 0;
+      else live++;
+    }
+    // ponytail: weakest-first cut is O(lamps²), but only runs when a siren or a car back from hiding finds the lights full.
+    while (live > cap) {
+      let worst = -1;
+      let low = Infinity;
+      for (let s = 0; s < ns; s++) {
+        if (stashHead[s] !== kindOf || stashFade[s]!.act[stashIdx[s]!] === 0 || stashScore[s]! >= low) continue;
+        worst = s;
+        low = stashScore[s]!;
+      }
+      stashFade[worst]!.act[stashIdx[worst]!] = 0;
+      stashFade[worst]!.w[stashIdx[worst]!] = 0;
+      live--;
+    }
+    for (let k = 0; k < rank.count && live < cap; k++) {
+      const s = rank.id[k]!;
+      if (s < 0 || stashQ[s]! < ADMIT || stashFade[s]!.act[stashIdx[s]!] === 1) continue;
+      stashFade[s]!.act[stashIdx[s]!] = 1;
+      stashFade[s]!.w[stashIdx[s]!] = this.primed ? 0 : stashQ[s]!;
+      live++;
+    }
+    let j = 0;
+    for (let k = 0; k < rank.count; k++) {
+      const s = rank.id[k]!;
+      if (s < 0) {
+        _pos.copy(rank.pos[k]!);
+        _dir.copy(rank.dir[k]!);
+        this.seat(head, j++, rank.kind[k]!, 1);
+      } else if (stashFade[s]!.act[stashIdx[s]!] === 1) {
+        this.seatStashed(head, j++, s);
+      }
+    }
+    for (let s = 0; s < ns; s++) if (stashHead[s] === kindOf && want[s] === 0 && stashFade[s]!.act[stashIdx[s]!] === 1) this.seatStashed(head, j++, s);
+    for (; j < lights; j++) {
+      if (head) this.spots[j]!.intensity = 0;
+      else this.points[j]!.intensity = 0;
+    }
+  }
+
+  private seatStashed(head: boolean, j: number, s: number): void {
+    _pos.fromArray(this.stash, s * 6);
+    _dir.fromArray(this.stash, s * 6 + 3);
+    this.seat(head, j, head ? "head" : "tail", this.stashFade[s]!.w[this.stashIdx[s]!]!);
+  }
+
+  /** Aim pooled light `j` of its kind from the lamp in `_pos` / `_dir`, at `w` of its full intensity (a siren is always full). */
+  private seat(head: boolean, j: number, kind: GlowKind, w: number): void {
+    if (head) {
+      const s = this.spots[j]!;
+      s.position.copy(_pos);
+      s.target.position.copy(_pos).addScaledVector(_dir, AIM);
+      s.target.position.y -= DIP;
+      s.intensity = HEAD.intensity * w;
+      return;
+    }
+    const l = this.points[j]!;
+    const tail = kind === "tail";
+    l.position.copy(_pos).addScaledVector(_dir, tail ? TAIL_OUT : SIREN.out);
+    l.color.setHex(tail ? TAIL.color : kind === "red" ? SIREN.red : SIREN.blue);
+    l.distance = tail ? TAIL.distance : SIREN.distance;
+    l.intensity = tail ? TAIL.intensity * w : SIREN.intensity;
+  }
+
+  /**
+   * Pool instance `k` for stashed lamp `s` at opacity `a` (its colour scaled by it): a flat quad on the ground, its near edge at the lamp's foot and its far edge where the
    * beam has faded. A headlamp's runs along the spot's own aim (`AIM`, `DIP`) to where the beam meets the ground, a tail lamp's
    * straight back. Returns the next free instance (`k` when the lamp has no ground to light).
    * ponytail: one flat quad at the ground height under the beam's end; on a steep slope its near end floats or sinks.
    */
-  private addPool(k: number, s: number): number {
+  private addPool(k: number, s: number, a: number): number {
     const st = this.stash;
     const o = s * 6;
     const px = st[o]!;
@@ -412,9 +547,9 @@ export class LampLights {
     m[b + 15] = 1;
     const col = head ? POOL_HEAD : POOL_TAIL;
     const c = this.pools.instanceColor!.array as Float32Array;
-    c[k * 3] = col[0];
-    c[k * 3 + 1] = col[1];
-    c[k * 3 + 2] = col[2];
+    c[k * 3] = col[0] * a;
+    c[k * 3 + 1] = col[1] * a;
+    c[k * 3 + 2] = col[2] * a;
     return k + 1;
   }
 
@@ -461,18 +596,23 @@ function poolQuad(): THREE.BufferGeometry {
   return g;
 }
 
-/** A pool's falloff over `poolQuad`, white with alpha (1 − r)²: an ellipse whose peak sits a fifth of the way along, built in code (no DOM). */
+/**
+ * A pool's falloff over `poolQuad`, white with alpha built in code (no DOM): a spot's ground pool is brightest a fifth of the way
+ * along (where the beam's near edge meets the road), dark at the lamp's foot, then fans out and fades: alpha is `along × (1 − lateral²)²`,
+ * `along` rising to the peak and falling as (1 − s)^1.6, the half width growing from 0.4 of the quad to all of it.
+ */
 function poolSprite(): THREE.DataTexture {
   const n = 64;
   const data = new Uint8Array(n * n * 4);
   for (let y = 0; y < n; y++) {
     const s = (y + 0.5) / n;
-    const dz = s < 0.2 ? (0.2 - s) / 0.2 : (s - 0.2) / 0.8;
+    const along = s < 0.2 ? 1 - ((0.2 - s) / 0.2) ** 2 : (1 - (s - 0.2) / 0.8) ** 1.6;
+    const half = 0.4 + 0.6 * s;
     for (let x = 0; x < n; x++) {
-      const r = Math.min(1, hypot2(((x + 0.5) / n - 0.5) * 2, dz));
+      const lat = Math.min(1, Math.abs(((x + 0.5) / n - 0.5) * 2) / half);
       const o = (y * n + x) * 4;
       data[o] = data[o + 1] = data[o + 2] = 255;
-      data[o + 3] = Math.round(255 * (1 - r) ** 2);
+      data[o + 3] = Math.round(255 * along * (1 - lat * lat) ** 2);
     }
   }
   const t = new THREE.DataTexture(data, n, n);

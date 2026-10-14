@@ -494,7 +494,7 @@ export class CrashEngine extends EngineGarage {
     this.rumbleFrame(this.playing && !held ? wallDt : 0);
     this.flushVisibleSkins();
     this.detail.update(this.cars, this.camera, this.followedCar(), this.highlights.playing ? this.highlights.focus() : null);
-    this.lampLights.update(this.live(), this.camera, this.followedCar(), performance.now() / 1000, this.highlights.playing ? this.highlights.cars() : undefined);
+    this.lampLights.update(this.live(), this.camera, this.followedCar(), performance.now() / 1000, this.highlights.playing ? this.highlights.cars() : undefined, wallDt);
     if (this.audioOn) this.audio.frame(wallDt, this.highlights.playing ? this.highlights.cars() : this.live(), this.highlights.playing ? this.highlights.focus() : this.followedCar(), this.clock.timeScale * this.cine.timeWarp, this.playing && !held);
     if (this.stage.night) this.stage.syncPools(this.poles);
     if (!this.skipDraw) this.cine.render(this.scene, this.camera, wallDt);
