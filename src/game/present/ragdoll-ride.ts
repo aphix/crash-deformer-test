@@ -86,8 +86,7 @@ export class RideAlong {
       for (let s = 0; s < dolls.length; s++) {
         const d = dolls[s]!;
         if (!this.framed(d, keep)) continue;
-        const v = d.bodies[0]!.linvel();
-        const score = hypot3(v.x, v.y, v.z) + (d.car === watched ? CAM_TIE : 0);
+        const score = hypot3(d.vel[0]!, d.vel[1]!, d.vel[2]!) + (d.car === watched ? CAM_TIE : 0);
         if (score <= best) continue;
         best = score;
         this.primary = s;
@@ -110,10 +109,9 @@ export class RideAlong {
       if (!this.framed(d, keep)) continue;
       blendPose(d.prev, d.cur, 7, alpha, this.heads[n]!, _q);
       if (_r.distanceTo(this.heads[n]!) > CAM_NEAR) continue;
-      const v = d.bodies[0]!.linvel();
       c.add(this.heads[n]!);
-      vx += v.x;
-      vz += v.z;
+      vx += d.vel[0]!;
+      vz += d.vel[2]!;
       n++;
     }
     c.multiplyScalar(1 / n);

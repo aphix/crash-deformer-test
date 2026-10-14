@@ -8,6 +8,9 @@ import { propColliders, type Placed, type PropCollider } from "../world/placemen
 import { AIR_ANGULAR, AIR_LINEAR, blendPose, readPose } from "./ragdoll-body.ts";
 import type { PropTumble } from "./prop-tumble.ts";
 
+/** What the props' world needs of their drawing: where one is placed, and all back on their spots. */
+export type PropDraw = Pick<PropTumble, "place" | "reset">;
+
 /**
  * The knockable props (cones, crates, tyre stacks, hay bales) as bodies in the dummies' world (cosmetic, like the purses:
  * `RagdollSystem` owns the world and steps it). A standing one is a fixed body on its spot whose collider is the footprint
@@ -194,7 +197,7 @@ export class PropBodies {
   private R: Rapier | null = null;
   private world: World | null = null;
   private placed: readonly Placed[] = [];
-  private draw: PropTumble | null = null;
+  private draw: PropDraw | null = null;
   /** The standing bodies are in the world. */
   private built = false;
   /** Per placement (null: not knockable): its body, its footprint colliders (one per piece of its prefab's collider), its own shape's colliders. */
@@ -260,7 +263,7 @@ export class PropBodies {
   }
 
   /** A scene's placements (`placed`), drawn by `draw` (null headless): every prop stands, none built yet. */
-  set(placed: readonly Placed[], draw: PropTumble | null): void {
+  set(placed: readonly Placed[], draw: PropDraw | null): void {
     this.unbuild();
     this.count = 0;
     const n = placed.length;

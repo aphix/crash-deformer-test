@@ -1,0 +1,89 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { makeCar } from "../contact/crash-scenarios.test-util.ts";
+import { RagdollRemote } from "./ragdoll-remote.ts";
+import { LAG, type FromWorker, type ResultMessage, type ToWorker } from "./ragdoll-wire.ts";
+
+const FRAME = 1 / 60;
+const WINDSHIELD = 0;
+const CRACKED = 1;
+
+/** A Worker that records what is posted to it and says only what the test has it say. */
+class ScriptedWorker {
+  static last: ScriptedWorker;
+  readonly posted: ToWorker[] = [];
+  onmessage: ((event: { data: FromWorker }) => void) | null = null;
+  onerror: ((event: { message: string }) => void) | null = null;
+  onmessageerror: (() => void) | null = null;
+
+  constructor() {
+    ScriptedWorker.last = this;
+  }
+
+  postMessage(message: ToWorker): void {
+    this.posted.push(message);
+  }
+
+  terminate(): void {}
+
+  say(message: FromWorker): void {
+    this.onmessage!({ data: message });
+  }
+}
+
+/** The answer to frame `seq` of epoch 0: nothing out but a strike of the windshield of car 0 and a dummy still out. */
+function answer(seq: number, hits: ResultMessage["hits"]): ResultMessage {
+  return { type: "result", seq, epoch: 0, dolls: new Float32Array(0), alpha: 0, lastSlot: 0, purses: new Float32Array(0), props: new Float32Array(0), propsReset: false, spawned: [], hits, wanted: new Uint8Array(32), active: true, stepMs: new Float64Array(0), colliders: 0, bodies: 0 };
+}
+
+/** Frames posted until the strike in frame 1's answer shows on the car, the answer arriving `arrive` posts after frame 1; -1: not before the sim must have it. */
+function glassAfterFrame(arrive: number, frames: number): number[] {
+  Object.assign(globalThis, { Worker: ScriptedWorker });
+  const remote = RagdollRemote.open(() => assert.fail("the worker failed"))!;
+  const worker = ScriptedWorker.last;
+  worker.say({ type: "ready" });
+  const car = makeCar();
+  const cars = [car];
+  remote.knock(0, -1, 0, 0, 0);
+  const seen: number[] = [];
+  for (let frame = 1; frame <= frames; frame++) {
+    if (frame === 1 + arrive) worker.say(answer(1, [{ car: 0, pane: WINDSHIELD }]));
+    if (frame === LAG + 1 && arrive < 0) assert.equal(remote.behind(true), true, "the sim waits for the answer it is to hear");
+    if (frame === LAG + 1 && arrive < 0) worker.say(answer(1, [{ car: 0, pane: WINDSHIELD }]));
+    remote.post(FRAME, cars, true, false, 0);
+    seen.push((car.glassBits() >> (2 * WINDSHIELD)) & 3);
+  }
+  remote.dispose();
+  return seen;
+}
+
+describe("given the dummies' world in a worker whose answer to frame 1 struck a car's windshield", () => {
+  it("when the answer arrives at different times, then the pane is struck on the car at the same frame, LAG frames after the one struck in", () => {
+    const early = glassAfterFrame(0, 5);
+    const justInTime = glassAfterFrame(LAG - 1, 5);
+    const sim = glassAfterFrame(-1, 5);
+    const expected = [0, 0, CRACKED, CRACKED, CRACKED];
+    assert.deepEqual(early, expected, "answer in before frame 2");
+    assert.deepEqual(justInTime, expected, "answer in before frame LAG");
+    assert.deepEqual(sim, expected, "answer in only when the sim waited for it");
+  });
+});
+
+describe("given the dummies' world has something out and its answer to a frame the sim is to hear is missing", () => {
+  it("when the answer comes, then the sim stops waiting; a peer that does not own the glass never waits", () => {
+    Object.assign(globalThis, { Worker: ScriptedWorker });
+    const remote = RagdollRemote.open(() => assert.fail("the worker failed"))!;
+    const worker = ScriptedWorker.last;
+    worker.say({ type: "ready" });
+    remote.knock(0, -1, 0, 0, 0);
+    const cars = [makeCar()];
+    for (let frame = 1; frame < LAG; frame++) remote.post(FRAME, cars, true, false, 0);
+    assert.equal(remote.behind(true), false, "no answer is due yet");
+    remote.post(FRAME, cars, true, false, 0);
+    assert.equal(remote.behind(true), true, "answer to frame 1 is due");
+    assert.equal(remote.behind(false), false, "a client's glass is the host's");
+    worker.say(answer(1, []));
+    assert.equal(remote.behind(true), false, "answer is in");
+    remote.dispose();
+  });
+});

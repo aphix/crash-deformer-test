@@ -1,8 +1,7 @@
 import * as THREE from "three";
 import type { Collider, RigidBody, World } from "@dimforge/rapier3d-simd";
-import type { DeformableCar } from "../vehicle/car.ts";
+import type { CageView, RagCar } from "./ragdoll-car-view.ts";
 import { CLASS_LIFT } from "../vehicle/constants.ts";
-import type { CarCage } from "../vehicle/car-cage.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { GLASS_NAMES, glassCorners } from "../vehicle/car-glass.ts";
 import { carClass, classStats } from "../vehicle/vehicle-classes.ts";
@@ -98,7 +97,7 @@ export class CarProxies {
   /** `cull`'s dummy points in a car's frame: x, y, z and the distance (m) a leaf's sphere must be within, 4 per dummy. */
   private readonly pts = new Float64Array(4 * SLOTS * (1 + PURSE_BODIES));
   /** The car each slot's proxy was last fitted to (`fitProxy`), its glass corners, its body lift (m), the cage fit it was fitted from (`CarCage.serial`), and its glass state as the slabs show it (`glassBits`, -1: refit). */
-  private readonly fitted: (DeformableCar | null)[] = Array.from({ length: MAX_CARS }, () => null);
+  private readonly fitted: (RagCar | null)[] = Array.from({ length: MAX_CARS }, () => null);
   private readonly glass: Float32Array[] = Array.from({ length: MAX_CARS }, () => new Float32Array(0));
   private readonly drawn: (THREE.Object3D | null)[] = Array.from({ length: MAX_CARS }, () => null);
   private readonly lift = new Float64Array(MAX_CARS);
@@ -187,7 +186,7 @@ export class CarProxies {
    * Slot i's frame onto the drawn body of `car`: its class body (`classLift`, lifted and swayed on its springs) in the world, or
    * the whole car's when it has none. The proxy's colliders lie in the body mesh's own frame, the cage's.
    */
-  frame(i: number, car: DeformableCar): void {
+  frame(i: number, car: RagCar): void {
     if (this.fitted[i] !== car) this.drawn[i] = car.group.getObjectByName(CLASS_LIFT) ?? null;
     const frame = this.frames[i]!;
     const body = this.drawn[i]!;
@@ -206,10 +205,11 @@ export class CarProxies {
    * standing pane is the surface over its leaves, a gone one leaves the cage's own top), and each pane's slab in the world only
    * while the pane stands (`glassBits`).
    */
-  fitProxy(i: number, car: DeformableCar): void {
-    const lift = classStats(carClass(car)).lift;
+  fitProxy(i: number, car: RagCar): void {
+    const lift = car.classLift ?? classStats(carClass(car)).lift;
     car.refitCage();
     const cage = car.cage;
+    if (cage === null) return;
     const bits = car.glassBits();
     if (this.fitted[i] !== car || this.lift[i] !== lift || this.serial[i] !== cage.serial || bits !== this.paneBits[i]) {
       if (this.fitted[i] !== car || this.lift[i] !== lift) this.paneBits[i] = -1;
@@ -279,7 +279,7 @@ export class CarProxies {
    * frames of travel (each leaf's bounding sphere), a purse thing within `PURSE_REACH` and `NEAR_MARGIN`, all of them while a knocked prop is near the car (`whole`)
    * or for `all`. One in the world stays until `NEAR_HOLD` further out. A pane that is gone has no slab.
    */
-  cull(i: number, cars: readonly DeformableCar[], all: boolean, dt: number): void {
+  cull(i: number, cars: readonly RagCar[], all: boolean, dt: number): void {
     const everything = all || this.whole[i] === 1;
     let m = 0;
     if (!everything) {
@@ -343,7 +343,7 @@ export class CarProxies {
    * unused (and those they replace) in or out of the world, and what the props' squeeze (`CAR_BOX`) and the reach read of the
    * car: the cage's plan extent, its height and `UNDER`.
    */
-  private shape(i: number, cage: CarCage, lift: number, paneBits: number): void {
+  private shape(i: number, cage: CageView, lift: number, paneBits: number): void {
     const fitter = this.fitter;
     const f = cage.fields;
     const was = this.shapeN[i]!;
@@ -385,7 +385,7 @@ export class CarProxies {
   }
 
   /** Per dummy, the cars (never his own) with a pane standing that his torso may reach within this frame: `glassTouch` tries only those. */
-  glassNear(cars: readonly DeformableCar[], dt: number): void {
+  glassNear(cars: readonly RagCar[], dt: number): void {
     const a = this.aim;
     for (let s = 0; s < SLOTS; s++) {
       const d = this.dolls[s]!;
@@ -411,7 +411,7 @@ export class CarProxies {
    * The pane asks (`normal2` is then the torso's exterior normal) because the torso-first query trips Rapier's
    * `unreachable` on a fresh torso collider.
    */
-  glassTouch(cars: readonly DeformableCar[], authority: boolean): void {
+  glassTouch(cars: readonly RagCar[], authority: boolean): void {
     for (let s = 0; s < SLOTS; s++) {
       const n = this.nearN[s]!;
       if (n === 0) continue;

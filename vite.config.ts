@@ -142,6 +142,7 @@ export default defineConfig(({ command, isPreview }) => ({
     strictPort: true,
   },
   resolve: { tsconfigPaths: true },
+  worker: { format: "es" },
   build: {
     // three.js gets its own vendor chunk (596 kB): it changes only on a three upgrade, so it stays cached across
     // game deploys. Measured: engine 760 → 404 kB, routes 430 → 188 kB; total client JS unchanged (1.59 MB).

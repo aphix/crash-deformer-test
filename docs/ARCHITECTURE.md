@@ -179,6 +179,9 @@ if playing:  simDt = wallDt × timeScale × cine.timeWarp
 always:      net.frame → PoseBlend.present (bodies, loose parts and the crush skin drawn at the frame's time between
              the last two sim states) → race.frame → updateCamera → flushVisibleSkins → detail / lamps → audio frame
              (audio on) → cine.render → PoseBlend.restore (the sim's own poses and skin back) → emitHud every 0.05–0.12 s
+             The thrown drivers' world (`RagdollRemote` ↔ `ragdoll-worker.ts`, a module Web Worker, race courses only) is posted its
+             frame in the `ragdolls` step above and answers a frame or two later; the sim holds a frame (`RagdollSystem.waiting`) until the
+             answer it is to hear (panes struck, cars wanted) is in, so that feedback lands at a fixed step. See docs/CINEMATIC.md.
 ```
 
 `Witness` (`present/witness.ts`) is the one "could the camera see this?" test behind every cosmetic skip (skins, sparks,

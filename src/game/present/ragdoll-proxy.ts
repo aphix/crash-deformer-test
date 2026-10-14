@@ -1,7 +1,11 @@
 import * as THREE from "three";
-import type { CageFields, CageStyle } from "../vehicle/car-cage.ts";
+import type { CageFields as CarCageFields, CageStyle as CarCageStyle } from "../vehicle/car-cage.ts";
 import { GLASS_NAMES } from "../vehicle/car-glass.ts";
 import { hypot2, hypot3 } from "../kernel/physics-core.js";
+
+/** What a fit reads of a cage's fields and of its style: a car's own cage (`CarCage`) or a copy of these sent to the world's thread. */
+export type CageFields = Pick<CarCageFields, "top" | "covered" | "planBox" | "heightMax">;
+export type CageStyle = Pick<CarCageStyle, "step" | "nu" | "nv" | "u0" | "v0">;
 
 /**
  * The dummies' world sees each car as its drawn body (docs/UNIFIED_CONTACT.md stage 3, "the cage is the body"): the cuboids

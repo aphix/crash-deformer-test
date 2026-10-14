@@ -105,6 +105,17 @@ class PropMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.MeshStand
   }
 }
 
+/** What a throw rolls first: its random stream (past these two draws), the side the purse leaves on and its colour. */
+function rollPurse(seed: number, car: number): { rand: () => number; side: number; color: number } {
+  const rand = mulberry32(Math.imul(seed ^ 0x51ed270b, 0x9e3779b1) ^ Math.imul(car + 1, 0x85ebca6b));
+  const side = rand() < 0.5 ? -1 : 1;
+  const color = PURSE_COLORS[Math.floor(rand() * PURSE_COLORS.length)]!;
+  return { rand, side, color };
+}
+
+/** Floats per set in `exportPoses`: the bodies in use as a bit mask, then every body's pose before the last step and after it. */
+export const PURSE_BLOCK = 1 + 2 * BODIES * 7;
+
 export class Purses {
   readonly mesh: PropMesh;
   /** Per set: the purse then each item, disabled until used. */
@@ -173,10 +184,8 @@ export class Purses {
    */
   launch(s: number, car: number, p: THREE.Vector3, v: THREE.Vector3, seed: number): void {
     this.clear(s);
-    const rand = mulberry32(Math.imul(seed ^ 0x51ed270b, 0x9e3779b1) ^ Math.imul(car + 1, 0x85ebca6b));
+    const { rand, side } = rollPurse(seed, car);
     this.rand[s] = rand;
-    const side = rand() < 0.5 ? -1 : 1;
-    const color = PURSE_COLORS[Math.floor(rand() * PURSE_COLORS.length)]!;
     const run = hypot2(v.x, v.z) || 1;
     const body = this.bodies[s]![0]!;
     body.setEnabled(true);
@@ -195,10 +204,16 @@ export class Purses {
     this.car[s] = car;
     this.burstAt[s] = 0;
     this.keep(s, 0);
+    this.paint(s, car, seed);
+    this.mesh.visible = true;
+  }
+
+  /** Set `s`'s purse and strap coloured as `launch(s, car, …, seed)` rolls them: the draw side of a launch the world's thread makes. */
+  paint(s: number, car: number, seed: number): void {
+    const { color } = rollPurse(seed, car);
     const base = s * PIECES;
     this.mesh.colorAt(base, color);
     for (let k = 0; k < STRAP.length; k++) this.mesh.colorAt(base + 1 + k, color, 0.45);
-    this.mesh.visible = true;
   }
 
   /** One sim step of `dt` passed: past `BURST_AT` the things fly out of the purse; past `grace` the purse can hit its own car. */
@@ -300,6 +315,34 @@ export class Purses {
       }
     }
     this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Every set's bodies in use and poses into `out`, `PURSE_BLOCK` floats a set: what the main thread draws (`importPoses`). */
+  exportPoses(out: Float32Array): void {
+    for (let s = 0; s < this.sets; s++) {
+      const o = s * PURSE_BLOCK;
+      const first = s * BODIES * 7;
+      out[o] = this.on[s]!;
+      out.set(this.prev.subarray(first, first + BODIES * 7), o + 1);
+      out.set(this.cur.subarray(first, first + BODIES * 7), o + 1 + BODIES * 7);
+    }
+  }
+
+  /** The sets as the world's thread has them (`exportPoses`): the bodies in use and their poses, for `pose` to draw. A thing newly out is coloured; a set gone is hidden. */
+  importPoses(from: Float32Array): void {
+    for (let s = 0; s < this.sets; s++) {
+      const o = s * PURSE_BLOCK;
+      const first = s * BODIES * 7;
+      const was = this.on[s]!;
+      const now = from[o]!;
+      for (let b = 1; b < BODIES; b++) if (now & (1 << b) && !(was & (1 << b))) this.mesh.colorAt(s * PIECES + STRAP.length + b, ITEMS[b - 1]!.color);
+      if (was !== 0 && now === 0) for (let i = 0; i < PIECES; i++) this.mesh.hide(s * PIECES + i);
+      this.on[s] = now;
+      if (now === 0) continue;
+      this.prev.set(from.subarray(o + 1, o + 1 + BODIES * 7), first);
+      this.cur.set(from.subarray(o + 1 + BODIES * 7, o + PURSE_BLOCK), first);
+    }
+    this.setCount();
   }
 
   dispose(): void {

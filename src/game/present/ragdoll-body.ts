@@ -200,4 +200,6 @@ export type Doll = {
   calm: number;
   /** Torso speed (m/s) at the end of the last frame: how far he may travel toward a pane in the next (`glassNear`). */
   speed: number;
+  /** Torso velocity (m/s, world) at the end of the last frame: the ride-along's pick and shot read it. */
+  vel: Float32Array;
 };

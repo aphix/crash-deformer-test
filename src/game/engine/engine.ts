@@ -402,7 +402,8 @@ export class CrashEngine extends EngineGarage {
     // sent at the finish) can land while it still reads "racing" (measured: stopped 106 ms after it arrived).
     const p = this.race.phase;
     if (this.highlights.hasReel && (!this.race.active || p === null || p === "grid" || p === "countdown")) this.stopReel();
-    if (this.playing && !held) {
+    // The sim hears the dummies' world (a worker) at a fixed frame: it does not run one until the answer it is to hear is in.
+    if (this.playing && !held && !this.ragdolls.waiting) {
       this.elapsedWall += wallDt;
       const reelDt = this.highlights.frame(now / 1000);
       this.reelFrame(reelDt !== null);

@@ -30,15 +30,16 @@ import type { Placed } from "../world/placements.ts";
 import { ejectionVelocity, type Ejection } from "../vehicle/ejection.ts";
 import { disable, loadRapier, type Rapier } from "../kernel/rapier.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
-import { driverLook, pickedLook } from "./driver-look.ts";
+import { type DriverLook, driverLook, pickedLook } from "./driver-look.ts";
 import type { PersonPick } from "../match/look-data.ts";
 import type { SprayBitmap } from "./spray.ts";
 import { Purses } from "./ragdoll-purse.ts";
-import { CAR_BOX, PropBodies } from "./ragdoll-props.ts";
+import { CAR_BOX, type PropDraw, PropBodies } from "./ragdoll-props.ts";
 import { CarProxies, DOLL_REACH, NEAR_HOLD, NEAR_MARGIN, PROP_BAND_HIGH, PROP_BAND_LOW, PURSE_REACH } from "./ragdoll-cars.ts";
+import type { RagCar } from "./ragdoll-car-view.ts";
 import { dollGroups, FIXED_GROUPS, knockedGroups, MAX_ACC, propGroups, SLOTS, STEP, thrownGroups } from "./ragdoll-config.ts";
-import type { PropTumble } from "./prop-tumble.ts";
 import { RagdollDebug } from "./ragdoll-debug.ts";
+import { RagdollRemote } from "./ragdoll-remote.ts";
 import { RideAlong } from "./ragdoll-ride.ts";
 import type { RideFrame } from "./ride-cam.ts";
 import type { Sight } from "./spectate-cam.ts";
@@ -48,6 +49,7 @@ import { groundColliders, PATCH_AHEAD, PATCH_HALF, type Pole } from "./ragdoll-g
 import { courseSolids, type Solid } from "./ragdoll-solids.ts";
 import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import { GRAVITY } from "../kernel/constants.ts";
+import { DOLL_CAR, DOLL_FLOATS, DOLL_HEADER, DOLL_LIVE, DOLL_RIDES, DOLL_SETTLED, DOLL_STILL, DOLL_VELOCITY, FIT_AHEAD, PROP_FLOATS, type ResultMessage } from "./ragdoll-wire.ts";
 
 /** Seconds a dummy lies about before it goes. */
 const LIFE = 10;
@@ -84,8 +86,11 @@ const ITERATIONS = 4;
 /** Rapier's internal solver passes per iteration (default 1): at the first touch of a 29 m/s throw one pass rose energy 75–325 J in a frame at 1/120 and 26–30 J (1 of 5 runs) at 1/480 and 1/960; two at most 0.6 J over 60 runs (60/144/240 Hz). */
 const INTERNAL_PASSES = 2;
 
-/** A throw, placed: car (-1: none, `place`), torso point and orientation, linear and angular velocity (world), sim seconds waiting, a police driver, whether the ride-along may frame him. */
-type Throw = { car: number; p: THREE.Vector3; q: THREE.Quaternion; v: THREE.Vector3; w: THREE.Vector3; age: number; cop: boolean; rides: boolean };
+/** A throw, placed: car (-1: none, `place`), torso point and orientation, linear and angular velocity (world), sim seconds waiting, a police driver, whether the ride-along may frame him, whether his purse flies too (unset: when his look is a woman's). */
+export type Throw = { car: number; p: THREE.Vector3; q: THREE.Quaternion; v: THREE.Vector3; w: THREE.Vector3; age: number; cop: boolean; rides: boolean; purse?: boolean };
+
+/** What a dummy sent to the worker looks like, applied (`mesh.dress`, `spray`, `Purses.paint`) once the worker says which slot he took. */
+type Dressing = { cop: boolean; look: DriverLook; spray: SprayBitmap | null; purse: boolean; car: number; seed: number };
 
 const _q = new THREE.Quaternion();
 const _qb = new THREE.Quaternion();
@@ -149,11 +154,13 @@ export class RagdollSystem {
   private readonly onExit: (at: THREE.Vector3, frame: THREE.Quaternion, inherit: THREE.Vector3) => void;
   private R: Rapier | null = null;
   private world: World | null = null;
-  /** `world.step()` calls so far and the wall ms of the latest `STEP_LOG` of them (`stats`): what the bench reads, nothing else does. */
+  /** `world.step()` calls so far and the wall ms of the latest `STEP_LOG` of them (`stats`): what the bench reads, nothing else does. In the worker's world they are the worker's, as it reports them. */
   private steps = 0;
   private readonly stepMs = new Float64Array(STEP_LOG);
+  private readonly remoteSize = { colliders: 0, bodies: 0 };
   /** The Rapier world's cost so far (`RagdollStats`): steps run, their ms ring, and how many colliders and bodies the world holds. */
   get stats(): RagdollStats {
+    if (this.mode === "remote") return { steps: this.steps, log: this.stepMs, ...this.remoteSize };
     return { steps: this.steps, log: this.stepMs, colliders: this.world?.colliders.len() ?? 0, bodies: this.world?.bodies.len() ?? 0 };
   }
   private readonly dolls: Doll[] = [];
@@ -164,6 +171,18 @@ export class RagdollSystem {
   /** Fixed colliders every dummy shares off a course (pad or disc with its ramps, corkscrew, poles), built at the run's first throw: Rapier's step allocates per collider (0.31 KB, RapierEval). */
   private readonly statics: Collider[] = [];
   private disposed = false;
+  /** The world's worker (null: none, or it failed). */
+  private remote: RagdollRemote | null = null;
+  /** Where this run's dummies are, chosen at its first throw or knock (`pick`): this thread's world or the worker's. Null: not yet. */
+  private mode: "inline" | "remote" | null = null;
+  /** The course's props as drawn (`setCourse`): where the worker's world has them, `adopt` places them. */
+  private tumble: PropDraw | null = null;
+  /** How each throw sent to the worker is dressed, until the worker says which slot it took (`adopt`). */
+  private readonly dressing = new Map<number, Dressing>();
+  /** This system is the world's worker's (`host`): it draws nothing and reports the cars it `wanted` cages of. */
+  private hosted = false;
+  /** Per car, 1 when a dummy, purse thing or knocked prop may reach it within `FIT_AHEAD` frames (set by `stepWorld` while hosted). */
+  readonly wanted = new Uint8Array(MAX_CARS);
   private cars: readonly DeformableCar[] = [];
   private authority = true;
   /** Neither a race nor a derby: only here does `onThrow` fire. */
@@ -205,9 +224,11 @@ export class RagdollSystem {
 
   /**
    * Start Rapier (`loadRapier`), build the pool and run one step so the first throw only places bodies. The
-   * engine calls this once boot is `ready`; until it resolves `update` only judges hits (`pending`).
+   * engine calls this once boot is `ready`; until it resolves `update` only judges hits (`pending`). The world's worker
+   * (`RagdollRemote`) starts beside it, where the browser has Workers.
    */
   async preload(): Promise<void> {
+    if (!this.hosted) this.remote ??= RagdollRemote.open((err) => this.fallBack(err));
     const R = await loadRapier();
     if (this.disposed) return;
     this.R = R;
@@ -235,7 +256,7 @@ export class RagdollSystem {
         return body;
       });
       joinUp(R, world, bodies);
-      this.dolls.push({ bodies, live: false, age: 0, life: LIFE, still: 0, patch: [], car: -1, rides: false, prev: new Float32Array(PARTS.length * 7), cur: new Float32Array(PARTS.length * 7), ground: false, settled: false, calm: 0, speed: 0 });
+      this.dolls.push({ bodies, live: false, age: 0, life: LIFE, still: 0, patch: [], car: -1, rides: false, prev: new Float32Array(PARTS.length * 7), cur: new Float32Array(PARTS.length * 7), ground: false, settled: false, calm: 0, speed: 0, vel: new Float32Array(3) });
     }
     // A child of the dummies' mesh, so the scene root keeps its one `ragdolls` child and the props draw only while a dummy is out.
     this.mesh.add((this.purses = this.proxies.purses = new Purses(R, world, SLOTS, propGroups, GRACE)).mesh);
@@ -252,8 +273,12 @@ export class RagdollSystem {
     this.pending.length = 0;
     this.acc = this.tick = 0;
     this.ride.reset();
+    this.mode = null;
+    this.dressing.clear();
+    this.remote?.reset();
     for (let s = 0; s < this.dolls.length; s++) this.despawn(s);
     this.props.clear();
+    this.tumble?.reset();
     for (const c of this.statics) this.world?.removeCollider(c, false);
     this.statics.length = 0;
   }
@@ -263,11 +288,20 @@ export class RagdollSystem {
    * owns the glass, so it smashes the exit pane of a throw). `sandbox`: neither a race nor a derby (`onThrow`);
    * `barrier`: the sandbox's jersey barrier while it stands, else null. Who
    * is thrown is not decided here (`launch`); a throw launched before Rapier is in waits for it, up to `PENDING_MAX`; a
-   * prop knocked before it is in flies once it is.
+   * prop knocked before it is in flies once it is. In the worker's world (`mode` "remote") the frame is posted to it instead
+   * and the last answer drawn.
    */
   update(dt: number, cars: readonly DeformableCar[], authority: boolean, sandbox: boolean, barrier: THREE.Object3D | null): void {
     if (dt <= 0) return;
     this.cars = cars;
+    this.authority = authority;
+    this.sandbox = sandbox;
+    if (this.mode === "remote") this.updateRemote(dt, cars);
+    else this.stepWorld(dt, cars, authority, sandbox, barrier);
+  }
+
+  /** The frame's physics and its draw, here: what `update` does in this thread and the world's worker does for each posted frame. */
+  stepWorld(dt: number, cars: readonly RagCar[], authority: boolean, sandbox: boolean, barrier: THREE.Object3D | null): void {
     this.authority = authority;
     this.sandbox = sandbox;
     const world = this.world;
@@ -279,6 +313,7 @@ export class RagdollSystem {
     this.props.here(this.course !== null && activeGround() === this.course.ground);
     if (this.live === 0 && this.props.count === 0) {
       for (let i = 0; i < MAX_CARS; i++) this.proxies.follow(i, null);
+      if (this.hosted) this.wanted.fill(0);
       return;
     }
     const dormant = this.dormant(cars, barrier, dt);
@@ -286,7 +321,10 @@ export class RagdollSystem {
     this.proxies.teleport ||= this.slept;
     this.slept = dormant;
     for (let i = 0; i < MAX_CARS; i++) {
-      const car = i < cars.length && !cars[i]!.falling && !cars[i]!.vaporized && this.near(i, cars[i]!, dt) ? cars[i]! : null;
+      const alive = i < cars.length && !cars[i]!.falling && !cars[i]!.vaporized;
+      if (this.hosted) this.wanted[i] = alive && this.near(i, cars[i]!, dt, FIT_AHEAD) ? 1 : 0;
+      // In the worker a car whose cage has not been sent has no proxy yet.
+      const car = alive && (!this.hosted || cars[i]!.cage !== null) && this.near(i, cars[i]!, dt) ? cars[i]! : null;
       if (car) this.proxies.frame(i, car);
       this.proxies.follow(i, car ? this.proxies.frames[i]! : null);
       if (car) {
@@ -351,15 +389,19 @@ export class RagdollSystem {
       }
       const v = d.bodies[0]!.linvel();
       d.speed = hypot3(v.x, v.y, v.z);
+      d.vel[0] = v.x;
+      d.vel[1] = v.y;
+      d.vel[2] = v.z;
       d.still = d.speed < REST_SPEED ? d.still + dt : 0;
       this.calm(d, dt);
+      if (this.hosted) continue;
       for (let k = 0; k < PARTS.length; k++) {
         this.blend(d, k, _p, _q);
         this.mesh.pose(s, k, _p, _q);
         if (this.debug.on) this.debug.pose(s, k, _p, _q);
       }
     }
-    this.purses?.pose(this.alpha);
+    if (!this.hosted) this.purses?.pose(this.alpha);
     this.props.advance(dt, this.step);
     this.props.pose(this.alpha);
   }
@@ -369,7 +411,7 @@ export class RagdollSystem {
    * barrier is within `WAKE_NEAR` of a dummy, no such car can touch a knocked prop this frame (`touches`), and the
    * barrier is not within `WAKE_NEAR` of one.
    */
-  private dormant(cars: readonly DeformableCar[], barrier: THREE.Object3D | null, dt: number): boolean {
+  private dormant(cars: readonly RagCar[], barrier: THREE.Object3D | null, dt: number): boolean {
     if (this.purses && !this.purses.asleep()) return false;
     if (!this.props.asleep()) return false;
     for (const d of this.dolls) {
@@ -385,7 +427,7 @@ export class RagdollSystem {
   }
 
   /** Is the barrier, or a car moving over `WAKE_SPEED`, within `WAKE_NEAR` of `p`? */
-  private stirred(p: THREE.Vector3, cars: readonly DeformableCar[], barrier: THREE.Object3D | null): boolean {
+  private stirred(p: THREE.Vector3, cars: readonly RagCar[], barrier: THREE.Object3D | null): boolean {
     if (barrier && barrier.position.distanceTo(p) < WAKE_NEAR + BARRIER_REACH) return true;
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
@@ -399,16 +441,17 @@ export class RagdollSystem {
    * of the car's box (`CAR_BOX`; its sphere of `reach` before its first fit), a purse thing within its reach, or a knocked prop it can
    * touch within a frame of `dt` (`touches`)? A proxy already in the world stays until `NEAR_HOLD` m further out. A car that gets in
    * from outside in one frame moved over 4 m, which `CarProxies.follow` teleports for anyway, so the proxy it gets is the one it had.
+   * `frames` > 1: whether it will within that many frames (the cars the main thread should send cages of, `FIT_AHEAD`).
    */
-  private near(i: number, car: DeformableCar, dt: number): boolean {
+  private near(i: number, car: RagCar, dt: number, frames = 1): boolean {
     const { boxes, reach: reaches, whole, on } = this.proxies;
     const p = car.group.position;
     // The props first, as before any dummy: a car that can touch a knocked prop this frame gets its whole proxy (`cull`).
-    const touched = this.props.touches(p, reaches[i]!, car.velocity.length(), dt);
-    whole[i] = touched ? 1 : 0;
+    const touched = this.props.touches(p, reaches[i]!, car.velocity.length(), dt * frames);
+    if (frames === 1) whole[i] = touched ? 1 : 0;
     if (touched) return true;
     const hold = on[i] ? NEAR_HOLD : 0;
-    const frame = Math.min(dt, MAX_ACC);
+    const frame = Math.min(dt, MAX_ACC) * frames;
     const speed = car.velocity.length();
     // The car's box as fitted (`CAR_BOX`: its centre height, forward offset and half extents, in the car's frame), else its reach sphere.
     const b = i * CAR_BOX;
@@ -531,8 +574,7 @@ export class RagdollSystem {
   latest(out: THREE.Vector3): number {
     const d = this.dolls[this.lastSlot];
     if (!d?.live) return -1;
-    const t = d.bodies[0]!.translation();
-    out.set(t.x, t.y, t.z);
+    out.set(d.cur[0]!, d.cur[1]!, d.cur[2]!);
     return d.still;
   }
 
@@ -549,6 +591,8 @@ export class RagdollSystem {
 
   dispose(): void {
     this.disposed = true;
+    this.remote?.dispose();
+    this.remote = null;
     this.debug.dispose();
     this.mesh.removeFromParent();
     this.purses?.dispose();
@@ -585,8 +629,25 @@ export class RagdollSystem {
     t.cop = e.cop;
     t.rides = rides;
     this.onExit(_c, _cq, car.velocity);
-    if (this.world) this.spawn(t);
+    this.pick();
+    if (this.mode === "remote") this.launchRemote(t, cars);
+    else if (this.world) this.spawn(t);
     else this.pending.push({ car: t.car, p: t.p.clone(), q: t.q.clone(), v: t.v.clone(), w: t.w.clone(), age: 0, cop: t.cop, rides: t.rides });
+  }
+
+  /**
+   * Throw `t`'s dummy in the world's worker: it goes now, in whichever slot the worker has free; what its look and purse are
+   * is decided here and applied (`dress`) when the worker answers with the slot. The ride-along and the sandbox's follow
+   * hook hear of the throw at once, as an inline one's.
+   */
+  private launchRemote(t: Throw, cars: readonly DeformableCar[]): void {
+    const own = t.cop ? null : this.lookOf(t.car);
+    const look = own ? pickedLook(driverLook(this.lookSeed, t.car), own.person) : driverLook(this.lookSeed, t.car);
+    const purse = look.woman && !t.cop;
+    const id = this.remote!.throwDummy(t, purse, this.lookSeed, cars);
+    this.dressing.set(id, { cop: t.cop, look, spray: own ? own.personSpray : null, purse, car: t.car, seed: this.lookSeed });
+    this.ride.exit(t.car, hypot2(t.v.x, t.v.z), t.p);
+    if (this.sandbox && t.car >= 0) this.onThrow(t.car);
   }
 
   /**
@@ -628,7 +689,7 @@ export class RagdollSystem {
   }
 
   /** Throw `t`'s dummy into slot `at` (-1: a free slot, else the oldest one's), to lie about `life` sim s; returns the slot. */
-  private spawn(t: Throw, at = -1, life = LIFE): number {
+  spawn(t: Throw, at = -1, life = LIFE): number {
     let slot = at >= 0 ? at : this.dolls.findIndex((d) => !d.live);
     if (slot < 0) slot = this.dolls.reduce((o, d, s) => (d.age > this.dolls[o]!.age ? s : o), 0);
     this.despawn(slot);
@@ -671,6 +732,9 @@ export class RagdollSystem {
     d.rides = t.rides;
     d.calm = 0;
     d.speed = hypot3(t.v.x, t.v.y, t.v.z);
+    d.vel[0] = t.v.x;
+    d.vel[1] = t.v.y;
+    d.vel[2] = t.v.z;
     this.proxies.release(slot);
     for (let k = 0; k < PARTS.length; k++) this.vel[(slot * PARTS.length + k) * 4 + 3] = 3;
     if (d.ground) {
@@ -703,7 +767,7 @@ export class RagdollSystem {
     const look = own ? pickedLook(driverLook(this.lookSeed, t.car), own.person) : driverLook(this.lookSeed, t.car);
     this.mesh.dress(slot, t.cop, look);
     this.mesh.spray(slot, own ? own.personSpray : null);
-    if (look.woman && !t.cop) this.purses?.launch(slot, t.car, t.p, t.v, this.lookSeed);
+    if (t.purse ?? (look.woman && !t.cop)) this.purses?.launch(slot, t.car, t.p, t.v, this.lookSeed);
     this.wake();
     this.live++;
     this.lastSlot = slot;
@@ -716,21 +780,27 @@ export class RagdollSystem {
   /**
    * The course a throw collides with, and its knockable props (`placed`; drawn by `props`, null headless), all back on their
    * spots. Its solids are built at the first throw on it, as recipes: Rapier colliders live only from a throw to its despawn.
+   * The world's worker builds the same course from the track's JSON.
    */
-  setCourse(track: Track, placed: readonly Placed[], props: PropTumble | null): void {
+  setCourse(track: Track, placed: readonly Placed[], props: PropDraw | null): void {
     this.course = { ground: track.ground(), track, placed };
     this.solids = null;
     this.props.set(placed, props);
+    this.tumble = props;
+    if (this.live === 0) this.mode = null;
+    this.remote?.setCourse(track.json);
   }
 
   /**
    * A scene's own solids (the Lab's wall, brackets and solid props) a dummy collides with while `ground` is the active one,
    * as a course's are, and its knockable props (`placed`, drawn by `props`), all back on their spots.
    */
-  setSolids(ground: Ground, solids: readonly Solid[], placed: readonly Placed[], props: PropTumble | null): void {
+  setSolids(ground: Ground, solids: readonly Solid[], placed: readonly Placed[], props: PropDraw | null): void {
     this.course = { ground, track: null, placed };
     this.solids = solids;
     this.props.set(placed, props);
+    this.tumble = props;
+    if (this.live === 0) this.mode = null;
   }
 
   /**
@@ -738,6 +808,11 @@ export class RagdollSystem {
    * tumbles and comes to rest in this world (cosmetic: nothing here reaches the sim); knocked before Rapier is in, once it is.
    */
   knockProp(i: number, car: number, vx: number, vy: number, vz: number): void {
+    this.pick();
+    if (this.mode === "remote") {
+      this.remote!.knock(i, car, vx, vy, vz);
+      return;
+    }
     this.wake();
     this.props.knock(i, car, vx, vy, vz);
   }
@@ -745,6 +820,125 @@ export class RagdollSystem {
   /** Knocked prop `i`'s middle after the last step into `p`, and its velocity into `v`; false while it is not out. */
   propAt(i: number, p: THREE.Vector3, v: THREE.Vector3): boolean {
     return this.props.centre(i, p, v);
+  }
+
+  /**
+   * Which world this run's dummies are in, decided at its first throw or knock and kept until `reset`: the worker's when it is up
+   * (and this thread's Rapier too, which owns the dummy pool the draw reads) and the course is a track's, which the worker builds
+   * from its JSON; else this thread's.
+   */
+  private pick(): void {
+    if (this.mode !== null) return;
+    const course = this.course;
+    const onTrack = course !== null && course.track !== null && activeGround() === course.ground;
+    this.mode = this.remote?.ready && this.world !== null && onTrack ? "remote" : "inline";
+  }
+
+  /** The sim must not run its next frame yet: the worker's answer it is to hear of first is not in (`RagdollRemote.behind`). */
+  get waiting(): boolean {
+    return this.mode === "remote" && this.remote!.behind(this.authority);
+  }
+
+  /** This system is the world's worker's: it draws nothing (`snapshot` gives the main thread what to draw), and `wanted` says which cars it wants cages of. */
+  host(): void {
+    this.hosted = true;
+  }
+
+  /** A dummy or a knocked prop is out. */
+  get busy(): boolean {
+    return this.live > 0 || this.props.count > 0;
+  }
+
+  /** How far (0-1) into the next step the last frame's draw is. */
+  get drawAlpha(): number {
+    return this.alpha;
+  }
+
+  /** Every dummy's and purse set's state after the last frame into `dolls` and `purses` (`DOLL_FLOATS` and `PURSE_BLOCK` floats a slot), for the main thread to draw. Returns the latest throw's slot. */
+  snapshot(dolls: Float32Array, purses: Float32Array): number {
+    for (let s = 0; s < SLOTS; s++) {
+      const d = this.dolls[s]!;
+      const o = s * DOLL_FLOATS;
+      dolls[o + DOLL_LIVE] = d.live ? 1 : 0;
+      if (!d.live) continue;
+      dolls[o + DOLL_RIDES] = d.rides ? 1 : 0;
+      dolls[o + DOLL_CAR] = d.car;
+      dolls[o + DOLL_STILL] = d.still;
+      dolls[o + DOLL_SETTLED] = d.settled ? 1 : 0;
+      dolls.set(d.vel, o + DOLL_VELOCITY);
+      dolls.set(d.prev, o + DOLL_HEADER);
+      dolls.set(d.cur, o + DOLL_HEADER + PARTS.length * 7);
+    }
+    this.purses?.exportPoses(purses);
+    return this.lastSlot;
+  }
+
+  /** A frame in the worker's world: post it, then draw what the worker has answered with since. */
+  private updateRemote(dt: number, cars: readonly DeformableCar[]): void {
+    const remote = this.remote!;
+    remote.post(dt, cars, this.authority, this.sandbox, this.lookSeed);
+    for (const result of remote.drain()) this.adopt(result);
+  }
+
+  /** The worker's answer on screen: its dummies' and purses' poses, its knocked props placed, the slot of each dummy it just threw dressed. */
+  private adopt(r: ResultMessage): void {
+    this.alpha = r.alpha;
+    this.lastSlot = r.lastSlot;
+    for (const { id, slot } of r.spawned) this.dress(id, slot);
+    let live = 0;
+    for (let s = 0; s < SLOTS; s++) {
+      const d = this.dolls[s]!;
+      const o = s * DOLL_FLOATS;
+      if (r.dolls[o + DOLL_LIVE] !== 1) {
+        if (d.live) {
+          d.live = false;
+          this.mesh.hide(s);
+          this.debug.hide(s);
+        }
+        continue;
+      }
+      live++;
+      d.live = true;
+      d.rides = r.dolls[o + DOLL_RIDES] === 1;
+      d.car = r.dolls[o + DOLL_CAR]!;
+      d.still = r.dolls[o + DOLL_STILL]!;
+      d.settled = r.dolls[o + DOLL_SETTLED] === 1;
+      d.vel.set(r.dolls.subarray(o + DOLL_VELOCITY, o + DOLL_VELOCITY + 3));
+      d.prev.set(r.dolls.subarray(o + DOLL_HEADER, o + DOLL_HEADER + PARTS.length * 7));
+      d.cur.set(r.dolls.subarray(o + DOLL_HEADER + PARTS.length * 7, o + DOLL_FLOATS));
+      for (let k = 0; k < PARTS.length; k++) {
+        this.blend(d, k, _p, _q);
+        this.mesh.pose(s, k, _p, _q);
+        if (this.debug.on) this.debug.pose(s, k, _p, _q);
+      }
+    }
+    this.live = live;
+    this.mesh.visible = live > 0;
+    this.purses?.importPoses(r.purses);
+    this.purses?.pose(this.alpha);
+    if (r.propsReset) this.tumble?.reset();
+    for (let k = 0; k < r.props.length; k += PROP_FLOATS) this.tumble?.place(r.props[k]!, _p.fromArray(r.props, k + 1), _q.fromArray(r.props, k + 4));
+    for (const ms of r.stepMs) this.stepMs[this.steps++ % STEP_LOG] = ms;
+    this.remoteSize.colliders = r.colliders;
+    this.remoteSize.bodies = r.bodies;
+  }
+
+  /** The dummy sent as throw `id` took slot `slot`: dress it as it was sent. */
+  private dress(id: number, slot: number): void {
+    const dressing = this.dressing.get(id);
+    if (dressing === undefined) return;
+    this.dressing.delete(id);
+    this.mesh.dress(slot, dressing.cop, dressing.look);
+    this.mesh.spray(slot, dressing.spray);
+    if (dressing.purse) this.purses?.paint(slot, dressing.car, dressing.seed);
+  }
+
+  /** The worker failed: this thread's world takes the next throw, and what the worker had out is gone. */
+  private fallBack(err: Error): void {
+    console.error("Crush Stream ragdoll worker failed", err);
+    this.remote?.dispose();
+    this.remote = null;
+    if (this.mode === "remote") this.reset();
   }
 
   /** Nothing was out: the stepping starts afresh (no leftover from an earlier throw shifts the first step) and the proxies jump to the cars. */
