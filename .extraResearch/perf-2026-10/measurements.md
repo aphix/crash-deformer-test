@@ -129,6 +129,11 @@ Node city32 (aggression 1): 801 ms/sim-s; 27 wrecks; readPoints 17 µs inclusive
 
 Owner's Firefox desktop bench of the jit-tidy and query-mask cuts (J27, 2026-10-14, same sim both arms, 9283bb58 without them → 7d8c2549 with them; sim ms per sim-s, cpu ms per frame; Firefox frame times sit on a 4.17 ms grid, so fps and p50 are not compared). City 32 (Ultra): 626 → 512 (−18 %), cpu 9.58 → 8.14 (−15 %). Dam-spine 22 (Ultra): 409 → 414, cpu 5.44 → 5.32 (flat). Bench 28 (High), from a first B run that had the A tab still open: 349 → 342 (flat); that run's dam-spine read 468, which the isolated rerun did not repeat. Single runs per arm. Owner: same or better, keep.
 
+Apple devices on live 2278f1c (a friend's cards, 2026-10-14; sim ms per sim-s, cpu ms per frame):
+- **Mac, Chrome, ANGLE Metal, 1710×1107 at pixel ratio 1.5:** bench (High) 227, cpu 4.6, GPU 11.4 ms; city (Ultra) 260, cpu 6.4, GPU 13.7 ms. Both hold 60 fps (frame p50 16.7). The sim is cheap here; at this resolution the GPU is the cost, and 11–14 ms would cap a 120 Hz screen.
+- **iPhone, Safari 18.7, 414×896 at 1.5:** city (Ultra) 393, cpu 9.7, 55 fps (p50 17.0, p95 25). Bench (High) 420, cpu 10.5, but held at 30 fps (p50 33.0, p95 34.0) with 6.2 s of sim lost: a 30 Hz frame cap (Low Power Mode or a thermal clamp), not CPU, since the same phone ran city at 60 Hz minutes later.
+- **Compared with the owner's Android phone (Firefox, Mali):** the same courses cost 1114–2788 sim ms per sim-s there, about 3× the iPhone's. The CPU-bound sim on Android Firefox stays the target.
+
 Phase 1 fleet settle (1.1; 32 cars, seed 4242, 12000 frames = 2.84 sim-s, RAG=0, worker): 0c8dd5c6 last hit at 1.67 s, a wreck still gliding at 3.81 m/s at 2.83 s; bbf470cc last hit at 1.62 s, every wreck under 0.5 m/s from 1.75 s (0.13 s after it), the fastest at 0.13 m/s at the end. Bar (< 0.5 m/s within 3 s of the last hit) holds.
 
 Against the morning build 7cf2c6f9 (601 ms/sim-s on city16) main is therefore ≈ 0.80 in node (provisional): 601 → ~395 ms/sim-s. Still 1.74× the pre-plan 227.
