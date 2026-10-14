@@ -119,6 +119,8 @@ a 4 Hz ring, 0.45° of body pitch at the most for an upshift (0.6 of that for a 
 
 **Chase view switches are graded** (`present/drive-cam.ts`, masterclass 23:34, "rather than switching your behavior on or off based on a binary condition, try to fade them in or out over some parameter"): the heading's lean into a slide and the aim's look-ahead along the velocity blend in by `followBlend`, a smoothstep of forward speed from `CHASE.followFrom` (2 m/s) to `followTo` (5 m/s), where one switch stood at 3 m/s (the sim never reads it). A landing's wobble eases in over `CHASE.landing.attack` (0.08 s) and fades out over the hold (`wobbleEnvelope`), so it starts at rest, not at full amplitude. The time scale of the slow-mo and the hit-stop eases too (`CINEMATIC.md`); the sim-side switches (the brake-tap drift pulse, drift entry, the boost cut) still switch: they change the sim and need a `REPLAY` bump.
 
+The landing wobble runs at 9 Hz (`CHASE.landing.wobbleHz`, knob 4-15, an older share link's higher value clamps): the talk's 30 Hz (31:23) is the Nyquist rate of a 60 fps display, so pitch and roll flipped sign every frame and aliased at 90 Hz, the strobe the impact shake lost at 100 Hz. `engine-camera.test.ts` samples the pitch every millisecond and fails above 12 zero crossings in the window.
+
 | Class | Ride (Hz) | Damping ζ | Travel (m) |
 |---|---|---|---|
 | Sedan | 1.3 | 0.30 | 0.13 |
