@@ -145,6 +145,35 @@ export function padLabel(id: string): string {
   return "Controller";
 }
 
+/** One dual-rumble effect: motor strengths 0–1 (`weak` the light high-frequency motor, `strong` the heavy low-frequency one) held for `ms`. */
+export type Rumble = { weak: number; strong: number; ms: number };
+
+/** The read surface of a DOM `GamepadHapticActuator`, so the send runs in node tests. */
+export type HapticSource = {
+  playEffect(type: "dual-rumble", params: { startDelay: number; duration: number; weakMagnitude: number; strongMagnitude: number }): Promise<unknown>;
+};
+
+/** The one parameter dictionary every effect fills (the browser reads it during the call and keeps nothing). */
+const EFFECT = { startDelay: 0, duration: 0, weakMagnitude: 0, strongMagnitude: 0 };
+const ignore = (): void => {};
+
+/**
+ * Send `r` to `actuator` (a new effect replaces the one playing). False, and nothing sent, with no actuator (no pad, or a browser without
+ * haptics); never throws: a pad unplugged mid-call rejects the promise, a browser that lacks `dual-rumble` throws.
+ */
+export function playRumble(actuator: HapticSource | null | undefined, r: Rumble): boolean {
+  if (!actuator || typeof actuator.playEffect !== "function") return false;
+  EFFECT.duration = r.ms;
+  EFFECT.weakMagnitude = r.weak;
+  EFFECT.strongMagnitude = r.strong;
+  try {
+    actuator.playEffect("dual-rumble", EFFECT).catch(ignore);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 type PadEvent = Event & { readonly gamepad: { readonly index: number } };
 
 /**
@@ -159,6 +188,8 @@ export class GamepadInput {
   /** HUD label of the active pad, null when none is connected. */
   label: string | null = null;
   private index = -1;
+  /** The active pad's haptics as of the last poll; null when no pad is connected or the browser has none. */
+  private actuator: HapticSource | null = null;
   private onChange: () => void = () => {};
 
   attach(onChange: () => void): void {
@@ -170,6 +201,11 @@ export class GamepadInput {
   detach(): void {
     window.removeEventListener("gamepadconnected", this.onConnect);
     window.removeEventListener("gamepaddisconnected", this.onDisconnect);
+  }
+
+  /** Play `r` on the active pad; false when there is no pad (or no haptics) to play it on. */
+  rumble(r: Rumble): boolean {
+    return playRumble(this.actuator, r);
   }
 
   poll(): PadState {
@@ -189,6 +225,8 @@ export class GamepadInput {
     const prev = this.state.held;
     readPad(pad, this.state);
     mergeTouch(this.touch, this.state, prev);
+    // A browser without haptics (Firefox) has no actuator; no pad, no actuator: `rumble` then sends nothing.
+    this.actuator = pad ? (pad.vibrationActuator ?? null) : null;
     const label = pad ? padLabel(pad.id) : null;
     if (label !== this.label) {
       this.label = label;

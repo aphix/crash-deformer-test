@@ -35,6 +35,7 @@ const BASE_SETTINGS = {
   ts: { section: "playback", label: "Time scale", defaults: { userTimeScale: D.userTimeScale } },
   car: { section: "driving", label: "Car", defaults: { playerCar: D.playerCar } },
   realism: { section: "driving", label: "Realism", defaults: { realism: D.realism } },
+  rumble: { section: "driving", label: "Rumble", defaults: { rumble: D.rumble } },
   cars: { section: "tuning", label: "Cars", defaults: { carCount: D.carCount }, shown: fleetLaunched },
   spawn: { section: "tuning", label: "Spawn speed", defaults: { speedMin: D.speedMin, speedMax: D.speedMax }, shown: fleetLaunched },
   stroke: { section: "tuning", label: "Crush stroke", defaults: { squash: D.squash } },

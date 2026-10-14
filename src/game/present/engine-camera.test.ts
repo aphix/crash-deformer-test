@@ -10,6 +10,7 @@ import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { FLAT_GROUND, Ground, setGround } from "../world/ground.ts";
 import { Spring, Spring3 } from "./spring.ts";
 import { CHASE, DriveCam } from "./drive-cam.ts";
+import { LANDING } from "./landing.ts";
 import { ChaseCamera, RIDE_PAUSE, type SpecScene } from "./engine-camera.ts";
 import { occluder, solid, type Sight } from "./spectate-cam.ts";
 
@@ -362,7 +363,7 @@ describe("given the chase camera on a car driven by its own drive", () => {
       pitch.push(cam.getWorldDirection(fwd).y);
       after = cam.position.y;
     }
-    return { dip: settled - low, off: Math.abs(after - settled), roll, pitch };
+    return { dip: settled - low, off: Math.abs(after - settled), roll, pitch, fall: rig.landFall };
   }
 
   it("when the car lands on four wheels after 0.4 s falling at 8 m/s, then the eye dips under its settled height and is back within 1 cm by 1.5 s", () => {
@@ -370,6 +371,17 @@ describe("given the chase camera on a car driven by its own drive", () => {
       const l = landing(h, false);
       assert.ok(l.dip >= 0.03, `at ${Math.round(1 / h)} Hz the eye dipped ${(l.dip * 100).toFixed(1)} cm`);
       assert.ok(l.off < 0.01, `at ${Math.round(1 / h)} Hz the eye was ${(l.off * 100).toFixed(1)} cm off its settled height after 1.5 s`);
+    }
+  });
+
+  it("when the car lands after a fall at 8 m/s, then the camera's landing carries the fall speed for the pad's rumble, and a fall under the landing floor carries none", () => {
+    assert.ok(Math.abs(landing(H, false).fall - 8) < 1e-9);
+    const was = LANDING.fall;
+    LANDING.fall = 9;
+    try {
+      assert.equal(landing(H, false).fall, 0);
+    } finally {
+      LANDING.fall = was;
     }
   });
 

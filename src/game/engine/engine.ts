@@ -491,6 +491,7 @@ export class CrashEngine extends EngineGarage {
     const focus = this.highlights.playing ? this.highlights.focus() : null;
     if (focus) this.race.followSun(focus);
     this.updateCamera(wallDt);
+    this.rumbleFrame(this.playing && !held ? wallDt : 0);
     this.flushVisibleSkins();
     this.detail.update(this.cars, this.camera, this.followedCar(), this.highlights.playing ? this.highlights.focus() : null);
     this.lampLights.update(this.live(), this.camera, this.followedCar(), performance.now() / 1000, this.highlights.playing ? this.highlights.cars() : undefined);

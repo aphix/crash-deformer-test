@@ -13,6 +13,8 @@ import {
   Spline,
   Timer,
   Undo2,
+  Vibrate,
+  VibrateOff,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -521,6 +523,10 @@ function DrivingSection({ state, engine }: HudProps) {
         <span>Arcade</span>
         <span>Realistic</span>
       </div>
+      <Toggle on={state.rumble} changed={isChanged(state, "rumble")} label="Toggle gamepad rumble" onClick={() => engine.current?.setRumble(!state.rumble)}>
+        {state.rumble ? <Vibrate /> : <VibrateOff />}
+        Pad rumble
+      </Toggle>
     </>
   );
 }

@@ -36,6 +36,7 @@ describe("given a share state with every kind of field set", () => {
       night: true,
       wet: true,
       real: 0.8,
+      rumble: false,
       fx: "low",
       fxd: 1.1,
       cel: 0.65,
@@ -160,6 +161,17 @@ describe("given the music and engine volumes in a share link (mvol, evol)", () =
 
   it("when both volumes are at their defaults, then neither is written, even when set explicitly", () => {
     assert.equal(encodeShare({ ...DEFAULTS, mvol: INITIAL_HUD.musicVolume, evol: INITIAL_HUD.engineVolume }), "");
+  });
+});
+
+describe("given the pad rumble setting in a share link (rumble)", () => {
+  it("when rumble is on, the default, then nothing is written; when it is off, then rumble=0 is, and it reads back off, while a junk value reads as on", () => {
+    assert.equal(INITIAL_HUD.rumble, true);
+    assert.equal(encodeShare({ ...DEFAULTS, rumble: true }), "");
+    const s: ShareState = { ...DEFAULTS, rumble: false };
+    assert.equal(encodeShare(s), "rumble=0");
+    assert.equal(decodeShare(`#${encodeShare(s)}`).rumble, false);
+    assert.equal(decodeShare("rumble=maybe").rumble, true);
   });
 });
 

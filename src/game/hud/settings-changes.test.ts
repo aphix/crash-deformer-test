@@ -33,6 +33,14 @@ describe("given the settings menu, where each setting is a group of HUD fields w
     assert.equal(afterStroke.fxTier, "high");
   });
 
+  it("when Rumble is switched off, then it reads as a changed Driving setting alone, and on by default", () => {
+    assert.equal(INITIAL_HUD.rumble, true);
+    const off: CrashHudState = { ...INITIAL_HUD, rumble: false };
+    assert.deepEqual(changedSettings(off), ["rumble"]);
+    assert.deepEqual(changedSettings(off, "driving"), ["rumble"]);
+    assert.deepEqual(changedSettings(reset(off, "rumble")), []);
+  });
+
   it("when the fields each setting resets are listed, then every setting resets on its own and no two settings share a field", () => {
     const owner = new Map<string, SettingId>();
     for (const id of SETTING_IDS) {
@@ -59,6 +67,7 @@ describe("given the settings menu, where each setting is a group of HUD fields w
       userTimeScale: 0.5,
       playerCar: "truck",
       realism: 0.9,
+      rumble: false,
       carCount: 9,
       speedMin: 3,
       speedMax: 40,

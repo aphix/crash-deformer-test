@@ -8,6 +8,7 @@ import { AI_EVERY_SLICE, type AiDifficulty } from "../ai/constants.ts";
 import { TRACK_ID } from "../world/constants.ts";
 import { CAR_STYLE_IDS, type CarStyleId } from "../vehicle/car-variants.ts";
 import { CLASSES, STYLE_CLASS, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
+import type { DriftView } from "../vehicle/car-drive.ts";
 
 /** Longest player name (characters) on the standings and on the wire. */
 export const NAME_MAX = 16;
@@ -351,6 +352,8 @@ export type RaceView = {
   boost: number | null;
   /** Burning boost right now. */
   boosting: boolean;
+  /** This browser's slide (seconds, clean, payouts): the boost meter's charge cue. `NO_DRIFT` for a car the seat does not drive. */
+  drift: DriftView;
   /** Wheels off the car, 0–4 (`4 - deform.wheelsOn`). */
   wheelsOff: number;
   /** The next corner is closer than this car can brake for at its speed (`brakeCueAt`): the speed readout tints. */

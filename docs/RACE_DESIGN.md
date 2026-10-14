@@ -289,6 +289,7 @@ on a 25 m radius bend at a 10 m gap. Clips store the draft bit per step, so the 
 
 A clean drift also tops up the player's meter (`BOOST.drift`, `DriverSeat.input`): 12 % per second of slide, counted up to 2.5 s,
 paid when the slide ends, and only if no contact fell within `driftClean` = 0.5 s of it. The AI's meters get no such reward.
+The payout is shown, not silent: `DriverSeat.drift` (`DriftView`: seconds slid, clean now, payouts so far) rides the HUD read model (`CrashHudState.drift`, `RaceView.drift`; `NO_DRIFT` for a car the seat does not drive). While a slide charges, the boost bar and the nitrous bottle draw the share it would pay (`driftPay`) on top of the meter, green while it would be paid and amber while a contact is fresh, with "Drift +N%" beside it; the payout lands as a green flash over the meter (`components/drift-charge.tsx`).
 
 ## Ground, surfaces, decks
 

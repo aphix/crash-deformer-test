@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { RaceView } from "../match/types.ts";
+import { NO_DRIFT } from "../vehicle/car-drive.ts";
 import { needsReset, resetGlow, resetInput, resetPromptLabel } from "./reset-prompt.ts";
 
 const view = (wheelsOff: number, canReset = true): RaceView => ({
@@ -14,6 +15,7 @@ const view = (wheelsOff: number, canReset = true): RaceView => ({
   chase: null,
   boost: null,
   boosting: false,
+  drift: NO_DRIFT,
   wheelsOff,
   canReset,
 });

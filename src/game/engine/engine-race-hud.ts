@@ -1,4 +1,5 @@
 import type { DeformableCar } from "../vehicle/car.ts";
+import { NO_DRIFT, type DriftView } from "../vehicle/car-drive.ts";
 import { carGauge } from "../match/car-view.ts";
 import { clamp } from "../kernel/scalar.ts";
 import { surfaceAt } from "../ai/race-ai.ts";
@@ -26,6 +27,11 @@ export abstract class RaceHudLayer extends RaceWatch {
     if (this.aiDrives(id) && this.brain) return this.brain.meter[id]!;
     if (id >= this.policeFrom && id < this.host.live().length) return POLICE_METER;
     return this.host.heardMeter(id);
+  }
+
+  /** Car `id`'s slide as the HUD shows it: this browser's seat keeps it (the same cars `meterOf` reads the seat's meter for), every other car has none. A copy: the seat goes on writing its own. */
+  private driftOf(id: number): DriftView {
+    return (this.free ? id === this.self : this.seatDrives(id)) ? { ...this.host.seat.drift } : NO_DRIFT;
   }
 
   /** The braking cue for car `id` on the main loop: its forward speed against what the planned braking allows for a corner ahead. No allocation. */
@@ -113,6 +119,7 @@ export abstract class RaceHudLayer extends RaceWatch {
         ...carGauge(car),
         brakeCue: this.brakeCue(id, car, s.track.path),
         boost: this.meterOf(id),
+        drift: this.driftOf(id),
         chase: c !== undefined && c.status === "racing" && (cops > 0 || c.stopped > 0) ? { cops: Math.max(1, cops), hold: Math.min(1, c.stopped / s.bustTime), left: Math.max(0, s.bustTime - c.stopped) } : null,
         // R / D-pad ↓ acts unless `requestRespawn` refuses it (a menu is up, spectating) or the rules do (no-reset race, not racing); holding it acts wherever `holdReset` does: a no-reset race too, not Survival.
         canReset: asking && !s.noReset,

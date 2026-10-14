@@ -402,6 +402,17 @@ function driveMasses(masses: readonly DriveMass[], turn: Float64Array): boolean 
 /** `drift`: a clean slide pays this share of the meter per second of drift, up to `driftCap` s, when no contact fell inside `driftClean` s of it. */
 export const BOOST = { full: 1.6, recharge: 4.5, takedown: 0.4, drift: 0.12, driftCap: 2.5, driftClean: 0.5 };
 
+/** The meter share (0–1) a slide of `s` seconds pays when it ends clean: what the seat pays out and what the HUD shows charging. */
+export function driftPay(s: number): number {
+  return BOOST.drift * Math.min(s, BOOST.driftCap);
+}
+
+/** What the HUD shows of the driven car's drift: seconds slid so far (0 when not sliding), whether it would pay if it ended now (no contact inside `BOOST.driftClean` s), and payouts so far (a rise is the flash). */
+export type DriftView = { s: number; clean: boolean; paid: number };
+
+/** The view of a car nobody on this browser drives: no drift to show. */
+export const NO_DRIFT: DriftView = { s: 0, clean: true, paid: 0 };
+
 /** One slice of a boost meter (0–1): it drains over `BOOST.full` s while boosting, refills over `BOOST.recharge` s otherwise. The seat, the race AI and the derby AI all keep their meters by it. */
 export function chargeBoost(level: number, boosting: boolean, dt: number): number {
   return boosting ? Math.max(0, level - dt / BOOST.full) : Math.min(1, level + dt / BOOST.recharge);
@@ -460,8 +471,8 @@ export class DriverSeat {
   view: SeatView = "third";
   carIndex = -1;
   boost = 1;
-  /** Seconds the driven car has been sliding (paid out as boost when a clean slide ends). */
-  private driftS = 0;
+  /** The driven car's slide as the HUD reads it (`DriftView`): its seconds are paid out as boost when a clean slide ends. Copy it to publish; the seat keeps writing it. */
+  readonly drift: DriftView = { s: 0, clean: true, paid: 0 };
   /** This frame's merged keyboard + pad intent. */
   readonly intent = blankIntent();
   private readonly feel: DriveFeel = { wheel: 0, gas: 0, brake: 0, brakeHeld: 0, pulse: 0 };
@@ -540,10 +551,15 @@ export class DriverSeat {
 
   /** Shaped input for one physics slice of the driven car (pooled: read it before the next call). */
   input(car: Pick<DeformableCar, "velocity" | "fwdFlat" | "drive" | "deform">, dt: number): DriveInput {
-    if (car.drive.drift > 0.05) this.driftS += dt;
-    else if (this.driftS > 0) {
-      if (car.deform.quietTime() > BOOST.driftClean) this.boost = topUpBoost(this.boost, BOOST.drift * Math.min(this.driftS, BOOST.driftCap));
-      this.driftS = 0;
+    const d = this.drift;
+    d.clean = car.deform.quietTime() > BOOST.driftClean;
+    if (car.drive.drift > 0.05) d.s += dt;
+    else if (d.s > 0) {
+      if (d.clean) {
+        this.boost = topUpBoost(this.boost, driftPay(d.s));
+        d.paid++;
+      }
+      d.s = 0;
     }
     const along = car.velocity.x * car.fwdFlat.x + car.velocity.z * car.fwdFlat.z;
     shapeDrive(this.intent, this.feel, along, dt, this.out);

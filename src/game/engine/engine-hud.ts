@@ -4,7 +4,7 @@ import { LAB_PRESET } from "../scenes/constants.ts";
 import type { HudStore, LabHud } from "../hud/hud-store.ts";
 import { carGauge } from "../match/car-view.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
-import { mayRecoverFlipped } from "../vehicle/car-drive.ts";
+import { mayRecoverFlipped, NO_DRIFT } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { EngineWarm } from "./engine-warm.ts";
 import type { RaceHud } from "../match/types.ts";
@@ -46,12 +46,15 @@ export abstract class EngineHud extends EngineWarm {
     const id = this.race.active || this.seat.mode === "global" ? -1 : this.seat.carIndex;
     const viewed = id >= 0 ? cars[id] : undefined;
     const drives = this.seat.mode === "drive";
+    // The slide the seat keeps, copied (the seat goes on writing it); only a car this browser drives has one.
+    const seatDrift = drives ? { ...this.seat.drift } : NO_DRIFT;
     const drivenView = viewed && {
       id,
       racer: null,
       ...carGauge(viewed),
       brakeCue: false,
       boost: this.meterOf(id),
+      drift: seatDrift,
       chase: null,
       canReset: drives && this.mayRecover(viewed),
     };
@@ -157,10 +160,12 @@ export abstract class EngineHud extends EngineWarm {
       race: this.race.active ? { ...this.race.hud(), ...this.reelHud() } : null,
       seat: this.seat.mode,
       boost: this.seat.boost,
+      drift: seatDrift,
       view: this.seat.view,
       cam: this.seat.mode === "follow" ? this.view.specView(this.race.chase) : null,
       pad: this.pad.label,
       realism: HANDLING.realism,
+      rumble: this.rumble,
       playerCar: this.playerCar.id,
       mouseLook: this.view.locked,
       ...chaseValues(),

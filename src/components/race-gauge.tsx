@@ -1,6 +1,7 @@
 import { memo, type ReactNode } from "react";
 import { Wrench } from "lucide-react";
 import { useEngine } from "@/components/engine-context";
+import { DriftLabel, DriftOverlay } from "@/components/drift-charge";
 import { nitroGlowClass } from "@/components/nitro-glow";
 import { RESET_GLOW } from "@/components/reset-prompt";
 import { usePadHold } from "@/components/use-pad-hold";
@@ -8,6 +9,7 @@ import { useSpeedUnit } from "@/components/use-speed-unit";
 import { needsReset } from "@/game/hud/reset-prompt";
 import { formatSpeed } from "@/game/hud/speed-units";
 import { PAD_BUTTON } from "@/game/vehicle/gamepad";
+import type { DriftView } from "@/game/vehicle/car-drive";
 import { KPH_PER_MS } from "@/game/kernel/constants";
 import type { RaceView } from "@/game/match/types";
 import { cn } from "@/lib/utils";
@@ -67,7 +69,7 @@ const DialFace = memo(function DialFace() {
  * The nitrous bottle: its fill is the boost meter; it glows while there is a burst in it, and brighter while burning. A car with no nitrous
  * (police, traffic, a car nobody drives: `boost` null) shows it empty and greyed, so the cluster always carries the bottle.
  */
-function Nitro({ boost, boosting, drafting }: { boost: number | null; boosting: boolean; drafting: boolean }) {
+function Nitro({ boost, boosting, drafting, drift }: { boost: number | null; boosting: boolean; drafting: boolean; drift: DriftView }) {
   if (boost === null) {
     return (
       <div className="relative flex flex-col items-center opacity-30" role="img" aria-label="No boost">
@@ -79,7 +81,11 @@ function Nitro({ boost, boosting, drafting }: { boost: number | null; boosting: 
   }
   return (
     <div className="relative flex flex-col items-center" role="meter" aria-label="Boost" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(boost * 100)}>
-      {drafting ? <span className="hud-ink absolute bottom-full mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Draft</span> : null}
+      {drift.s > 0 ? (
+        <DriftLabel drift={drift} className="absolute bottom-full mb-1 whitespace-nowrap" />
+      ) : drafting ? (
+        <span className="hud-ink absolute bottom-full mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Draft</span>
+      ) : null}
       <div className="h-[0.5em] w-[0.9em] rounded-t-sm bg-fg/55" />
       <div className="h-[0.5em] w-[0.5em] bg-fg/30" />
       <div
@@ -92,6 +98,7 @@ function Nitro({ boost, boosting, drafting }: { boost: number | null; boosting: 
           className={cn("absolute inset-0 origin-bottom transition-transform duration-150 ease-linear will-change-transform", boosting ? "bg-fg" : "bg-scene-race")}
           style={{ transform: `scaleY(${boost})` }}
         />
+        <DriftOverlay drift={drift} boost={boost} vertical />
       </div>
     </div>
   );
@@ -159,10 +166,10 @@ export function DriveCluster({ view, boostable }: { view: RaceView; boostable: b
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-[length:var(--g-em)] phone-landscape:bottom-auto phone-landscape:left-[66%] phone-landscape:top-[76%] phone-landscape:translate-x-0">
         {boostable && view.boost !== null ? (
           <BoostHold>
-            <Nitro boost={view.boost} boosting={view.boosting} drafting={view.racer?.drafting ?? false} />
+            <Nitro boost={view.boost} boosting={view.boosting} drafting={view.racer?.drafting ?? false} drift={view.drift} />
           </BoostHold>
         ) : (
-          <Nitro boost={view.boost} boosting={view.boosting} drafting={view.racer?.drafting ?? false} />
+          <Nitro boost={view.boost} boosting={view.boosting} drafting={view.racer?.drafting ?? false} drift={view.drift} />
         )}
       </div>
     </div>

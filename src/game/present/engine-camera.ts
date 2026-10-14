@@ -52,6 +52,12 @@ export function centroid(out: THREE.Vector3, cars: readonly DeformableCar[]): TH
 
 /** A hit's closing speed (m/s) to shake: none under `from` (a nudge), full at `full` (a head-on at speed). */
 const JOLT = { from: 2, full: 20 };
+
+/** The share (0–1) of a full hit that a closing speed is: the camera's shake and the pad's rumble scale by it alike. */
+export function joltLevel(speed: number): number {
+  return THREE.MathUtils.clamp((speed - JOLT.from) / (JOLT.full - JOLT.from), 0, 1);
+}
+
 /** The shake's three axes (across, up, roll) in rad/s: 9.1, 7.3 and 5.7 Hz, out of step so the motion never repeats on a beat. */
 const SHAKE_RAD_S = [2 * Math.PI * 9.1, 2 * Math.PI * 7.3, 2 * Math.PI * 5.7] as const;
 /** Trauma lost per wall second: a full jolt is gone in a third of a second (drawn as trauma squared, it reads as a short burst). */
@@ -263,8 +269,7 @@ export class ChaseCamera {
    */
   jolt(speed: number): void {
     if (this.reduceMotion) return;
-    const t = THREE.MathUtils.clamp((speed - JOLT.from) / (JOLT.full - JOLT.from), 0, 1);
-    this.trauma = Math.max(this.trauma, Math.min(1, CHASE.shake * t));
+    this.trauma = Math.max(this.trauma, Math.min(1, CHASE.shake * joltLevel(speed)));
   }
 
   /** Ease toward the orbit around `look`; `spinRate` rad/s auto-rotates unless dragging or reduced motion. */

@@ -11,6 +11,7 @@ import { OnlineEntry } from "@/components/online-entry";
 import { Gauge, RaceReadouts } from "@/components/race-readouts";
 import { RaceStatus } from "@/components/race-status";
 import { SoloExit } from "@/components/race-reel";
+import { DriftLabel, DriftOverlay } from "@/components/drift-charge";
 import { RESET_GLOW, ResetPrompt } from "@/components/reset-prompt";
 import { StartLights } from "@/components/start-lights";
 import { FullscreenButton, MouseLookButton, TouchControls } from "@/components/touch-controls";
@@ -359,8 +360,12 @@ function DriveHint({ state, touch, engine }: { state: CrashHudState; touch: bool
         </p>
       )}
       {state.seat === "drive" && !state.race && !state.derbyView ? (
-        <div className="mt-1 h-1 w-40 overflow-hidden rounded-full bg-surface-2/80" aria-label="Boost">
-          <div className="h-full bg-accent" style={{ width: `${Math.round(state.boost * 100)}%` }} />
+        <div className="mt-1 flex items-center gap-2">
+          <div className="relative h-1.5 w-40 overflow-hidden rounded-full bg-surface-2/80" aria-label="Boost">
+            <div className="h-full bg-accent" style={{ width: `${Math.round(state.boost * 100)}%` }} />
+            <DriftOverlay drift={state.drift} boost={state.boost} vertical={false} />
+          </div>
+          <DriftLabel drift={state.drift} />
         </div>
       ) : null}
     </div>

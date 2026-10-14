@@ -174,6 +174,8 @@ export class DriveCam {
   /** The landing detector (`LANDING`) and the seconds left of a landing's wobble (`CHASE.landing`). */
   private readonly land = new LandingWatch();
   private landS = 0;
+  /** The fall speed (m/s) of the landing the last `update` saw, 0 once the engine has taken it (the pad's rumble reads the same landing as the camera). */
+  landFall = 0;
   private readonly rideY = new Spring();
   private readonly rideTilt = new Spring();
   private idle = 10;
@@ -232,7 +234,11 @@ export class DriveCam {
       this.land.reset();
       this.landS = 0;
     }
-    if (this.land.step(car, dt) > 0) this.landS = CHASE.landing.hold;
+    const fall = this.land.step(car, dt);
+    if (fall > 0) {
+      this.landS = CHASE.landing.hold;
+      this.landFall = fall;
+    }
     if (cut) this.heading.snap(yawT);
     else this.heading.step(this.heading.x + wrapPiClosed(yawT - this.heading.x), view === "first" ? CHASE.eyeOmega : CHASE.headOmega, dt);
 

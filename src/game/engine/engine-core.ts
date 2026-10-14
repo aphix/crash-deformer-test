@@ -41,7 +41,8 @@ import { TraceRecorder, type TraceClock, type TraceSetup } from "./engine-trace.
 import { DerbyMatch } from "../match/derby.ts";
 import { LampBatch, LampLights } from "../vehicle/lamp-lights.ts";
 import { DriverSeat } from "../vehicle/car-drive.ts";
-import { GamepadInput } from "../vehicle/gamepad.ts";
+import { GamepadInput, type Rumble } from "../vehicle/gamepad.ts";
+import { impactRumble, landingRumble, SLIDE_EVERY, slideRumble } from "../present/rumble.ts";
 import { DERBY_RADIUS, WinnerSpot } from "../scenes/derby-arena.ts";
 import { DerbyGround } from "../scenes/derby-ground.ts";
 import { groundMesh, LINE_LIFT } from "../scenes/ground-stack.ts";
@@ -556,11 +557,38 @@ export abstract class EngineCore {
     if (this.seat.mode !== "global" && i === this.seat.carIndex && closing > this.hitClosing) this.hitClosing = closing;
   }
 
-  /** Once a frame, before the shake decays: the watched car's hardest hit shakes its view (`ChaseCamera.jolt`). */
+  /** Once a frame, before the shake decays: the watched car's hardest hit shakes its view (`ChaseCamera.jolt`), and the driver's pad rumbles by the same closing speed. */
   protected shakeOnHits(): void {
     if (this.hitClosing <= 0) return;
     this.view.jolt(this.hitClosing);
+    if (this.rumble && this.seat.mode === "drive" && impactRumble(this.hitClosing, this.rumbleFx)) this.playRumble();
     this.hitClosing = 0;
+  }
+
+  /** Gamepad rumble on hits, hard landings and slides (the HUD's Rumble setting). */
+  protected rumble = INITIAL_HUD.rumble;
+  private readonly rumbleFx: Rumble = { weak: 0, strong: 0, ms: 0 };
+  /** Seconds until the slide's buzz may play again: it waits out a hit's or a landing's longer effect, which a new effect would cut short. */
+  private slideClock = 0;
+
+  /** Send `rumbleFx` to the pad; nothing plays without one. */
+  private playRumble(): void {
+    if (this.pad.rumble(this.rumbleFx)) this.slideClock = this.rumbleFx.ms / 1000;
+  }
+
+  /** Once a frame, after the camera: a landing the drive camera saw (taken even when it does not rumble, so a stale one never plays later) and, driving, a slide's light buzz. */
+  protected rumbleFrame(wallDt: number): void {
+    const cam = this.view.drive;
+    const fall = cam.landFall;
+    cam.landFall = 0;
+    const car = this.followedCar();
+    if (!this.rumble || this.seat.mode !== "drive" || !car) return;
+    if (fall > 0) {
+      landingRumble(fall, this.rumbleFx);
+      this.playRumble();
+    }
+    this.slideClock -= wallDt;
+    if (this.slideClock <= 0 && slideRumble(car.drive.slide, this.rumbleFx) && this.pad.rumble(this.rumbleFx)) this.slideClock = SLIDE_EVERY;
   }
 
   /** Where the first hit coming lands, as of the last `contactEta`. */

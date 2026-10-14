@@ -4,6 +4,7 @@ import type { StackConfig } from "../scenes/stack-rig.ts";
 import type { LabPresetId } from "../scenes/lab.ts";
 import { crushStroke } from "../kernel/physics-core.js";
 import { DEFAULT_REALISM } from "../vehicle/vehicle-classes.ts";
+import { NO_DRIFT, type DriftView } from "../vehicle/car-drive.ts";
 import { DRIVER_CARS, type RaceHud, type RaceView } from "../match/types.ts";
 import type { CrashPhase } from "../match/phase.ts";
 import { CHASE_DEFAULTS, type ChaseKnobId } from "../present/drive-cam.ts";
@@ -158,6 +159,8 @@ export type CrashHudState = {
   race: RaceHud | null;
   seat: "global" | "follow" | "drive";
   boost: number;
+  /** The seat's slide while driving, `NO_DRIFT` otherwise: the free-drive boost bar's charge cue (a race and a derby read `RaceView.drift`). */
+  drift: DriftView;
   view: "third" | "far" | "first";
   /** The followed (not driven) car's camera (View cycles it); null unless following a car off the rigs. */
   cam: SpecView | null;
@@ -165,6 +168,8 @@ export type CrashHudState = {
   pad: string | null;
   /** Arcade (0) ↔ realistic (1) handling and damage. */
   realism: number;
+  /** Gamepad rumble on hits, hard landings and slides (a setting; on by default). */
+  rumble: boolean;
   /** The player's car type (slot 0; every car in the Stack): a `DRIVER_CARS` id. */
   playerCar: string;
   /** Mouse look (pointer lock) is on. */
@@ -273,10 +278,12 @@ export const INITIAL_HUD: CrashHudState = {
   race: null,
   seat: "global",
   boost: 1,
+  drift: NO_DRIFT,
   view: "third",
   cam: null,
   pad: null,
   realism: DEFAULT_REALISM,
+  rumble: true,
   playerCar: DRIVER_CARS[0]!.id,
   mouseLook: false,
   ...CHASE_DEFAULTS,

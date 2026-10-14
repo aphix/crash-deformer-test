@@ -38,6 +38,8 @@ A tap shorter than one frame still registers (the press is latched until the nex
 | Recover: back on its wheels where it stands, at rest and repaired (derby: only when flipped and still running) | R | D-pad ↓ | Recover |
 | Step out: drive → follow → whole field | Esc | Back / View / Create | Exit, then Free |
 
+**Pad rumble** (HUD → Driving → Pad rumble, on by default, share key `rumble=0` when off): a connected pad with haptics (`vibrationActuator`, Chromium; Firefox has none, and nothing is sent without a pad) rumbles while you drive. A hit on your car scales by the closing speed the camera's jolt uses (`joltLevel`: nothing under 2 m/s, full at 20 m/s; a tick from the light motor to a 0.4 s thud from both), a landing the drive camera calls hard (`CHASE.landing.fall`) thuds by the fall speed, and a slide buzzes lightly, re-sent every 0.1 s and held back while a hit's or a landing's longer effect plays (`present/rumble.ts`, `GamepadInput.rumble`).
+
 ## Following and the camera
 
 | Action | Keyboard | Controller | Touch |
@@ -75,7 +77,7 @@ Top left: the standings with gaps. Top right: lap, position, the race time besid
 
 - **Rev dial**: speed in the centre (mph with a US locale, else km/h), the gear under it. The revs are faked from the speed inside the gear's bucket: low at the bucket's foot, the redline at its top, falling back at every upshift.
 - **Damage arc** (left of the dial): the weaker of the engine block's health and the wheels still on, amber under 60 %, red under 25 %. Under it the **wrench**: lit while a reset would be accepted (R, D-pad ↓), dim in a no-reset race and while spectating, and glowing like the other reset controls once two wheels are gone.
-- **Nitrous bottle**: the boost meter (blue fill, glowing while there is a burst in it, white while burning; "Draft" above it while drafting). Hidden where this browser does not hold the meter.
+- **Nitrous bottle**: the boost meter (blue fill, glowing while there is a burst in it, white while burning; "Draft" above it while drafting). While the car slides, a green (amber after a contact) segment grows on top of the fill, the share the slide would pay if it ended clean, with "Drift +N%" above the bottle; the payout flashes the bottle green. Hidden where this browser does not hold the meter.
 - **Pursuit strip** (bottom centre): "Chased by N cops" while police chase the viewed car (a police race or Survival), with the bust hold and the seconds left while a cop holds the car slow. Hidden otherwise.
 - **Near-goal banner** (top centre): "N yd remaining" (mph) or "N m remaining" (km/h) for the last 500 of the last lap.
 

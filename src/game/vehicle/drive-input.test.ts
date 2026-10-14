@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { applyDrive, DriverSeat, idleDrive, type SeatView } from "./car-drive.ts";
+import { applyDrive, BOOST, DriverSeat, driftPay, idleDrive, type SeatView } from "./car-drive.ts";
 import { blankIntent, FEEL, gameKey, readIntent, shapeDrive } from "./drive-input.ts";
 import { CHASE, DriveCam } from "../present/drive-cam.ts";
 import { DeformableCar } from "./car.ts";
@@ -449,5 +449,46 @@ describe("given a driver who slides the car with the handbrake", () => {
   it("when a contact falls inside the slide's last 0.5 s, then it earns nothing", () => {
     const hit = slide(["Space", "KeyA"], true);
     assert.ok(hit <= 0.3 + 1e-9, `boost ${hit.toFixed(3)}`);
+  });
+
+  it("when the car slides, then the seat's drift view counts the seconds up from 0, stays clean, and pays out once when the slide ends: `driftPay` of the seconds it reached", () => {
+    const r = rigAt("third", 30);
+    r.seat.boost = 0.3;
+    assert.deepEqual({ ...r.seat.drift }, { s: 0, clean: true, paid: 0 }, "before any slide");
+    hold(r, ["Space", "KeyA"], 0.3);
+    hold(r, ["KeyW", "KeyA"], 0.5);
+    const early = r.seat.drift.s;
+    hold(r, ["KeyW", "KeyA"], 0.5);
+    const late = { ...r.seat.drift };
+    assert.ok(early > 0.2 && late.s > early + 0.4, `${early.toFixed(2)} s then ${late.s.toFixed(2)} s`);
+    assert.deepEqual([late.clean, late.paid], [true, 0], "clean, nothing paid yet");
+    hold(r, ["KeyW"], 1.5);
+    assert.equal(r.seat.drift.s, 0, "the slide ended");
+    assert.equal(r.seat.drift.paid, 1, "one payout");
+    assert.ok(r.seat.boost >= Math.min(1, 0.3 + driftPay(late.s)) - 1e-9, `boost ${r.seat.boost.toFixed(3)} after ${late.s.toFixed(2)} s`);
+    assert.ok(r.seat.boost <= 0.3 + BOOST.drift * BOOST.driftCap + 1e-9, `boost ${r.seat.boost.toFixed(3)} past the cap`);
+  });
+
+  it("when a contact falls inside the slide, then the view reads dirty while it is fresh, and the slide ends with no payout", () => {
+    const r = rigAt("third", 30);
+    r.seat.boost = 0.3;
+    hold(r, ["Space", "KeyA"], 0.3);
+    hold(r, ["KeyW", "KeyA"], 1.0);
+    assert.equal(r.seat.drift.clean, true, "clean before the contact");
+    r.car.group.updateMatrixWorld(true);
+    const at = r.car.group.position.clone().addScaledVector(r.car.forward, 2.05);
+    at.y = 0.4;
+    r.car.applyImpact(at, r.car.forward.clone().negate(), 3, 3);
+    hold(r, ["KeyW", "KeyA"], H);
+    assert.equal(r.seat.drift.clean, false, "a fresh contact");
+    hold(r, ["KeyW"], 1.5);
+    assert.equal(r.seat.drift.paid, 0, "no payout");
+    assert.ok(r.seat.boost <= 0.3 + 1e-9, `boost ${r.seat.boost.toFixed(3)}`);
+  });
+
+  it("when slides of 1 s, 10 s and 0 s are paid, then the share is 0.12 per second up to 2.5 s", () => {
+    assert.ok(Math.abs(driftPay(1) - 0.12) < 1e-12);
+    assert.ok(Math.abs(driftPay(10) - 0.3) < 1e-12);
+    assert.equal(driftPay(0), 0);
   });
 });

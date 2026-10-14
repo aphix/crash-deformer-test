@@ -37,3 +37,30 @@ describe("given an oval race with police on, whose player car the race AI drives
     }
   });
 });
+
+describe("given an oval race whose player car the seat drives", () => {
+  it("when the seat has been sliding, then the player's view carries the slide (seconds, clean, payouts) as a copy, and every other car's view carries none", () => {
+    const w = makeWorld();
+    w.race.enter();
+    try {
+      w.race.command({ type: "options", options: { trackId: TRACK_ID.oval, laps: 3, aiCount: 4, police: false } });
+      w.race.reseed(1);
+      w.race.command({ type: "start" });
+      const state = { acc: 0 };
+      for (let n = 0; n < 60; n++) frame(w, state);
+      w.seat.mode = "drive";
+      w.seat.carIndex = 0;
+      Object.assign(w.seat.drift, { s: 1.4, clean: false, paid: 3 });
+      const mine = w.race.hud().view!;
+      assert.deepEqual(mine.drift, { s: 1.4, clean: false, paid: 3 });
+      w.seat.drift.s = 2;
+      assert.equal(mine.drift.s, 1.4, "a copy: the seat goes on writing its own");
+      w.seat.mode = "follow";
+      w.seat.carIndex = 1;
+      assert.deepEqual(w.race.hud().view!.drift, { s: 0, clean: true, paid: 0 }, "a rival's view");
+    } finally {
+      w.race.exit();
+      setGround(null);
+    }
+  });
+});

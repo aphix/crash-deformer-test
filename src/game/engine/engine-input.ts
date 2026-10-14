@@ -271,6 +271,12 @@ export abstract class EngineInput extends EngineRigs {
     this.emitHud();
   }
 
+  /** Gamepad rumble on or off (a hit, a hard landing, a slide); an effect already playing runs out (0.4 s at most). */
+  setRumble(on: boolean): void {
+    this.rumble = on;
+    this.emitHud();
+  }
+
   /** The camera slider `id` (`CHASE_KNOBS`) to `value`, clamped to its range; the camera reads it live, the HUD and the share URL follow. */
   setChaseKnob(id: ChaseKnobId, value: number): void {
     const knob = CHASE_KNOBS.find((k) => k.id === id);
@@ -398,6 +404,9 @@ export abstract class EngineInput extends EngineRigs {
         break;
       case SETTING_KEY.realism:
         this.setRealism(D.realism);
+        break;
+      case "rumble":
+        this.setRumble(D.rumble);
         break;
       case "cars":
         this.setCarCount(D.carCount);
