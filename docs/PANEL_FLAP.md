@@ -35,6 +35,10 @@ part lifts off its body and settles, it never folds into it). No random draw: sp
 - quarter panel / arch flare: the whole shell mesh turns about its hinge line (`flutterShell`, a transform: **no vertex rebuild,
   no upload**); a quarter about the vertical line at its tail, an arch flare about the line along z at its top;
 - hanging bumper: its roll about the corner it hangs by grows by the flutter.
+  The bumper's box stays 4 cm (`BUMPER_CLEAR`) above the ground under it: a bumper hangs rolled about its corner up to
+  `BUMPER_ROLL` = 0.6 rad, cut (by halving, `hangBumper`) to the roll at which its free end rests on the road (a sedan's bumper rides
+  ~0.16 m up: a few degrees, where 34° put the end 0.4-0.6 m under the road in the flagged clips E5YE-TN78, PPP0-2DJK and YYR3-TWJ4),
+  or lifted when the crush has already brought it to the road. A torn bumper leaves in that pose (REPLAY_VERSION 77).
 
 `windWear(speed, hingeT)`: above 80 km/h (`FLAP_TEAR_MPS`) a hinged part wears (`fatigue` 0..1, off at 1) at
 (v/22.2)² / 6 s, scaled by min(1, hingeT/0.25); a stretched part at (v/22.2)² / 1.5 s. Below 80 km/h it recovers. The clock and

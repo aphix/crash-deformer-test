@@ -57,6 +57,7 @@ const _lampQ = new THREE.Quaternion();
 const _doorW = new THREE.Vector3();
 const _c = new THREE.Vector3();
 const _com = new THREE.Vector3();
+const _bumpW = new THREE.Vector3();
 /**
  * Glass against its frame's strain (`cageStrain`, m): the windshield and rear glass read their own cage, side glass its
  * door's. Peaks measured over the standard crashes: an unloaded pane reads ≤ 0.055 (the far door of a 30–50 km/h side hit),
@@ -93,6 +94,10 @@ const TYRE_WIDTH = 0.24;
 /** A bumper hung by one corner rolls about it this much at full hinge and full asymmetry (rad), and sags this far (m). */
 const BUMPER_ROLL = 0.6;
 const BUMPER_SAG = 0.06;
+/** A hanging bumper's lowest point stays this far (m) above the road under it, as a door's does. */
+const BUMPER_CLEAR = 0.04;
+/** Halvings that find the roll a hanging bumper rests on the road at (0.6 rad / 2⁸ = 2 mrad, 3 mm of the free end). */
+const BUMPER_REST_ITER = 8;
 /** A hinged part below this hinge value is not worn by the wind (a shell hardly standing). */
 const WEAR_MIN_T = 0.04;
 /** A contact is fresh when the last was over `TOUCH_GAP` s ago and the next lands within `TOUCH_NOW` s. */
@@ -224,10 +229,7 @@ export abstract class CarParts extends CarGlass {
         const right = this.deform.sensorCompression(p.attachR);
         const asym = THREE.MathUtils.clamp((left - right) / Math.max(left, right, 0.05), -1, 1);
         const roll = t * BUMPER_ROLL * asym + (asym < 0 ? -1 : 1) * this.flapAngle(p);
-        const px = (asym < 0 ? -0.6 : 0.6) * p.object.scale.x;
-        p.object.rotation.z = roll;
-        p.object.position.x += px * (1 - detCos(roll));
-        p.object.position.y -= px * detSin(roll) + t * BUMPER_SAG;
+        this.hangBumper(p, roll, (asym < 0 ? -0.6 : 0.6) * p.object.scale.x);
       } else {
         const side = p.name === "mirrorL" ? -1 : 1;
         p.object.rotation.z += side * t * 1.4;
@@ -256,6 +258,44 @@ export abstract class CarParts extends CarGlass {
         if (a > 0) flutterShell(p.region, p.object, a);
       } else if (p.open) this.closePanel(p);
     }
+  }
+
+  /**
+   * `p` hung by its corner at `px` (car-frame m from its middle) and rolled `roll` about it, the struck end dropping and the whole bumper
+   * sagging with its hinge value. The road is under the free end: its box stays `BUMPER_CLEAR` above the ground there, so the roll is the
+   * largest one up to `roll` that lets it rest on the road (a bumper 0.16 m off the road hangs a few degrees, not 34), and a bumper crushed
+   * down to the road is lifted by what it still lacks. A torn bumper leaves in this pose (`detachPart`), so it no longer starts under the road.
+   */
+  private hangBumper(p: DetachPart, roll: number, px: number): void {
+    const o = p.object;
+    const x0 = o.position.x;
+    const y0 = o.position.y - p.hingeT * BUMPER_SAG;
+    if (this.hungLack(o, x0, y0, px, roll) <= 0) return;
+    const flat = this.hungLack(o, x0, y0, px, 0);
+    if (flat > 0) {
+      o.position.y += flat;
+      return;
+    }
+    let lo = 0;
+    let hi = roll;
+    for (let i = 0; i < BUMPER_REST_ITER; i++) {
+      const mid = (lo + hi) * 0.5;
+      if (this.hungLack(o, x0, y0, px, mid) > 0) hi = mid;
+      else lo = mid;
+    }
+    this.hungLack(o, x0, y0, px, lo);
+  }
+
+  /** Pose `o` rolled `r` about its corner at `px` from (`x0`, `y0`) and return how far (m) its box is under `BUMPER_CLEAR` above the ground there: positive is too low. */
+  private hungLack(o: THREE.Object3D, x0: number, y0: number, px: number, r: number): number {
+    o.rotation.z = r;
+    o.position.x = x0 + px * (1 - detCos(r));
+    o.position.y = y0 - px * detSin(r);
+    o.updateWorldMatrix(true, false);
+    _box.setFromObject(o);
+    o.getWorldPosition(_bumpW);
+    const gy = activeGround().heightAt(_bumpW.x, _bumpW.z, _bumpW.y);
+    return gy === NO_FLOOR ? 0 : gy + BUMPER_CLEAR - _box.min.y;
   }
 
   /** Door hinge state; `side` −1 is the left door, +1 the right. */

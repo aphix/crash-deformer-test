@@ -29,6 +29,12 @@ class Probe extends DeformableCar {
     this.posePart(p);
     return p;
   }
+  /** Tear the part off through the game's own detach (`detachPart` poses it first). */
+  tear(name: string): DetachPart {
+    const p = this.part(name);
+    this.detachPart(p, 0);
+    return p;
+  }
 }
 
 /** A car in the middle of a crash that has not touched the quarter panels (a nose tap, at `v` m/s). */
@@ -288,5 +294,36 @@ describe("given a hinged panel on a crashed car, its flutter follows the car's s
     const before = tail.clone().add(r.origin);
     const after = tail.clone().applyQuaternion(p.object.quaternion).add(p.object.position);
     assert.ok(before.distanceTo(after) < 1e-6, `the hinge line moved ${before.distanceTo(after)} m`);
+  });
+});
+
+/** A front corner hit (one end of the nose took the crush, the other did not), so the bumper hangs by the corner that took less. */
+function cornerCrashed(): Probe {
+  const car = new Probe(paint(), new THREE.Scene());
+  car.deform.setMode("shape");
+  car.spawnFacing(0, 0, 0, 0);
+  car.group.updateMatrixWorld(true);
+  const side = new THREE.Vector3().crossVectors(car.forward, new THREE.Vector3(0, 1, 0));
+  car.applyImpact(car.group.position.clone().addScaledVector(car.forward, 2.05).addScaledVector(side, 0.5), car.forward.clone().negate(), 5, 5);
+  run(car, 40);
+  return car;
+}
+
+describe("given a front bumper hung by one corner on a car standing on the road (the free end rests on the road, it is not drawn through it)", () => {
+  const lowest = (p: DetachPart): number => new THREE.Box3().setFromObject(p.object).min.y;
+
+  it("when the bumper is hinged to full, then it hangs rolled about its corner with its low end on the road, not under it", () => {
+    const car = cornerCrashed();
+    const p = car.hang("bumperF", 1);
+    assert.ok(Math.abs(p.object.rotation.z) > 0.05, `the bumper did not hang by a corner: roll ${p.object.rotation.z}`);
+    assert.ok(lowest(p) >= -1e-6, `the bumper's low end is ${(-lowest(p)).toFixed(3)} m under the road`);
+    assert.ok(lowest(p) < 0.08, `the bumper hangs ${lowest(p).toFixed(3)} m above the road, not resting on it`);
+  });
+
+  it("when the hanging bumper is torn off, then it leaves from above the road", () => {
+    const car = cornerCrashed();
+    car.hang("bumperF", 1);
+    const p = car.tear("bumperF");
+    assert.ok(lowest(p) >= -1e-6, `the torn bumper starts ${(-lowest(p)).toFixed(3)} m under the road`);
   });
 });
