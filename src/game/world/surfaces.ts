@@ -1150,6 +1150,15 @@ function deckAt(s: Surface, i: number, q: Float64Array): void {
   _s[S_H] = P[o + P_OY]! + P[o + D_DY]! * f - Math.max(-half, Math.min(half, lat)) * tan;
 }
 
+/**
+ * Whether `offer` leaves car top `o / P_STRIDE` of `s` (its owner `owner`, −1 for a patch of the world's) out for the asker `skip`: a car's own roof is
+ * not under it, nor is the roof of a car whose origin is higher (two cars standing on each other lifted one another 1.5 m a frame). A list built for
+ * one asker (`holdNearTops`, `holdTops`, `wheelContact`) leaves these out, so `offer` never sees them.
+ */
+function leftOut(s: Surface, o: number, owner: number, skip: number): boolean {
+  return owner >= 0 && (owner === skip || (skip >= 0 && skip < s.count && s.p[o + P_OY]! > s.p[skip * P_STRIDE + P_OY]!));
+}
+
 /** Test patch `i` of `s` for the point, working out what `need` asks; a candidate that reaches and is the highest so far becomes the best. */
 function offer(s: Surface, i: number, q: Float64Array, skip: number, need: number): void {
   const P = s.p;
@@ -1159,8 +1168,7 @@ function offer(s: Surface, i: number, q: Float64Array, skip: number, need: numbe
   if (x < P[o + P_MINX]! || x > P[o + P_MAXX]! || z < P[o + P_MINZ]! || z > P[o + P_MAXZ]!) return;
   const qo = i * Q_STRIDE;
   const owner = s.q[qo + Q_OWNER]!;
-  // A car's own roof is not under it, nor is the roof of a car whose origin is higher (two cars standing on each other lifted one another 1.5 m a frame).
-  if (owner >= 0 && (owner === skip || (skip >= 0 && skip < s.count && P[o + P_OY]! > P[skip * P_STRIDE + P_OY]!))) return;
+  if (leftOut(s, o, owner, skip)) return;
   _s[S_CAUX] = 1;
   const kind = s.q[qo + Q_KIND];
   if (kind === DECK) deckAt(s, i, q);
@@ -1438,8 +1446,8 @@ export function pointContactHeld(q: Float64Array, skip: number, out: Float64Arra
   answer(q, out);
 }
 
-/** The car tops `holdNearTops` readied: `near`'s list for its body, cut to those over its square. */
-const nearTops = { list: new Int32Array(0), count: 0 };
+/** The car tops `holdNearTops` readied: `near`'s list for its body, cut to those over its square (`list`: `topsTopNear`'s), and of those the ones `offer` asks for the body's slot (`ask`: `pointContactNear`'s). */
+const nearTops = { list: new Int32Array(0), count: 0, ask: new Int32Array(0), askCount: 0 };
 
 /**
  * Ready the car tops for body `skip` at plan (`x`, `z`): the list `near` gives a query there (`CarSurfaces.near`: the roofs within reach
@@ -1450,22 +1458,27 @@ const nearTops = { list: new Int32Array(0), count: 0 };
 export function holdNearTops(skip: number, x: number, z: number, r: number): number {
   const t = live.tops;
   nearTops.count = 0;
+  nearTops.askCount = 0;
   if (t === null) return 0;
   t.near(skip, x, z);
-  if (nearTops.list.length < t.nAlways) nearTops.list = new Int32Array(t.always.length);
+  if (nearTops.list.length < t.nAlways) {
+    nearTops.list = new Int32Array(t.always.length);
+    nearTops.ask = new Int32Array(t.always.length);
+  }
   const P = t.p;
   for (let k = 0; k < t.nAlways; k++) {
     const i = t.always[k]!;
     const o = i * P_STRIDE;
     if (x + r < P[o + P_MINX]! || x - r > P[o + P_MAXX]! || z + r < P[o + P_MINZ]! || z - r > P[o + P_MAXZ]!) continue;
     nearTops.list[nearTops.count++] = i;
+    if (!leftOut(t, o, t.q[i * Q_STRIDE + Q_OWNER]!, skip)) nearTops.ask[nearTops.askCount++] = i;
   }
   return nearTops.count;
 }
 
 /** `pointContact` over the tops `holdNearTops` readied. */
 export function pointContactNear(q: Float64Array, skip: number, out: Float64Array): void {
-  seek(q, skip, live.tops, nearTops.list, nearTops.count);
+  seek(q, skip, live.tops, nearTops.ask, nearTops.askCount);
   answer(q, out);
 }
 
@@ -1554,16 +1567,24 @@ function seekAll(q: Float64Array, skip: number): void {
   seek(q, skip, t, t?.always ?? NO_TOPS, t?.nAlways ?? 0);
 }
 
-/** The roofs `holdTops` readied, for `pointContactHeld`. */
+/** The roofs `holdTops` readied that `offer` asks for the body's slot (`leftOut` ones cut), for `pointContactHeld`. */
 const held = { list: NO_TOPS, count: 0 };
 
-/** Ready the car tops for a body at plan (`x`, `z`) whose points are all within `r` (m) of it, asked by slot `skip`: `pointContactHeld` then asks them only. Returns how many tops are held. */
+/**
+ * Ready the car tops for a body at plan (`x`, `z`) whose points are all within `r` (m) of it, asked by slot `skip`: `pointContactHeld` then asks them only.
+ * Returns how many tops are near (`CarSurfaces.near`), those `offer` leaves out for `skip` included.
+ */
 export function holdTops(skip: number, x: number, z: number, r: number): number {
   const t = live.tops;
-  if (t !== null) t.near(skip, x, z, r);
-  held.list = t?.always ?? NO_TOPS;
-  held.count = t?.nAlways ?? 0;
-  return held.count;
+  held.count = 0;
+  if (t === null) return 0;
+  t.near(skip, x, z, r);
+  if (held.list.length < t.nAlways) held.list = new Int32Array(t.always.length);
+  for (let k = 0; k < t.nAlways; k++) {
+    const i = t.always[k]!;
+    if (!leftOut(t, i * P_STRIDE, t.q[i * Q_STRIDE + Q_OWNER]!, skip)) held.list[held.count++] = i;
+  }
+  return t.nAlways;
 }
 
 /**
@@ -2142,12 +2163,14 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   if (tops !== null) {
     tops.near(skip, x, z);
     if (treadReach.list.length < tops.nAlways) treadReach.list = new Int32Array(tops.always.length);
-    // A top whose box ends farther than the tyre's reach from the hub holds none of the footprint's points (every one is within it).
+    // A top whose box ends farther than the tyre's reach from the hub holds none of the footprint's points (every one is within it), and
+    // one `offer` leaves out for the asker (`leftOut`) is never asked.
     const P = tops.p;
     for (let k = 0; k < tops.nAlways; k++) {
       const i = tops.always[k]!;
       const o = i * P_STRIDE;
       if (x < P[o + P_MINX]! - r || x > P[o + P_MAXX]! + r || z < P[o + P_MINZ]! - r || z > P[o + P_MAXZ]! + r) continue;
+      if (leftOut(tops, o, tops.q[i * Q_STRIDE + Q_OWNER]!, skip)) continue;
       treadReach.list[treadReach.count++] = i;
     }
   }
