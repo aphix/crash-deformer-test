@@ -304,3 +304,16 @@ slab's cabin clip off changes nothing either).
 `src/game/world/solid-parity.test.ts` holds every solid to the slab for the same armed car at 8 and 55 m/s and on a second
 hit: the driver thrown alike, health within 0.2, no more speed left after the hit than the slab's (+1 m/s), `alive` alike unless
 both are within 0.2 of the kill line (the slab kills a default sedan by 0.004 m of block travel). REPLAY_VERSION 20.
+
+## The physics step is 1/90 s (`REPLAY_VERSION` 78)
+
+A quiet step is 1/90 s, one per 90 Hz frame (`SimPacer`'s coarse floor; it was 1/120 s); a crush window open on some car, or the
+adaptive pacer on a device that keeps up, steps at the 1/240 s floor. A step in contact is solved in slices of that floor: a 1/90 s
+step is 3 slices of 1/270 s (`stepWorld`: `ceil(dt / fine)`), a 1/120 s step was 2 of 1/240 s. A hit step is marked `HIT_AHEAD`
+(1/60 s) of travel ahead, a step and a half of the coarse floor, so no step carries a car from clear of a face to inside it (0.44 m
+a step at 40 m/s, 0.61 m at 55 m/s). The coarse-against-fine calibrations were re-pinned to the grid the longer step leaves:
+`hit-slice.test.ts` (a sedan's nose into a parked sedan's door, 20 to 40 m/s, four phases: worst 0.056 m between the floors, bar
+0.045 -> 0.06 m) and `wall-crush.test.ts` (engine block travel into the oval's wall, 30 to 66 m/s: worst 0.040 m, bar 0.03 ->
+0.045 m). `npm run sweep` does not step through the pacer and reads the same to the digit at both steps. A clip saved at an older
+`REPLAY_VERSION` is refused by its header (`savedPlayable`, the outdated-replay purge); a clip of this version replays the steps
+it recorded, so the replay does not depend on the floor of the build that plays it (`replay-fidelity.test.ts` runs both floors).
