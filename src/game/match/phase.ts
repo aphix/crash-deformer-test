@@ -79,6 +79,9 @@ const REACH = 1.2;
  */
 const RAMP_RATE = 16;
 
+/** Wall s an eased change takes to cover half its gap: the slow-mo's drop after a throw starts this early (`stepPhase`), so the scale is at half, no longer 1×, by `THROW_ONSET`. */
+const RAMP_HALF = Math.LN2 / RAMP_RATE;
+
 /** A scale this near its target (absolute) is there: the exponential never arrives, and callers compare against 1. */
 const SETTLED = 1e-3;
 
@@ -202,13 +205,13 @@ export function pairEta(cars: readonly DeformableCar[], hit?: PredictedHit): num
 }
 
 /**
- * One wall frame after the hit: the held slow-mo drops in at `slomoAt`; impact → slowmo 0.12 s after the hit (or the
+ * One wall frame after the hit: the held slow-mo's drop begins `RAMP_HALF` before `slomoAt` (the scale is at half by it); impact → slowmo 0.12 s after the hit (or the
  * drop) → aftermath after the hold, handing time back to 1×.
  */
 export function stepPhase(c: PhaseClock, wallDt: number): void {
   if (c.phase === "approach") return;
   c.wallSinceImpact += wallDt;
-  if (c.slomoAt > 0 && c.wallSinceImpact >= c.slomoAt) {
+  if (c.slomoAt > 0 && c.wallSinceImpact >= c.slomoAt - RAMP_HALF) {
     c.slomoAt = 0;
     if (c.userTimeScale == null && c.phase !== "aftermath") {
       c.targetScale = impactScale(c);

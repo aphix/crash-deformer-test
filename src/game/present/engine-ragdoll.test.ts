@@ -6,7 +6,7 @@ import type { MassName } from "../kernel/rig-spec.ts";
 import { DeformableCar } from "../vehicle/car.ts";
 import { FREEWHEEL, launch, makeCar, makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { armKill, assignClass, DEFAULT_REALISM } from "../vehicle/vehicle-classes.ts";
-import { beginImpact, holdForThrow, impactScale, phaseClock, stepPhase, THROW_ONSET } from "../match/phase.ts";
+import { beginImpact, easeTimeScale, holdForThrow, impactScale, phaseClock, stepPhase, THROW_ONSET } from "../match/phase.ts";
 import { throwComing } from "./ragdoll-trigger.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
 import { SHIRTS } from "./driver-look.ts";
@@ -118,17 +118,26 @@ describe("given a hit that throws a driver out of his car, where the slow-mo wai
     assert.deepEqual(inside.slice(0, 4), [], "torso corners inside a car body in slow-mo");
   });
 
-  it("when a driver is thrown while the slow-mo already runs, then the exit plays at normal speed for 0.25 s before the slow-mo comes back", () => {
+  // Since the graded cues (2f42a2f1) no change of the time scale is a snap, and the clock is eased by `easeTimeScale` as well as stepped:
+  // the ease covers 95 % of a gap in 0.19 s (docs/CINEMATIC.md), so from the slow scale 0.032 it is past 0.5 by the 3rd frame (1 - 0.968·e^(-16·3/60) = 0.565)
+  // and past 0.9 by the 9th (0.912) at 60 Hz, then holds until the slow-mo's drop begins, half an ease (0.043 s) before THROW_ONSET.
+  it("when a driver is thrown while the slow-mo already runs, then the exit climbs to normal speed by eased steps (past 0.5 in 3 frames, past 0.9 in 9) and plays there until the slow-mo comes back", () => {
     const c = phaseClock();
     beginImpact(c, true);
-    for (let t = 0; t < 0.5; t += FRAME) stepPhase(c, FRAME);
-    holdForThrow(c);
-    const at: number[] = [];
-    for (let t = 0; t < 0.4; t += FRAME) {
-      at.push(c.timeScale);
+    for (let t = 0; t < 0.5; t += FRAME) {
+      easeTimeScale(c, FRAME);
       stepPhase(c, FRAME);
     }
-    assert.ok(at.slice(0, 14).every((s) => s === 1), `1× for the exit: ${at.slice(0, 16).join()}`);
+    assert.equal(c.timeScale, impactScale(c), "the slow-mo runs");
+    holdForThrow(c);
+    const at: number[] = [];
+    for (let t = 0; t < 0.9; t += FRAME) {
+      at.push(c.timeScale);
+      easeTimeScale(c, FRAME);
+      stepPhase(c, FRAME);
+    }
+    assert.ok(at[3]! > 0.5, `past half speed 3 frames in: ${at.slice(0, 5).join()}`);
+    assert.ok(at.slice(9, 14).every((s) => s > 0.9), `normal speed for the exit: ${at.slice(0, 16).join()}`);
     assert.equal(c.timeScale, impactScale(c), "the slow-mo is back");
     assert.equal(c.phase, "slowmo");
   });
