@@ -131,11 +131,15 @@ describe("given a derby AI car hunting a target by the player's boost rules", ()
     const out = brain.think(self, all, 0.4);
     assert.equal(out.boost, true);
     assert.ok(Math.abs(brain.meter[0]! - (1 - 0.4 / BOOST.full)) < 1e-12, `meter ${brain.meter[0]}`);
+    // The seat drains by the thrust its car applies (`drive.boostK`): at full thrust it drains as the AI's meter does.
     const seat = new DriverSeat();
     seat.mode = "drive";
     seat.sample(new Set(["ShiftLeft", "KeyW"]), null);
+    const car = parked(false);
+    car.drive.boostK = 1;
+    seat.input(car, DT);
     seat.step(0.4);
-    assert.equal(brain.meter[0], seat.boost, "the AI's meter drains like the seat's");
+    assert.equal(brain.meter[0], seat.boost, "the AI's meter drains like the seat's at full thrust");
   });
 
   it("when the target is just inside 25 m, just outside 25 m, just outside or inside the last 8 m, or behind, head-on, off the nose, with an empty meter or tail first, then it boosts only at a target ahead within 25 m and outside the last 8 m, nose first", () => {

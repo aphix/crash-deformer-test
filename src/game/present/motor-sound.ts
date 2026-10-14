@@ -317,7 +317,7 @@ export class MotorSound {
     const accel = approach(this.accel[slot]!, accelLoad(along, this.prevAlong[slot]!, tick), tick, ACCEL_TAU_S);
     this.accel[slot] = accel;
     this.prevAlong[slot] = along;
-    const load = motorLoad(car.drive.throttle, car.drive.boost, accel);
+    const load = motorLoad(car.drive.throttle, car.drive.boostK, accel);
     const rev = motorRev(carRpm(car), load);
     // The engine law's loudness follows the eased load (quick attack, slower release): `level` is the voice gain it asks for.
     this.lawLoad[slot] = fresh ? load : easeLoad(this.lawLoad[slot]!, load, tick);

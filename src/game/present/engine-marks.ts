@@ -246,7 +246,7 @@ export class SkidMarks {
       // Launch spin eases out at 1.4/s after Handling's spin ends; a boost launch also spins the rears up to
       // ~14 m/s (a visual cheat: Handling's own spin is gone by 7 m/s), so it lays two long tapering stripes.
       const along = v.x * fx + v.z * fz;
-      const launch = car.drive.boost && car.drive.throttle > 0.5 ? ramp(14 - along, 0, 6) : 0;
+      const launch = car.drive.throttle > 0.5 ? car.drive.boostK * ramp(14 - along, 0, 6) : 0;
       const spin = (this.spinHold[c] = Math.max(car.drive.spin, launch, this.spinHold[c]! - simDt * 1.4));
       const bodySlide = ramp(car.drive.slide, DRIVE_SLIDE_START, DRIVE_SLIDE_FULL);
       for (let k = 0; k < 4; k++) {

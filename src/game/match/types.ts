@@ -350,8 +350,8 @@ export type RaceView = {
   damage: number;
   /** Boost meter 0–1; null when this browser doesn't hold it (a peer's car, police). */
   boost: number | null;
-  /** Burning boost right now. */
-  boosting: boolean;
+  /** Boost thrust the car applies right now, 0–1 (`drive.boostK`: it ramps in and out over `BOOST.ramp` s). */
+  boosting: number;
   /** This browser's slide (seconds, clean, payouts): the boost meter's charge cue. `NO_DRIFT` for a car the seat does not drive. */
   drift: DriftView;
   /** Wheels off the car, 0–4 (`4 - deform.wheelsOn`). */

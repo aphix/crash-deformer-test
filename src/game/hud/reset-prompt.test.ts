@@ -14,7 +14,7 @@ const view = (wheelsOff: number, canReset = true): RaceView => ({
   damage: 1,
   chase: null,
   boost: null,
-  boosting: false,
+  boosting: 0,
   drift: NO_DRIFT,
   wheelsOff,
   canReset,

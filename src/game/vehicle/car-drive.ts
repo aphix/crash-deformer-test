@@ -59,7 +59,23 @@ export const DRIVE = {
   driftDeadband: 0.1,
   /** A hands-off slide holds only while the body is yawed more than this (rad) off the velocity; straighter, it is over and the assist catches it. */
   driftHoldSlip: 0.12,
+  /** Seconds the handbrake takes to grip fully and to let go (linear in time, `drive.ebrakeK`): a tap's window sets how far it gets. */
+  ebrakeIn: 0.08,
+  ebrakeOut: 0.12,
+  /** A slide's entry grows with how far the inputs are past each gate, to full at this much more: steer past 0.15 (handbrake), steer past 0.6 and throttle past 0.7 (boost), speed past `slideSpeed` / `boostSlideSpeed` (m/s). */
+  entrySteer: 0.35,
+  entryBoostSteer: 0.3,
+  entryThrottle: 0.2,
+  entrySpeed: 4,
+  /** The slide's yaw (assist, speed hand-back) takes over from the grip clamp across this drift, over this much more. */
+  slideEdge: 0.05,
+  slideSpan: 0.1,
 };
+
+/** `x` held to 0..1. */
+function unit(x: number): number {
+  return Math.min(1, Math.max(0, x));
+}
 
 const _zero: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
 
@@ -91,10 +107,10 @@ const turnAt = new Float64Array(2);
 /** [0]: the realism `_assist` was last filled for (NaN: never). */
 const _assistFor = new Float64Array([NaN]);
 /**
- * `pedals` in/out: in [0] throttle, [1] brake, [2] along, [3] muF, [4] muR, [5] top-speed scale, [6] dt; out [7] top,
- * [8] speed, [9] want, [10] spin, [11] lock. Doubles in a typed array: passed or returned out of line they boxed.
+ * `pedals` in/out: in [0] throttle, [1] brake, [2] along, [3] muF, [4] muR, [5] top-speed scale, [6] dt, [12] handbrake grip (`drive.ebrakeK`),
+ * [13] boost thrust (`drive.boostK`); out [7] top, [8] speed, [9] want, [10] spin, [11] lock. Doubles in a typed array: passed or returned out of line they boxed.
  */
-const _pedal = new Float64Array(12);
+const _pedal = new Float64Array(14);
 /** What the wheels still on leave of each control (`wheelLoss`'s layout; `applyDrive` fills it, `pedals` reads it). */
 const _loss = new Float64Array(LOSS_SIZE);
 
@@ -109,11 +125,13 @@ function idleDriveState(d: DeformableCar["drive"]): void {
   d.slide = 0;
   d.hold = 0;
   d.boost = false;
+  d.ebrakeK = 0;
+  d.boostK = 0;
   d.neutral = false;
 }
 
 /** applyDrive's pedals: speed along the nose (`_pedal` layout above). */
-function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, input: DriveInput, boosting: boolean, io: Float64Array): void {
+function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, input: DriveInput, io: Float64Array): void {
   const throttle = io[0]!;
   const brake = io[1]!;
   const along = io[2]!;
@@ -122,42 +140,51 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
   const realism = HANDLING.realism;
   const dt = io[6]!;
   const driveShare = _loss[1]!;
-  const ebrake = input.ebrake && _loss[6]! > 0;
-  const top = throttle < 0 ? k.revSpeed : k.topSpeed * dmg.top * (boosting ? k.boostTop : 1) * io[5]! * Math.sqrt(driveShare);
+  const ebrake = io[12]!;
+  const boost = io[13]!;
+  const top = throttle < 0 ? k.revSpeed : k.topSpeed * dmg.top * (1 + (k.boostTop - 1) * boost) * io[5]! * Math.sqrt(driveShare);
   let speed = along;
   let want = 0;
   let spin = 0;
   let lock = 0;
-  if (ebrake || brake > 0) {
+  if (brake > 0) {
     let s = Math.abs(speed);
-    if (ebrake) s *= Math.exp(-DRIVE.ebrakeDrag * dt);
+    s *= Math.exp(-DRIVE.ebrakeDrag * ebrake * dt);
     // Brake force is near constant: a linear stop, never weaker than lifting off. Wheels off take their share of the
     // brakes with them.
-    if (brake > 0) s = Math.max(0, s - k.brake * _loss[2]! * (0.55 + 0.45 * Math.min(muF, muR)) * Math.max(0.45, brake) * dt);
+    s = Math.max(0, s - k.brake * _loss[2]! * (0.55 + 0.45 * Math.min(muF, muR)) * Math.max(0.45, brake) * dt);
     speed = s < 0.4 ? 0 : Math.sign(speed) * s;
     // ABS hides most of the lock-up at the arcade end.
     if (brake > 0.7 && s > 3) lock = ((brake - 0.7) / 0.3) * ((1 - realism) * 0.45 + realism) * Math.min(1, s / 10);
-  } else if (input.neutral) {
-    // Freewheeling: no thrust, no engine braking (`want` stays 0, the car is not under power), the road's drag alone.
-    const v = Math.abs(speed);
-    speed = Math.sign(speed) * Math.max(0, v - (DRIVE.roll + DRIVE.drag * v * v) * dt);
   } else {
-    want = throttle * top;
-    const v = Math.abs(speed);
-    let rate = k.brake * DRIVE.coast;
-    if (Math.abs(want) > v) {
-      // The gear this speed sits in; past the top gear's end (a boost) it keeps pulling in top. Its thrust runs
-      // from the arcade punch to the sourced figures along the realism slider.
-      let g = 0;
-      while (g < k.gears.length - 1 && v >= k.gears[g]![0] * k.topSpeed) g++;
-      const gear = k.gears[g]!;
-      rate = (gear[1] + (gear[2] - gear[1]) * realism) * dmg.power * driveShare * (boosting ? k.boostAccel : 1) * (0.4 + 0.6 * muR);
-      if (throttle > 0.5 && along > -0.5) {
-        spin = Math.max(v < 7 ? (1 - v / 7) * throttle * (0.35 + 0.65 * k.torque) * (boosting ? 1 : 0.7) : 0, (1 - muR) * throttle * 0.6);
+    if (input.neutral) {
+      // Freewheeling: no thrust, no engine braking (`want` stays 0, the car is not under power), the road's drag alone.
+      const v = Math.abs(speed);
+      speed = Math.sign(speed) * Math.max(0, v - (DRIVE.roll + DRIVE.drag * v * v) * dt);
+    } else {
+      want = throttle * top;
+      const v = Math.abs(speed);
+      // The engine's push (and its lift-off braking) is what the handbrake's grip takes away.
+      let rate = k.brake * DRIVE.coast * (1 - ebrake);
+      if (Math.abs(want) > v) {
+        // The gear this speed sits in; past the top gear's end (a boost) it keeps pulling in top. Its thrust runs
+        // from the arcade punch to the sourced figures along the realism slider.
+        let g = 0;
+        while (g < k.gears.length - 1 && v >= k.gears[g]![0] * k.topSpeed) g++;
+        const gear = k.gears[g]!;
+        rate = (gear[1] + (gear[2] - gear[1]) * realism) * dmg.power * driveShare * (1 + (k.boostAccel - 1) * boost) * (0.4 + 0.6 * muR) * (1 - ebrake);
+        if (throttle > 0.5 && along > -0.5) {
+          spin = Math.max(v < 7 ? (1 - v / 7) * throttle * (0.35 + 0.65 * k.torque) * (0.7 + 0.3 * boost) : 0, (1 - muR) * throttle * 0.6) * (1 - ebrake);
+        }
       }
+      if (speed < want) speed = Math.min(want, speed + rate * dt);
+      else speed = Math.max(want, speed - rate * dt);
     }
-    if (speed < want) speed = Math.min(want, speed + rate * dt);
-    else speed = Math.max(want, speed - rate * dt);
+    if (ebrake > 0) {
+      // The handbrake alone: only the rolling drag slows the car, and a creep under 0.4 m/s stops as the grip nears full.
+      speed *= Math.exp(-DRIVE.ebrakeDrag * ebrake * dt);
+      if (Math.abs(speed) < 0.4 * ebrake) speed = 0;
+    }
   }
   // A corner on the road with no wheel under it drags the body along.
   if (_loss[5]! > 0) {
@@ -217,7 +244,11 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   wheelLoss(car.deform.wheelsOnMask, _loss);
   const steer = command * _loss[0]!;
   const boosting = !!input.boost && throttle > 0;
-  const ebrake = input.ebrake && _loss[6]! > 0; // the handbrake locks the rear wheels: with none left it holds nothing
+  // Both push in and out over a time, not at once: the handbrake grips over `DRIVE.ebrakeIn` s (a tap's short window never gets it to full) and lets go over `ebrakeOut`, the boost's thrust over `BOOST.ramp`. The handbrake locks the rear wheels: with none left it holds nothing.
+  d.ebrakeK = input.ebrake && _loss[6]! > 0 ? Math.min(1, d.ebrakeK + dt / DRIVE.ebrakeIn) : Math.max(0, d.ebrakeK - dt / DRIVE.ebrakeOut);
+  d.boostK = boosting ? Math.min(1, d.boostK + dt / BOOST.ramp) : Math.max(0, d.boostK - dt / BOOST.ramp);
+  const ebrake = d.ebrakeK;
+  const boost = d.boostK;
   // The pedals as commanded (a replay re-applies them to the same wheels): what the wheels do with them is `wheelLoss`'s.
   d.throttle = throttle; d.steer = command; d.brake = brake;
   d.ebrake = input.ebrake; d.boost = boosting; d.neutral = input.neutral === true;
@@ -243,7 +274,9 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   _pedal[4] = _grip[1]!;
   _pedal[5] = topScale;
   _pedal[6] = dt;
-  pedals(k, dmg, input, boosting, _pedal);
+  _pedal[12] = ebrake;
+  _pedal[13] = boost;
+  pedals(k, dmg, input, _pedal);
   const top = _pedal[7]!;
   const speed = _pedal[8]!;
   const want = _pedal[9]!;
@@ -252,15 +285,18 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const v = Math.abs(speed);
   const grip = k.grip * a.grip * 0.5 * (muF + muR);
   let yawRate =
-    steer * k.turn * (ebrake ? DRIVE.ebrakeTurn : 1) * (0.35 + Math.min(1, v / 8) * 0.65) * (0.45 + 0.55 * muF);
+    steer * k.turn * (1 + (DRIVE.ebrakeTurn - 1) * ebrake) * (0.35 + Math.min(1, v / 8) * 0.65) * (0.45 + 0.55 * muF);
   const beta = Math.atan2(-lat0, Math.max(1, Math.abs(along)));
   const dir = beta > 0.02 ? 1 : beta < -0.02 ? -1 : Math.sign(steer);
   let target = 0;
   let handsOff = false; // a held slide with the wheel in the deadband: the body angle stays where it is
   if (along > DRIVE.slideSpeed) {
-    if (ebrake && Math.abs(steer) > 0.15) target = 1;
+    // A slide starts as hard as the inputs are past each gate (`DRIVE.entry*`): the handbrake's grip, the lock past the deadband, the speed past the minimum.
+    const flick = ebrake * unit((Math.abs(steer) - 0.15) / DRIVE.entrySteer) * unit((along - DRIVE.slideSpeed) / DRIVE.entrySpeed);
     // Boost dumps torque on the rear: tail-happy classes step out under it at full lock.
-    else if (boosting && throttle > 0.7 && Math.abs(steer) > 0.6 && along > DRIVE.boostSlideSpeed) target = k.drift;
+    const punch =
+      k.drift * boost * unit((Math.abs(steer) - 0.6) / DRIVE.entryBoostSteer) * unit((throttle - 0.7) / DRIVE.entryThrottle) * unit((along - DRIVE.boostSlideSpeed) / DRIVE.entrySpeed);
+    target = Math.max(flick, punch);
     // Held on the gas (no brake): lock either way short of a hard counter-steer keeps the slide, and so does hands off the wheel
     // (a released stick or key) while the body is still yawed off its velocity. Lifting, braking or a hard counter-steer catches it.
     if (d.drift > 0.05 && throttle > 0.25 && brake < 0.1) {
@@ -273,18 +309,21 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   else d.drift = Math.max(target, d.drift - catchRate * dt);
   const drift = d.drift;
   const slideBite = grip * ((1 - realism) * DRIVE.slideGrip[0] + realism * DRIVE.slideGrip[1]);
-  if (drift < 0.05 && v > 1) {
+  // The slide takes the yaw over from the grip clamp across `slideEdge`..`slideEdge + slideSpan` of drift, not at one value of it.
+  const edge = unit((drift - DRIVE.slideEdge) / DRIVE.slideSpan);
+  if (edge < 1 && v > 1) {
     const cap = (grip * GRIP_YAW_CAP) / v;
-    yawRate = Math.max(-cap, Math.min(cap, yawRate));
-  } else if (drift >= 0.05) {
-    yawRate *= 1 + DRIVE.slideYaw * drift;
+    yawRate += (Math.max(-cap, Math.min(cap, yawRate)) - yawRate) * (1 - edge);
+  }
+  yawRate *= 1 + DRIVE.slideYaw * drift;
+  if (edge > 0) {
     // Drift assist: steer sets the body angle (into the turn = deeper, counter = shallower), the yaw follows it; hands off it holds the angle it has.
     const aim = handsOff
       ? dir * Math.min(Math.abs(beta), a.slipCap)
       : dir * a.slipCap * Math.max(0.1, Math.min(1, 0.55 + 0.45 * steer * dir)) * drift;
     const assisted = (dir * slideBite) / Math.max(v, 4) + (aim - beta) * DRIVE.slipGain;
     const most = k.turn * DRIVE.ebrakeTurn * (1 + DRIVE.slideYaw);
-    const t = (1 - realism) * Math.min(1, drift * 2);
+    const t = (1 - realism) * Math.min(1, drift * 2) * edge;
     yawRate = (1 - t) * yawRate + t * Math.max(-most, Math.min(most, assisted));
   }
   yawRate += dmg.pull * Math.min(1, v / 10);
@@ -300,8 +339,9 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const latOut = lat - Math.sign(lat) * Math.min(Math.abs(lat), bite * dt);
   // In a drift the arcade end hands most of the bitten-off sideways speed back to the nose, so slides
   // keep their pace (never past top speed). Sideways speed from a shove is only scrubbed, never turned into a launch.
-  if (drift > 0.05 && lon > 0.5 && Math.abs(beta) < a.slipCap + 0.2) {
-    lon = Math.min(Math.max(lon, top), Math.sqrt(lon * lon + (1 - a.scrub) * (lat * lat - latOut * latOut)));
+  if (drift > DRIVE.slideEdge && lon > 0.5 && Math.abs(beta) < a.slipCap + 0.2) {
+    const kept = Math.min(Math.max(lon, top), Math.sqrt(lon * lon + (1 - a.scrub) * (lat * lat - latOut * latOut)));
+    lon += (kept - lon) * edge;
   }
   const nvx = fx * lon + fz * latOut;
   const nvz = fz * lon - fx * latOut;
@@ -399,8 +439,8 @@ function driveMasses(masses: readonly DriveMass[], turn: Float64Array): boolean 
   return true;
 }
 
-/** `drift`: a clean slide pays this share of the meter per second of drift, up to `driftCap` s, when no contact fell inside `driftClean` s of it. */
-export const BOOST = { full: 1.6, recharge: 4.5, takedown: 0.4, drift: 0.12, driftCap: 2.5, driftClean: 0.5 };
+/** `drift`: a clean slide pays this share of the meter per second of drift, up to `driftCap` s, when no contact fell inside `driftClean` s of it (a nearer contact docks the payout by its age over `driftClean`). `ramp`: seconds the boost's push takes to come in and go out (`drive.boostK`, linear in time). */
+export const BOOST = { full: 1.6, recharge: 4.5, takedown: 0.4, drift: 0.12, driftCap: 2.5, driftClean: 0.5, ramp: 0.15 };
 
 /** The meter share (0–1) a slide of `s` seconds pays when it ends clean: what the seat pays out and what the HUD shows charging. */
 export function driftPay(s: number): number {
@@ -413,9 +453,9 @@ export type DriftView = { s: number; clean: boolean; paid: number };
 /** The view of a car nobody on this browser drives: no drift to show. */
 export const NO_DRIFT: DriftView = { s: 0, clean: true, paid: 0 };
 
-/** One slice of a boost meter (0–1): it drains over `BOOST.full` s while boosting, refills over `BOOST.recharge` s otherwise. The seat, the race AI and the derby AI all keep their meters by it. */
-export function chargeBoost(level: number, boosting: boolean, dt: number): number {
-  return boosting ? Math.max(0, level - dt / BOOST.full) : Math.min(1, level + dt / BOOST.recharge);
+/** One slice of a boost meter (0–1): it drains over `BOOST.full` s at full `thrust` (the share of the boost's push the car applies, `drive.boostK`; an AI that keeps its meter by its own intent leaves it 1) while boosting, refills over `BOOST.recharge` s otherwise. The seat, the race AI and the derby AI all keep their meters by it. */
+export function chargeBoost(level: number, boosting: boolean, dt: number, thrust = 1): number {
+  return boosting ? Math.max(0, level - (thrust * dt) / BOOST.full) : Math.min(1, level + dt / BOOST.recharge);
 }
 
 /** A bonus (a takedown's `BOOST.takedown`, a draft) onto a meter, capped at full. */
@@ -471,6 +511,8 @@ export class DriverSeat {
   view: SeatView = "third";
   carIndex = -1;
   boost = 1;
+  /** The boost push the driven car applied last slice (`drive.boostK`): the meter drains by it, so the ramp out burns what it still pushes with. */
+  private thrust = 0;
   /** The driven car's slide as the HUD reads it (`DriftView`): its seconds are paid out as boost when a clean slide ends. Copy it to publish; the seat keeps writing it. */
   readonly drift: DriftView = { s: 0, clean: true, paid: 0 };
   /** This frame's merged keyboard + pad intent. */
@@ -542,7 +584,9 @@ export class DriverSeat {
   }
 
   step(dt: number): void {
-    this.boost = chargeBoost(this.boost, this.mode === "drive" && this.intent.boost && this.intent.gas > 0.05 && this.boost > 0, dt);
+    if (this.mode !== "drive") this.thrust = 0;
+    const wants = this.mode === "drive" && this.intent.boost && this.intent.gas > 0.05 && this.boost > 0;
+    this.boost = chargeBoost(this.boost, wants || this.thrust > 0, dt, this.thrust);
   }
 
   addBoost(amount: number): void {
@@ -552,11 +596,15 @@ export class DriverSeat {
   /** Shaped input for one physics slice of the driven car (pooled: read it before the next call). */
   input(car: Pick<DeformableCar, "velocity" | "fwdFlat" | "drive" | "deform">, dt: number): DriveInput {
     const d = this.drift;
-    d.clean = car.deform.quietTime() > BOOST.driftClean;
+    const quiet = car.deform.quietTime();
+    d.clean = quiet >= BOOST.driftClean;
+    this.thrust = car.drive.boostK;
     if (car.drive.drift > 0.05) d.s += dt;
     else if (d.s > 0) {
-      if (d.clean) {
-        this.boost = topUpBoost(this.boost, driftPay(d.s));
+      // A contact inside `driftClean` s docks the payout by how recent it was: no cliff between 0.49 s and 0.51 s.
+      const share = Math.min(1, quiet / BOOST.driftClean);
+      if (share > 0) {
+        this.boost = topUpBoost(this.boost, driftPay(d.s) * share);
         d.paid++;
       }
       d.s = 0;

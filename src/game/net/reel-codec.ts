@@ -134,9 +134,13 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * clip's layout gains a count and the stirs after the knocks, so a clip of 79 or before does not decode.
  * 81: a quiet step is 1/90 s, one per 90 Hz frame (it was 1/120 s), and a step in contact is cut to slices of the 1/240 s floor (3 of 1/270 s), so a
  * clip saved at 80 holds steps of another length and a replayed crash lands on other slices (the 1/240 s crush-window steps are as before).
+ * 82: the handbrake, the boost and a slide's entry fade instead of switching: the handbrake grips over 0.08 s and lets go over 0.12 s (a tap's short window never gets it to full),
+ * the boost's thrust ramps over 0.15 s, a slide starts as hard as the inputs are past each gate, the yaw clamp hands over to the slide across drift 0.05-0.15, and the flight block holds the two ramps,
+ * so a replayed clip's handbrake flicks, boosts and slide starts run differently; and a respawn that falls due while another racing car is bearing down on its spot waits for it (up to 2 s),
+ * so a replayed race's respawns land later where a car was closing.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 81;
+const REPLAY_VERSION = 82;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

@@ -70,7 +70,7 @@ const DialFace = memo(function DialFace() {
  * The nitrous bottle: its fill is the boost meter; it glows while there is a burst in it, and brighter while burning. A car with no nitrous
  * (police, traffic, a car nobody drives: `boost` null) shows it empty and greyed, so the cluster always carries the bottle.
  */
-function Nitro({ boost, boosting, drafting, drift }: { boost: number | null; boosting: boolean; drafting: boolean; drift: DriftView }) {
+function Nitro({ boost, boosting, drafting, drift }: { boost: number | null; boosting: number; drafting: boolean; drift: DriftView }) {
   if (boost === null) {
     return (
       <div className="relative flex flex-col items-center opacity-30" role="img" aria-label="No boost">
@@ -94,7 +94,7 @@ function Nitro({ boost, boosting, drafting, drift }: { boost: number | null; boo
         style={nitroGlowStyle("bottle", boost, boosting)}
       >
         <div
-          className={cn("absolute inset-0 origin-bottom transition-transform duration-150 ease-linear will-change-transform", boosting ? "bg-fg" : "bg-scene-race")}
+          className={cn("absolute inset-0 origin-bottom transition-transform duration-150 ease-linear will-change-transform", boosting > 0 ? "bg-fg" : "bg-scene-race")}
           style={{ transform: `scaleY(${boost})` }}
         />
         <DriftOverlay drift={drift} boost={boost} vertical />

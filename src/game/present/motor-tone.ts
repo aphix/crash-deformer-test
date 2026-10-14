@@ -195,9 +195,9 @@ export function accelLoad(along: number, prevAlong: number, dt: number): number 
   return Math.min(1, Math.max(0, (along - prevAlong) / dt / LOAD_ACCEL));
 }
 
-/** Engine load 0-1: boost is full, else the pedal (reverse too), else how hard the car is being accelerated. */
-export function motorLoad(throttle: number, boost: boolean, accel: number): number {
-  return boost ? 1 : Math.max(Math.abs(throttle), accel);
+/** Engine load 0-1: the boost's thrust (`drive.boostK`, 0-1) if it is more than the pedal (reverse too), else how hard the car is being accelerated. */
+export function motorLoad(throttle: number, boost: number, accel: number): number {
+  return Math.max(boost, Math.abs(throttle), accel);
 }
 
 /** Real engine rpm for the generator: the class's idle at `REV_IDLE` up to its redline at 1, pitched down by slow-mo's `rate`. */

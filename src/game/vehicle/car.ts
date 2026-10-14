@@ -28,7 +28,7 @@ const _v = new THREE.Vector3();
 const _in = new THREE.Vector3();
 const _zero = new THREE.Vector3();
 const _wantQuaternion = new THREE.Quaternion();
-/** Where a `DeformableCar.flight` block holds each part: spin (3), pitch, yaw, roll (3), orientation quaternion (4), velocity (3), position (3), contact-end clocks (2), reach, squeeze flag, drift, the seconds the engine stays cut (`stalledS`), the weight borne on it by cars that stepped after it (6: `CarSurfaces.borneState`), what its wheels touch (`FLIGHT_CONTACT`: each wheel's contact, the wheels down, airborne, hard touch, yielding), a wreck's hub rise (`hubRise`, 5), its yaw inverse inertia (`invYaw`) and its rest timer (`restS`: at `WRECK_REST_S` it sleeps). */
+/** Where a `DeformableCar.flight` block holds each part: spin (3), pitch, yaw, roll (3), orientation quaternion (4), velocity (3), position (3), contact-end clocks (2), reach, squeeze flag, drift, the seconds the engine stays cut (`stalledS`), the weight borne on it by cars that stepped after it (6: `CarSurfaces.borneState`), what its wheels touch (`FLIGHT_CONTACT`: each wheel's contact, the wheels down, airborne, hard touch, yielding), a wreck's hub rise (`hubRise`, 5), its yaw inverse inertia (`invYaw`) and its rest timer (`restS`: at `WRECK_REST_S` it sleeps), the handbrake and boost ramps (`drive.ebrakeK`, `drive.boostK`). */
 export const FLIGHT_EULER = 3;
 const FLIGHT_QUATERNION = 6;
 export const FLIGHT_VELOCITY = 10;
@@ -43,7 +43,8 @@ const FLIGHT_CONTACT = 28;
 const FLIGHT_DOWN = FLIGHT_CONTACT + 4 * HIT_SIZE;
 const FLIGHT_INV_YAW = FLIGHT_DOWN + 4;
 const FLIGHT_REST = FLIGHT_INV_YAW + 1;
-export const FLIGHT = FLIGHT_REST + 1;
+const FLIGHT_RAMPS = FLIGHT_REST + 1;
+export const FLIGHT = FLIGHT_RAMPS + 2;
 /** A wreck rests this long (s) before it sleeps: a toppling pile pauses on the way over, and a monster settling on a bank creeps to its pose for most of a second after it first slows under `REST_SPEED`. */
 const WRECK_REST_S = 1;
 /** Each wheel's contact standing on level road, as built and at a spawn (`resetContact`): no lift, the normal up, full grip, the world's. */
@@ -323,6 +324,8 @@ export class DeformableCar extends CarParts {
       this.endSqueeze = buf[o + FLIGHT_END_SQUEEZE] !== 0;
       this.drive.drift = buf[o + FLIGHT_DRIFT]!;
       this.stalledS = buf[o + FLIGHT_STALL]!;
+      this.drive.ebrakeK = buf[o + FLIGHT_RAMPS]!;
+      this.drive.boostK = buf[o + FLIGHT_RAMPS + 1]!;
       this.surfaces?.borneState(this.slot, buf, o + FLIGHT_BORNE, true);
       this.restoreContact();
       this.contact(buf, o, true);
@@ -352,6 +355,8 @@ export class DeformableCar extends CarParts {
     this.contact(buf, o, false);
     buf[o + FLIGHT_INV_YAW] = this.invYaw;
     buf[o + FLIGHT_REST] = this.restS;
+    buf[o + FLIGHT_RAMPS] = this.drive.ebrakeK;
+    buf[o + FLIGHT_RAMPS + 1] = this.drive.boostK;
   }
 
   /**

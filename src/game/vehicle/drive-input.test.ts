@@ -135,7 +135,7 @@ describe("given a driver using the keyboard pedals (brake, reverse, handbrake)",
     assert.equal(shaped(["KeyW"], 10, 0.3).out.ebrake, false);
   });
 
-  it("when the brake is tapped for 0.15 s with the wheel at lock at speed, then the handbrake pulses for 0.1 s after the release and not 0.15 s later", () => {
+  it("when the brake is tapped for 0.15 s with the wheel at lock at speed, then the handbrake is asked for after the release for a window set by the tap's length (under 0.12 s) and not 0.15 s later", () => {
     const keys = (k: string[]) => readIntent(new Set(k), null, blankIntent());
     const feel = { wheel: 0, gas: 0, brake: 0, brakeHeld: 0, pulse: 0 };
     const out = idleDrive();
@@ -264,18 +264,22 @@ describe("given a DriverSeat (the player's control mode: watching the whole fiel
     assert.equal(s.mode, "follow");
   });
 
-  it("when Shift is held parked, then boost is not burnt; when Shift is held with W, then boost drains; and when a takedown adds boost, then it refills", () => {
-    const s = new DriverSeat();
-    s.focus(0);
-    s.mode = "drive";
-    s.sample(new Set(["ShiftLeft"]), null);
-    s.step(0.8);
-    assert.equal(s.boost, 1, "Shift alone parked should not burn boost");
-    s.sample(new Set(["ShiftLeft", "KeyW"]), null);
-    s.step(0.8);
-    assert.ok(s.boost < 0.6, `boost ${s.boost}`);
-    s.addBoost(0.4);
-    assert.ok(s.boost > 0.7);
+  it("when Shift is held parked, then boost is not burnt; when Shift is held with W on a car under way, then boost drains by the thrust the car applies; and when a takedown adds boost, then it refills", () => {
+    const parked = rigAt("third", 0);
+    parked.seat.sample(new Set(["ShiftLeft"]), null);
+    applyDrive(parked.car, parked.seat.input(parked.car, H), H);
+    parked.seat.step(0.8);
+    assert.equal(parked.seat.boost, 1, "Shift alone parked should not burn boost");
+    const r = rigAt("third", 10);
+    const held = new Set(["ShiftLeft", "KeyW"]);
+    for (let t = 0; t < 0.8 - 1e-9; t += H) {
+      r.seat.sample(held, null);
+      applyDrive(r.car, r.seat.input(r.car, H), H);
+      r.seat.step(H);
+    }
+    assert.ok(r.seat.boost < 0.6, `boost ${r.seat.boost}`);
+    r.seat.addBoost(0.4);
+    assert.ok(r.seat.boost > 0.7);
   });
 
   it("when the cycle control (LB/RB or Q/E) is pressed from the whole field, forwards and backwards, then it starts following the first or last car and wraps both ways, and keeps driving mode", () => {

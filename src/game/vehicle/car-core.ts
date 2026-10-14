@@ -290,9 +290,9 @@ export abstract class CarCore {
   spawnSpeed = 0;
   /** Times this car was put on a spot (`placeAt`: a respawn, a wake, a start): the recorder keys a step the count moved in. */
   placements = 0;
-  /** Last slice's drive (applyDrive writes it). spin / lock / slide: 0–1 wheel slip for tyre FX (launch wheelspin, brake lock-up, sideways slide); `drift`: the drift assist's state; `hold`: sideways grip (m/s) left this step, spent by a face the car is pressed on (`wallBounce`).
+  /** Last slice's drive (applyDrive writes it). spin / lock / slide: 0–1 wheel slip for tyre FX (launch wheelspin, brake lock-up, sideways slide); `drift`: the drift assist's state; `hold`: sideways grip (m/s) left this step, spent by a face the car is pressed on (`wallBounce`); `ebrakeK` / `boostK`: 0–1 handbrake grip and boost thrust actually applied, the booleans `ebrake` / `boost` ramped in and out over time (`DRIVE.ebrakeIn`, `BOOST.ramp`).
    *  `-0`: doubles from construction; each field's first fractional write mid-race deoptimised applyDrive for seconds. */
-  readonly drive = { throttle: -0, steer: -0, brake: -0, ebrake: false, boost: false, neutral: false, spin: -0, lock: -0, slide: -0, drift: -0, hold: -0 };
+  readonly drive = { throttle: -0, steer: -0, brake: -0, ebrake: false, boost: false, neutral: false, spin: -0, lock: -0, slide: -0, drift: -0, hold: -0, ebrakeK: -0, boostK: -0 };
   /** A wreck at rest: `integrateWreck` skips its rigid step until something moves it (`wake`). */
   asleep = false;
   /** Seconds the wreck has rested (`integrateWreck`); it sleeps at `WRECK_REST_S`. */
@@ -740,7 +740,7 @@ export abstract class CarCore {
     const decay = Math.exp(-dt / AIR_SPIN_TAU);
     const wind = this.airThrottle * AIR_SPIN_UP * dt;
     for (let i = 0; i < this.wheels.length; i++) {
-      if (rolling) this.wheelRate[i] = (along - this.angular.y * WHEEL_POS[i]![0]) * inv * (1 - (i >= 2 && d.ebrake ? 1 : d.lock));
+      if (rolling) this.wheelRate[i] = (along - this.angular.y * WHEEL_POS[i]![0]) * inv * (1 - (i >= 2 ? Math.max(d.ebrakeK, d.lock) : d.lock));
       else this.wheelRate[i] = this.wheelRate[i]! * decay + wind;
       this.wheelSpin[i]! += this.wheelRate[i]! * dt;
       if (!this.looseWheels[i]!.loose) this.wheels[i]!.rotation.x = this.wheelSpin[i]!;

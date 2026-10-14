@@ -133,7 +133,7 @@ export function Gauge({ view, corner, spectated = false }: { view: RaceView; cor
           >
             {Array.from({ length: CELLS }, (_, i) => (
               <div key={i} className="flex-1 overflow-hidden rounded-[2px] bg-fg/25 shadow-[var(--shadow-border)]">
-                <div className={cn("h-full", view.boosting ? "bg-fg" : "bg-accent")} style={{ width: `${Math.round(Math.min(1, Math.max(0, (boost ?? 0) * CELLS - i)) * 100)}%` }} />
+                <div className={cn("h-full", view.boosting > 0 ? "bg-fg" : "bg-accent")} style={{ width: `${Math.round(Math.min(1, Math.max(0, (boost ?? 0) * CELLS - i)) * 100)}%` }} />
               </div>
             ))}
           </div>

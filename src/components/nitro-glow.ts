@@ -7,17 +7,18 @@ const SOFT = 0.6;
 
 /**
  * How bright a boost meter glows, 0..1: it grows with the meter's fill up to `SOFT` (a burst of more than a quarter second in it),
- * and a burn lifts it to 1; the element's CSS transition (`transition-shadow`, `transition-[filter]`) eases the burn's on and off.
+ * and the boost's thrust (0..1, ramped by the car) lifts it from there to 1; the element's CSS transition eases it further.
  */
-function nitroGlowLevel(boost: number, boosting: boolean): number {
-  return boosting ? 1 : SOFT * Math.min(1, boost / NITRO_USABLE);
+function nitroGlowLevel(boost: number, boosting: number): number {
+  const idle = SOFT * Math.min(1, boost / NITRO_USABLE);
+  return idle + (1 - idle) * boosting;
 }
 
 /**
  * The boost meter's glow for the bottle (a shadow over its border one) and the compact bar (a drop shadow): a continuous
  * function of `nitroGlowLevel`, not three classes (masterclass 23:34); undefined for a car with no nitrous.
  */
-export function nitroGlowStyle(shape: "bottle" | "bar", boost: number | null, boosting: boolean): CSSProperties | undefined {
+export function nitroGlowStyle(shape: "bottle" | "bar", boost: number | null, boosting: number): CSSProperties | undefined {
   if (boost === null) return undefined;
   const level = nitroGlowLevel(boost, boosting);
   if (shape === "bar") return { filter: `drop-shadow(0 0 ${(8 * level).toFixed(2)}px var(--color-accent))` };

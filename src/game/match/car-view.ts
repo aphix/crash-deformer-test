@@ -21,6 +21,6 @@ export function carGauge(car: DeformableCar): Pick<RaceView, "speedKph" | "gear"
     rpm: carRpm(car),
     damage: carDamage(car),
     wheelsOff: 4 - car.deform.wheelsOn,
-    boosting: car.drive.boost,
+    boosting: car.drive.boostK,
   };
 }

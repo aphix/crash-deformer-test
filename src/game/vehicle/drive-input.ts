@@ -56,10 +56,11 @@ export const FEEL = {
   stopSpeed: 0.6,
   /** Service-brake share applied with the handbrake. */
   handbrakeBrake: 0.55,
-  /** With keyboard steering, a brake held no longer than this (s) and released with the wheel past `tapWheel` at speed is a drift request: the handbrake pulses for `tapPulse` s. An analog wheel (pad stick, a scripted driver) brakes into corners on purpose and keeps the handbrake button. */
+  /** With keyboard steering, a brake held no longer than this (s) and released with the wheel past `tapWheel` at speed is a drift request: the handbrake is asked for `tapPulseMin` s after the shortest tap up to `tapPulse` s after one `tapBrake` long (the car ramps its grip in over `DRIVE.ebrakeIn`, so the shortest tap kicks gently and a full one flicks). An analog wheel (pad stick, a scripted driver) brakes into corners on purpose and keeps the handbrake button. */
   tapBrake: 0.25,
   tapWheel: 0.6,
-  tapPulse: 0.1,
+  tapPulseMin: 0.04,
+  tapPulse: 0.12,
 };
 
 /**
@@ -134,7 +135,8 @@ export function shapeDrive(intent: DriveIntent, feel: DriveFeel, along: number, 
   if (intent.brake > 0.5) feel.brakeHeld += dt;
   else {
     if (!intent.analogWheel && feel.brakeHeld > 0 && feel.brakeHeld <= FEEL.tapBrake && Math.abs(feel.wheel) > FEEL.tapWheel && along > SLIDE_SPEED) {
-      feel.pulse = FEEL.tapPulse;
+      // The longer the tap, the longer the window the handbrake is asked for; `applyDrive` ramps its grip in and out over it (`DRIVE.ebrakeIn`), so a short tap gets a small kick and a long one the full flick.
+      feel.pulse = FEEL.tapPulseMin + (FEEL.tapPulse - FEEL.tapPulseMin) * (feel.brakeHeld / FEEL.tapBrake);
     }
     feel.brakeHeld = 0;
   }
