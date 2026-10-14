@@ -5,7 +5,7 @@ import { labLine, stripLines, type StripResult } from "./engine-bench-plan.ts";
 /** The detail A/B's arms: no cuts at all, then the ladder's rungs for 75, 50 and 30 m (`DETAIL_LEVELS`). */
 export const DETAIL_ARMS: readonly { key: string; level: number | null }[] = [{ key: "off", level: null }, { key: "75 m", level: 0 }, { key: "50 m", level: 2 }, { key: "30 m", level: 4 }];
 
-/** The pacer A/B's arms, the keys of `BenchResult.abPace`: the 1/240 s slice pinned, the 1/120 s slice pinned. */
+/** The pacer A/B's arms, the keys of `BenchResult.abPace`: the 1/240 s slice pinned, the 1/90 s slice pinned. */
 export const PACE_ARM = { fine: "fine", coarse: "coarse" } as const;
 
 export interface Stat {
@@ -161,7 +161,7 @@ export interface BenchResult {
   /** Frames the pacer stopped early, and the sim seconds it gave up (never stepped). */
   cutFrames: number;
   lostSimS: number;
-  /** Share of the sampled frames the pacer ran at its coarse 1/120 s slice (`SimPacer` adaptive), %. */
+  /** Share of the sampled frames the pacer ran at its coarse 1/90 s slice (`SimPacer` adaptive), %. */
   coarsePct: number;
   /** Sim seconds per wall second, %: below 100 the game runs slower than real time (the pacer's cuts, or the slow-motion). */
   simSpeedPct: number;
@@ -183,7 +183,7 @@ export interface BenchResult {
    */
   pageEvents: PageEvent[];
   settings: BenchSettings;
-  /** The pacer pinned to 1/240 s and to 1/120 s in alternating blocks (same tier), then the FX tier alternated minimal / low / high (and ultra when the page asked: `&ultra=1`). */
+  /** The pacer pinned to 1/240 s and to 1/90 s in alternating blocks (same tier), then the FX tier alternated minimal / low / high (and ultra when the page asked: `&ultra=1`). */
   abPace: { fine: Block; coarse: Block };
   abFx: { minimal: Block; low: Block; high: Block; ultra?: Block };
   /** The distance detail pinned: no cuts, then the rungs for 75, 50 and 30 m (the governor off, the FX tier held). */
@@ -301,7 +301,7 @@ export function describeBench(r: BenchResult): string[] {
     `${f1(r.fps)} FPS   1% low ${f1(r.fpsLow1)}   by thirds ${r.fpsThirds.map(f1).join(" / ")}`,
     `fps each second: ${r.fpsPerSecond.join(" ")}`,
     `sim ms each second: ${r.simMsPerSecond.join(" ")}`,
-    `SIM SPEED ${Math.round(r.simSpeedPct)} %   pacer cut ${r.cutFrames} of ${r.frames} frames, gave up ${f1(r.lostSimS)} sim-s   1/120 s steps in ${Math.round(r.coarsePct)} % of frames   wrecks: mean ${f1(r.crashed.mean)}, end ${r.crashed.end}`,
+    `SIM SPEED ${Math.round(r.simSpeedPct)} %   pacer cut ${r.cutFrames} of ${r.frames} frames, gave up ${f1(r.lostSimS)} sim-s   1/90 s steps in ${Math.round(r.coarsePct)} % of frames   wrecks: mean ${f1(r.crashed.mean)}, end ${r.crashed.end}`,
     ...leftPage(r.pageEvents),
     row("frame", r.frameMs),
     row("CPU", r.cpuMs),
@@ -316,7 +316,7 @@ export function describeBench(r: BenchResult): string[] {
     `night ${s.night ? "on" : "off"}, wet ${s.wet ? "on" : "off"}, realism ${f1(s.realism)}, squash ${f1(s.squash)}, buckle ${f1(s.buckle)}, deform ${s.deformMode}`,
     `depth: ${s.depth.bits} bits (drawing buffer${s.depth.contextDepth ? "" : ", none requested"}), subpixel ${s.depth.subpixelBits} bits, fragment highp ${s.depth.fragmentHighFloat ? `${s.depth.fragmentHighFloat.precision} bits, range 2^${s.depth.fragmentHighFloat.rangeMin}..2^${s.depth.fragmentHighFloat.rangeMax}` : "not supported"}, camera near ${s.depth.near} far ${s.depth.far}, log depth ${s.depth.logarithmicDepthBuffer ? "on" : "off"}, ${describeDepthProbe(s.depth.probe)}`,
     `A/B pacer pinned: ${arm("1/240 s", r.abPace.fine)}, ${f1(r.abPace.fine.fineCutsPerSimS)} fine-slice cuts/sim-s`,
-    `                  ${arm("1/120 s", r.abPace.coarse)}, ${f1(r.abPace.coarse.fineCutsPerSimS)} fine-slice cuts/sim-s`,
+    `                  ${arm("1/90 s", r.abPace.coarse)}, ${f1(r.abPace.coarse.fineCutsPerSimS)} fine-slice cuts/sim-s`,
     `A/B fx pinned: ${arm("minimal", r.abFx.minimal)}`,
     `               ${arm("low", r.abFx.low)}`,
     `               ${arm("high", r.abFx.high)}`,

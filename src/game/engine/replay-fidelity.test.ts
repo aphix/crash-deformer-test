@@ -139,39 +139,43 @@ describe("given a highlight clip recorded from a crash and replayed from its key
     });
   });
 
-  // The adaptive pacer (`SimPacer`) steps a slow device at 1/120 s; the recorder stores each step's dt, so its clips replay as exactly.
-  describe("given a derby recorded on a slow device whose sim steps at 1/120 s instead of 1/240 s", () => {
-    const HEAD = Math.PI / 2;
-    const run = (name: string, spawns: Spawn[]): void => {
-      const rec = recordFlat(spawns, 8, true, [], 1 / 120);
-      const coarse = rec.clip.h.filter((h) => h > 1 / 120 - 1e-6).length;
-      assert.ok(coarse > rec.clip.h.length / 2, `${name}: ${coarse} of ${rec.clip.h.length} steps at 1/120 s (the rest are frame remainders)`);
-      check(name, rec, agreement(rec));
-    };
-    const coarseStepCases = [
-      {
-        it: "when two cars 80 m apart drive head-on at each other at 20 m/s each, then most steps are 1/120 s and the replay matches the live sim at every step, to the bit",
-        name: "coarse head-on",
-        spawns: [
-          { x: 0, z: 0, yaw: HEAD, speed: 20, throttle: 1 },
-          { x: 80, z: 0, yaw: -HEAD, speed: 20, throttle: 1 },
-        ],
-      },
-      {
-        it: "when two cars hit head-on, a third follows behind one of them and a fourth comes across, then most steps are 1/120 s and the replay matches the live sim at every step, to the bit",
-        name: "coarse pile-up",
-        spawns: [
-          { x: 0, z: 0, yaw: HEAD, speed: 20, throttle: 1 },
-          { x: 80, z: 0, yaw: -HEAD, speed: 20, throttle: 1 },
-          { x: -12, z: 0.5, yaw: HEAD, speed: 20, throttle: 1 },
-          { x: 40, z: 60, yaw: Math.PI, speed: 20, throttle: 1 },
-        ],
-      },
-    ] as const;
-    for (const testCase of coarseStepCases) {
-      it(testCase.it, () => run(testCase.name, [...testCase.spawns]));
-    }
-  });
+  // The adaptive pacer (`SimPacer`) steps a slow device at 1/90 s; the recorder stores each step's dt, so its clips replay as exactly.
+  // A clip saved at the old 1/120 s floor holds its own steps just the same: the replay runs the clip's steps, never the pacer's.
+  for (const [floor, rate] of [[1 / 90, "1/90"], [1 / 120, "1/120"]] as const) {
+    describe(`given a derby recorded on a slow device whose sim steps at ${rate} s instead of 1/240 s`, () => {
+      const HEAD = Math.PI / 2;
+      const run = (name: string, spawns: Spawn[]): void => {
+        const rec = recordFlat(spawns, 8, true, [], floor);
+        const coarse = rec.clip.h.filter((h) => h > floor - 1e-6).length;
+        // A 1/60 s frame is one 1/90 s step and a 1/180 s remainder, so half the steps are the floor's by the frames' own grid.
+        assert.ok(coarse >= rec.clip.h.length / 2, `${name}: ${coarse} of ${rec.clip.h.length} steps at ${rate} s (the rest are frame remainders)`);
+        check(`${name} ${rate}`, rec, agreement(rec));
+      };
+      const coarseStepCases = [
+        {
+          it: `when two cars 80 m apart drive head-on at each other at 20 m/s each, then most steps are ${rate} s and the replay matches the live sim at every step, to the bit`,
+          name: "coarse head-on",
+          spawns: [
+            { x: 0, z: 0, yaw: HEAD, speed: 20, throttle: 1 },
+            { x: 80, z: 0, yaw: -HEAD, speed: 20, throttle: 1 },
+          ],
+        },
+        {
+          it: `when two cars hit head-on, a third follows behind one of them and a fourth comes across, then most steps are ${rate} s and the replay matches the live sim at every step, to the bit`,
+          name: "coarse pile-up",
+          spawns: [
+            { x: 0, z: 0, yaw: HEAD, speed: 20, throttle: 1 },
+            { x: 80, z: 0, yaw: -HEAD, speed: 20, throttle: 1 },
+            { x: -12, z: 0.5, yaw: HEAD, speed: 20, throttle: 1 },
+            { x: 40, z: 60, yaw: Math.PI, speed: 20, throttle: 1 },
+          ],
+        },
+      ] as const;
+      for (const testCase of coarseStepCases) {
+        it(testCase.it, () => run(testCase.name, [...testCase.spawns]));
+      }
+    });
+  }
 
   it("when every crash above has been replayed, then the worst pose, velocity and crush errors of each are reported as a diagnostic table", (t) => t.diagnostic(rows.join("\n")));
 });

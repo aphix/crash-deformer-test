@@ -155,13 +155,13 @@ describe("given a lone car in the city race on a walled stretch of the loop, 2 m
       const lat = (at: number) => track.project(w.cars[0]!.group.position.x, w.cars[0]!.group.position.z, k, blankProjection()).lateral - at;
       const car = w.cars[0]!;
       car.spawnFacing(p.x[k]! + p.tz[k]! * (limit - 2), p.z[k]! - p.tx[k]! * (limit - 2), Math.atan2(p.tx[k]!, p.tz[k]!), 0);
-      w.race.courseHit(car, 0, 1 / 120);
+      w.race.courseHit(car, 0, 1 / 90);
       assert.ok(Math.abs(lat(limit - 2)) < 0.05, "on the road side, the wall leaves the car alone");
       // A car-car shove: 1.35 m toward the wall in one step, the flank 0.3 m into the drawn wall and the car's middle still on the
       // road side of it. (A one-step shove of 3.5 m, this test's old one, carried the middle past the whole wall: through it.)
       car.group.position.x += p.tz[k]! * 1.35;
       car.group.position.z -= p.tx[k]! * 1.35;
-      w.race.courseHit(car, 0, 1 / 120);
+      w.race.courseHit(car, 0, 1 / 90);
       const back = lat(0);
       const hw = footHalfW(car);
       assert.ok(back < limit - hw + 0.001 && back > limit - 3, `returned to ${back.toFixed(3)} m, the wall line at ${limit.toFixed(2)} m, the car's drawn flank ${hw.toFixed(3)} m from its middle`);
@@ -197,9 +197,9 @@ describe("given a lone car in the city race on a walled stretch of the loop with
       // On the road first (the course hint finds this stretch), then 2.8 m beyond the line: its footprint (0.95 m to a side)
       // clear of the 0.6 m wall behind the line.
       put(limit - 2);
-      w.race.courseHit(car, 0, 1 / 120);
+      w.race.courseHit(car, 0, 1 / 90);
       put(limit + 2.8);
-      w.race.courseHit(car, 0, 1 / 120);
+      w.race.courseHit(car, 0, 1 / 90);
       assert.ok(Math.abs(lateral() - (limit + 2.8)) < 0.01, `a car outside the wall is not pushed (now ${lateral().toFixed(2)} m, line ${limit.toFixed(2)} m)`);
       // A keyframe puts it 3.7 m back, its flank 0.05 m into the drawn wall: freshly placed, and the wall returns it that far.
       // (The old line probe read 0.13 m: it measured the front probes across the bend in the frame of the car's middle.)
@@ -208,7 +208,7 @@ describe("given a lone car in the city race on a walled stretch of the loop with
       put(limit - hw + 0.05);
       const depth = footDepth(car);
       w.race.remember(0, Float64Array.of(-1), 0);
-      w.race.courseHit(car, 0, 1 / 120);
+      w.race.courseHit(car, 0, 1 / 90);
       const pushed = limit - hw + 0.05 - lateral();
       assert.ok(depth > 0.03 && Math.abs(pushed - depth) < 0.01, `the placed car, ${depth.toFixed(3)} m into the wall, is pushed back ${pushed.toFixed(3)} m`);
     } finally {

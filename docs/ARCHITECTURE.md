@@ -169,9 +169,11 @@ A race runs through `RaceDirector` (`engine-race.ts`) over `RaceHudLayer` (`engi
 ```
 pollInput → stepSceneFade → fxFrame
 if playing:  simDt = wallDt × timeScale × cine.timeWarp
-             SimPacer.run: whole fixedSteps of physicsSlice(cars) against an 8 ms budget (sim-pace.ts)
-               fixedStep: race.drive / applyDrive (seat, derby AI, net peers) → stepWorld (1–3 slices: integrate,
-                          pair + part contact, SAT passes, stepStructure, clips) → ejections → race.step → cinematic trigger
+             SimPacer.run: whole fixedSteps of physicsSlice(cars) against an 8 ms budget (sim-pace.ts): 1/90 s, one per 90 Hz frame,
+                          1/240 s while a crush window is open
+               fixedStep: race.drive / applyDrive (seat, derby AI, net peers) → stepWorld (1–8 slices, one when quiet; a step in contact
+                          is cut at the 1/240 s floor, 3 slices of 1/270 s at 1/90 s; each: integrate, pair + part contact, SAT passes,
+                          stepStructure, clips) → ejections → race.step → cinematic trigger
              stepEdge → scheduleSkins (Witness: off-camera cars defer, small ones stride) → updateSkin
              updatePhase → rigs → FX, ragdolls, smoke, trace → stepDerby → seat.step → cine.update
 always:      net.frame → PoseBlend.present (bodies, loose parts and the crush skin drawn at the frame's time between

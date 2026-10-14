@@ -16,7 +16,7 @@ import { aiCar, decide, mass, paint } from "./test-support.ts";
  * thrust and brakes only from the wheels still on. One rule for the player and the AI (both go through `applyDrive`).
  */
 
-const H = 1 / 120;
+const H = 1 / 90;
 const HUBS = ["hubFL", "hubFR", "hubRL", "hubRR"] as const;
 const CLASS_IDS = Object.keys(CLASSES) as VehicleClassId[];
 

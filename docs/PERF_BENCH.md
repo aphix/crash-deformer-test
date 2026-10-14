@@ -15,7 +15,7 @@ and compare builds inside one session with alternating runs.
 
 **On WSL** always pass `--vsync` to `bench-browser.mjs`: its default launch is uncapped, and uncapped frame-rate flags drive
 the GPU through WSL's d3d12 driver and have crashed the VM. For CPU frame cost, drive the page with
-`__crush.advance(seconds, { frameDt, render: true })` at a synthetic `frameDt` (1/240 s for the fleet and derby, 1/120 s in
+`__crush.advance(seconds, { frameDt, render: true })` at a synthetic `frameDt` (1/240 s for the fleet and derby, 1/90 s in
 races): the numbers are then the **CPU cost of the frame the engine does per rendered frame** (sim, camera, FX, render
 submit), reproducible and independent of the compositor's pacing; GPU time is not in them.
 
@@ -60,7 +60,7 @@ The ultra arm is each step's own: the loop runs the same three steps with `&ultr
 | `strip …` / `lead racer …` (strip only) | the strip's settings, and how far up it the leader got; `REACHED THE TURN` means the late blocks include the U-turn |
 | `FPS   1% low   by thirds` | mean fps over the 30 s window, the 1 % low, and the mean of each third |
 | `fps each second` / `sim ms each second` | per wall second: frames, and the ms `SimPacer.run` (physics, AI, breakage) took, scaled to 1000 ms |
-| `SIM SPEED … %` | race-clock seconds per wall second; `pacer cut` frames and `gave up` sim-s (`SimPacer.lost` / `cut`); the share of frames at the 1/120 s step; wrecks (mean, end) |
+| `SIM SPEED … %` | race-clock seconds per wall second; `pacer cut` frames and `gave up` sim-s (`SimPacer.lost` / `cut`); the share of frames at the 1/90 s step; wrecks (mean, end) |
 | `PAGE LEFT during the window: …` (only when it happened) | the page lost focus or was hidden mid-window (`pageEvents`, window phase): each change with its time into the window. Read max and p99 with it in mind: the one 1.1 s sim frame in 192 cards (2278f1c dam-spine on a phone, `sim ms each second` 2355 and 2180 around the blur at 18.5 s and hide at 19.0 s, 750 elsewhere) sat there, and the other 17 cards with a page change stayed under 131 ms of sim. Likely the phone holding the page it was leaving, not proven |
 | `frame`, `CPU`, `  sim`, `  draw` | p50 / p95 / p99 / max ms of the frame interval, the main-thread tick, its sim part (plus steps per frame, ms per step, **ms per sim-second** and fine-slice cuts per sim-second) and its render submit. Compare ms per sim-second across browsers, not ms per step, which grows with the step |
 | `GPU` | timer-query ms (absent on Firefox and some phones). It spans the draw, so a wait inside it counts: when p95 is one frame long the card says so, and p50 is the work |
@@ -70,7 +70,7 @@ The ultra arm is each step's own: the loop runs the same three steps with `&ultr
 | `shadows … pixel ratio … canvas … MSAA … fx density, cel` | render settings in force |
 | `night, wet, realism, squash, buckle, deform` | sim and look settings in force |
 | `depth` | depth-buffer bits, subpixel bits, fragment highp range, camera near / far, log depth |
-| `A/B pacer pinned` | 3 × 3 s per arm: `SimPacer.pin` holds the 1/240 s and the 1/120 s floor in turn. Each arm prints fps, sim speed, ms per sim-second, CPU / draw / GPU ms |
+| `A/B pacer pinned` | 3 × 3 s per arm: `SimPacer.pin` holds the 1/240 s and the 1/90 s floor in turn. Each arm prints fps, sim speed, ms per sim-second, CPU / draw / GPU ms |
 | `A/B fx pinned` | 2 × 3 s per arm at `minimal`, `low` and `high` (`high`: HDR target, 5-mip bloom, radial blur, tone map, grade, vignette, grain; `low`: 3-mip bloom; `minimal`: none), then `ultra` with `&ultra=1`. Each arm prints fps, sim speed, ms per sim-second, CPU / draw / GPU ms and draw calls per frame |
 | `A/B detail pinned` | 2 × 3 s per arm, run before the FX arms at stretch 1's tier with `AutoFx` and the governor off: no cuts, then body alone beyond 75, 50 and 30 m |
 | `load` | ms the race's options and start took |

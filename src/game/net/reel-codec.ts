@@ -132,9 +132,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 80: a clip lists the sleeping wrecks woken in a step by something that moves coming near them (`ClipStir`), and a replay wakes each at that slice: a wreck beside the road
  * that a racer the clip leaves out drove past woke in the record and slept on in the replay, so its settling (millimetres in a step, then a pile's push-out) differed after it. A saved
  * clip's layout gains a count and the stirs after the knocks, so a clip of 79 or before does not decode.
+ * 81: a quiet step is 1/90 s, one per 90 Hz frame (it was 1/120 s), and a step in contact is cut to slices of the 1/240 s floor (3 of 1/270 s), so a
+ * clip saved at 80 holds steps of another length and a replayed crash lands on other slices (the 1/240 s crush-window steps are as before).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 80;
+const REPLAY_VERSION = 81;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

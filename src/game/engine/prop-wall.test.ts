@@ -64,7 +64,7 @@ describe("given a panel of the Havana alley wall (0.44 m thick) and a car with o
       // Nose to +x, tail toward the wall, the tail at x = −40.45: 0.5 m into the panel, 0.2 m past its middle plane.
       const x0 = -40.45 - car.cage.fields.planBox[2]!;
       car.spawnFacing(x0, PANEL.z, 90 * D, 0);
-      propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / 120);
+      propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / 90);
       assert.ok(car.group.position.x > x0, `pushed east, to x=${car.group.position.x.toFixed(3)}`);
       const { past, inside } = reach(car);
       assert.equal(past, 0, "no corner past the far face");
@@ -76,7 +76,7 @@ describe("given a panel of the Havana alley wall (0.44 m thick) and a car with o
       const car = makeCar(cls);
       const x0 = -40.45 + Math.max(-car.cage.fields.planBox[0]!, car.cage.fields.planBox[1]!);
       car.spawnFacing(x0, PANEL.z, 0, 0);
-      propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / 120);
+      propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / 90);
       assert.ok(car.group.position.x > x0, `pushed east, to x=${car.group.position.x.toFixed(3)}`);
       assert.equal(reach(car).past, 0);
     });
@@ -166,7 +166,7 @@ describe("given the Havana alley wall and a car swung into it with the handbrake
   }
 });
 
-describe("given the Havana alley wall and a physics step of 1/120 s (46 cm a step at 55 m/s, most of a panel's thickness)", () => {
+describe("given the Havana alley wall and a physics step of 1/90 s (46 cm a step at 55 m/s, most of a panel's thickness)", () => {
   const CASES = [
     { dw: 5, alpha: 45 * D, vdir: -30 * D, speed: 55, steer: 1, ebrake: false },
     { dw: 0, alpha: 60 * D, vdir: 0, speed: 55, steer: -1, ebrake: true },

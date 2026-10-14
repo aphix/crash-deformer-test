@@ -10,7 +10,8 @@ const MIN_SCALE = 1 / 64;
 export const PACE_BUDGET_MS = 8;
 /** The shortest step (s) the pacer takes on a device that keeps up, and the one it falls back to when it doesn't. */
 export const FINE_SLICE = 1 / 240;
-const COARSE_SLICE = 1 / 120;
+/** The coarse floor: one step per 90 Hz frame. Handling is authored at it (`vehicle-classes.test.ts`). */
+const COARSE_SLICE = 1 / 90;
 /** Go coarse when a frame's fine steps are predicted to take more than this share of the budget; come back under this share. */
 const COARSE_ABOVE = 0.9;
 const FINE_BELOW = 0.5;
@@ -36,14 +37,14 @@ const BLIND_TICK_MS = 4;
  * frame's first step, so a frame that began late still steps its own time): it stops, and the sim time it did not step is given up, never carried to the next frame to be caught up in a burst. An overloaded sim therefore runs
  * slow by the same share every frame, and one late frame costs that frame alone. What was given up is counted in `lost`.
  *
- * `adaptive` spends less before it gives time up. A step costs about the same at 1/240 s as at 1/120 s (contact is solved at its own
+ * `adaptive` spends less before it gives time up. A step costs about the same at 1/240 s as at 1/90 s (contact is solved at its own
  * rate inside it, `stepWorld`), so when the mean step cost says a frame's 1/240 s steps would not fit `PACE_BUDGET_MS`, the
- * floor of the slice goes to 1/120 s: half the steps per sim second, the same sim speed on a device twice as slow. It comes back
+ * floor of the slice goes to 1/90 s: 2.7× fewer steps per sim second, the same sim speed on a device 2.7× as slow. It comes back
  * when the fine steps would fit with room. The mode is chosen once per frame, before its first step, and held for `DWELL` sim
  * seconds; the cost is measured on the pacer's own steps, so a device that keeps up never leaves 1/240 s.
  *
  * A clock that reads in ticks of `BLIND_TICK_MS` or longer (two reads around a step came back equal, and no two reads ever differed
- * by less) times no step: the adaptive floor holds 1/120 s and a frame is bounded by `MAX_STEPS` alone, never by the deadline, which
+ * by less) times no step: the adaptive floor holds 1/90 s and a frame is bounded by `MAX_STEPS` alone, never by the deadline, which
  * such a clock passes on a tick rather than on the frame's spending.
  */
 export class SimPacer {
@@ -61,11 +62,11 @@ export class SimPacer {
   /** Steps taken so far, and how many of them at the coarse floor. */
   total = 0;
   coarseSteps = 0;
-  /** The slice floor is 1/120 s right now. */
+  /** The slice floor is 1/90 s right now. */
   coarse = false;
   /** The slice (s) the 1/240 s floor takes for the frame under way, whichever floor steps: the longest slice a hit about to land is solved in (`World.fine`), so the coarse floor's hit lands on the slices the fine floor takes. */
   fine = FINE_SLICE;
-  /** The bench page's A/B: true holds the 1/120 s floor, false the 1/240 s, whatever the step costs; null (the engine's own) adapts. */
+  /** The bench page's A/B: true holds the 1/90 s floor, false the 1/240 s, whatever the step costs; null (the engine's own) adapts. */
   pin: boolean | null = null;
   /** Running means: wall ms of a step, and the 1/240 s steps a frame calls for (0 until the first). */
   private cost = 0;
@@ -87,8 +88,8 @@ export class SimPacer {
   /**
    * One frame: `simDt` sim seconds (the frame's wall time at the time scale `scale`) in steps of `vmax`'s slice, each handed
    * to `step`. `deadline` (a `now()` ms) ends the loop once two steps have run, on a clock fine enough to time a step.
-   * `fineNeeded`: a crush window is open on some car, so quiet steps take the fine slice; otherwise 1/120 is the floor
-   * (handling is authored at 1/120, `vehicle-classes.test.ts`). `pin` overrides it.
+   * `fineNeeded`: a crush window is open on some car, so quiet steps take the fine slice; otherwise 1/90 is the floor
+   * (handling is authored at 1/90, `vehicle-classes.test.ts`). `pin` overrides it.
    */
   run(simDt: number, scale: number, vmax: number, fineNeeded: boolean, deadline: number, step: (h: number) => void): void {
     const k = Math.min(1, Math.max(scale, MIN_SCALE));

@@ -31,7 +31,7 @@ function wedged(depth: number): { wreck: DeformableCar; world: CrashWorld } {
   launch(wreck, 0, 0, 0, 0, 0);
   launch(bullet, 0, 9, Math.PI, 0, -9);
   const settle = makeWorld([wreck, bullet], false, false, FREEWHEEL);
-  for (let t = 0; t < 2.5; t += 1 / 120) stepWorld(settle.world, 1 / 120);
+  for (let t = 0; t < 2.5; t += 1 / 90) stepWorld(settle.world, 1 / 90);
   assert.ok(wreck.deform.massActive && wreck.deform.quietTime() > 1, "no settled wreck to wedge");
   const [wx, wz] = centroid(wreck);
   const yaw = wreck.yaw;
