@@ -12,7 +12,7 @@ import { CineCam, DutchCam, EyePull, type Sight } from "./spectate-cam.ts";
 export type SpecView = SeatView | "cine" | "dutch" | "orbit" | "auto";
 const SPEC_VIEWS: readonly SpecView[] = ["third", "far", "first", "cine", "dutch", "orbit", "auto"];
 
-/** What the spectator cams read from the scene: `rivals` and `sight` when they pick a shot, `fixed` per frame (the course's own cached solids, no cars; null off a race) for the chase views' push-out. */
+/** What the spectator cams read from the scene: `rivals` and `sight` when they pick a shot, `fixed` per frame (the course's own cached solids, no cars; null off a race) for the chase views' push-out, the driver's too. */
 export type SpecScene = AutoScene & { rivals(): readonly DeformableCar[]; fixed(): Sight | null };
 
 /** A lamp post the orbit keeps clear of: it stands from its base up `POST_TOP` m and is thin, so the eye's distance to its axis is what counts. */
@@ -342,12 +342,17 @@ export class ChaseCamera {
     }
   }
 
-  /** Chase, far chase or hood-cam view of the driven car; mouse drag / right stick look round it. */
-  frameDrive(car: DeformableCar, wallDt: number, shake: boolean): void {
+  /**
+   * Chase, far chase or hood-cam view of the driven car; mouse drag / right stick look round it. `fixed`: the course's
+   * solids (null off a race), which the chase views keep out of (`keepClear`).
+   */
+  frameDrive(car: DeformableCar, fixed: Sight | null, wallDt: number, shake: boolean): void {
     this.fallWatch = false;
     this.rig = "chase";
-    this.drive.update(this.camera, car, this.seat.view, wallDt, this.pad.rx, this.pad.ry);
-    if (shake) this.shake(this.seat.view === "first" ? CHASE.shakeHood : 1);
+    const view = this.seat.view;
+    this.drive.update(this.camera, car, view, wallDt, this.pad.rx, this.pad.ry);
+    this.keepClear(car, view, fixed, wallDt);
+    if (shake) this.shake(view === "first" ? CHASE.shakeHood : 1);
   }
 
   /** The followed car's cam: `spec`, else in a race (`chase`) the seat's chase view, elsewhere the orbit. */
@@ -386,22 +391,26 @@ export class ChaseCamera {
     const chase = view === "cine" ? "third" : view;
     this.rig = "chase";
     this.drive.update(this.camera, car, chase, wallDt, this.pad.rx, this.pad.ry, true);
-    this.pushOut(chase === "first" ? null : scene.fixed(), wallDt);
+    this.keepClear(car, chase, scene.fixed(), wallDt);
     if (shake) this.shake(chase === "first" ? CHASE.shakeHood : 1);
     return true;
   }
 
   /**
-   * A chase eye inside a course solid (a street corner, a wall) is pulled in along the view (`EyePull`): at once as the
-   * solid closes on it, eased back out once the way is clear. One solid test per frame while it is clear and nothing is
-   * being eased out. The rig's own spring is untouched. The orbit and the hood cam are not pushed (`s` null).
+   * A chase eye inside a course solid (a street corner, a wall, a tunnel's rock) is pulled in along the view (`EyePull`): at
+   * once as the solid closes on it, eased back out once the way is clear. One solid test per frame while it is clear and
+   * nothing is being eased out. Then it is lifted to `CHASE.floor` over the ground under it, so a ramp or a landing's dip
+   * never takes it under the road. The rig's own spring is untouched. The orbit and the hood cam are not pushed. `s` null
+   * (off a race): no course solids, the floor only.
    */
-  private pushOut(s: Sight | null, dt: number): void {
-    if (!s) {
+  private keepClear(car: DeformableCar, view: SeatView, s: Sight | null, dt: number): void {
+    if (view === "first") {
       this.pull.reset();
       return;
     }
-    this.pull.apply(s, this.camera.position, this.camera.getWorldDirection(_v), dt);
+    if (s) this.pull.apply(s, this.camera.position, this.camera.getWorldDirection(_v), dt);
+    else this.pull.reset();
+    this.drive.keepAbove(this.camera, car);
   }
 
   /**

@@ -7,11 +7,11 @@ import type { PadState } from "../vehicle/gamepad.ts";
 import { assignClass } from "../vehicle/vehicle-classes.ts";
 import { paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
-import { FLAT_GROUND, setGround } from "../world/ground.ts";
+import { FLAT_GROUND, Ground, setGround } from "../world/ground.ts";
 import { Spring, Spring3 } from "./spring.ts";
 import { CHASE, DriveCam } from "./drive-cam.ts";
 import { ChaseCamera, RIDE_PAUSE, type SpecScene } from "./engine-camera.ts";
-import { occluder, type Sight } from "./spectate-cam.ts";
+import { occluder, solid, type Sight } from "./spectate-cam.ts";
 
 const DT = 1 / 60;
 
@@ -245,7 +245,7 @@ describe("given a spectator camera taking a car up from another shot", () => {
     car.group.position.set(0, 0, carZ);
     car.fwdFlat.set(0, 0, 1);
     const from = camera.position.clone();
-    view.frameDrive(car, DT, false);
+    view.frameDrive(car, null, DT, false);
     return { first: camera.position.distanceTo(car.group.position), moved: camera.position.distanceTo(from) };
   };
 
@@ -437,10 +437,10 @@ describe("given the chase camera and a hit on the car it follows", () => {
     const car = new DeformableCar(paint(), new THREE.Scene());
     assignClass(car, "sedan");
     car.spawnFacing(0, 0, 0, 0);
-    for (let t = 0; t < 3; t += DT) cam.frameDrive(car, DT, true);
+    for (let t = 0; t < 3; t += DT) cam.frameDrive(car, null, DT, true);
     const rest = camera.position.clone();
     cam.trauma = trauma;
-    cam.frameDrive(car, DT, true);
+    cam.frameDrive(car, null, DT, true);
     return camera.position.distanceTo(rest);
   };
 
@@ -535,5 +535,58 @@ describe("given the chase camera and a hit on the car it follows", () => {
     assert.ok(hood > 0.01 && Math.abs(hood / chase - CHASE.shakeHood) < 0.02, `hood ${hood.toFixed(3)} m is ${(hood / chase).toFixed(3)} of the chase's`);
     const calm = shaken("third", 0);
     assert.ok(calm < chase / 20, `no trauma moves the settled eye ${calm.toFixed(4)} m against the shake's ${chase.toFixed(3)} m`);
+  });
+});
+
+describe("given the driven car's chase and far chase eye beside a course wall and under rising ground", () => {
+  const make = (view: SeatView) => {
+    const seat = new DriverSeat();
+    seat.mode = "drive";
+    seat.view = view;
+    const camera = new THREE.PerspectiveCamera(56, 16 / 9, 0.1, 180);
+    const cam = new ChaseCamera(camera, fakeCanvas(), seat, { rx: 0, ry: 0 } as PadState, false, () => {});
+    const car = new DeformableCar(paint(), new THREE.Scene());
+    assignClass(car, "sedan");
+    car.spawnFacing(0, 0, 0, 0);
+    return { camera, cam, car };
+  };
+
+  it("when the car stands nose turned off a wall and the eye behind it would be inside the wall, then the eye ends up outside the wall's clearance, and inside it without the sight", () => {
+    // A wall along z with its face at x = 3; the eye of a car turned 0.5 rad off it sits at x ~ 3 (the chase) or ~ 4.8 (the far chase).
+    const wall: Sight = { ground: FLAT_GROUND, path: null, wallTop: 0, rim: Infinity, occ: [occluder(53, 0, 0, 50, 2000, false, 0, 30)] };
+    for (const view of ["third", "far"] as const) {
+      const free = make(view);
+      const held = make(view);
+      for (const r of [free, held]) r.car.fwdFlat.set(-Math.sin(0.5), 0, Math.cos(0.5));
+      for (let n = 0; n < 180; n++) {
+        free.cam.frameDrive(free.car, null, DT, false);
+        held.cam.frameDrive(held.car, wall, DT, false);
+      }
+      const f = free.camera.position;
+      const h = held.camera.position;
+      assert.ok(solid(wall, f.x, f.y, f.z, 0.5), `${view}: the unguarded eye at x ${f.x.toFixed(2)} m is not in the wall (the test needs it inside)`);
+      assert.ok(!solid(wall, h.x, h.y, h.z, 0.5), `${view}: the eye at x ${h.x.toFixed(2)} m, y ${h.y.toFixed(2)} m stands inside the wall's clearance`);
+    }
+  });
+
+  it("when the ground rises behind the car above the chase height, then the eye stays CHASE.floor above the ground under it on every frame", () => {
+    // A hill face behind the car: 0.5 m up per metre toward -z, so the eye 6 m behind would sit 3 m up in the rock at the chase's 2 m.
+    const hill = new Ground();
+    hill.addFace(-50, -50, 0, 100, 100, 25, 25, -25, -25, Infinity);
+    setGround(hill);
+    try {
+      for (const view of ["third", "far"] as const) {
+        const { camera, cam, car } = make(view);
+        let worst = Infinity;
+        for (let n = 0; n < 180; n++) {
+          cam.frameDrive(car, null, DT, false);
+          const p = camera.position;
+          worst = Math.min(worst, p.y - hill.heightAt(p.x, p.z, car.group.position.y));
+        }
+        assert.ok(worst >= CHASE.floor - 1e-6, `${view}: the eye came ${worst.toFixed(2)} m over the ground (clearance ${CHASE.floor} m)`);
+      }
+    } finally {
+      setGround(null);
+    }
   });
 });

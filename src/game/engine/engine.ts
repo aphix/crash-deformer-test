@@ -748,7 +748,7 @@ export class CrashEngine extends EngineGarage {
     if (followed && followed.group.visible && this.seat.mode === "drive") {
       // The body's ride reaches the chase and hood cams on every FX tier but "off" (0.0004 ms a frame), unless motion is reduced.
       this.view.drive.ride = this.cine.tier !== "off" && !this.clock.reduceMotion;
-      this.view.frameDrive(followed, wallDt, this.playing);
+      this.view.frameDrive(followed, this.specScene.fixed(), wallDt, this.playing);
       return;
     }
     // Following (spectating): the chosen spectator cam, on the rigs too (their default is the orbit, which falls through).

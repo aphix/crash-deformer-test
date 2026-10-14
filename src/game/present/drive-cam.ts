@@ -5,6 +5,7 @@ import { LOAD_FEEL } from "../vehicle/car-load.ts";
 import { hypot2 } from "../kernel/physics-core.js";
 import { wrapPiClosed } from "../kernel/scalar.ts";
 import { Spring, Spring3, type Axes } from "./spring.ts";
+import { activeGround, NO_FLOOR } from "../world/ground.ts";
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -58,7 +59,7 @@ export const CHASE = {
   fovSlide: 4,
   /** Camera roll (deg) at full slide, toward the side the car slides: the drift talk's "it tilts" (18:29), no number; 0 is off (playtest). */
   driftTilt: 0,
-  /** Lowest camera height (m) so a looked-down chase never clips into the floor. */
+  /** Clearance (m) the chase eye keeps over the ground under it (a ramp, a hill, the road after a landing's dip), so a looked-down chase never clips into the floor. */
   floor: 0.45,
   /** A frame-to-frame car jump past this (m) is a respawn: cut instead of swooping. */
   cut: 8,
@@ -78,6 +79,15 @@ export const CHASE = {
   shake: 1,
   shakeHood: 0.4,
 };
+
+/**
+ * The lowest a chase eye may stand (m) at (x, z): `CHASE.floor` over the surface there as the car's feet at height `y` see it
+ * (so a deck overhead is no floor, a ramp or a hill is), or over y = 0 where the ground has none.
+ */
+function eyeFloor(x: number, z: number, y: number): number {
+  const g = activeGround().heightAt(x, z, y);
+  return (g === NO_FLOOR ? 0 : g) + CHASE.floor;
+}
 
 /** The debug panel's groups: the talk's three tuning parameters (masterclass 29:27), then what else the chase tunes. */
 type ChaseGroup = "Convergence" | "Momentum" | "Damping" | "Look-ahead" | "Slide" | "Landing" | "Impact";
@@ -195,6 +205,12 @@ export class DriveCam {
     return was;
   }
 
+  /** Lift `camera`'s eye to `eyeFloor` where it stands (the chase views, after anything that moved it): the push-out, a pull toward a ramp's face. */
+  keepAbove(camera: THREE.PerspectiveCamera, car: DeformableCar): void {
+    const f = eyeFloor(camera.position.x, camera.position.z, car.group.position.y);
+    if (camera.position.y < f) camera.position.y = f;
+  }
+
   /** `rx`/`ry`: right stick after deadzone, DOM signs (+x right, +y down). `keep`: a dragged look offset stays put (spectating). */
   update(camera: THREE.PerspectiveCamera, car: DeformableCar, view: SeatView, dt: number, rx: number, ry: number, keep = false): void {
     const p = car.group.position;
@@ -290,8 +306,9 @@ export class DriveCam {
       _zeta.up = calm ? 1 : this.landS > 0 ? CHASE.landing.zetaUp : CHASE.zeta.up;
       this.pos.stepBasis(_v, CHASE.pos, _zeta, CHASE.maxSpeed, dt, fwd.x, fwd.z);
       this.aim.step(_w, CHASE.aimOmega, dt);
-      if (this.pos.x.y < CHASE.floor) {
-        this.pos.x.y = CHASE.floor;
+      const floor = eyeFloor(this.pos.x.x, this.pos.x.z, p.y);
+      if (this.pos.x.y < floor) {
+        this.pos.x.y = floor;
         if (this.pos.v.y < 0) this.pos.v.y = 0;
       }
     }
