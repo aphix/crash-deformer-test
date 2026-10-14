@@ -55,6 +55,10 @@ export const DRIVE = {
   slideGrip: [0.75, 0.3] as const,
   /** Drift assist: how fast (1/s) the body angle chases its target in a slide. */
   slipGain: 6,
+  /** Steer (after the lock scale) inside ±this is hands off the wheel: a slide held on the gas keeps its angle. */
+  driftDeadband: 0.1,
+  /** A hands-off slide holds only while the body is yawed more than this (rad) off the velocity; straighter, it is over and the assist catches it. */
+  driftHoldSlip: 0.12,
 };
 
 const _zero: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
@@ -178,8 +182,8 @@ function pedal(v: number, lo: number, steps: number): number {
  * Arcade drive, per class. Steer +1 swings the nose LEFT (+yaw with this
  * car's +Z forward) whichever way it rolls. The car's lateral grip is finite,
  * so a handbrake flick or full-throttle lock on a tail-happy class kicks the
- * tail out; the drift assist then holds the body angle while the gas and any
- * lock short of a hard counter-steer stay on, and catches it when released.
+ * tail out; the drift assist then holds the body angle while the gas stays on and the lock is short of a hard counter-steer
+ * or inside the deadband (hands off), and catches it when the gas is lifted, the brake touched or counter-steer applied.
  * `HANDLING.realism` thins grip and assists and sharpens damage. Kinematic
  * until the first crash, then the same velocity change is pushed into every mass.
  * `topScale` raises the forward top speed (a race car drafting another, `DRAFT.top`).
@@ -252,12 +256,17 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const beta = Math.atan2(-lat0, Math.max(1, Math.abs(along)));
   const dir = beta > 0.02 ? 1 : beta < -0.02 ? -1 : Math.sign(steer);
   let target = 0;
+  let handsOff = false; // a held slide with the wheel in the deadband: the body angle stays where it is
   if (along > DRIVE.slideSpeed) {
     if (ebrake && Math.abs(steer) > 0.15) target = 1;
     // Boost dumps torque on the rear: tail-happy classes step out under it at full lock.
     else if (boosting && throttle > 0.7 && Math.abs(steer) > 0.6 && along > DRIVE.boostSlideSpeed) target = k.drift;
-    // Held on the gas with lock either way short of a hard counter-steer.
-    if (d.drift > 0.05 && throttle > 0.25 && Math.abs(steer) > 0.1 && steer * dir > -0.6) target = Math.max(target, d.drift);
+    // Held on the gas (no brake): lock either way short of a hard counter-steer keeps the slide, and so does hands off the wheel
+    // (a released stick or key) while the body is still yawed off its velocity. Lifting, braking or a hard counter-steer catches it.
+    if (d.drift > 0.05 && throttle > 0.25 && brake < 0.1) {
+      handsOff = Math.abs(steer) <= DRIVE.driftDeadband && Math.abs(beta) > DRIVE.driftHoldSlip;
+      if (handsOff || (Math.abs(steer) > DRIVE.driftDeadband && steer * dir > -0.6)) target = Math.max(target, d.drift);
+    }
   }
   const catchRate = a.catchRate * (1.25 - 0.5 * k.drift) * (steer * dir < -0.6 ? 2 : 1); // loose classes (high `drift`) let a slide run on longer
   if (target > d.drift) d.drift = Math.min(target, d.drift + 6 * dt);
@@ -269,8 +278,10 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
     yawRate = Math.max(-cap, Math.min(cap, yawRate));
   } else if (drift >= 0.05) {
     yawRate *= 1 + DRIVE.slideYaw * drift;
-    // Drift assist: steer sets the body angle (into the turn = deeper, counter = shallower), the yaw follows it.
-    const aim = dir * a.slipCap * Math.max(0.1, Math.min(1, 0.55 + 0.45 * steer * dir)) * drift;
+    // Drift assist: steer sets the body angle (into the turn = deeper, counter = shallower), the yaw follows it; hands off it holds the angle it has.
+    const aim = handsOff
+      ? dir * Math.min(Math.abs(beta), a.slipCap)
+      : dir * a.slipCap * Math.max(0.1, Math.min(1, 0.55 + 0.45 * steer * dir)) * drift;
     const assisted = (dir * slideBite) / Math.max(v, 4) + (aim - beta) * DRIVE.slipGain;
     const most = k.turn * DRIVE.ebrakeTurn * (1 + DRIVE.slideYaw);
     const t = (1 - realism) * Math.min(1, drift * 2);

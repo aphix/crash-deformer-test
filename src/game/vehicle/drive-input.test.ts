@@ -414,7 +414,7 @@ describe("given a keydown event the game must decide whether to take", () => {
 });
 
 describe("given a driver who slides the car with the handbrake", () => {
-  /** 30 m/s, a seat holding 0.3 boost: the handbrake pulse (`pulse`) starts the slide, A+W holds it 1.2 s, then W alone ends it; `hit` strikes the car while it is held. */
+  /** 30 m/s, a seat holding 0.3 boost: the handbrake pulse (`pulse`) starts the slide, A+W holds it 1.2 s, then lifting off every key ends it (W alone, hands off the wheel, holds the drift); `hit` strikes the car while it is held. */
   function slide(pulse: string[], hit: boolean): number {
     const r = rigAt("third", 30);
     r.seat.boost = 0.3;
@@ -426,7 +426,7 @@ describe("given a driver who slides the car with the handbrake", () => {
       at.y = 0.4;
       r.car.applyImpact(at, r.car.forward.clone().negate(), 3, 3);
     }
-    hold(r, ["KeyW"], 1.5);
+    hold(r, [], 1.5);
     return r.seat.boost;
   }
 
@@ -434,6 +434,16 @@ describe("given a driver who slides the car with the handbrake", () => {
     const slid = slide(["Space", "KeyA"], false);
     const straight = slide(["KeyW"], false);
     assert.ok(slid >= straight + 0.15, `slid ${slid.toFixed(3)} straight ${straight.toFixed(3)}`);
+  });
+
+  it("when the A and Space keys are released with W held, then the drift is still held 1.5 s later, and S catches it", () => {
+    const r = rigAt("third", 30);
+    hold(r, ["Space", "KeyA"], 0.3);
+    hold(r, ["KeyW", "KeyA"], 1.0);
+    hold(r, ["KeyW"], 1.5);
+    assert.ok(r.car.drive.drift > 0.5, `drift ${r.car.drive.drift.toFixed(2)} with hands off the wheel keys`);
+    hold(r, ["KeyS"], 0.5);
+    assert.ok(r.car.drive.drift < 0.05, `drift ${r.car.drive.drift.toFixed(2)} after braking`);
   });
 
   it("when a contact falls inside the slide's last 0.5 s, then it earns nothing", () => {

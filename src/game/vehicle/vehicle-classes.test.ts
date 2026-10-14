@@ -322,22 +322,55 @@ for (const H of RATES) {
       });
     });
 
-    describe("given a sedan at 16 m/s with the realism slider at its arcade end", () => {
-      it("when it flicks the handbrake with full throttle and steering, holds the steering, then eases off, then the tail kicks out beyond 0.25 rad, the slide is held (over 0.5) above 11 m/s, and the arcade assist straightens it to under 0.06 rad of slip", () => {
+    describe("given a sedan at 16 m/s with the realism slider at its arcade end, drifting after a handbrake flick and a held lock", () => {
+      const slipOf = (car: DeformableCar) =>
+        Math.abs(Math.atan2(car.velocity.x * car.fwdFlat.z - car.velocity.z * car.fwdFlat.x, along(car)));
+      const drifting = () => {
         HANDLING.realism = 0;
         const car = classCar("sedan");
         car.spawnFacing(0, 0, 0, 16);
         const flick = { ...idleDrive(), throttle: 1, steer: 1, ebrake: true };
         for (let t = 0; t < 0.35; t += H) step(car, flick);
-        const slip = () => Math.abs(Math.atan2(car.velocity.x * car.fwdFlat.z - car.velocity.z * car.fwdFlat.x, along(car)));
-        assert.ok(slip() > 0.25, `slip after the flick ${slip().toFixed(2)} rad`);
+        assert.ok(slipOf(car) > 0.25, `slip after the flick ${slipOf(car).toFixed(2)} rad`);
         const hold = { ...idleDrive(), throttle: 1, steer: 1 };
         for (let t = 0; t < 0.8; t += H) step(car, hold);
-        assert.ok(slip() > 0.2 && car.drive.slide > 0.5, `slide not held: slip ${slip().toFixed(2)} slide ${car.drive.slide.toFixed(2)}`);
+        assert.ok(slipOf(car) > 0.2 && car.drive.slide > 0.5, `slide not held: slip ${slipOf(car).toFixed(2)} slide ${car.drive.slide.toFixed(2)}`);
         assert.ok(Math.hypot(car.velocity.x, car.velocity.z) > 11, `drift bled to ${Math.hypot(car.velocity.x, car.velocity.z).toFixed(1)} m/s`);
+        return car;
+      };
+
+      it("when the steering is released to 0 with the throttle held, then the drift holds (over 0.5) and the car stays yawed past 0.2 rad of slip after 1 s", () => {
+        const car = drifting();
         const release = { ...idleDrive(), throttle: 0.6 };
         for (let t = 0; t < 1; t += H) step(car, release);
-        assert.ok(slip() < 0.06, `assist did not catch it: slip ${slip().toFixed(2)} rad`);
+        assert.ok(car.drive.drift > 0.5, `drift fell to ${car.drive.drift.toFixed(2)}`);
+        assert.ok(slipOf(car) > 0.2, `slip fell to ${slipOf(car).toFixed(2)} rad`);
+      });
+
+      it("when the steering is released and the throttle lifted, then the assist catches it within 0.4 s and the slip is under 0.06 rad after 1 s", () => {
+        const car = drifting();
+        const lift = idleDrive();
+        for (let t = 0; t < 0.4; t += H) step(car, lift);
+        assert.ok(car.drive.drift < 0.05, `drift still ${car.drive.drift.toFixed(2)} after 0.4 s`);
+        for (let t = 0; t < 0.6; t += H) step(car, lift);
+        assert.ok(slipOf(car) < 0.06, `assist did not catch it: slip ${slipOf(car).toFixed(2)} rad`);
+      });
+
+      it("when the steering is turned hard the other way with the throttle held, then the drift is caught and the slip is under 0.06 rad after 1 s", () => {
+        const car = drifting();
+        const counter = { ...idleDrive(), throttle: 0.6, steer: -1 };
+        for (let t = 0; t < 1; t += H) step(car, counter);
+        assert.ok(car.drive.drift < 0.05, `drift still ${car.drive.drift.toFixed(2)}`);
+        const straight = { ...idleDrive(), throttle: 0.6 };
+        for (let t = 0; t < 1; t += H) step(car, straight);
+        assert.ok(slipOf(car) < 0.06, `slip ${slipOf(car).toFixed(2)} rad`);
+      });
+
+      it("when the steering is released and the brake is pressed with the throttle off, then the drift is caught within 0.4 s", () => {
+        const car = drifting();
+        const brake = { ...idleDrive(), brake: 0.6 };
+        for (let t = 0; t < 0.4; t += H) step(car, brake);
+        assert.ok(car.drive.drift < 0.05, `drift still ${car.drive.drift.toFixed(2)}`);
       });
     });
 

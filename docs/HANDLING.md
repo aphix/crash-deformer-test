@@ -69,8 +69,12 @@ the arcade end is about × 0.4 and × 0.5 of those, the real order kept (muscle 
 - **Speed-sensitive steering**: lock fades with speed (never under 40 %), and grows from zero through a crawl, so the car
   never pivots on the spot.
 - **Slides**: Space at speed with lock kicks the tail out; boost at full lock does it on tail-happy classes. Keep the gas on
-  with lock either way and the drift assist holds the body angle while the car carries its speed round; release the wheel or
-  lift off and it catches itself. Full opposite lock catches it twice as fast.
+  with lock either way and the drift assist holds the body angle while the car carries its speed round. Let go of the
+  wheel (a pad stick or the A/D keys released: the steer settles inside ±0.1) with the gas still on and the drift holds
+  the angle it has, as long as the body is yawed more than 0.12 rad off its velocity; hands off is a held drift, not a
+  catch. Lifting off (the assist catches it in about 0.3 s), touching the brake, or steering hard the other way (full
+  opposite lock catches it twice as fast) ends it. Keyboard and pad share the rule: a key release slews the wheel to 0
+  in ~0.14 s, a pad stick springs back inside the same deadband.
 - **Draft** (race mode only): in the wake of another racer (a 36° cone up to 3 car lengths behind its rear bumper, [`RACE_DESIGN.md`](RACE_DESIGN.md) "Drafting") the top speed is ×1.02, the thrust unchanged.
 - **Recovery**: a driven car stuck on its roof or side rights itself after 1.2 s at the arcade end, slower toward mid
   slider; past 0.6 only R rights it.

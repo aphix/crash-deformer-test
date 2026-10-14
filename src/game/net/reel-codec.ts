@@ -121,9 +121,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * edges 1.4 m up and down across the chequers; the builder now refuses a bend there), so a car crossing four-count's line replays on a level road;
  * 75: a torn part leaves with the car's spin (its velocity is the car's plus ω × r about the body's centre of mass, its angular velocity the car's plus the tumble),
  * so a replayed clip's debris torn off a turning car flies and lands elsewhere.
+ * 76: a drift held on the gas with the wheel in the deadband holds its body angle (it was caught at the release rate) while the car is yawed past
+ * 0.12 rad of slip, and a brake press catches any held drift, so a replayed clip's drifting car released to 0 steer slides on and a braked one is caught.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 75;
+const REPLAY_VERSION = 76;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
