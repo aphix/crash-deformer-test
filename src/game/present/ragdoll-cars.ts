@@ -3,7 +3,8 @@ import type { Collider, RigidBody, World } from "@dimforge/rapier3d-simd";
 import type { CageView, RagCar } from "./ragdoll-car-view.ts";
 import { CLASS_LIFT } from "../vehicle/constants.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
-import { GLASS_NAMES, glassCorners } from "../vehicle/car-glass.ts";
+import { glassCorners } from "../vehicle/car-glass.ts";
+import { LAG, type GlassHit } from "./ragdoll-wire.ts";
 import { carClass, classStats } from "../vehicle/vehicle-classes.ts";
 import { disable, type Rapier } from "../kernel/rapier.ts";
 import { BARRIER_HALF } from "../contact/sat.ts";
@@ -129,6 +130,41 @@ export class CarProxies {
     this.nearN[s] = 0;
   }
 
+  /** The panes struck since `takeStrikes` last emptied it; the sim hears of each `LAG` frames later (`RagdollSystem`, `RagdollRemote`). */
+  readonly strikes: GlassHit[] = [];
+  /** Strikes the car's own glass has not caught up with yet: the frame they were struck in, the car, the pane, the pane's state after. */
+  private overlay: { frame: number; car: number; pane: number; state: number }[] = [];
+  private frameNo = 0;
+
+  /** The frame the world is stepping now: a strike of an earlier frame the car's glass has caught up with (`LAG` frames) goes from the overlay. */
+  at(frameNo: number): void {
+    this.frameNo = frameNo;
+    this.overlay = this.overlay.filter((s) => s.frame + LAG > frameNo);
+  }
+
+  /** No strike pending: a new run. */
+  clearStrikes(): void {
+    this.strikes.length = 0;
+    this.overlay.length = 0;
+  }
+
+  /** Car `i`'s glass bits as the world has them: the car's own, a pane struck since it last caught up already in its new state. */
+  private bitsOf(i: number, car: RagCar): number {
+    let bits = car.glassBits();
+    for (const s of this.overlay) {
+      if (s.car !== i || ((bits >> (2 * s.pane)) & 3) >= s.state) continue;
+      bits = (bits & ~(3 << (2 * s.pane))) | (s.state << (2 * s.pane));
+    }
+    return bits;
+  }
+
+  /** Pane `pane` of car `i` was struck by a torso this frame: shown in its next state at once, reported for the sim to apply. */
+  private struck(i: number, pane: number): void {
+    const state = Math.min(PANE_GONE, ((this.paneBits[i]! >> (2 * pane)) & 3) + 1);
+    this.overlay.push({ frame: this.frameNo, car: i, pane, state });
+    this.strikes.push({ car: i, pane });
+  }
+
   /**
    * Kinematic proxy `i` (the barrier is `MAX_CARS`) onto `obj`'s pose, which `move` walks it to a step at a time (disabled without
    * one, so it costs the step nothing); a jump teleports instead of flinging dummies.
@@ -207,10 +243,9 @@ export class CarProxies {
    */
   fitProxy(i: number, car: RagCar): void {
     const lift = car.classLift ?? classStats(carClass(car)).lift;
-    car.refitCage();
     const cage = car.cage;
     if (cage === null) return;
-    const bits = car.glassBits();
+    const bits = this.bitsOf(i, car);
     if (this.fitted[i] !== car || this.lift[i] !== lift || this.serial[i] !== cage.serial || bits !== this.paneBits[i]) {
       if (this.fitted[i] !== car || this.lift[i] !== lift) this.paneBits[i] = -1;
       if (this.fitted[i] !== car) this.glass[i] = glassCorners(car.style);
@@ -439,7 +474,7 @@ export class CarProxies {
           this.touching[t] = this.touching[t]! | bit;
           if (closing < GLASS_FLOOR || !authority) continue;
           const car = cars[i]!;
-          car.hitGlass(GLASS_NAMES[p]!);
+          this.struck(i, p);
           this.fitProxy(i, car);
         }
       }

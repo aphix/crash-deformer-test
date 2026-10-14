@@ -138,9 +138,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * the boost's thrust ramps over 0.15 s, a slide starts as hard as the inputs are past each gate, the yaw clamp hands over to the slide across drift 0.05-0.15, and the flight block holds the two ramps,
  * so a replayed clip's handbrake flicks, boosts and slide starts run differently; and a respawn that falls due while another racing car is bearing down on its spot waits for it (up to 2 s),
  * so a replayed race's respawns land later where a car was closing.
+ * 83: a pane a thrown dummy's torso strikes is applied to the car `LAG` (2) dummy-world frames after the frame it was struck in, in every mode (the
+ * world runs in a worker on race courses and must answer at a fixed frame; the inline world used to apply it at once), and the dummies' world no
+ * longer refits a car's cage (the sim's own fit is what it reads), so a replayed crash's panes shatter, and the contact points they leave, two frames later.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 82;
+const REPLAY_VERSION = 83;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

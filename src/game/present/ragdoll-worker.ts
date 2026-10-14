@@ -7,7 +7,7 @@ import { RemoteCar } from "./ragdoll-car-view.ts";
 import { SLOTS } from "./ragdoll-config.ts";
 import type { PropDraw } from "./ragdoll-props.ts";
 import { PURSE_BLOCK } from "./ragdoll-purse.ts";
-import { DOLL_FLOATS, type FromWorker, type GlassHit, type ResultMessage, type ToWorker } from "./ragdoll-wire.ts";
+import { DOLL_FLOATS, type FromWorker, type ResultMessage, type ToWorker } from "./ragdoll-wire.ts";
 
 /**
  * The dummies' world (`RagdollSystem`) in a Web Worker: the main thread posts its frames, throws, knocks and cars' cages
@@ -38,7 +38,6 @@ class PropRecorder implements PropDraw {
 }
 
 const recorder = new PropRecorder();
-const hits: GlassHit[] = [];
 const spawned: { id: number; slot: number }[] = [];
 const cars: RemoteCar[] = [];
 const early: ToWorker[] = [];
@@ -70,7 +69,7 @@ function answer(world: RagdollSystem, seq: number): void {
     props,
     propsReset: recorder.restored,
     spawned: [...spawned],
-    hits: [...hits],
+    hits: world.takeStrikes(),
     wanted: world.wanted.slice(),
     active: world.busy,
     stepMs,
@@ -78,7 +77,6 @@ function answer(world: RagdollSystem, seq: number): void {
     bodies: stats.bodies,
   };
   spawned.length = 0;
-  hits.length = 0;
   recorder.restored = false;
   post(result, [dolls.buffer, purses.buffer, props.buffer, result.wanted.buffer, stepMs.buffer]);
 }
@@ -109,16 +107,17 @@ function handle(world: RagdollSystem, m: ToWorker): void {
     world.reset();
     cars.length = 0;
     spawned.length = 0;
-    hits.length = 0;
+    world.takeStrikes();
   } else if (m.type === "knock") world.knockProp(m.prop, m.car, m.vx, m.vy, m.vz);
   else if (m.type === "throw") throwDummy(world, m);
   else if (m.type === "cage") {
-    if (cars[m.slot]?.token !== m.car) cars[m.slot] = new RemoteCar(m.slot, hits, m.car);
+    if (cars[m.slot]?.token !== m.car) cars[m.slot] = new RemoteCar(m.car);
     cars[m.slot]!.setCage(m);
   } else {
-    for (let n = 0; n < m.count; n++) (cars[n] ??= new RemoteCar(n, hits, 0)).setFrame(m.cars, n, m.seq);
+    for (let n = 0; n < m.count; n++) (cars[n] ??= new RemoteCar(0)).setFrame(m.cars, n);
     cars.length = m.count;
     world.lookSeed = m.lookSeed;
+    world.frameNo = m.seq - 1;
     world.stepWorld(m.dt, cars, m.authority, m.sandbox, null);
     answer(world, m.seq);
   }

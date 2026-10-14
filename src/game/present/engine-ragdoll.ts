@@ -49,7 +49,8 @@ import { groundColliders, PATCH_AHEAD, PATCH_HALF, type Pole } from "./ragdoll-g
 import { courseSolids, type Solid } from "./ragdoll-solids.ts";
 import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import { GRAVITY } from "../kernel/constants.ts";
-import { DOLL_CAR, DOLL_FLOATS, DOLL_HEADER, DOLL_LIVE, DOLL_RIDES, DOLL_SETTLED, DOLL_STILL, DOLL_VELOCITY, FIT_AHEAD, PROP_FLOATS, type ResultMessage } from "./ragdoll-wire.ts";
+import { DOLL_CAR, DOLL_FLOATS, DOLL_HEADER, DOLL_LIVE, DOLL_RIDES, DOLL_SETTLED, DOLL_STILL, DOLL_VELOCITY, FIT_AHEAD, LAG, PROP_FLOATS, type GlassHit, type ResultMessage } from "./ragdoll-wire.ts";
+import { GLASS_NAMES } from "../vehicle/car-glass.ts";
 
 /** Seconds a dummy lies about before it goes. */
 const LIFE = 10;
@@ -183,6 +184,10 @@ export class RagdollSystem {
   private hosted = false;
   /** Per car, 1 when a dummy, purse thing or knocked prop may reach it within `FIT_AHEAD` frames (set by `stepWorld` while hosted). */
   readonly wanted = new Uint8Array(MAX_CARS);
+  /** Busy frames stepped this run (the world's worker is told its frame's number, `RagdollRemote`'s count): a strike is applied to the cars `LAG` frames after its frame. */
+  frameNo = 0;
+  /** Panes struck here and not yet applied to the cars (`applyStruck`): the frame struck in, the car, the pane. */
+  private readonly struck: { frame: number; car: number; pane: number }[] = [];
   private cars: readonly DeformableCar[] = [];
   private authority = true;
   /** Neither a race nor a derby: only here does `onThrow` fire. */
@@ -271,6 +276,9 @@ export class RagdollSystem {
   /** A new run: no dummies out, every car's driver back in, every knocked prop back on its spot. */
   reset(): void {
     this.pending.length = 0;
+    this.struck.length = 0;
+    this.frameNo = 0;
+    this.proxies.clearStrikes();
     this.acc = this.tick = 0;
     this.ride.reset();
     this.mode = null;
@@ -296,8 +304,30 @@ export class RagdollSystem {
     this.cars = cars;
     this.authority = authority;
     this.sandbox = sandbox;
-    if (this.mode === "remote") this.updateRemote(dt, cars);
-    else this.stepWorld(dt, cars, authority, sandbox, barrier);
+    if (this.mode === "remote") {
+      this.updateRemote(dt, cars);
+      return;
+    }
+    this.applyStruck(cars);
+    this.stepWorld(dt, cars, authority, sandbox, barrier);
+    for (const hit of this.proxies.strikes.splice(0)) this.struck.push({ frame: this.frameNo, ...hit });
+  }
+
+  /**
+   * The panes the dummies struck, applied to the cars `LAG` frames after the frame they were struck in: the same frame whether
+   * the dummies' world runs here or in the worker (`RagdollRemote.post`), so the sim hears of a strike at a fixed step in both.
+   */
+  private applyStruck(cars: readonly DeformableCar[]): void {
+    const due = this.frameNo + 1 - LAG;
+    while (this.struck.length > 0 && this.struck[0]!.frame <= due) {
+      const hit = this.struck.shift()!;
+      cars[hit.car]?.hitGlass(GLASS_NAMES[hit.pane]!);
+    }
+  }
+
+  /** The panes struck since the last call, emptied (the worker's answer carries them to the main thread). */
+  takeStrikes(): GlassHit[] {
+    return this.proxies.strikes.splice(0);
   }
 
   /** The frame's physics and its draw, here: what `update` does in this thread and the world's worker does for each posted frame. */
@@ -316,6 +346,7 @@ export class RagdollSystem {
       if (this.hosted) this.wanted.fill(0);
       return;
     }
+    this.proxies.at(++this.frameNo);
     const dormant = this.dormant(cars, barrier, dt);
     // The proxies stood still while nothing stepped: jump them to where the cars are now instead of flinging dummies.
     this.proxies.teleport ||= this.slept;

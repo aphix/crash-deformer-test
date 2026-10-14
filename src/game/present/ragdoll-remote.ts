@@ -212,12 +212,11 @@ export class RagdollRemote {
     if (!this.failed) this.worker.postMessage(m, transfer);
   }
 
-  /** The cages of the cars the world wants (or that a throw is near), when they changed since last sent. A car's cage is brought up to date here, as it is when the world is in this thread. */
+  /** The cages of the cars the world wants (or that a throw is near), when they changed since last sent: each as the sim last fitted it (the world never refits a car, so it feeds nothing back). */
   private sendCages(cars: readonly DeformableCar[], count: number): void {
     for (let i = 0; i < count; i++) {
       if (!this.wanted[i] && !this.forced[i]) continue;
       const car = cars[i]!;
-      car.refitCage();
       const cage = car.cage;
       const lift = classStats(carClass(car)).lift;
       const sent = this.sent[i]!;

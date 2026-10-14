@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import * as THREE from "three";
+import "../kernel/rapier-node.test-util.ts";
 import { makeCar } from "../contact/crash-scenarios.test-util.ts";
+import { RagdollSystem } from "./engine-ragdoll.ts";
 import { RagdollRemote } from "./ragdoll-remote.ts";
 import { LAG, type FromWorker, type ResultMessage, type ToWorker } from "./ragdoll-wire.ts";
 
@@ -85,5 +88,34 @@ describe("given the dummies' world has something out and its answer to a frame t
     worker.say(answer(1, []));
     assert.equal(remote.behind(true), false, "answer is in");
     remote.dispose();
+  });
+});
+/** The same scripted strike (the dummies' world reports the windshield of car 0 struck in its first frame) in the main thread's own world: the glass after each frame. */
+async function inlineGlassAfterFrame(frames: number): Promise<{ glass: number[]; digest: string }> {
+  Reflect.deleteProperty(globalThis, "Worker");
+  const world = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
+  await world.preload();
+  const car = makeCar();
+  world.place(new THREE.Vector3(40, 3, 40), new THREE.Quaternion(), new THREE.Vector3(), new THREE.Vector3(), 10, 0);
+  const glass: number[] = [];
+  for (let frame = 1; frame <= frames; frame++) {
+    if (frame === 1) world["proxies"].strikes.push({ car: 0, pane: WINDSHIELD });
+    world.update(FRAME, [car], true, false, null);
+    glass.push((car.glassBits() >> (2 * WINDSHIELD)) & 3);
+  }
+  const digest = `${car.glassBits()} ${car.group.position.toArray().join()}`;
+  world.dispose();
+  return { glass, digest };
+}
+
+describe("given the same scripted strike of a car's windshield in the dummies' world, run in the main thread and through a worker", () => {
+  it("when both run the same frames, then the pane is struck on the car at the same frame in both, with equal car digests", async () => {
+    const inline = await inlineGlassAfterFrame(5);
+    const worker = glassAfterFrame(0, 5);
+    const stalled = glassAfterFrame(-1, 5);
+    assert.deepEqual(inline.glass, [0, 0, CRACKED, CRACKED, CRACKED], "main thread's own world");
+    assert.deepEqual(inline.glass, worker, "worker, answer early");
+    assert.deepEqual(inline.glass, stalled, "worker, sim stalled for the answer");
+    assert.match(inline.digest, /^1 /, "the car ends with the windshield cracked and sits where it was");
   });
 });
