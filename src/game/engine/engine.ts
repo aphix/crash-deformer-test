@@ -563,11 +563,36 @@ export class CrashEngine extends EngineGarage {
   /** Whether the coming hit will throw a driver: his exit then plays at 1× (`THROW_ONSET`). */
   private readonly throwSoon = (): boolean => throwComing(this.live(), this.barrierUp ? this.barrier : null);
 
+  // The world's hooks are these four functions for good, each with one call site per scene below: swapping a different closure into the
+  // world's field (or one call site over several targets) per scene made every call site polymorphic, which SpiderMonkey bails out of.
   /** Each car-pair hit: the scene's own hook (the derby's credit, the race recorder, the Lab's), then the shake of whichever of the two is watched. */
   private readonly pairHit = (a: number, b: number, hit: ContactHit): void => {
-    (this.derbyMode ? this.derbyHit : this.race.active ? this.race.pairHit : this.showLab ? this.lab.pairHit : null)?.(a, b, hit);
+    if (this.derbyMode) this.derbyHit(a, b, hit);
+    else if (this.race.active) this.race.pairHit(a, b, hit);
+    else if (this.showLab) this.lab.pairHit(a, b, hit);
     this.noteHit(a, hit.impulse);
     this.noteHit(b, hit.impulse);
+  };
+
+  /** Before each slice: a rig scene's or the Lab's own step; true when it stepped the slice itself. */
+  private readonly beforeSlice = (h: number): boolean => {
+    if (this.rigScene && !this.showStack) return this.rigSlice(h);
+    if (this.showLab) return this.lab.slice(h);
+    return false;
+  };
+
+  /** A door, mirror or top met between two cars: the race recorder keeps both (`World.partTouch`). */
+  private readonly partTouch = (a: number, b: number): void => {
+    if (this.race.active) this.race.partTouch(a, b);
+  };
+
+  /** Each car at a slice's end. The corkscrew's walls hold its car on its floor: the ramps are put away there (`SCENE_PROPS`), like the slab and the balls, so their faces cannot stand in for them (a 6 m/s car slid off the bank onto its roof) or wall in a parked car. */
+  private readonly collide = (car: DeformableCar, i: number, h: number): void => {
+    if (this.race.active) this.raceCollide(car, i, h);
+    else if (this.derbyMode) this.derbyCollide(car, i, h);
+    else if (this.showCorkscrew) this.corkCollide(car);
+    else if (this.showLab) this.lab.collide(car, i, h);
+    else this.rigCollide(car, i, h);
   };
 
   private fixedStep(dt: number): void {
@@ -606,12 +631,10 @@ export class CrashEngine extends EngineGarage {
     w.cars = cars;
     w.barrier = this.barrierUp ? this.barrier : null;
     w.barrierHits = this.barrierHits;
-    w.beforeSlice = this.rigScene && !this.showStack ? this.rigSlice : this.showLab ? this.lab.slice : null;
+    w.beforeSlice = this.beforeSlice;
     w.pairHit = this.pairHit;
-    w.partTouch = this.race.active ? this.race.partTouch : null;
-    // The corkscrew's walls hold its car on its floor: the ramps are put away there (`SCENE_PROPS`), like the slab and the balls, so
-    // their faces cannot stand in for them (a 6 m/s car slid off the bank onto its roof) or wall in a parked car.
-    w.collide = this.race.active ? this.raceCollide : this.derbyMode ? this.derbyCollide : this.showCorkscrew ? this.corkCollide : this.showLab ? this.lab.collide : this.rigCollide;
+    w.partTouch = this.partTouch;
+    w.collide = this.collide;
     if (!this.race.active && !this.showLab) this.syncRigs();
     this.ejection.ctx = this.derbyMode ? "derby" : "default";
     w.fine = this.pace.fine;
