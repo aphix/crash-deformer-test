@@ -10,6 +10,13 @@ const BLOCK = 128;
 const SETTLE_BLOCKS = 200;
 const MEASURE_BLOCKS = 400;
 const WORKLET = readFileSync(new URL("../../../public/audio/motor-worklet.js", import.meta.url), "utf8");
+/**
+ * The wasm generator seeds its noise from the wall clock in whole seconds (`__emscripten_date_now`), so a voice's peak moved with the second
+ * the test ran in: over 480 seconds a police redline read 0.24-0.43 against the 0.4 band edge (1 in 480 over it, a red gate on a green tree;
+ * over 2000 seconds the sedan reached 0.44 and the truck 0.41). The stub's clock stands still at the second whose peaks sit within 4 % of
+ * their medians for all five classes (measured over those 480 seconds), so a level change moves a peak from the middle of the spread, and a run is the same as the last.
+ */
+const NOISE_CLOCK_MS = 1760002068 * 1000;
 
 interface Processor {
   port: { onmessage: ((event: { data: unknown }) => void) | null };
@@ -37,6 +44,7 @@ function loadProcessor(): { Processor: ProcessorClass; scope: { currentFrame: nu
     setTimeout,
     performance,
     URL,
+    Date: { now: () => NOISE_CLOCK_MS },
   };
   vm.createContext(scope);
   vm.runInContext(WORKLET, scope);
