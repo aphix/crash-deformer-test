@@ -151,7 +151,7 @@ describe("given a bench window the owner left for another app (the 2278f1c phone
         { phase: "ab-pace", atS: 0, visible: true, focused: false, fullscreen: false },
       ],
     });
-    assert.ok(left.includes("PAGE LEFT during the window: unfocused 18.5 s, hidden 19.0 s, back 45.0 s. The slowest frames (max, p99) there are the OS's, not the game's"));
+    assert.ok(left.includes("PAGE LEFT during the window: unfocused 18.5 s, hidden 19.0 s, back 45.0 s. Read max and p99 with that in mind: a phone holds a page it is leaving"));
     assert.ok(!describeBench(RESULT).some((l) => l.startsWith("PAGE LEFT")));
   });
 });

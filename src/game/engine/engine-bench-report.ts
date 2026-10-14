@@ -280,13 +280,13 @@ const replayLines = (r: ReplayResult | null, why: string | null): string[] =>
       ];
 
 /**
- * The window's page changes after its first entry (`pageEvents`): a phone's OS holds a page it is leaving (the app switcher, the notification
- * shade), so the frames around the change carry that stall into max and p99 (a card showed a 1.1 s sim frame there; the game ran no work to match).
- * No line when the page stayed shown and focused.
+ * The window's page changes after its first entry (`pageEvents`). The one 1.1 s sim frame in 192 cards (2278f1c dam-spine, simMs.max 1156; the next
+ * is 212) sat in the window whose page was unfocused at 18.5 s and hidden at 19.0 s; the other 17 cards whose page changed in the window stayed under
+ * 131 ms of sim, so a phone holding a page it leaves is the likely cause, not proven. No line when the page stayed shown and focused.
  */
 const leftPage = (events: readonly PageEvent[]): string[] => {
   const changes = events.filter((e) => e.phase === PAGE_PHASES[PHASE_WINDOW] && e.atS > 0).map((e) => `${e.visible ? (e.focused ? "back" : "unfocused") : "hidden"} ${f1(e.atS)} s`);
-  return changes.length ? [`PAGE LEFT during the window: ${changes.join(", ")}. The slowest frames (max, p99) there are the OS's, not the game's`] : [];
+  return changes.length ? [`PAGE LEFT during the window: ${changes.join(", ")}. Read max and p99 with that in mind: a phone holds a page it is leaving`] : [];
 };
 
 /** The results card's text, top line first: the numbers the owner reads off a screenshot. */
