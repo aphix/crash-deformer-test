@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { humanSlot } from "../match/survival.ts";
+import { humanSlot, SURVIVAL } from "../match/survival.ts";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import { FRAME, frame, makeWorld } from "./race-world.test-util.ts";
 import { coopWorld, STILL } from "./survival-coop.test-util.ts";
@@ -16,6 +16,8 @@ const start = new Track(HAVANA).survival!.start;
 
 /** Round and round at about 7 m/s: above the bust's 20 km/h, so the police never hold it. */
 const CIRCLE: DriveInput = { throttle: 0.45, steer: 0.45, brake: 0, ebrake: false, boost: false };
+/** The survival hold (s) the falls test runs with, shortened from the owner's. */
+const BUST_HOLD = 3;
 
 describe("given a hosted Survival run with the host and two peers seated", () => {
   it("when the run starts, then all three humans stand on their own start slots, abreast of the start anchor, and the team reads three humans free", (t) => {
@@ -60,6 +62,10 @@ describe("given a hosted Survival run with one human", () => {
 
 describe("given a hosted Survival run with the host and one peer, the host sitting still and the peer circling", () => {
   it("when the humans fall one after the other, then the run goes on while one is free, ends when none is, and its time is the team's: the last fall", (t) => {
+    // The bust hold is shortened (its own constant): the falls are what is under test, not the owner's 12 s (`match/survival.test.ts`).
+    const owner = SURVIVAL.bustTime;
+    Reflect.set(SURVIVAL, "bustTime", BUST_HOLD);
+    t.after(() => Reflect.set(SURVIVAL, "bustTime", owner));
     const w = coopWorld([1]);
     t.after(() => leaveSurvival(w));
     const state = { acc: 0 };
