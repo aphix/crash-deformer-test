@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { FRAME_HZ } from "../kernel/constants.ts";
 import { DRIVER_CARS } from "../match/types.ts";
 import { RangeRun } from "../scenes/range.ts";
 import type { ExitPane } from "../vehicle/car-core.ts";
@@ -95,26 +96,43 @@ function unsettled(run: RangeThrow): string[] {
   return bad;
 }
 
-/** One run per car type and display, shared by the properties (a run is deterministic). */
-const runs = new Map<string, Promise<RangeThrow>>();
-const runOf = (type: DriverCar, display: string, frames: () => () => number): Promise<RangeThrow> => {
+/** A range run and what the range's readout (`RangeRun`) said of each engine frame the dummy was live, fed as the engine feeds it: its LANDED flag and its distance. */
+type Throw = { run: RangeThrow; landed: boolean[]; shown: (number | null)[] };
+
+function throwWithReadout(type: DriverCar, frames: () => number): Promise<Throw> {
+  const range = new RangeRun();
+  const landed: boolean[] = [];
+  const shown: (number | null)[] = [];
+  const torso = new THREE.Vector3();
+  return rangeThrow(type, {
+    frame: (sys) => {
+      range.step(sys.latest(torso) >= 0, sys.latestSettled, torso.x, 1 / FRAME_HZ);
+      landed[landed.length] = range.landed;
+      shown[shown.length] = range.distance;
+    },
+  }, frames).then((run) => ({ run, landed, shown }));
+}
+
+/** One run per car type and display, shared by every property of both groups below (a run is deterministic, the readout only reads). */
+const runs = new Map<string, Promise<Throw>>();
+const runOf = (type: DriverCar, display: string, frames: () => () => number): Promise<Throw> => {
   const key = `${type.id}/${display}`;
-  if (!runs.has(key)) runs.set(key, rangeThrow(type, {}, frames()));
+  if (!runs.has(key)) runs.set(key, throwWithReadout(type, frames()));
   return runs.get(key)!;
 };
 
 describe("given the ejection range (the test course where one car crashes at 100 km/h into a barrier and throws its driver) at its defaults, for every car type, at 60 and 240 Hz steady and jittered with stalls", () => {
   for (const type of DRIVER_CARS) {
     it(`when a ${type.label} crashes at the range, then exactly one driver is thrown and exactly one dummy comes out`, async () => {
-      for (const [display, frames] of DISPLAYS) assert.deepEqual(threwOne(await runOf(type, display, frames)), [], `${type.id} at ${display}`);
+      for (const [display, frames] of DISPLAYS) assert.deepEqual(threwOne((await runOf(type, display, frames)).run), [], `${type.id} at ${display}`);
     });
 
     it(`when a ${type.label} crashes at the range, then the dummy goes more forward than up or to a side at the release, the first step, the apex and the rest`, async () => {
-      for (const [display, frames] of DISPLAYS) assert.deepEqual(astray(await runOf(type, display, frames)), [], `${type.id} at ${display}`);
+      for (const [display, frames] of DISPLAYS) assert.deepEqual(astray((await runOf(type, display, frames)).run), [], `${type.id} at ${display}`);
     });
 
     it(`when a ${type.label} crashes at the range, then the dummy ends up lying still, on the terrain`, async () => {
-      for (const [display, frames] of DISPLAYS) assert.deepEqual(unsettled(await runOf(type, display, frames)), [], `${type.id} at ${display}`);
+      for (const [display, frames] of DISPLAYS) assert.deepEqual(unsettled((await runOf(type, display, frames)).run), [], `${type.id} at ${display}`);
     });
   }
 });
@@ -125,30 +143,18 @@ describe("given the ejection range (the test course where one car crashes at 100
  * (`GROUND_TOL`) is when he lies at rest on the ground. Before the fix the readout waited for his torso to lie still
  * 1 s, so it read FLYING over him lying motionless: 1.0 s for the monster truck's driver (the owner's shot).
  */
-function readoutAtRest(type: DriverCar, frames: () => number): Promise<string[]> {
-  const range = new RangeRun();
-  const landed: boolean[] = [];
-  const shown: (number | null)[] = [];
-  const torso = new THREE.Vector3();
-  return rangeThrow(type, {
-    frame: (sys) => {
-      range.step(sys.latest(torso) >= 0, sys.latestSettled, torso.x, 1 / 60);
-      landed[landed.length] = range.landed;
-      shown[shown.length] = range.distance;
-    },
-  }, frames).then((run) => {
-    const rest = run.frames.findIndex((f) => speeds(f).v < STILL.v && speeds(f).w < STILL.w && Math.abs(lowest(f)) <= GROUND_TOL);
-    const at = landed.indexOf(true);
-    if (rest < 0) return ["rest: he never lies at rest on the ground"];
-    if (at < 0) return [`readout: FLYING to the end, he lies at rest from ${run.frames[rest]!.age.toFixed(2)} s`];
-    const bad: string[] = [];
-    const lag = run.frames[at]!.age - run.frames[rest]!.age;
-    if (lag > LANDED_LAG) bad.push(`readout: FLYING ${lag.toFixed(2)} s after he lies at rest on the ground`);
-    const final = run.frames.at(-1)!.p[0]!;
-    const last = shown.at(-1) ?? null;
-    if (last === null || Math.abs(last - final) > LANDED_TOL) bad.push(`distance: ${last?.toFixed(2)} m shown at the end, he lies at ${final.toFixed(2)} m`);
-    return bad;
-  });
+function readoutAtRest({ run, landed, shown }: Throw): string[] {
+  const rest = run.frames.findIndex((f) => speeds(f).v < STILL.v && speeds(f).w < STILL.w && Math.abs(lowest(f)) <= GROUND_TOL);
+  const at = landed.indexOf(true);
+  if (rest < 0) return ["rest: he never lies at rest on the ground"];
+  if (at < 0) return [`readout: FLYING to the end, he lies at rest from ${run.frames[rest]!.age.toFixed(2)} s`];
+  const bad: string[] = [];
+  const lag = run.frames[at]!.age - run.frames[rest]!.age;
+  if (lag > LANDED_LAG) bad.push(`readout: FLYING ${lag.toFixed(2)} s after he lies at rest on the ground`);
+  const final = run.frames.at(-1)!.p[0]!;
+  const last = shown.at(-1) ?? null;
+  if (last === null || Math.abs(last - final) > LANDED_TOL) bad.push(`distance: ${last?.toFixed(2)} m shown at the end, he lies at ${final.toFixed(2)} m`);
+  return bad;
 }
 /** Sim seconds the readout may still say FLYING after he lies at rest on the ground (a glance; the ragdoll settles a torso still for 0.25 s). */
 const LANDED_LAG = 0.25;
@@ -158,7 +164,7 @@ const LANDED_TOL = 0.05;
 describe("given the ejection range at its defaults, for every car type, at 60 and 240 Hz steady and jittered with stalls, with the readout counting the throw", () => {
   for (const type of DRIVER_CARS) {
     it(`when the ${type.label}'s thrown driver comes to rest on the ground, then the readout says LANDED at once, at the distance where he lies`, async () => {
-      for (const [display, frames] of DISPLAYS) assert.deepEqual(await readoutAtRest(type, frames()), [], `${type.id} at ${display}`);
+      for (const [display, frames] of DISPLAYS) assert.deepEqual(readoutAtRest(await runOf(type, display, frames)), [], `${type.id} at ${display}`);
     });
   }
 });
