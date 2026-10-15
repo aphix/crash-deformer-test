@@ -40,7 +40,7 @@ export type ContactBox = {
   fixed: boolean;
   /**
    * The face's span ends are the solid's own ends (a rail, a container, a pad), not a joint to a neighbour (a wall's hold face): a body
-   * point nearer an end than the car-side face is out round that end (`faceDepth`).
+   * point nearer an end than the car-side face is out round that end when the car's centre stands beyond it (`faceDepth`).
    */
   openEnds: boolean;
   /** Whether the plan shape is a circle of radius `hx` (a palm, a lamp post) rather than a box (`partContact`, on a `fixed` box). */
@@ -151,10 +151,12 @@ export const faceExit = { nx: 0, nz: 0 };
 /**
  * How far (m, ≤ 0 clear) the box's leading face has passed the deepest vertex of the car's cage across the face's span (the mesh's
  * triangles are convex combinations of them), and where that vertex leaves (`faceExit`): through the face, or, on a box with
- * `openEnds`, round the end it is nearer. Counted through the face, a corner that came in round a rail's end read the rail's whole
- * width as its depth, and the push-out shoved the car that far (0.2-2.1 m on derby wrecks, for as long as the turn kept the corner
- * in). A torn-off or shattered panel's vertices are no part of the body. The outline nodes (`faceOverlap`) lose a thin tip (a
- * fender's corner stood 15 cm beyond its nearest covered node).
+ * `openEnds` whose span the car's centre lies beyond, round the end the centre is beyond (a body whose centre stands past an end got
+ * in round it: a corner of it that came in round a rail's end read the rail's whole width as its depth through the face, and the
+ * push-out shoved the car that far, 0.2-2.1 m on derby wrecks, for as long as the turn kept the corner in). A car whose centre stands
+ * over the span drove in through the face, however near an end the vertex lies (a narrow post struck square: its end is as near as
+ * its face, and the push-out sideways spun the car). A torn-off or shattered panel's vertices are no part of the body. The outline
+ * nodes (`faceOverlap`) lose a thin tip (a fender's corner stood 15 cm beyond its nearest covered node).
  */
 export function faceDepth(car: DeformableCar, box: ContactBox): number {
   const fx = detSin(box.yaw);
@@ -168,8 +170,10 @@ export function faceDepth(car: DeformableCar, box: ContactBox): number {
   const { vertexCount, vertexGroup } = car.cage.style;
   const ox = p.x - box.x;
   const oz = p.z - box.z;
+  const centreSide = ox * rx + oz * rz;
+  // The end the car's centre is beyond (0: it stands over the span, no end to leave round).
+  const endSign = box.openEnds && Math.abs(centreSide) > box.hx ? Math.sign(centreSide) : 0;
   let best = -Infinity;
-  let bestSide = 0;
   let bestAtEnd = false;
   let inside = false;
   for (let k = 0; k < vertexCount; k++) {
@@ -180,19 +184,17 @@ export function faceDepth(car: DeformableCar, box: ContactBox): number {
     const wx = ox + ax.x * x + az.x * z;
     const wz = oz + ax.z * x + az.z * z;
     const side = wx * rx + wz * rz;
-    const endGap = box.hx - Math.abs(side);
-    if (endGap < 0) continue;
+    if (Math.abs(side) > box.hx) continue;
     const along = wx * fx + wz * fz;
     if (along >= -box.hz) inside = true;
     const throughFace = box.hz - along;
-    const atEnd = box.openEnds && endGap < throughFace;
+    const endGap = box.hx - endSign * side;
+    const atEnd = endSign !== 0 && endGap < throughFace;
     const depth = atEnd ? endGap : throughFace;
     if (depth <= best) continue;
     best = depth;
-    bestSide = side;
     bestAtEnd = atEnd;
   }
-  const endSign = bestSide < 0 ? -1 : 1;
   faceExit.nx = bestAtEnd ? endSign * rx : fx;
   faceExit.nz = bestAtEnd ? endSign * rz : fz;
   // A body with a point in the slab is as deep as its farthest point, however far past the back face (the pushed-through corner is

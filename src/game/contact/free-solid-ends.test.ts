@@ -60,6 +60,23 @@ describe("given a car at rest whose nose stands 2 cm inside the end of a 2 m wid
   }
 });
 
+describe("given a car at rest straddling a 0.5 m wide, 1.2 m thick open-ended post (a monument's arm, a crash pad) whose face is seen from its -x side", () => {
+  it("when the car's centre stands over the post's span, then its flank reads the whole depth through the face and leaves through it, though the post's end is nearer", () => {
+    const car = makeCar("shape");
+    launch(car, 0, 0, 0, 0, 0);
+    const box = makeBox();
+    box.yaw = -Math.PI / 2;
+    box.hx = 0.25;
+    box.hz = 0.6;
+    box.x = 0.5;
+    box.z = 0;
+    box.openEnds = true;
+    const depth = faceDepth(car, box);
+    assert.ok(depth > 0.5, `depth ${depth.toFixed(3)} m`);
+    assert.ok(Math.abs(faceExit.nx + 1) < 1e-9 && Math.abs(faceExit.nz) < 1e-9, `exit (${faceExit.nx.toFixed(2)}, ${faceExit.nz.toFixed(2)})`);
+  });
+});
+
 /** A crushed wreck: a sedan a head-on bullet hit, settled in the derby arena, its masses then turning rigidly at `SPIN_RAD_S` about their centroid every slice (a wreck steered round, as the derby's drivers hold them). */
 function spinningWreckAt(x: number, z: number, vx: number, hits: PropHits) {
   const wreck = makeCar("shape");
