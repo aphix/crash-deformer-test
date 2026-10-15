@@ -7,9 +7,9 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import type { VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { EjectionWatch } from "../vehicle/ejection.ts";
 import { launch } from "../contact/crash-scenarios.test-util.ts";
-import { makeWorld as raceWorld } from "./race-world.test-util.ts";
+import { makeWorld as raceWorld, type World } from "./race-world.test-util.ts";
 import { armedCar } from "./solid-parity.test-util.ts";
-import { activeGround, setGround } from "./ground.ts";
+import { activeGround, setGround, type Ground } from "./ground.ts";
 import { placeProps, propColliders, type PropCollider } from "./placements.ts";
 import { Track } from "./track.ts";
 import { parseTrack } from "./track-schema.ts";
@@ -80,6 +80,17 @@ function overlap(car: DeformableCar, c: PropCollider): number {
 
 /** Havana's low solid pieces, placed once: the course is the same for every run. */
 let havanaSolids: PropCollider[] | undefined;
+/** One race stack with Havana's lobby up for every run: a run only reads the course (`courseHit`), and baking it costs more than the run. */
+let havana: { w: World; ground: Ground } | undefined;
+function havanaRace(): World {
+  if (!havana) {
+    const w = raceWorld();
+    w.race.showLobby("havana");
+    havana = { w, ground: activeGround() };
+  }
+  setGround(havana.ground);
+  return havana.w;
+}
 function solidPieces(): PropCollider[] {
   const track = new Track([...TRACKS, ...OFF_MENU].find((j) => parseTrack(j).id === "havana"));
   return propColliders(placeProps(track)).filter((c) => c.body === "solid" && c.base < LOW);
@@ -90,8 +101,7 @@ function solidPieces(): PropCollider[] {
  * handbrake is tapped for TAP s. Returns the step that moved it furthest past its allowance.
  */
 function sideswipe(scene: Scene, steer: number, turnIn: number, boost = false): Jump {
-  const w = raceWorld();
-  w.race.showLobby("havana");
+  const w = havanaRace();
   const solids = (havanaSolids ??= solidPieces());
   assert.ok(solids.some((c) => c.prefab === "palm" && c.kind === "circle" && Math.hypot(c.x - scene.palm.x, c.z - scene.palm.z) < 0.5), "the palm stands where the capture says");
   const car = armedCar(scene.cls);
