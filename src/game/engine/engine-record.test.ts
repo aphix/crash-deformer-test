@@ -11,8 +11,9 @@ import { assignClass, HANDLING } from "../vehicle/vehicle-classes.ts";
 import { makeWorld } from "../world/race-world.test-util.ts";
 import { setGround } from "../world/ground.ts";
 import { newWorld, settleStep, stepWorld } from "./world-step.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
-const H = 1 / 240;
+const H = 1 / FINE_HZ;
 /**
  * Two minutes of racing: the 1 Hz keyframe encode (`writeSnapshot`, `simState`) is cold code, so V8 runs it in the
  * interpreter, where every double is boxed, for its first ~40 s; the test measures the steady state after it tiers up

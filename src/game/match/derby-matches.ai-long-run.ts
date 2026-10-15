@@ -13,6 +13,7 @@ import { physicsSlice } from "../contact/sat.ts";
 import { stepWorld } from "../engine/world-step.ts";
 import { CAGES } from "../kernel/rig-spec.ts";
 import { armKill, carClass, DEFAULT_REALISM } from "../vehicle/vehicle-classes.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * Full-sanity run, not the per-commit suite (`npm run test:ai-long-run`): AI derby matches watched for anything going wrong: six-car matches at the arcade and the realistic knobs
@@ -153,7 +154,7 @@ function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs, start?: 
       const shove = new Array<number>(n).fill(0);
       let vmax = 8;
       for (const c of cars) vmax = Math.max(vmax, c.speed);
-      const h = physicsSlice(1 / 60, vmax);
+      const h = physicsSlice(1 / FRAME_HZ, vmax);
       const snaps = match.snapshots(n);
       for (const [i, c] of cars.entries()) snapshotAiCar(snaps[i]!, i, c, c.deform.drivetrainAlive);
       for (const [i, c] of cars.entries()) applyDrive(c, match.think(snaps[i]!, snaps, h), h);

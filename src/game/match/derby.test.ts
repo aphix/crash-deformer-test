@@ -13,6 +13,7 @@ import { DeformableCar } from "../vehicle/car.ts";
 import { physicsSlice } from "../contact/sat.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { aiCar, assertSameDigest, decide } from "../vehicle/test-support.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 describe("given a brawler (full aggression) driving at a target that comes straight at it with a flattened nose", () => {
   it("when it decides its drive input, then it swings wide or backs in rather than charging nose first (head-on hits are banned in the rule books)", () => {
@@ -212,7 +213,7 @@ describe("given a derby car driven at the arena wall at 25 m/s from 12 m out (th
     const { world } = arenaWorld([car]);
     let elapsed = 0;
     while (elapsed < FIRST_HIT_SECONDS + RUN_ON_SECONDS) {
-      const slice = physicsSlice(1 / 60, Math.max(car.speed, 4));
+      const slice = physicsSlice(1 / FRAME_HZ, Math.max(car.speed, 4));
       applyDrive(car, { ...idleDrive(), throttle: 1 }, slice);
       stepWorld(world, slice);
       elapsed += slice;
@@ -294,7 +295,7 @@ describe("given two cars, each at half the speed of a 50 km/h rigid-wall hit, dr
     const w = newWorld([a, b]);
     let t = 0;
     while (t < 1.6) {
-      const h = physicsSlice(1 / 60, Math.max(a.speed, b.speed, 4));
+      const h = physicsSlice(1 / FRAME_HZ, Math.max(a.speed, b.speed, 4));
       stepWorld(w, h);
       t += h;
     }
@@ -330,7 +331,7 @@ describe("given a default two-car derby in shape deform mode", () => {
     let t = match.time;
     let minD = Infinity;
     while (t < 5.05) {
-      const h = physicsSlice(1 / 60, Math.max(a.speed, b.speed, 4));
+      const h = physicsSlice(1 / FRAME_HZ, Math.max(a.speed, b.speed, 4));
       const snaps = match.snapshots(2);
       for (const [i, c] of [a, b].entries()) snapshotAiCar(snaps[i]!, i, c, c.deform.drivetrainAlive);
       applyDrive(a, match.think(snaps[0]!, snaps, h), h);

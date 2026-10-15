@@ -16,9 +16,10 @@ import { newWorld, settleStep, stepWorld } from "./world-step.ts";
 import { CrashRecorder } from "./engine-record.ts";
 import { ClipSim } from "./engine-replay.ts";
 import { PoseBlend } from "../present/pose-blend.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /** The engine's step is a float32 (`Math.fround`), which the recorder stores whole: the replay runs the very step the live sim ran. */
-const H = Math.fround(1 / 240);
+const H = Math.fround(1 / FINE_HZ);
 /** The pair meets about 3.3 s in; the clip's post-roll (3 s) closes it before this. */
 const STEPS = 7 * 240;
 /** The respawn of `JUMPER`: 5 s in, after the first impact. */

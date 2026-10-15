@@ -11,9 +11,10 @@ import { raceOn, recordRace, reelViews, type Crash, type RigSample } from "./ree
 import * as THREE from "three";
 import { blankPoint } from "../world/track.ts";
 import { contextEye } from "../present/highlight-cam.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** A replayed frame is one 1/60 s step of the reel's wall clock. */
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** The city's straightest 60 m (arc length, m): a staged chain's three cars stand in line on it. */
 const STRAIGHT = 592;
 const LAP = new Track(parseTrack(city)).length;
