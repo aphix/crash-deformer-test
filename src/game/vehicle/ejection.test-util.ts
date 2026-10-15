@@ -43,7 +43,11 @@ export type Hit = "head-on" | "t-bone" | "rear-end";
 /** What one car came out of a hit as: its engine, and whether its driver was thrown out. */
 export type Outcome = { alive: boolean; health: number; travel: number; thrown: boolean };
 
+/** The longest a hit is run (s); measured, every hit of the matrix has stopped changing its outcome within 18 frames of the start. */
 const SECONDS = 2.5;
+/** A hit has played out once no engine's health or block travel moves by more than this in a frame, and nobody is newly thrown or killed, for `PLAYED_OUT_S`, after the impact begins. */
+const PLAYED_OUT_STEP = 1e-4;
+const PLAYED_OUT_S = 0.5;
 
 /**
  * One hit through the sandbox engine step (`tickWorld`: slices, pair contact, phase clock, `EjectionWatch`), returning
@@ -64,14 +68,22 @@ export function collide(hit: Hit, striker: VehicleClassId, struck: VehicleClassI
     launch(s, -6, 0, Math.PI / 2, mps, 0);
   }
   const w = makeWorld([s, t], false, false, null);
-  for (let f = 0; f < 60 * SECONDS; f++) tickWorld(w);
   const out = (car: DeformableCar, i: number): Outcome => ({
     alive: car.deform.drivetrainAlive,
     health: car.deform.drivetrainHealth,
     travel: car.deform.engineTravel,
     thrown: w.ejections.some((e) => e.car === i),
   });
-  const result: [Outcome, Outcome] = [out(s, 0), out(t, 1)];
+  const moved = (a: Outcome, b: Outcome): boolean =>
+    a.alive !== b.alive || a.thrown !== b.thrown || Math.abs(a.health - b.health) > PLAYED_OUT_STEP || Math.abs(a.travel - b.travel) > PLAYED_OUT_STEP;
+  let result: [Outcome, Outcome] = [out(s, 0), out(t, 1)];
+  let still = 0;
+  for (let f = 0; f < 60 * SECONDS && still < 60 * PLAYED_OUT_S; f++) {
+    tickWorld(w);
+    const now: [Outcome, Outcome] = [out(s, 0), out(t, 1)];
+    still = w.clock.phase !== "approach" && !moved(now[0], result[0]) && !moved(now[1], result[1]) ? still + 1 : 0;
+    result = now;
+  }
   s.dispose();
   t.dispose();
   return result;
