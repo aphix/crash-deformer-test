@@ -1,5 +1,5 @@
 // Input cadence of saved clips: per clip and car, steer sign changes per minute, handbrake seconds and boost seconds.
-// Usage: node --experimental-strip-types scripts/reel-cadence.mjs <file>...
+// Usage: node scripts/reel-cadence.mjs <file>...
 // A file is the base64 text `encodeSaved` makes (a localStorage clip), or a flag submission's JSON (`payload.clip`).
 // The reel stores no lap boundaries, so a clip (one highlight) is the unit.
 import { readFileSync } from "node:fs";
@@ -26,7 +26,7 @@ function clipText(path) {
 const layout = carLayout(new DeformableCar({ body: 0, accent: 0, name: "layout" }, new THREE.Scene()));
 const files = process.argv.slice(2);
 if (files.length === 0) {
-  console.error("usage: node --experimental-strip-types scripts/reel-cadence.mjs <clip file>...");
+  console.error("usage: node scripts/reel-cadence.mjs <clip file>...");
   process.exit(2);
 }
 let failed = false;

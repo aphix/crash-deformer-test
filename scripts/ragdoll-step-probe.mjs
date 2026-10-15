@@ -3,7 +3,7 @@
 // runs per frame as `CrashEngine` does. Per frame: ms in `world.step()` (all steps of the frame), colliders and bodies in the
 // Rapier world (all / enabled / taking part in contacts), who owns them, dummies and cars with a proxy up.
 //
-//   node --experimental-strip-types --no-warnings scripts/ragdoll-step-probe.mjs [--seconds 50] [--seed 1] [--cars 15] [--window 12] [--csv out.csv]
+//   node --no-warnings scripts/ragdoll-step-probe.mjs [--seconds 50] [--seed 1] [--cars 15] [--window 12] [--csv out.csv]
 //   ... --field [--seconds 6]: the same columns for a fixed scene instead of the race (the field test of `engine-ragdoll-field.test.ts`:
 //   32 cars on rings around the middle, four drivers thrown up out of their windshields at once), so two builds whose races
 //   diverge (a different first crash) can be compared on one scene.

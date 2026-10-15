@@ -2,7 +2,7 @@
 /**
  * `node --test`, but the slowest files start first.
  *
- *   node --experimental-strip-types scripts/run-tests.mjs [--concurrency=4] [--shard=i/n [--weights=1,0.55]] [--learn] <file or glob>...
+ *   node scripts/run-tests.mjs [--concurrency=4] [--shard=i/n [--weights=1,0.55]] [--learn] <file or glob>...
  *
  * Same files, same one-process-per-file isolation, same spec output and exit code as the CLI, and every process imports
  * `test-setup.mjs` first (the WASM skin kernel loaded, as in the browser). The CLI sorts the files by
@@ -43,7 +43,7 @@ if (shard) {
 
 /** @type {Map<string, number>} */
 const seconds = new Map();
-const stream = run({ files, concurrency, execArgv: ["--experimental-strip-types", `--import=${new URL("./test-setup.mjs", import.meta.url).href}`] });
+const stream = run({ files, concurrency, execArgv: [`--import=${new URL("./test-setup.mjs", import.meta.url).href}`] });
 stream.on("test:summary", (s) => {
   if (s.file === undefined && !s.success) process.exitCode = 1;
 });

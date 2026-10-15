@@ -10,7 +10,7 @@ are in `docs/ARCHITECTURE.md` and enforced by `npm run check:boundaries`.
 
 ## Environment
 
-- Node 22.6 or newer, Linux, WSL2 or macOS. Packages come from pnpm through corepack: `corepack pnpm install
+- Node 22.18 or newer (it runs TypeScript without a flag), Linux, WSL2 or macOS. Packages come from pnpm through corepack: `corepack pnpm install
   --frozen-lockfile`. `docs/DEPLOY.md` states the build and deploy commands.
 - Start every Vite command through the npm scripts (`npm run dev`, `npm run build`, `npm run preview`), not `vite`
   directly: the scripts run it through `scripts/with-app-env.mjs`, the `NAME=value` env-arg runner.
@@ -28,7 +28,7 @@ are in `docs/ARCHITECTURE.md` and enforced by `npm run check:boundaries`.
 |---|---|
 | `npm run test:app` | the `src/game`, `src/lib/multiplayer`, `src/lib/submissions` and `src/lib/deploy` suites; the gate. It runs `test:parity` first and stops if it fails |
 | `npm run test:parity` | the WASM skin kernel against the JS skin (`deform/skin-kernel.parity.ts`), alone: every other test process skins with the kernel |
-| `npm run t -- <files or globs> [--concurrency=2]` | the same runner on just the files named (one process per file); `--concurrency=` also works after `test:app` |
+| `node scripts/run-tests.mjs <files or globs> [--concurrency=2]` | the same runner on just the files named (one process per file); `--concurrency=` also works after `test:app` |
 | `npm run test:ai-long-run` | the full-sanity suite, `src/game/**/*.ai-long-run.ts`: long AI-driven fuzz runs (whole fields watched for stuck cars, false ejections, seed sweeps). Not in the gate: run it before a release or after a change to AI, contact or course code. Linted, typechecked and boundary-checked like tests |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check:boundaries` | the structural rules, ratcheted against `scripts/boundary-caps.json` |

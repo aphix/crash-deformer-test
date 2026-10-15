@@ -121,7 +121,7 @@ Deploy (`deploy/`, `server/`, `scripts/` build helpers) sits outside `src/` and 
 - **T6.** Bounded: traces and per-frame captures use ring buffers or fixed caps; every test, probe and sweep runs under a
   memory cap so a runaway dies alone.
 
-Runner: `node --test` semantics with `--experimental-strip-types` (no test framework), through `scripts/run-tests.mjs`, which
+Runner: `node --test` semantics (Node runs the TypeScript as is; no test framework), through `scripts/run-tests.mjs`, which
 starts the slowest files first (`scripts/test-cost.json`; `--learn` refreshes it) and otherwise behaves like the CLI, except that every test process imports
 `scripts/test-setup.mjs` first: the WASM skin kernel is loaded, so headless engines and cars skin as the browser does. The JS skin it replaces is checked
 against it alone, first, by `npm run test:parity` (`deform/skin-kernel.parity.ts`), and the suites stop if that fails. `npm run test:app` runs the game and
