@@ -513,7 +513,7 @@ export class StreamedDeformation extends DeformSolve {
     const kernel = skinKernel();
     const nor = geometry.getAttribute("normal") as THREE.BufferAttribute | undefined;
     if (kernel && geometry.index && nor && nor.count === attr.count && nor.array instanceof Float32Array) {
-      // The kernel's loop is this one below, with `computeNormalsFast`: same bits out (skin-kernel.test.ts).
+      // The kernel's loop is this one below, with `computeNormalsFast`: same bits out (skin-kernel.parity.ts).
       const d = (this.kernelIn ??= { X, co, pos, hubs: new Float64Array(this.masses.length * 5), params: new Float64Array(12) });
       const p = d.params;
       p[0] = wrinkles ? 1 : 0;

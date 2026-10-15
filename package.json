@@ -1,7 +1,9 @@
 {
   "name": "crash-deformer-test",
   "private": true,
-  "sideEffects": ["./src/game/kernel/three-trig.ts"],
+  "sideEffects": [
+    "./src/game/kernel/three-trig.ts"
+  ],
   "type": "module",
   "packageManager": "pnpm@11.17.0",
   "scripts": {
@@ -18,10 +20,11 @@
     "typecheck": "tsc --noEmit",
     "check:boundaries": "node scripts/check-boundaries.mjs --ratchet",
     "check:programs": "node scripts/check-programs.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types scripts/run-tests.mjs src/lib/multiplayer/rate-limit.test.ts 'src/lib/submissions/**/*.test.ts' 'src/lib/deploy/**/*.test.ts' 'src/game/**/*.test.ts'",
-    "test:game": "node --experimental-strip-types scripts/run-tests.mjs 'src/game/**/*.test.ts'",
-    "test:app": "node --experimental-strip-types scripts/run-tests.mjs 'src/game/**/*.test.ts' 'src/lib/multiplayer/**/*.test.ts' 'src/lib/submissions/**/*.test.ts' 'src/lib/deploy/**/*.test.ts' scripts/with-app-env.test.mjs",
-    "test:ai-long-run": "node --experimental-strip-types scripts/run-tests.mjs 'src/game/**/*.ai-long-run.ts'",
+    "test": "node --test 'scripts/**/*.test.mjs' && npm run --silent test:parity && node --experimental-strip-types scripts/run-tests.mjs src/lib/multiplayer/rate-limit.test.ts 'src/lib/submissions/**/*.test.ts' 'src/lib/deploy/**/*.test.ts' 'src/game/**/*.test.ts'",
+    "test:parity": "node --experimental-strip-types --test src/game/deform/skin-kernel.parity.ts",
+    "test:game": "npm run --silent test:parity && node --experimental-strip-types scripts/run-tests.mjs 'src/game/**/*.test.ts'",
+    "test:app": "npm run --silent test:parity && node --experimental-strip-types scripts/run-tests.mjs 'src/game/**/*.test.ts' 'src/lib/multiplayer/**/*.test.ts' 'src/lib/submissions/**/*.test.ts' 'src/lib/deploy/**/*.test.ts' scripts/with-app-env.test.mjs",
+    "test:ai-long-run": "npm run --silent test:parity && node --experimental-strip-types scripts/run-tests.mjs 'src/game/**/*.ai-long-run.ts'",
     "t": "node --experimental-strip-types scripts/run-tests.mjs",
     "bench": "node scripts/bench-physics.mjs",
     "sweep": "node --experimental-strip-types --no-warnings scripts/crush-sweep.mjs",

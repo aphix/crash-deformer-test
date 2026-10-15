@@ -4,7 +4,8 @@
  *
  *   node --experimental-strip-types scripts/run-tests.mjs [--concurrency=4] [--shard=i/n [--weights=1,0.55]] [--learn] <file or glob>...
  *
- * Same files, same one-process-per-file isolation, same spec output and exit code as the CLI. The CLI sorts the files by
+ * Same files, same one-process-per-file isolation, same spec output and exit code as the CLI, and every process imports
+ * `test-setup.mjs` first (the WASM skin kernel loaded, as in the browser). The CLI sorts the files by
  * path, so a 200 s file near the end of the alphabet (`world/survival-chase`) starts last and sets the wall time; here the
  * files named in `test-cost.json` (seconds, from `--learn`) go first, longest first, and the rest follow in path order.
  * A missing or stale entry only costs speed. `--learn` rewrites `test-cost.json` from this run (files of 2 s and more).
@@ -42,7 +43,7 @@ if (shard) {
 
 /** @type {Map<string, number>} */
 const seconds = new Map();
-const stream = run({ files, concurrency, execArgv: ["--experimental-strip-types"] });
+const stream = run({ files, concurrency, execArgv: ["--experimental-strip-types", `--import=${new URL("./test-setup.mjs", import.meta.url).href}`] });
 stream.on("test:summary", (s) => {
   if (s.file === undefined && !s.success) process.exitCode = 1;
 });

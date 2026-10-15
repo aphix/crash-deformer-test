@@ -27,9 +27,12 @@ export abstract class EngineWarm extends EngineCore {
    * Night, wet and the lamp pool's lights only change uniforms: the light count is fixed.
    */
   protected async warmPrograms(env: Promise<void>): Promise<void> {
-    const kernel = loadSkinKernel(fetch(new URL("../deform/skin-kernel.wasm", import.meta.url))).catch((err: unknown) =>
-      console.warn("Crush Stream skin kernel unavailable, skinning in JS", err),
-    );
+    // Already in when a test process preloaded it (scripts/test-setup.mjs): no fetch, which Node cannot do for a file URL.
+    const kernel = skinKernel()
+      ? null
+      : loadSkinKernel(fetch(new URL("../deform/skin-kernel.wasm", import.meta.url))).catch((err: unknown) =>
+          console.warn("Crush Stream skin kernel unavailable, skinning in JS", err),
+        );
     await env;
     if (this.disposed) return;
     const glass = makeGlassMaterial();

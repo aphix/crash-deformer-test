@@ -26,7 +26,8 @@ are in `docs/ARCHITECTURE.md` and enforced by `npm run check:boundaries`.
 
 | Command | What it does |
 |---|---|
-| `npm run test:app` | the `src/game`, `src/lib/multiplayer`, `src/lib/submissions` and `src/lib/deploy` suites; the gate |
+| `npm run test:app` | the `src/game`, `src/lib/multiplayer`, `src/lib/submissions` and `src/lib/deploy` suites; the gate. It runs `test:parity` first and stops if it fails |
+| `npm run test:parity` | the WASM skin kernel against the JS skin (`deform/skin-kernel.parity.ts`), alone: every other test process skins with the kernel |
 | `npm run t -- <files or globs> [--concurrency=2]` | the same runner on just the files named (one process per file); `--concurrency=` also works after `test:app` |
 | `npm run test:ai-long-run` | the full-sanity suite, `src/game/**/*.ai-long-run.ts`: long AI-driven fuzz runs (whole fields watched for stuck cars, false ejections, seed sweeps). Not in the gate: run it before a release or after a change to AI, contact or course code. Linted, typechecked and boundary-checked like tests |
 | `npm run typecheck` | `tsc --noEmit` |

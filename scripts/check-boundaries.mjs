@@ -88,7 +88,7 @@ const KNOB_CONTEXTS = new Set(["kernel", "world", "deform", "vehicle", "contact"
 const MAX_FILE_LINES = 800;
 const MAX_FUNCTION_LINES = 150;
 
-const isTest = (f) => /\.(test(-util)?|ai-long-run)\.ts$|\/test-support\.ts$/.test(f);
+const isTest = (f) => /\.(test(-util)?|ai-long-run|parity)\.ts$|\/test-support\.ts$/.test(f);
 const contextOf = (f) => CONTEXTS.find(([, , pats]) => pats.some((p) => (p.endsWith("/") ? f.startsWith(p) : f === p)));
 
 // Tracked and new (untracked, not ignored) files as they are on disk, so a lane's pre-commit gate sees its new files.

@@ -122,7 +122,9 @@ Deploy (`deploy/`, `server/`, `scripts/` build helpers) sits outside `src/` and 
   memory cap so a runaway dies alone.
 
 Runner: `node --test` semantics with `--experimental-strip-types` (no test framework), through `scripts/run-tests.mjs`, which
-starts the slowest files first (`scripts/test-cost.json`; `--learn` refreshes it) and otherwise behaves like the CLI. `npm run test:app` runs the game and
+starts the slowest files first (`scripts/test-cost.json`; `--learn` refreshes it) and otherwise behaves like the CLI, except that every test process imports
+`scripts/test-setup.mjs` first: the WASM skin kernel is loaded, so headless engines and cars skin as the browser does. The JS skin it replaces is checked
+against it alone, first, by `npm run test:parity` (`deform/skin-kernel.parity.ts`), and the suites stop if that fails. `npm run test:app` runs the game and
 multiplayer suites, `npm run test:game` only `src/game`. Each test stages the moment it claims (cars placed at the poses, speeds and states it needs; no full race,
 derby or Survival run, no seed sweep hoping the event happens). Long AI-driven runs that watch a whole field for anything going wrong (stuck cars, false ejections)
 are `*.ai-long-run.ts` files, run by `npm run test:ai-long-run` and never by the gate; each one that names a failure has a fast targeted test pinning its mechanism. Harnesses: `contact/crash-scenarios.test-util.ts` (headless crash
