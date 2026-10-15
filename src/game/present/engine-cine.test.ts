@@ -12,6 +12,7 @@ import { courseCensus, crashAxis, crashSeen } from "./engine-cine-courses.test-u
 import { contextEye, fovFor } from "./highlight-cam.ts";
 import { DeformableCar } from "../vehicle/car.ts";
 import { SLOMO_HOLD } from "../match/phase.ts";
+import { FINE_HZ, FRAME_HZ } from "../kernel/constants.ts";
 
 const STILL = { x: 0, y: 0, z: 0 };
 
@@ -198,7 +199,7 @@ describe("given the crash cam on a hit in an open field", () => {
       const cam = new CrashCam(false);
       const camera = new THREE.PerspectiveCamera(55, 16 / 9, 0.1, 900);
       cam.begin(new THREE.Vector3(), new THREE.Vector3(1, 0, 0), null, s.hold);
-      const dt = 1 / 240;
+      const dt = 1 / FINE_HZ;
       const changes: [number, number][] = [];
       let lens = 0;
       while (cam.camT >= 0 && cam.camT < s.hold + 1) {
@@ -371,7 +372,7 @@ describe("given a reel's crash camera holding the crane with two drivers thrown 
 
 describe("given the hit-stop's sim rate over the frames of a 90 ms stop at 60 Hz", () => {
   it("when the stop begins and ends, then the rate dips and recovers without a snap, and is 1 again within half a second", () => {
-    const FRAME = 1 / 60;
+    const FRAME = 1 / FRAME_HZ;
     let warp = 1;
     let biggest = 0;
     let lowest = 1;

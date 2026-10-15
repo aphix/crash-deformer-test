@@ -16,6 +16,7 @@ import { clipBytes, readClip, writeClip } from "../net/reel-codec.ts";
 import { Reader, Writer } from "../net/codec.ts";
 import type { RaceOptions } from "../match/types.ts";
 import { PoseBlend } from "../present/pose-blend.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /**
  * Live vs replay (docs/HIGHLIGHTS.md): a crash recorded by the real recorder, then its clip re-simulated by `ClipSim`,
@@ -117,7 +118,7 @@ function dresser(derby: boolean): (car: DeformableCar) => void {
  * does: frames of 1/60 s cut into `physicsSlice` steps (never shorter than `floor`: 1/80 s is the adaptive pacer's coarse
  * slice), every car on its own pedals, the clip the best the ledger kept.
  */
-export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boolean, touched: readonly number[] = [], floor = 1 / 240, shot: Shot | null = null): Recording {
+export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boolean, touched: readonly number[] = [], floor = 1 / FINE_HZ, shot: Shot | null = null): Recording {
   const scene = new THREE.Scene();
   const dress = dresser(derby);
   const cars = spawns.map((s, i) => {

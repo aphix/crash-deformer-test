@@ -6,13 +6,14 @@ import { TRACK_ID } from "../world/constants.ts";
 import { setGround } from "../world/ground.ts";
 import { CrashEngine } from "./engine.ts";
 import { element, stubBrowser } from "./engine-headless.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * Where a Survival run's course is picked (docs/SURVIVAL.md): a shared `#` boots straight into a run on the course it names, the
  * scene bar's Survival opens Survival's own menu first (the run starts on Start survival), and the address follows the pick.
  */
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 
 describe("given the real engine booted on #scene=survival&track=national-mall", () => {
   // One engine for the file: a second `CrashEngine` in the same process never resolves `ready`.

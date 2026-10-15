@@ -16,6 +16,8 @@ import type { Reel } from "../match/highlights.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 import { PoseBlend } from "../present/pose-blend.ts";
 import { CUTS } from "../present/engine-cine.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
+import { TIMELINE_HZ } from "./constants.ts";
 
 /** The city course with the staged head-on's cars (2 and 3) and the player's and car 1: no field around them to crash into. */
 const FIELD = { trackId: "city", laps: 1, aiCount: 3, noReset: false, aggression: 1 };
@@ -43,17 +45,17 @@ const EASE_WALL_CANARY = 2;
 
 describe("given the highlight reel timeline of a 10 s clip whose first impact is at 4 s", () => {
   const tl = clipTimeline(4, 10, []);
-  const contactStep = Math.round(tl.contact * 120);
+  const contactStep = Math.round(tl.contact * TIMELINE_HZ);
 
   it("when the clip plays, then it runs at normal speed up to the lead before the hit and the slow-mo begins easing in there", () => {
-    assert.ok(Math.abs(tl.onset - (4 - PRE_IMPACT_LEAD)) <= 1 / 120 + 1e-9, `slow-mo began at wall ${tl.onset.toFixed(3)} s, not at ${4 - PRE_IMPACT_LEAD}`);
+    assert.ok(Math.abs(tl.onset - (4 - PRE_IMPACT_LEAD)) <= 1 / TIMELINE_HZ + 1e-9, `slow-mo began at wall ${tl.onset.toFixed(3)} s, not at ${4 - PRE_IMPACT_LEAD}`);
     assert.ok(Math.abs(simAt(tl, 2) - 2) < 1e-9, "1× before the hit");
     assert.ok(Math.abs(tl.impact + CUTS[0] - tl.onset) < 1e-9, `the crash cam began at ${tl.impact.toFixed(3)} s, so its first cut lands at ${(tl.impact + CUTS[0]).toFixed(3)} s, not as the slow-mo starts (${tl.onset.toFixed(3)} s)`);
   });
 
   it("when the slow-mo eases in, then the clip moves the lead's worth of game time between its start and the cars meeting, and the ease has reached the slow scale by then", () => {
     const played = simAt(tl, tl.contact) - simAt(tl, tl.onset);
-    assert.ok(Math.abs(played - PRE_IMPACT_LEAD) <= 1 / 120 + 1e-9, `${played.toFixed(4)} game s between slow-mo start and the hit, not ${PRE_IMPACT_LEAD}`);
+    assert.ok(Math.abs(played - PRE_IMPACT_LEAD) <= 1 / TIMELINE_HZ + 1e-9, `${played.toFixed(4)} game s between slow-mo start and the hit, not ${PRE_IMPACT_LEAD}`);
     const slow = impactScale(phaseClock());
     assert.ok(tl.scale[contactStep - 1]! <= slow * REACHED_CANARY, `time scale ${tl.scale[contactStep - 1]} a step before the hit, slow scale ${slow}`);
     assert.ok(tl.contact - tl.onset < EASE_WALL_CANARY, `the ease took ${(tl.contact - tl.onset).toFixed(2)} wall s`);
@@ -103,7 +105,7 @@ function race(w: World, field = FIELD, seed = SEED): void {
 /** The reel of the first `clips` clips a field records (the first by default): what a host sends and every peer (the host too) replays. */
 async function recordedReel(w: World, clips = 1): Promise<Reel> {
   const state = { acc: 0 };
-  for (let n = 0; n * (1 / 60) < 120 && w.race.recorder.ledger.kept.length < clips && w.race.phase !== "finished"; n++) frame(w, state);
+  for (let n = 0; n * (1 / FRAME_HZ) < 120 && w.race.recorder.ledger.kept.length < clips && w.race.phase !== "finished"; n++) frame(w, state);
   w.race.recorder.end();
   const kept = w.race.recorder.ledger.kept;
   assert.ok(kept.length >= 1, "no clip in 120 s");
@@ -279,7 +281,7 @@ describe("given a city race whose first crash is a 30 m/s car meeting a 10 m/s c
     const tl = d["clips"][0]!.tl;
     for (let n = 1; (wall = n / 60) < FLIGHT_S + tl.wall; n++) d.frame(wall);
     const at = (s: number): number => s + FLIGHT_S;
-    const frame = 1 / 60 + 1e-9;
+    const frame = 1 / FRAME_HZ + 1e-9;
     assert.equal(seen.crash.length, 1, "the crash cam began once");
     assert.ok(seen.crash[0]! >= at(tl.impact) && seen.crash[0]! < at(tl.impact) + frame, `the crash cam began at ${seen.crash[0]!.toFixed(3)} s, not at ${at(tl.impact).toFixed(3)}`);
     assert.equal(seen.impact.length, 1, "the flash and burst went off once");
@@ -332,7 +334,7 @@ describe("given a city race whose first crash is a 30 m/s car meeting a 10 m/s c
     let slowFrames = 0;
     let advancing = 0;
     let wrong = 0;
-    for (let w = 0; w < tl.wall; w += 1 / 60) {
+    for (let w = 0; w < tl.wall; w += 1 / FRAME_HZ) {
       const dt = d.frame(FLIGHT_S + w);
       const drawnAt = simAt(tl, w);
       if (dt === null || Math.abs(dt - (drawnAt - last)) > 1e-9) wrong++;

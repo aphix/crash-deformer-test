@@ -508,9 +508,10 @@ for (const [f, p] of parsed) {
 }
 const strGroups = new Map();
 const numGroups = new Map();
-// A sim step or frame rate is written once, in a `constants.ts` (`FINE_HZ`, `SLICES_PER_STEP`, `FRAME_HZ`, or a named rate beside its knob);
-// every other site, tests and test-utils included, imports it and writes `1 / QUIET_HZ`. A bare `1 / 80`, `1 / 240`, `1 / 60`, `1 / 90`,
-// `1 / 120` or `1 / 270`, or one of their decimal forms (`0.0125`), outside a constants file is a second copy that goes stale when the rate moves.
+// A sim step or frame rate is written once, in a `constants.ts` (`FINE_HZ`, `SLICES_PER_STEP`, `QUIET_HZ`, `FRAME_HZ`, or a named rate beside its knob);
+// every other site, tests and test-utils included, imports the constant it MEANS: `1 / FRAME_HZ` for a display frame, `1 / FINE_HZ` for the fine slice,
+// `1 / QUIET_HZ` for the quiet step, or a named in-file constant (with its why) for a deliberately pinned other rate. A bare `1 / 80`, `1 / 240`,
+// `1 / 60`, `1 / 90`, `1 / 120` or `1 / 270`, or one of their decimal forms (`0.0125`), outside a constants file is a second copy that goes stale when the rate moves.
 const TIMING_RATES = new Set(["60", "80", "90", "120", "240", "270"]);
 const TIMING_DECIMAL = /^0?\.(0125|016[67]\d{0,6}|0111\d{0,6}|0083\d{0,6}|0041[67]\d{0,6}|0037\d{0,6})$/;
 const rateLiterals = [];
@@ -520,7 +521,7 @@ for (const [f, p] of parsed) {
   const where = (n) => `${f}:${p.sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}`;
   const visit = (n) => {
     const bareRate = !ratesNamedHere && ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.SlashToken && ts.isNumericLiteral(n.left) && n.left.text === "1" && ts.isNumericLiteral(n.right) && TIMING_RATES.has(n.right.text);
-    if (bareRate || (!ratesNamedHere && ts.isNumericLiteral(n) && TIMING_DECIMAL.test(n.text))) rateLiterals.push(`${where(n)} ${n.getText()} (a step or frame rate: import it, write 1 / QUIET_HZ)`);
+    if (bareRate || (!ratesNamedHere && ts.isNumericLiteral(n) && TIMING_DECIMAL.test(n.text))) rateLiterals.push(`${where(n)} ${n.getText()} (a step or frame rate: import the constant it means: 1 / FRAME_HZ a display frame, 1 / FINE_HZ the fine slice, 1 / QUIET_HZ the quiet step, or a named in-file constant with its why)`);
     if (!magic) {
       if (!bareRate) ts.forEachChild(n, visit);
       return;

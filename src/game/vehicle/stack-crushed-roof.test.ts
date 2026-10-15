@@ -7,6 +7,7 @@ import type { DeformableCar } from "./car.ts";
 import type { DriveInput } from "./car-drive.ts";
 import { BELLY, buildCar, cellX, cellZ, drawnField, drawnRange, NX, NZ, stepFrames, TOP_PARTS } from "./drawn-body.test-util.ts";
 import { fit } from "./ground-probe.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * The owner's stuck stack (docs/UNIFIED_CONTACT.md 10.6): a sedan resting on another sedan whose roof the load has crushed
@@ -14,7 +15,7 @@ import { fit } from "./ground-probe.test-util.ts";
  * and boot 7.5-13.6 cm higher, so the tyres sat inside the body), and the car drives off the roof at the speed the same car
  * has on flat ground at that height (E2 of the same document, on a crushed roof).
  */
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const FULL: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
 const SINK_M = 0.05;
 const SPEED_SHARE = 0.05;

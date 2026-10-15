@@ -10,8 +10,9 @@ import { DeformableCar } from "../vehicle/car.ts";
 import { fleetStyle } from "../scenes/fleet.ts";
 import { onSurface } from "./race-ai.ts";
 import { BEAT, rig, track } from "./police-rig.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const DT = 1 / 60;
+const DT = 1 / FRAME_HZ;
 /** The racer's speed past the stakeout (m/s): the long fast courses' pace. */
 const RACER_SPEED = 50;
 /** Seconds run from the first cop's wake: the lead-in (1.8 s) and a beat past it. */

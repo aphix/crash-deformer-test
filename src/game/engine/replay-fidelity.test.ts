@@ -8,6 +8,7 @@ import { clipBytes } from "../net/reel-codec.ts";
 import { agreement, atClipStart, recordFlat, recordRace, type Agreement, type Recording, type Spawn } from "./replay-fidelity.test-util.ts";
 import { ClipSim } from "./engine-replay.ts";
 import { MEMORY } from "../match/highlights.ts";
+import { FINE_HZ, QUIET_HZ } from "../kernel/constants.ts";
 
 /**
  * The owner wants a replay or a highlight reel to show the crash as it happened. The recorder's clip (its first keyframe,
@@ -16,6 +17,8 @@ import { MEMORY } from "../match/highlights.ts";
  * runs the same steps on the same pedals IS that sim: the pedals are on the 8-bit grid in the live sim itself
  * (`applyDrive`), so the clip holds exactly what the sim ran, and a pile-up replays to the bit however chaotic it is.
  */
+/** The pacer's coarse floor (Hz) before it moved to the quiet step: a clip saved then still replays, so that rate stays pinned in its own constant. */
+const OLD_FLOOR_HZ = 120;
 /** Spawn shifts (m) of the pile-ups: the same crash as other, equally valid realizations of it. */
 const SHIFTS = [1e-9, 3e-9, 1e-6, 1e-3];
 
@@ -155,7 +158,7 @@ describe("given a highlight clip recorded from a crash and replayed from its key
     });
     it("when the car behind a head-on's cars has its engine killed from outside the crash sim just after the impact (a guard's gunfire), then the replay matches the live sim at every step, to the bit, the shot car's wreck state and dead engine included", () => {
       const spawns = pile(0);
-      const rec = recordFlat(spawns, 8, true, [], 1 / 240, { car: 2, at: 2.4 });
+      const rec = recordFlat(spawns, 8, true, [], 1 / FINE_HZ, { car: 2, at: 2.4 });
       assert.equal(rec.cars[2]!.deform.drivetrainAlive, false, "the shot car's engine is dead");
       assert.ok(rec.clip.cars.some((c) => c.slot === 2), "the shot car is in the clip");
       check("derby shot car", rec, agreement(rec));
@@ -190,7 +193,7 @@ describe("given a highlight clip recorded from a crash and replayed from its key
         { x: 0, z: 300, yaw: HEAD, speed: 20, throttle: 1 },
         { x: 240, z: 300, yaw: -HEAD, speed: 20, throttle: 1 },
       ];
-      const rec = recordFlat(spawns, 8, true, [], 1 / 80);
+      const rec = recordFlat(spawns, 8, true, [], 1 / QUIET_HZ);
       const inClip = rec.clip.cars.map((c) => c.slot);
       assert.equal(inClip.length, 2, `the clip is of one head-on's two cars: ${inClip}`);
       const away = inClip.includes(0) ? [2, 3] : [0, 1];
@@ -203,7 +206,7 @@ describe("given a highlight clip recorded from a crash and replayed from its key
 
   // The adaptive pacer (`SimPacer`) steps a slow device at 1/80 s; the recorder stores each step's dt, so its clips replay as exactly.
   // A clip saved at the old 1/120 s floor holds its own steps just the same: the replay runs the clip's steps, never the pacer's.
-  for (const [floor, rate] of [[1 / 80, "1/80"], [1 / 120, "1/120"]] as const) {
+  for (const [floor, rate] of [[1 / QUIET_HZ, `1/${QUIET_HZ}`], [1 / OLD_FLOOR_HZ, `1/${OLD_FLOOR_HZ}`]] as const) {
     describe(`given a derby recorded on a slow device whose sim steps at ${rate} s instead of 1/240 s`, () => {
       const HEAD = Math.PI / 2;
       const run = (name: string, spawns: Spawn[]): void => {

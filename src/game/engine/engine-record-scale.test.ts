@@ -6,13 +6,14 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { clipScore, clipTitle, IMPACT_MIN, MIN_SCORE, TOP, type CrashCluster } from "../match/highlights.ts";
 import { CrashRecorder } from "./engine-record.ts";
 import { settleStep, stepWorld } from "./world-step.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /**
  * Highlight scores through the real sim: two sedans (or one and the jersey slab) crash at a set closing speed, the
  * recorder scores the cluster. Scores scale with impact force (`impactWeight`): hits above 50 km/h count for more,
  * below it for less.
  */
-const H = 1 / 240;
+const H = 1 / FINE_HZ;
 
 /**
  * The recorder over `cars` for `seconds`; `wall`: the slab's first touch is reported as a wall hit at that closing speed (m/s);

@@ -14,10 +14,11 @@ import { newWorld, settleStep, stepWorld } from "./world-step.ts";
 import { CrashRecorder } from "./engine-record.ts";
 import { ClipSim } from "./engine-replay.ts";
 import { PoseBlend } from "../present/pose-blend.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /** The engine's step is a float32 (`Math.fround`), which the recorder stores whole: the replay runs the very step the live sim ran. */
-const H = Math.fround(1 / 240);
-const STEPS = 8 * 240;
+const H = Math.fround(1 / FINE_HZ);
+const STEPS = 8 * FINE_HZ;
 /** A head-on pair (the clip's cars) and a car the clip leaves out that drives by the debris they leave. */
 const A = 0;
 const B = 1;

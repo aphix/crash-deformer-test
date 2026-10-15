@@ -8,12 +8,13 @@ import { PoseBlend } from "../present/pose-blend.ts";
 import { CrashRecorder } from "./engine-record.ts";
 import { ClipSim } from "./engine-replay.ts";
 import { settleStep, stepWorld } from "./world-step.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /**
  * Figures run down, through the recorder and a clip's replay: slot 0 stands 400 m off (a car the clip leaves out), slots 1 and 2
  * crash head-on 0.5 s in. The recorder is told of each strike at its step; the clip carries those of its own cars.
  */
-const H = 1 / 240;
+const H = 1 / FINE_HZ;
 const FAR = 0;
 const PAIR = [1, 2];
 const FIGURE_KEYS = ["guard", "car", "x", "y", "z", "faceX", "faceZ", "vx", "vy", "vz", "wx", "wy", "wz"] as const;
