@@ -6,8 +6,9 @@ import { CHASE } from "../present/drive-cam.ts";
 import { setGround } from "../world/ground.ts";
 import { CrashEngine } from "./engine.ts";
 import { element, stubBrowser } from "./engine-headless.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 type Rig = "press" | "pistons" | "doors" | "corkscrew";
 
 describe("given the real engine in a rig scene, watching its car", () => {

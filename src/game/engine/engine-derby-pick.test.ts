@@ -5,8 +5,9 @@ import { HudStore } from "../hud/hud-store.ts";
 import { setGround } from "../world/ground.ts";
 import { CrashEngine } from "./engine.ts";
 import { element, frameField, stubBrowser } from "./engine-headless.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const CANVAS_W = 800;
 const CANVAS_H = 600;
 

@@ -6,8 +6,9 @@ import { FLEET_EMPTY_S } from "../scenes/fleet.ts";
 import { setGround } from "../world/ground.ts";
 import { CrashEngine } from "./engine.ts";
 import { element, stubBrowser } from "./engine-headless.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 
 describe("given the real engine on Fleet's default settings, every car driving straight out from the centre on its own bearing", () => {
   // One engine for the file: a second `CrashEngine` in the same process never resolves `ready`.

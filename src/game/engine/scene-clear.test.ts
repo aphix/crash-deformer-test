@@ -13,6 +13,7 @@ import { RangeRun } from "../scenes/range.ts";
 import type { LampPole } from "../scenes/engine-props.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { clearTransients, type Transients } from "./scene-clear.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 // The fx pools paint their dot sprites on a canvas; the headless run lends them one that takes any draw (the cars want none).
 const ctx = { createRadialGradient: () => ({ addColorStop() {} }), fillRect() {}, fillStyle: "" };
@@ -122,7 +123,7 @@ const ROWS: Record<keyof Transients, Row> = {
       await r.ragdolls.preload();
       for (let f = 0; f < 60; f++) {
         tickWorld(w);
-        r.ragdolls.update(1 / 60, [a, b], true, true, null);
+        r.ragdolls.update(1 / FRAME_HZ, [a, b], true, true, null);
       }
     },
     left: (r) => {

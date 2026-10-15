@@ -7,7 +7,7 @@ import { PoseBlend } from "../present/pose-blend.ts";
 import { assertSameNumbers, paint } from "../vehicle/test-support.ts";
 import { newWorld, settleStep, stepWorld } from "./world-step.ts";
 import { PACE_BUDGET_MS, SimPacer } from "./sim-pace.ts";
-import { QUIET_HZ } from "../kernel/constants.ts";
+import { FINE_HZ, FRAME_HZ, QUIET_HZ } from "../kernel/constants.ts";
 
 const V = 30;
 const SPIN = 1.2;
@@ -59,7 +59,7 @@ function drawn(hz: number, jitter: number, blend: boolean, scale = 1): Drawn {
 }
 
 describe("given a car moving straight at 30 m/s while turning at 1.2 rad/s, drawn between its fixed sim steps by the pose blend", () => {
-  for (const hz of [60, 144, 165, 240]) {
+  for (const hz of [FRAME_HZ, 144, 165, FINE_HZ]) {
     for (const jitter of [0, 0.35]) {
       it(`when frames come at ${hz} Hz, ${jitter * 100}% uneven, then the drawn car is within 1 µm and 1 µrad of where its motion puts it at the frame's time (undrawn it is up to a step's travel off)`, () => {
         const on = drawn(hz, jitter, true);
@@ -67,23 +67,23 @@ describe("given a car moving straight at 30 m/s while turning at 1.2 rad/s, draw
         assert.ok(on.worst < 1e-6, `blended: ${on.worst} m off`);
         assert.ok(on.worstYaw < 1e-6, `blended: ${on.worstYaw} rad off`);
         // The control: without the blend the frame shows the state the last step left, up to a slice of travel ahead
-        // (60 and 240 Hz frames that are whole slices land on a step's end: nothing to blend there).
-        const whole = jitter === 0 && (hz === 60 || hz === 240);
+        // (frames at the display rate and at the fine rate that are whole slices land on a step's end: nothing to blend there).
+        const whole = jitter === 0 && (hz === FRAME_HZ || hz === FINE_HZ);
         assert.ok(whole || off.worst > 0.01, `undrawn control only ${off.worst} m off: this test could not have failed`);
       });
     }
   }
 
-  it("when frames come 1 ms apart (shorter than a step) or at 240 Hz, then most 1 ms frames run no step yet the car is still drawn on its motion, and every 240 Hz frame runs exactly one step", () => {
+  it(`when frames come 1 ms apart (shorter than a step) or at ${FINE_HZ} Hz, then most 1 ms frames run no step yet the car is still drawn on its motion, and every ${FINE_HZ} Hz frame runs exactly one step`, () => {
     const slow = drawn(1000, 0, true);
     assert.ok(slow.steps.filter((s) => s === 0).length > slow.steps.length / 2, "frames shorter than a step run none");
     assert.ok(slow.worst < 1e-6, `${slow.worst} m off`);
-    const same = drawn(240, 0, true).steps.slice(10);
+    const same = drawn(FINE_HZ, 0, true).steps.slice(10);
     assert.ok(same.every((s) => s === 1), `steps per frame ${[...new Set(same)]}`);
   });
 
-  it("when the sim runs in slow motion at 60 or 240 Hz, then each step covers less sim time, so a frame still runs a step (after the first few) and the car is still drawn on its motion", () => {
-    for (const hz of [60, 240]) {
+  it(`when the sim runs in slow motion at ${FRAME_HZ} or ${FINE_HZ} Hz, then each step covers less sim time, so a frame still runs a step (after the first few) and the car is still drawn on its motion`, () => {
+    for (const hz of [FRAME_HZ, FINE_HZ]) {
       const slow = drawn(hz, 0, true, 0.032);
       assert.ok(slow.steps.slice(5).every((s) => s >= 1), `${hz} Hz: frames with no step ${slow.steps.filter((s) => s === 0).length}`);
       assert.ok(slow.worst < 1e-6, `${hz} Hz: ${slow.worst} m off`);
@@ -96,7 +96,7 @@ const BODY_RISE = 0.04;
 const BODY_TILT = 0.02;
 const WHEEL_RISE = -0.03;
 /** The finest step the pacer runs a car this fast at (`FINE_SLICE`): undrawn, a frame shows the ride a fraction of a step's travel off. */
-const FINE_STEP = 1 / 240;
+const FINE_STEP = 1 / FINE_HZ;
 
 /**
  * A classed car whose class body and wheels move a little every step, as `Suspension.step` moves them, stepped by the pacer in `hz`
@@ -156,7 +156,7 @@ describe("given a frame that cannot afford all its steps (its time budget runs o
       acc = Math.min(0.05, acc + dt);
       let adv = 0;
       for (let n = 0; acc > 1e-5 && n < 8; n++) {
-        const h = Math.min(acc, 1 / 240);
+        const h = Math.min(acc, 1 / FINE_HZ);
         adv += h;
         acc -= h;
         if (n >= 1 && over) break;
@@ -176,7 +176,7 @@ describe("given a frame that cannot afford all its steps (its time budget runs o
     return { adv, lost: pace.lost };
   }
 
-  const dt = 1 / 60;
+  const dt = 1 / FRAME_HZ;
   const frames = Array.from({ length: 30 }, (_, i) => ({ dt, over: i === 10 || i === 20 }));
 
   it("when one late frame misses its steps, then only that frame's time is lost and the next frames advance their own time, where the old catch-up loop ran a burst of extra steps", () => {
@@ -184,10 +184,10 @@ describe("given a frame that cannot afford all its steps (its time budget runs o
     assert.ok(Math.max(...old.slice(11, 15)) > 1.4 * dt, `the old loop's catch-up frame advanced only ${Math.max(...old.slice(11, 15))} s: no lurch to cure`);
     const { adv, lost } = paced(frames);
     for (let i = 0; i < frames.length; i++) {
-      if (frames[i]!.over) assert.ok(Math.abs(adv[i]! - 2 / 240) < 1e-6, `late frame ${i} stepped ${adv[i]} s`);
-      else assert.ok(Math.abs(adv[i]! - dt) < 1 / 240 + 1e-6, `frame ${i} advanced ${adv[i]} s, a frame is ${dt}`);
+      if (frames[i]!.over) assert.ok(Math.abs(adv[i]! - 2 / FINE_HZ) < 1e-6, `late frame ${i} stepped ${adv[i]} s`);
+      else assert.ok(Math.abs(adv[i]! - dt) < 1 / FINE_HZ + 1e-6, `frame ${i} advanced ${adv[i]} s, a frame is ${dt}`);
     }
-    const missed = 2 * (dt - 2 / 240);
+    const missed = 2 * (dt - 2 / FINE_HZ);
     assert.ok(Math.abs(lost - missed) < 2e-3, `lost ${lost} s, the two late frames ran ${missed} s short`);
   });
 
@@ -366,11 +366,11 @@ function device(adaptive: boolean, stepMs: (t: number, n: number) => number, dra
   return { pace, log, speed: stepped / scale / (t / 1000) };
 }
 
-describe("given the adaptive pacer, which steps the sim at the coarse step on a device that cannot keep up with 1/240 s steps", () => {
-  const fine = Math.fround(1 / 240);
+describe(`given the adaptive pacer, which steps the sim at the coarse step on a device that cannot keep up with 1/${FINE_HZ} s steps`, () => {
+  const fine = Math.fround(1 / FINE_HZ);
   const coarse = Math.fround(1 / QUIET_HZ);
 
-  it("when the device keeps up (0.8 ms a step, 4 ms of draw, a 90 Hz screen), then it steps at 1/240 s throughout, at the very times the fixed pacer steps", () => {
+  it(`when the device keeps up (0.8 ms a step, 4 ms of draw, a 90 Hz screen), then it steps at 1/${FINE_HZ} s throughout, at the very times the fixed pacer steps`, () => {
     const on = device(true, () => 0.8, 4, 90, 8);
     const off = device(false, () => 0.8, 4, 90, 8);
     assert.equal(on.pace.coarseSteps, 0);
@@ -379,7 +379,7 @@ describe("given the adaptive pacer, which steps the sim at the coarse step on a 
     assert.ok(on.log.every((e, i) => e.h === off.log[i]!.h && e.at === off.log[i]!.at), "the same steps at the same times");
   });
 
-  it("when the device cannot afford 1/240 s steps (4.7 ms each, 9.4 ms of draw, a 90 Hz screen), then the fixed pacer runs under 0.45 of real time while the adaptive one settles at the coarse step and gets its sim speed back", () => {
+  it(`when the device cannot afford 1/${FINE_HZ} s steps (4.7 ms each, 9.4 ms of draw, a 90 Hz screen), then the fixed pacer runs under 0.45 of real time while the adaptive one settles at the coarse step and gets its sim speed back`, () => {
     const off = device(false, () => 4.7, 9.4, 90, 20);
     const on = device(true, () => 4.7, 9.4, 90, 20);
     assert.ok(off.speed < 0.45, `the fixed pacer runs at ${off.speed}`);
@@ -388,7 +388,7 @@ describe("given the adaptive pacer, which steps the sim at the coarse step on a 
     assert.ok(on.pace.coarseSteps > 0.8 * on.pace.total);
   });
 
-  it("when the load is heavy for 6 s and then light, then the step size is chosen before a frame's first step, each size is held for about a second, and it returns to 1/240 s once the load goes", () => {
+  it(`when the load is heavy for 6 s and then light, then the step size is chosen before a frame's first step, each size is held for about a second, and it returns to 1/${FINE_HZ} s once the load goes`, () => {
     // Heavy for 6 s, then light: 4.7 ms a step, then 0.6.
     const d = device(true, (t) => (t < 6000 ? 4.7 : 0.6), 5, 90, 14);
     let flips = 0;
@@ -404,11 +404,11 @@ describe("given the adaptive pacer, which steps the sim at the coarse step on a 
     }
     assert.ok(flips >= 2, `${flips} mode changes`);
     assert.equal(d.log[0]!.h, fine);
-    assert.ok(d.log.slice(-200).every((e) => e.h === fine), "back at 1/240 s once the load is gone");
+    assert.ok(d.log.slice(-200).every((e) => e.h === fine), `back at 1/${FINE_HZ} s once the load is gone`);
     assert.ok(d.log.some((e) => e.h === coarse));
   });
 
-  it("when one hitch (a 40 ms step, then a 100 ms frame) hits a fast device, then it never leaves 1/240 s steps", () => {
+  it(`when one hitch (a 40 ms step, then a 100 ms frame) hits a fast device, then it never leaves 1/${FINE_HZ} s steps`, () => {
     const d = device(true, (_t, n) => (n === 700 ? 40 : 0.8), 4, 90, 10);
     assert.equal(d.pace.coarseSteps, 0);
   });
@@ -435,14 +435,14 @@ describe("given the adaptive pacer, which steps the sim at the coarse step on a 
 });
 
 describe("given the pacer's fine-slice need (a crush window open on some car)", () => {
-  const fine = Math.fround(1 / 240);
+  const fine = Math.fround(1 / FINE_HZ);
   const coarse = Math.fround(1 / QUIET_HZ);
-  /** The slices one 1/60 s frame runs under `pin` and `fineNeeded` on a pacer with no load. */
+  /** The slices one display frame runs under `pin` and `fineNeeded` on a pacer with no load. */
   function slices(pin: boolean | null, fineNeeded: boolean): number[] {
     const pace = new SimPacer();
     pace.pin = pin;
     const hs: number[] = [];
-    pace.run(1 / 60, 1, FAST, fineNeeded, Infinity, (h) => hs.push(h));
+    pace.run(1 / FRAME_HZ, 1, FAST, fineNeeded, Infinity, (h) => hs.push(h));
     return hs;
   }
 
@@ -468,8 +468,8 @@ describe("given the pacer's fine-slice need (a crush window open on some car)", 
 describe("given the engine's pacer in a browser whose clock reads only in coarse ticks (privacy-hardened Firefox, Tor), so a step cannot be timed", () => {
   const coarse = Math.fround(1 / QUIET_HZ);
   const coarseClockCases = [
-    { it: "when the clock ticks every 16.7 ms and a step costs 1 ms, then the sim keeps real time in coarse steps and no frame is cut short", tickMs: 1000 / 60, stepMs: 1 },
-    { it: "when the clock ticks every 16.7 ms and a step costs 3 ms, then the sim keeps real time in coarse steps and no frame is cut short", tickMs: 1000 / 60, stepMs: 3 },
+    { it: "when the clock ticks every 16.7 ms and a step costs 1 ms, then the sim keeps real time in coarse steps and no frame is cut short", tickMs: 1000 / FRAME_HZ, stepMs: 1 },
+    { it: "when the clock ticks every 16.7 ms and a step costs 3 ms, then the sim keeps real time in coarse steps and no frame is cut short", tickMs: 1000 / FRAME_HZ, stepMs: 3 },
     { it: "when the clock ticks every 4 ms and a step costs 1 ms, then the sim keeps real time in coarse steps and no frame is cut short", tickMs: 4, stepMs: 1 },
     { it: "when the clock ticks every 4 ms and a step costs 3 ms, then the sim keeps real time in coarse steps and no frame is cut short", tickMs: 4, stepMs: 3 },
   ] as const;

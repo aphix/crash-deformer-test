@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { RacePhase } from "../match/types.ts";
 import { warmUp } from "./engine-bench-warm.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** More frames than any warm-up here needs: the fake frame throws past it, so a warm-up that never ends fails the test instead of hanging it. */
 const FRAME_LIMIT = 500;
@@ -12,7 +13,7 @@ async function warmRaceBench(warmS: number, onFrame: (race: { phase: RacePhase |
   let frames = 0;
   const nextFrame = async (): Promise<void> => {
     if (++frames > FRAME_LIMIT) throw new Error(`the warm-up was still going after ${FRAME_LIMIT} frames`);
-    if (race.phase === "racing") race.time += 1 / 60;
+    if (race.phase === "racing") race.time += 1 / FRAME_HZ;
     onFrame(race, frames);
   };
   await warmUp(nextFrame, { race, simS: () => 0, plan: { lab: null, warmS }, ui: { set: () => {} } });
