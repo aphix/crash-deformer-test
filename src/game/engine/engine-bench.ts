@@ -5,13 +5,14 @@ import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { benchPlan, leaderAhead, type BenchPlan } from "./engine-bench-plan.ts";
 import { watchPage } from "./engine-bench-page.ts";
 import { warmUp } from "./engine-bench-warm.ts";
-import { describeBench, DETAIL_ARMS, PACE_ARM, PHASE_AB_DETAIL, PHASE_AB_FX, PHASE_AB_PACE, PHASE_REPLAY, PHASE_WARM, PHASE_WINDOW, stat, type BenchResult } from "./engine-bench-report.ts";
+import { describeBench, DETAIL_ARMS, PACE_ARM, PHASE_AB_DETAIL, PHASE_AB_FX, PHASE_AB_PACE, PHASE_AB_SKY, PHASE_REPLAY, PHASE_WARM, PHASE_WINDOW, SKY_ARM, stat, type BenchResult } from "./engine-bench-report.ts";
 import { CLIP_WAIT_S, CRASH_GAP, CRASH_SPEED, ragdollCost, REPLAY_SETTLE_S, REPLAY_TIER_S, START_WAIT_S, type ReplayFrames } from "./engine-bench-replay.ts";
 import { BENCH, blocksOf, CAP, deviceOf, emptyAcc, replayResult, RUNG_SLOTS, rungSlot, settingsOf, summarize, tap, timerStep, topTier, windowGpuMs, WINDOW_BLOCK, wrecks, type Acc, type BenchParts, type ReplayArm, type Samples, type Tap, type Window } from "./bench-measure.ts";
 import type { HighlightClip } from "../match/highlights.ts";
 import type { LabPresetId } from "../scenes/lab.ts";
 import type { SimPacer } from "./sim-pace.ts";
 import { SETTING_KEY } from "./constants.ts";
+import type { SkyMode } from "../present/sky-dome.ts";
 
 /** What `runBench` drives: the real engine, by its public face. */
 interface BenchEngine {
@@ -32,6 +33,8 @@ interface BenchEngine {
   start(): void;
   setFxTier(tier: FxTier): void;
   setFxAuto(): void;
+  /** The Sky setting. */
+  setSky(mode: SkyMode): void;
   /** Fetch the Ultra look (the `ultra=1` arm needs it in before its first block); false when it did not load. */
   loadUltra(): Promise<boolean>;
   benchParts(): BenchParts;
@@ -289,7 +292,7 @@ async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat
 /** One setting of an A/B: `set` flips it before its block. */
 interface Arm {
   key: string;
-  set(): void;
+  set(): void | Promise<void>;
 }
 
 /**
@@ -312,7 +315,7 @@ async function alternate(
   const blockKeys = new Map<number, string>();
   for (let c = 0; c < cycles; c++) {
     for (const a of arms) {
-      a.set();
+      await a.set();
       ui.set(`CRUSH BENCH: ${title} ${a.key}, round ${c + 1} / ${cycles}`);
       if (beat.lab) restartLab(beat.lab, t.simS, c);
       t.timing = false;
@@ -343,6 +346,12 @@ async function alternate(
   }
   t.timing = false;
   return { accs, blockKeys };
+}
+
+/** The Sky setting `full`, then frames until the strip is in the dome (`BENCH.skyWaitS` at most): its decode is the page's first ask, not the arm's cost. */
+async function showFullSky(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat): Promise<void> {
+  engine.setSky("full");
+  await waitFor(engine, parts, t, beat, BENCH.skyWaitS, () => parts.sky.textureBytes > 0);
 }
 
 /** Frames of a wait: one `frame` each, with no samples, until `done` or `limitS` wall seconds. True when `done` came first. */
@@ -465,6 +474,11 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   page.phase(PHASE_AB_FX);
   const fxTiers: FxTier[] = plan.ultra ? ["minimal", "low", "high", "ultra"] : ["minimal", "low", "high"];
   const fx = await alternate(engine, parts, t, beat, ui, SETTING_KEY.fx, fxTiers.map((tier) => ({ key: tier, set: () => engine.setFxTier(tier) })), BENCH.fxCycles);
+  // The sky arms hold the window's tier too, with the Sky setting `full` (the whole strip, waited for: it loads when first asked) against `off`; the player's setting goes back after.
+  page.phase(PHASE_AB_SKY);
+  engine.setFxTier(top);
+  const sky = plan.lab ? null : await alternate(engine, parts, t, beat, ui, SETTING_KEY.sky, [{ key: SKY_ARM.full, set: () => showFullSky(engine, parts, t, beat) }, { key: SKY_ARM.off, set: () => engine.setSky("off") }], BENCH.skyCycles);
+  engine.setSky(settings.sky);
   // What the run was like at its end is read now: the replay starts the race over.
   const leaderEndM = leaderAhead(parts, plan);
   const summary = summarize(parts, plan, s, w, setupMs);
@@ -488,6 +502,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
 
   const gpu = await t.finish();
   const abPace = blocksOf(pace, gpu);
+  const abSky = sky && blocksOf(sky, gpu);
   const abFx = blocksOf(fx, gpu);
   const device = await deviceOf(parts, timerStepMs);
   const windowGpu = windowGpuMs(gpu);
@@ -503,6 +518,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
     abPace: { fine: abPace[PACE_ARM.fine]!, coarse: abPace[PACE_ARM.coarse]! },
     abFx: { minimal: abFx["minimal"]!, low: abFx["low"]!, high: abFx["high"]!, ...(plan.ultra ? { ultra: abFx["ultra"]! } : {}) },
     abDetail: blocksOf(detail, gpu),
+    abSky: abSky && { full: abSky[SKY_ARM.full]!, off: abSky[SKY_ARM.off]! },
     device,
   };
   const payload = (): object => ({ at: new Date().toISOString(), url: location.href, userAgent: navigator.userAgent, hud: hud(), result });

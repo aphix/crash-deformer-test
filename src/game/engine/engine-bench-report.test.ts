@@ -58,6 +58,8 @@ const RESULT: BenchResult = {
     toneMapping: 4,
     night: false,
     wet: false,
+    sky: "auto",
+    skyDetail: "full",
     realism: 0.35,
     squash: 1,
     buckle: 1,
@@ -76,6 +78,7 @@ const RESULT: BenchResult = {
   abPace: { fine: B(41, 3, 12.5), coarse: B(58, 3, 0) },
   abFx: { minimal: B(60, 1.1), low: B(55, 2.4), high: B(48, null) },
   abDetail: { off: B(44, null), "75 m": B(49, null), "50 m": B(56, null), "30 m": B(59, null) },
+  abSky: null,
   device: { browser: "Chrome 150", userAgent: "UA", gpu: "Mali-G715", gpuMasked: false, cores: 9, memoryGB: 8, screen: "412x915", dpr: 2.625, canvas: "1373x618", timerStepMs: 0.1 },
 };
 
@@ -181,6 +184,17 @@ describe("given the bench result of a page that asked for the Ultra arm (?ultra=
     const at = lines.findIndex((l) => l.includes("high 48.0 fps"));
     assert.match(lines[at + 1]!, /^ +ultra 41\.0 fps, .*gpu 3\.2, 655 calls$/);
     assert.ok(!describeBench(RESULT).some((l) => l.includes("ultra ")));
+  });
+});
+
+describe("given the bench result of a race that ran the sky A/B", () => {
+  test("when the card is written, then it names the Sky setting and what it drew at the top tier, and the sky arms give their fps and draw calls with the full strip first; the Lab's card has no sky arms", () => {
+    const lines = describeBench({ ...RESULT, abSky: { full: { ...B(52, null), calls: 160 }, off: { ...B(57, null), calls: 159 } } });
+    assert.ok(lines.some((l) => l.endsWith("deform shape, sky auto (full at the top tier)")), "the setting in effect");
+    const at = lines.findIndex((l) => l.startsWith("A/B sky pinned: full 52.0 fps"));
+    assert.ok(at >= 0 && lines[at]!.endsWith("160 calls"), "the full arm");
+    assert.match(lines[at + 1]!, /^ +off 57\.0 fps, .*159 calls$/);
+    assert.ok(!describeBench({ ...RESULT, abSky: null }).some((l) => l.startsWith("A/B sky")), "no arms without a sky");
   });
 });
 

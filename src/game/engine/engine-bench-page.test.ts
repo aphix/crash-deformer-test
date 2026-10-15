@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, mock, test } from "node:test";
-import { PAGE_PHASES, PHASE_AB_DETAIL, PHASE_AB_FX, PHASE_AB_PACE, PHASE_REPLAY, PHASE_WARM, PHASE_WINDOW } from "./engine-bench-report.ts";
+import { PAGE_PHASES, PHASE_AB_DETAIL, PHASE_AB_FX, PHASE_AB_PACE, PHASE_AB_SKY, PHASE_REPLAY, PHASE_WARM, PHASE_WINDOW } from "./engine-bench-report.ts";
 import { watchPage } from "./engine-bench-page.ts";
 
 type Listener = () => void;
@@ -121,7 +121,7 @@ describe("given the bench page with a stub document and window (watchPage record
   });
 
   test("when the phases are named by their index constants, then the names run in the order of a run, the replay of the run's crash last", () => {
-    assert.deepEqual([PHASE_WARM, PHASE_WINDOW, PHASE_AB_PACE, PHASE_AB_DETAIL, PHASE_AB_FX, PHASE_REPLAY].map((i) => PAGE_PHASES[i]), ["warm", "window", "ab-pace", "ab-detail", "ab-fx", "replay"]);
+    assert.deepEqual([PHASE_WARM, PHASE_WINDOW, PHASE_AB_PACE, PHASE_AB_DETAIL, PHASE_AB_FX, PHASE_AB_SKY, PHASE_REPLAY].map((i) => PAGE_PHASES[i]), ["warm", "window", "ab-pace", "ab-detail", "ab-fx", "ab-sky", "replay"]);
   });
 
   test("when the replay's phase begins after the A/Bs, then it gets its own entry at 0 s into it", () => {

@@ -12,13 +12,14 @@ import { browserName, perSecond, stat, type BenchResult, type BenchSettings, typ
 import { REPLAY_TIER_S, replayTier, type ReplayFrames } from "./engine-bench-replay.ts";
 import type { HighlightClip } from "../match/highlights.ts";
 import type { RagdollSystem } from "../present/engine-ragdoll.ts";
+import { SKY_MODES, skyDetailFor, type SkyDome } from "../present/sky-dome.ts";
 import type { RaceDirector } from "./engine-race.ts";
 import type { SimPacer } from "./sim-pace.ts";
 import { SETTING_KEY } from "./constants.ts";
 import type { World } from "./world-step.ts";
 
 /** The timings both benches share: the window, the A/B blocks. The warm-up and the course are the plan's. */
-export const BENCH = { seed: 1, measureS: 30, blockS: 3, paceCycles: 3, fxCycles: 2, detailCycles: 2, settleFrames: 10 } as const;
+export const BENCH = { seed: 1, measureS: 30, blockS: 3, paceCycles: 3, fxCycles: 2, detailCycles: 2, skyCycles: 2, skyWaitS: 10, settleFrames: 10 } as const;
 /** The key a rung's share of the window is kept under. */
 const rungKey = (level: number): string => `${DETAIL_LEVELS[level]?.far ?? "?"} m`;
 /** Samples kept: far above any display rate, so the window always fits. */
@@ -51,6 +52,8 @@ export interface BenchParts {
   world: Pick<World, "fineCuts">;
   /** The cosmetic Rapier world (the thrown drivers' and knocked props'): its step cost is its own row, not part of the engine's cpu. */
   ragdoll: Pick<RagdollSystem, "stats">;
+  /** The race's sky: the bytes of the picture it holds (0 until the strip is in, and for no sky). */
+  sky: Pick<SkyDome, "textureBytes">;
 }
 
 /** The smallest step `performance.now()` takes over a 25 ms spin (ms): the browser's timer resolution as this page sees it. */
@@ -267,6 +270,7 @@ export function settingsOf(parts: BenchParts, hud: Record<string, unknown>, top:
     if ((o as THREE.Mesh).isMesh && o.castShadow) casters++;
   });
   const cel = hud[SETTING_KEY.celLook];
+  const sky = SKY_MODES.find((mode) => mode === hud[SETTING_KEY.sky]) ?? "auto";
   return {
     fxTier: parts.cine.tier,
     fxAuto: hud["fxAuto"] === true,
@@ -281,6 +285,8 @@ export function settingsOf(parts: BenchParts, hud: Record<string, unknown>, top:
     toneMapping: renderer.toneMapping,
     night: hud[SETTING_KEY.night] === true,
     wet: hud[SETTING_KEY.wet] === true,
+    sky,
+    skyDetail: skyDetailFor(sky, top as FxTier),
     realism: Number(hud[SETTING_KEY.realism]),
     squash: Number(hud["squash"]),
     buckle: Number(hud["buckle"]),
@@ -296,7 +302,7 @@ function sharesOf(counts: Float64Array, order: Uint8Array, seen: number, frames:
   return shares;
 }
 
-export function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "labThrown" | "settings" | "abPace" | "abFx" | "abDetail" | "device" | "pageEvents" | "gpuMs" | "replay" | "replayWhy"> {
+export function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "labThrown" | "settings" | "abPace" | "abFx" | "abDetail" | "abSky" | "device" | "pageEvents" | "gpuMs" | "replay" | "replayWhy"> {
   const { race } = parts;
   const { n, iv } = s;
   const third = Math.floor(n / 3);

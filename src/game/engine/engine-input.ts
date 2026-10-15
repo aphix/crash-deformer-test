@@ -55,7 +55,7 @@ export abstract class EngineInput extends EngineRigs {
 
   /** The protected parts the `?bench=` pages time (`engine-bench.ts`). */
   benchParts(): BenchParts {
-    return { renderer: this.renderer, cine: this.cine, scene: this.scene, camera: this.camera, sun: this.sun, race: this.race, seat: this.seat, live: () => this.live(), detail: this.detail, governor: this.detailGov, world: this.world, ragdoll: this.ragdolls };
+    return { renderer: this.renderer, cine: this.cine, scene: this.scene, camera: this.camera, sun: this.sun, race: this.race, seat: this.seat, live: () => this.live(), detail: this.detail, governor: this.detailGov, world: this.world, ragdoll: this.ragdolls, sky: this.stage.sky };
   }
 
   /** The touch HUD's stick and buttons; merged into the pad on every poll, so every pad path takes them. */

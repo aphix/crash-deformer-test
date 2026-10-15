@@ -1,5 +1,6 @@
 import { describeDepthProbe, type DepthProbe } from "../present/depth-probe.ts";
 import { FX_TIER_ULTRA } from "../present/constants.ts";
+import type { SkyDetail, SkyMode } from "../present/sky-dome.ts";
 import { labLine, stripLines, type StripResult } from "./engine-bench-plan.ts";
 
 /** The detail A/B's arms: no cuts at all, then the ladder's rungs for 75, 50 and 30 m (`DETAIL_LEVELS`). */
@@ -7,6 +8,9 @@ export const DETAIL_ARMS: readonly { key: string; level: number | null }[] = [{ 
 
 /** The pacer A/B's arms, the keys of `BenchResult.abPace`: the 1/240 s slice pinned, the 1/90 s slice pinned. */
 export const PACE_ARM = { fine: "fine", coarse: "coarse" } as const;
+
+/** The sky A/B's arms, the keys of `BenchResult.abSky`: the Sky setting `full` (the textured strip at the tier held), and `off`. */
+export const SKY_ARM = { full: "full", off: "off" } as const;
 
 export interface Stat {
   mean: number;
@@ -54,6 +58,9 @@ export interface BenchSettings {
   toneMapping: number;
   night: boolean;
   wet: boolean;
+  /** The Sky setting and what it drew at the tier the window mostly ran. */
+  sky: SkyMode;
+  skyDetail: SkyDetail;
   realism: number;
   squash: number;
   buckle: number;
@@ -61,14 +68,15 @@ export interface BenchSettings {
   depth: { bits: number; subpixelBits: number; contextDepth: boolean; fragmentHighFloat: { precision: number; rangeMin: number; rangeMax: number } | null; near: number; far: number; logarithmicDepthBuffer: boolean; probe: DepthProbe };
 }
 
-/** The stretches of a run in order: the grid and warm-up, the sampled window, the three A/Bs, then the replay of the run's own crash (`PAGE_PHASES[PHASE_WARM]` ...). */
-export const PAGE_PHASES = ["warm", "window", "ab-pace", "ab-detail", "ab-fx", "replay"] as const;
+/** The stretches of a run in order: the grid and warm-up, the sampled window, the four A/Bs, then the replay of the run's own crash (`PAGE_PHASES[PHASE_WARM]` ...). */
+export const PAGE_PHASES = ["warm", "window", "ab-pace", "ab-detail", "ab-fx", "ab-sky", "replay"] as const;
 export const PHASE_WARM = 0;
 export const PHASE_WINDOW = 1;
 export const PHASE_AB_PACE = 2;
 export const PHASE_AB_DETAIL = 3;
 export const PHASE_AB_FX = 4;
-export const PHASE_REPLAY = 5;
+export const PHASE_AB_SKY = 5;
+export const PHASE_REPLAY = 6;
 
 /** Mean and 95th percentile of one reading (ms). */
 export interface Pair {
@@ -188,6 +196,8 @@ export interface BenchResult {
   abFx: { minimal: Block; low: Block; high: Block; ultra?: Block };
   /** The distance detail pinned: no cuts, then the rungs for 75, 50 and 30 m (the governor off, the FX tier held). */
   abDetail: Record<string, Block>;
+  /** The Sky setting pinned at the top tier the window ran: the full textured strip, then no sky (null: the Lab, which has no sky). */
+  abSky: { full: Block; off: Block } | null;
   /** The cosmetic Rapier world (the thrown drivers' and knocked props'): `world.step()` over the sampled window, and the world's size. */
   ragdoll: RagdollCost;
   /** The run's own crash replayed as a highlight at each FX tier (null: no clip, `replayWhy` says why). */
@@ -313,7 +323,7 @@ export function describeBench(r: BenchResult): string[] {
     `fx tier: ${tiers}${s.fxAuto ? " (auto)" : ""}   post chain at the top tier: ${s.post}`,
     `detail: only the body drawn beyond ${Object.entries(r.detailPct).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} for ${Math.round(v)} %`).join(", ")} of the window`,
     `shadows ${s.shadows.enabled ? `${s.shadows.type} ${s.shadows.map}, ${s.shadows.casters} casters` : "off"}   pixel ratio ${s.pixelRatio} of device ${s.deviceRatio}, canvas ${s.canvas}, ${s.antialias ? "MSAA" : "no MSAA"}   fx density ${f1(s.fxDensity)}, cel ${s.celLook === null ? "auto" : f1(s.celLook)}`,
-    `night ${s.night ? "on" : "off"}, wet ${s.wet ? "on" : "off"}, realism ${f1(s.realism)}, squash ${f1(s.squash)}, buckle ${f1(s.buckle)}, deform ${s.deformMode}`,
+    `night ${s.night ? "on" : "off"}, wet ${s.wet ? "on" : "off"}, realism ${f1(s.realism)}, squash ${f1(s.squash)}, buckle ${f1(s.buckle)}, deform ${s.deformMode}, sky ${s.sky} (${s.skyDetail} at the top tier)`,
     `depth: ${s.depth.bits} bits (drawing buffer${s.depth.contextDepth ? "" : ", none requested"}), subpixel ${s.depth.subpixelBits} bits, fragment highp ${s.depth.fragmentHighFloat ? `${s.depth.fragmentHighFloat.precision} bits, range 2^${s.depth.fragmentHighFloat.rangeMin}..2^${s.depth.fragmentHighFloat.rangeMax}` : "not supported"}, camera near ${s.depth.near} far ${s.depth.far}, log depth ${s.depth.logarithmicDepthBuffer ? "on" : "off"}, ${describeDepthProbe(s.depth.probe)}`,
     `A/B pacer pinned: ${arm("1/240 s", r.abPace.fine)}, ${f1(r.abPace.fine.fineCutsPerSimS)} fine-slice cuts/sim-s`,
     `                  ${arm("1/90 s", r.abPace.coarse)}, ${f1(r.abPace.coarse.fineCutsPerSimS)} fine-slice cuts/sim-s`,
@@ -322,6 +332,7 @@ export function describeBench(r: BenchResult): string[] {
     `               ${arm("high", r.abFx.high)}`,
     ...(r.abFx.ultra ? [`               ${arm(FX_TIER_ULTRA, r.abFx.ultra)}`] : []),
     ...DETAIL_ARMS.map((a, i) => `${i ? "                   " : "A/B detail pinned: "}${arm(a.key === "off" ? "no cuts" : `body beyond ${a.key}`, r.abDetail[a.key]!)}`),
+    ...(r.abSky ? [`A/B sky pinned: ${arm("full", r.abSky.full)}`, `                ${arm("off", r.abSky.off)}`] : []),
     ...replayLines(r.replay, r.replayWhy),
     `load: options ${f1(r.setupMs.options)} ms, start ${f1(r.setupMs.start)} ms`,
     `${d.gpu}${d.gpuMasked ? "   [masked by the browser: not the real GPU]" : ""}`,

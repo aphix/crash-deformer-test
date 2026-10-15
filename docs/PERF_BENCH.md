@@ -24,7 +24,7 @@ submit), reproducible and independent of the compositor's pacing; GPU time is no
 `?bench=city` sets up the city, 15 AI racers plus the player's car (the follow camera, the AI drives it), traffic and up
 to 6 police, seed 1, aggression 1. The engine's own rAF loop is stopped and each rAF feeds `advance(measured wall dt,
 render: true)`, so the pacer's real 8 ms deadline applies. It waits out the grid and 20 s of race clock, measures 30 s of
-the game as it runs, then runs three A/B stretches on the same race and ends on the replay of its own crash (below). The race plays on under the card afterwards.
+the game as it runs, then runs four A/B stretches (pacer, detail, FX tier, sky) on the same race and ends on the replay of its own crash (below). The race plays on under the card afterwards.
 
 `?bench=strip` runs the same card on a controlled course (`world/bench-strip.ts`): a straight race lane up +z, a U-turn of
 radius 130 m and a return leg, so the rules see an ordinary one-lap course. Static props stand in a row on the lane's left
@@ -68,11 +68,12 @@ The ultra arm is each step's own: the loop runs the same three steps with `&ultr
 | `fx tier` | the share of the window at each FX tier (a race starts on `minimal`; `AutoFx` lifts a capable desktop to `high` 3 s after green if minimal holds 57 fps, and steps down under 50 fps) and the post chain at the top tier |
 | `detail` | the share of the window on each distance-detail rung (`DetailGovernor`, `present/car-detail.ts`) |
 | `shadows … pixel ratio … canvas … MSAA … fx density, cel` | render settings in force |
-| `night, wet, realism, squash, buckle, deform` | sim and look settings in force |
+| `night, wet, realism, squash, buckle, deform, sky` | sim and look settings in force. `sky` is the Sky setting (`auto`, `on`, `full`, `off`; `?sky=` pins it for the page) and what it drew at the top tier (`SkyDetail`: `off`, `gradient`, `half` or `full`; `skyDetailFor`). The FX A/B arms run with that setting, so on `auto` their `minimal` arm draws no sky and their `high` arm the whole strip; read the sky's own cost off `A/B sky pinned` |
 | `depth` | depth-buffer bits, subpixel bits, fragment highp range, camera near / far, log depth |
 | `A/B pacer pinned` | 3 × 3 s per arm: `SimPacer.pin` holds the 1/240 s and the 1/90 s floor in turn. Each arm prints fps, sim speed, ms per sim-second, CPU / draw / GPU ms |
 | `A/B fx pinned` | 2 × 3 s per arm at `minimal`, `low` and `high` (`high`: HDR target, 5-mip bloom, radial blur, tone map, grade, vignette, grain; `low`: 3-mip bloom; `minimal`: none), then `ultra` with `&ultra=1`. Each arm prints fps, sim speed, ms per sim-second, CPU / draw / GPU ms and draw calls per frame |
 | `A/B detail pinned` | 2 × 3 s per arm, run before the FX arms at stretch 1's tier with `AutoFx` and the governor off: no cuts, then body alone beyond 75, 50 and 30 m |
+| `A/B sky pinned` | 2 × 3 s per arm (race benches; the Lab has no sky), after the FX arms, at the tier the window mostly ran: the Sky setting `full` (the textured 4096 strip; the arm waits, unscored, for the strip to decode and upload) against `off` (no dome, no texture). Same arm line as the others, so the sky's cost is the difference of the two (`result.abSky.full` / `.off`; `null` on the Lab). The player's Sky setting goes back after |
 | `load` | ms the race's options and start took |
 | `ragdoll world` | the cosmetic Rapier world (the thrown drivers' and knocked props': `present/engine-ragdoll.ts`), over the 30 s window: `world.step()` calls, their mean and p95 ms, and the colliders and bodies the world holds (the course's statics are colliders too). Its step ms is **not** in `CPU`'s tick split: read it here. `0 steps` is a world with nothing to move (no dummy thrown, no prop knocked) |
 | `replay of this run's crash` | the clip (cars it carries, drivers thrown, size on the wire) and a row per FX tier (below): fps, 1 % low, frame / cpu / sim / draw mean/p95 ms, GPU ms and the ragdoll step mean/p95 ms with its step count; or `replay: none (<why>)` |
