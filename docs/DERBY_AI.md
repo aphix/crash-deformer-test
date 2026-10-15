@@ -92,7 +92,10 @@ decides the heat.
 
 ## Start
 
-Every car starts stopped on the spawn ring, facing the arena's centre (`layoutDerby`). The match clock runs from
+Every car starts stopped on the spawn ring, facing the arena's centre (`layoutDerby`). The ring skips every bearing whose straight line to the
+centre passes within a car's half length and half a metre of a free-standing prop (`DERBY_FREE_PROPS`: the containers, rails and pads): a car
+stopped facing a container is held through the wrong face and thrown in the first seconds. Those bearings are about 60° round the north containers
+and pads and 50° round the east rails; a field is laid along the rest, so 32 cars stand 4.4 m apart there. The match clock runs from
 −4.5 s (`DerbyOptions.start`, default the race's `GRID_TIME + COUNTDOWN`) to the green light at 0, and the HUD shows
 race mode's start lights (`StartLights`, `startLights(time)`). Before green `DerbyMatch.held` refuses every input
 (AI, the local driver, netplay peers on the host), no count-out clock runs and nothing scores; clients mirror the
@@ -103,7 +106,7 @@ its first throttle measured 0.964–0.965 s (sedan), 0.786 (muscle), 1.023–1.0
 ## The arena
 
 One fixed arena for every field (`DERBY_ARENA`, `scenes/constants.ts`): a 38 m radius ring wall, 10 m high, 1 m thick (48 flat boxes, mitred), and `layoutDerby`'s
-spawn ring 5.2 m inside it (32 cars keep 6.4 m between neighbours). The ground is one baked 1 m grid (the Havana plateau mechanism, `world/terrain.ts`
+spawn ring 5.2 m inside it (up to 8 m between neighbours; 32 cars keep 4.4 m round the bearings the props leave open). The ground is one baked 1 m grid (the Havana plateau mechanism, `world/terrain.ts`
 `raisePlateaus`): a 9 x 9 m table-top 1.8 m up, four jumps (1.5 m, grade 0.21, pinwheeled round the table-top so no launch line points at the wall),
 a pit plateau and a scrap hump. Only what stands on the ground is a prism of the same store: the wall, two containers, three K-rails, two crash pads and
 three tyre berms (`DERBY_BOXES`); each is drawn from its own box, so what is drawn is what is met. A car's footprint meets the prisms through

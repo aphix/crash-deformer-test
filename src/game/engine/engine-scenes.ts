@@ -22,6 +22,7 @@ import { type ContactHit, scatterRampBalls } from "../scenes/engine-props.ts";
 import { foldPole, RIG_BALL_FIRST, RIG_POLE_FIRST, shatterBall } from "../scenes/rig-solids.ts";
 import { propContact, sideContact, type PropHits } from "../contact/prop-contact.ts";
 import { DERBY_RADIUS } from "../scenes/derby-arena.ts";
+import { DERBY_FREE_PROPS } from "../scenes/derby-ground.ts";
 import type { RaceCommand } from "../match/types.ts";
 import { SOLO_SCENES, type SceneId } from "../scenes/scene-id.ts";
 import { mulberry32 } from "../world/placements.ts";
@@ -468,7 +469,7 @@ export abstract class EngineScenes extends EngineDerby {
     this.derbySeated = new Set(this.netSeats.keys());
     this.derbyRound++;
     const cars = this.live();
-    const slots = layoutDerby(cars.length, DERBY_RADIUS, this.sceneRng(0));
+    const slots = layoutDerby(cars.length, DERBY_RADIUS, this.sceneRng(0), DERBY_FREE_PROPS);
     this.derby.begin(
       cars.map((c, i) => ({ id: i, name: this.netSeats.get(i) ?? c.paint.name })),
       { radius: DERBY_RADIUS },

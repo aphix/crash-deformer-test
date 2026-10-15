@@ -21,7 +21,7 @@ export const UPRIGHT = 0.9;
 /**
  * The derby arena every field plays in (`scenes/derby-ground.ts` builds it, `derby-arena.ts` draws it): one fixed size, a ring
  * wall of `wallPieces` flat boxes whose inner faces stand `radius` m from the middle, a 1 m ground grid reaching `gridHalf` m each way.
- * `spawnInset`: `layoutDerby`'s ring sits this far inside the wall, and 32 cars side by side on it keep 6.4 m.
+ * `spawnInset`: `layoutDerby`'s ring sits this far inside the wall.
  */
 export const DERBY_ARENA = {
   radius: 38,

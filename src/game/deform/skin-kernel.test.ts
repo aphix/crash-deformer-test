@@ -7,6 +7,7 @@ import { assignClass } from "../vehicle/vehicle-classes.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 import { DERBY_RADIUS } from "../scenes/derby-arena.ts";
 import { arenaWorld, leaveArena } from "../scenes/derby-arena.test-util.ts";
+import { DERBY_FREE_PROPS } from "../scenes/derby-ground.ts";
 import { fleetClass, fleetStyle, layoutDerby, layoutFleet } from "../scenes/fleet.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
@@ -85,7 +86,7 @@ function play(s: Scenario): Leg {
   let seed = 11;
   const rng = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
   if (s.derby) {
-    const slots = layoutDerby(s.cars, DERBY_RADIUS, rng);
+    const slots = layoutDerby(s.cars, DERBY_RADIUS, rng, DERBY_FREE_PROPS);
     for (const [i, c] of cars.entries()) c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, 12);
   } else {
     const slots = layoutFleet(s.cars, 18, 28, rng);

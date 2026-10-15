@@ -2,6 +2,7 @@
 
 import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { FLEET_STYLE_IDS, type CarStyleId } from "../vehicle/car-variants.ts";
+import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { DERBY_ARENA } from "./constants.ts";
 import { CLASSES, STYLE_CLASS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 
@@ -155,19 +156,90 @@ export function layoutFleet(
   return slots;
 }
 
+const TAU = Math.PI * 2;
+/** A car driving at the arena's centre keeps this far (m) from a free-standing prop: half its length and a margin. */
+const PROP_CLEAR = CAR_HALF.z + 0.5;
+
+/** A free-standing prop's plan box: centre, yaw (local z is (sin yaw, cos yaw)) and half extents. */
+type SpawnProp = { x: number; z: number; yaw: number; hx: number; hz: number };
+/** An arc of bearings (rad from +z toward +x), `to` past `from`; may run past 2π. */
+type Arc = { from: number; to: number };
+
+/**
+ * The bearings whose straight line to the centre passes within `PROP_CLEAR` of a prop: each prop's arc is the widest the four
+ * corners' discs of that radius subtend from the centre; overlapping arcs merge, ascending, the first possibly starting below 0.
+ */
+function propShadows(props: readonly SpawnProp[]): Arc[] {
+  const raw: Arc[] = [];
+  for (const p of props) {
+    const centre = Math.atan2(p.x, p.z);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const lx = sx * p.hx;
+        const lz = sz * p.hz;
+        const cx = p.x + lx * detCos(p.yaw) + lz * detSin(p.yaw);
+        const cz = p.z - lx * detSin(p.yaw) + lz * detCos(p.yaw);
+        const off = Math.atan2(cx, cz) - centre;
+        const b = off - TAU * Math.round(off / TAU);
+        const w = Math.asin(Math.min(1, PROP_CLEAR / hypot2(cx, cz)));
+        lo = Math.min(lo, b - w);
+        hi = Math.max(hi, b + w);
+      }
+    }
+    const from = centre + lo - TAU * Math.floor((centre + lo) / TAU);
+    raw.push({ from, to: from + hi - lo });
+  }
+  raw.sort((a, b) => a.from - b.from);
+  const out: Arc[] = [];
+  for (const a of raw) {
+    const last = out.at(-1);
+    if (last && a.from <= last.to) last.to = Math.max(last.to, a.to);
+    else out.push({ ...a });
+  }
+  const first = out[0];
+  const last = out.at(-1);
+  if (first && last && last !== first && last.to - TAU >= first.from) {
+    first.from = last.from - TAU;
+    first.to = Math.max(first.to, last.to - TAU);
+    out.pop();
+  }
+  return out;
+}
+
+/** The `s`-th radian along the open bearings (those outside every shadow, in order from the first shadow's end), wrapping. */
+function openBearing(s: number, shadows: readonly Arc[]): number {
+  if (shadows.length === 0) return s;
+  let open = TAU;
+  for (const a of shadows) open -= a.to - a.from;
+  let rest = s % open;
+  for (let k = 0; k < shadows.length; k++) {
+    const start = shadows[k]!.to;
+    const end = k + 1 < shadows.length ? shadows[k + 1]!.from : shadows[0]!.from + TAU;
+    if (rest < end - start) return start + rest;
+    rest -= end - start;
+  }
+  return shadows[0]!.to;
+}
+
 /**
  * Round the arena's spawn ring, each car stopped and facing its centre (the start lights hold them until green). Neighbours stand
  * `DERBY_ARENA.packPitch` m apart at most: a small field starts in one bunch on the ring, so it meets quickly across the arena; a full
- * one is spread round it.
+ * one is spread round it. No car starts on a bearing whose line to the centre passes within `PROP_CLEAR` of one of `props`, so none
+ * starts driving at a container, pad or rail: the field is laid along the open bearings, so a full one (32 cars) stands 4.4 m apart.
  */
-export function layoutDerby(count: number, radius: number, rng: () => number = Math.random): DerbySlot[] {
+export function layoutDerby(count: number, radius: number, rng: () => number = Math.random, props: readonly SpawnProp[] = []): DerbySlot[] {
   const n = Math.max(1, Math.min(MAX_CARS, Math.round(count) || 1));
   const slots: DerbySlot[] = [];
   const r = Math.max(5.5, radius - DERBY_ARENA.spawnInset);
-  const spin = rng() * Math.PI * 2;
-  const step = Math.min((Math.PI * 2) / n, DERBY_ARENA.packPitch / r);
+  const shadows = propShadows(props);
+  let open = TAU;
+  for (const a of shadows) open -= a.to - a.from;
+  const spin = rng() * TAU * (open / TAU);
+  const step = Math.min(open / n, DERBY_ARENA.packPitch / r);
   for (let i = 0; i < n; i++) {
-    const a = spin + i * step;
+    const a = openBearing(spin + i * step, shadows);
     slots.push({ x: detSin(a) * r, z: detCos(a) * r, yaw: a + Math.PI });
   }
   return slots;

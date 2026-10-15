@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { MAX_CARS, layoutDerby } from "./fleet.ts";
 import { DERBY_ARENA } from "./constants.ts";
-import { DERBY_BOXES, DERBY_PROP, DerbyGround, type DerbyBox } from "./derby-ground.ts";
+import { DERBY_BOXES, DERBY_FREE_PROPS, DERBY_PROP, DerbyGround, type DerbyBox } from "./derby-ground.ts";
 import { DERBY_RADIUS } from "./derby-arena.ts";
 
 /**
@@ -41,12 +41,34 @@ function hullCorners(x: number, z: number, yaw: number): [number, number][] {
 describe("given the arena's ground and the full field's spawn ring", () => {
   it("when fields of every size are laid out, then every hull corner is inside the wall, on level floor at height 0 and clear of every prop", () => {
     for (let count = 1; count <= MAX_CARS; count++) {
-      for (const [slotIndex, slot] of layoutDerby(count, DERBY_RADIUS, () => 0.37).entries()) {
+      for (const [slotIndex, slot] of layoutDerby(count, DERBY_RADIUS, () => 0.37, DERBY_FREE_PROPS).entries()) {
         for (const [x, z] of hullCorners(slot.x, slot.z, slot.yaw)) {
           const label = `${count} cars, slot ${slotIndex} corner (${x.toFixed(1)}, ${z.toFixed(1)})`;
           assert.ok(Math.hypot(x, z) < radius, `${label} is in the wall`);
           assert.ok(ground.heightAt(x, z) < LEVEL, `${label} is not on level floor`);
           for (const prop of props) assert.ok(!isWithin(prop, x, z, SPAWN_CLEARANCE), `${label} is within ${SPAWN_CLEARANCE} m of a ${prop.kind}`);
+        }
+      }
+    }
+  });
+
+  it("when fields of every size are laid out at every start bearing, then no car's line to the centre comes within its half length of a free-standing prop, and 32 cars stand over 4 m apart", () => {
+    for (let count = 1; count <= MAX_CARS; count++) {
+      for (let spin = 0; spin < 1; spin += 0.05) {
+        const slots = layoutDerby(count, DERBY_RADIUS, () => spin, DERBY_FREE_PROPS);
+        for (const [slotIndex, slot] of slots.entries()) {
+          for (let t = 0; t <= 1; t += 0.01) {
+            const x = slot.x * t;
+            const z = slot.z * t;
+            for (const prop of DERBY_FREE_PROPS) {
+              const local = localOf(prop, x, z);
+              const gap = Math.hypot(Math.max(0, Math.abs(local.across) - prop.hx), Math.max(0, Math.abs(local.along) - prop.hz));
+              assert.ok(gap >= CAR_HALF.z, `${count} cars at spin ${spin.toFixed(2)}: slot ${slotIndex} heads at a ${prop.kind} (${gap.toFixed(2)} m)`);
+            }
+          }
+        }
+        if (count === MAX_CARS) {
+          for (const [i, a] of slots.entries()) for (const b of slots.slice(i + 1)) assert.ok(Math.hypot(a.x - b.x, a.z - b.z) > 4, "two of 32 cars stand within 4 m");
         }
       }
     }

@@ -5,9 +5,8 @@ import { DerbyBrain, blankAiCar } from "../ai/derby-ai.ts";
 import { personality } from "../ai/personality.ts";
 import { DerbyMatch, HIT_POINTS, DISABLE_POINTS, SCORE_GAP, STALEMATE, snapshotAiCar } from "./derby.ts";
 import { DERBY_RADIUS } from "../scenes/derby-arena.ts";
-import { DERBY_ARENA } from "../scenes/constants.ts";
 import { arenaWorld, leaveArena } from "../scenes/derby-arena.test-util.ts";
-import { DERBY_BOXES, DERBY_PROP } from "../scenes/derby-ground.ts";
+import { DERBY_BOXES, DERBY_FREE_PROPS, DERBY_PROP } from "../scenes/derby-ground.ts";
 import { idleDrive, applyDrive } from "../vehicle/car-drive.ts";
 import { fleetStyle, layoutDerby, MAX_CARS } from "../scenes/fleet.ts";
 import { DeformableCar } from "../vehicle/car.ts";
@@ -243,7 +242,7 @@ describe("given the wall's boxes (DERBY_BOXES kind DERBY_PROP.wall)", () => {
 
 describe("given six derby cars laid out in the bowl", () => {
   it("when their start slots are laid out, then all six sit on a ring inside the bowl, within the car limit, each facing its centre", () => {
-    const slots = layoutDerby(6, DERBY_RADIUS, () => 0.5);
+    const slots = layoutDerby(6, DERBY_RADIUS, () => 0.5, DERBY_FREE_PROPS);
     assert.equal(slots.length, 6);
     assert.ok(slots.length <= MAX_CARS);
     for (const s of slots) {
@@ -319,7 +318,7 @@ describe("given a default two-car derby in shape deform mode", () => {
     const a = new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" }, scene);
     const b = new DeformableCar({ body: 0x3d8a86, accent: 0x2a6360, name: "Petrol" }, scene);
     let seed = 7;
-    const slots = layoutDerby(2, DERBY_RADIUS, () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646);
+    const slots = layoutDerby(2, DERBY_RADIUS, () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646, DERBY_FREE_PROPS);
     for (const [i, c] of [a, b].entries()) {
       c.deform.setMode("shape");
       c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, 0);
@@ -409,7 +408,7 @@ function sixCarDerby(seconds: number, seed = 7, knobs = ARCADE): DerbyRun {
     const scene = new THREE.Scene();
     const cars = Array.from({ length: 6 }, (_, i) => new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: `c${i}` }, scene));
     const rng = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
-    const slots = layoutDerby(cars.length, DERBY_RADIUS, rng);
+    const slots = layoutDerby(cars.length, DERBY_RADIUS, rng, DERBY_FREE_PROPS);
     for (const [i, c] of cars.entries()) c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, 0);
     return cars;
   }, seconds);
@@ -428,15 +427,22 @@ const OWNER_DERBY: readonly (readonly [number, number, number])[] = [
   [11.09, 1.563, 9.2848],
 ];
 
-/** A capture of moving cars, so its match starts at green (no start lights). The capture's cars stand on the arena's spawn ring at the capture's bearings, each heading as it did. */
+/**
+ * A capture of moving cars, so its match starts at green (no start lights). Each of the capture's cars stands on the nearest slot the
+ * game's own layout gives a full field (`layoutDerby`, so no car starts facing a prop) to its captured bearing, heading as it did.
+ */
 function ownerDerby(seconds: number, knobs = ARCADE, spawnMps = OWNER_SPAWN_MPS): DerbyRun {
+  const slots = layoutDerby(MAX_CARS, DERBY_RADIUS, () => 0, DERBY_FREE_PROPS);
   return atKnobs(knobs, () => {
     const scene = new THREE.Scene();
-    const ringRadius = DERBY_RADIUS - DERBY_ARENA.spawnInset;
     return OWNER_DERBY.map(([x, z, yaw], i) => {
       const c = new DeformableCar({ body: 0xffffff, accent: 0x444444, name: `o${i}` }, scene, null, fleetStyle(i));
-      const onRing = ringRadius / Math.hypot(x, z);
-      c.spawnFacing(x * onRing, z * onRing, yaw, spawnMps);
+      const want = Math.atan2(x, z);
+      let best = slots[0]!;
+      for (const s of slots) {
+        if (Math.abs(Math.sin((Math.atan2(s.x, s.z) - want) / 2)) < Math.abs(Math.sin((Math.atan2(best.x, best.z) - want) / 2))) best = s;
+      }
+      c.spawnFacing(best.x, best.z, yaw, spawnMps);
       return c;
     });
   }, seconds, 0);

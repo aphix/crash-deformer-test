@@ -114,6 +114,9 @@ export const DERBY_BOXES: readonly DerbyBox[] = [
   box(DERBY_PROP.pad, -10.6, 23.8, 0, PAD),
 ];
 
+/** The prisms that stand free on the floor (containers, rails, pads), not the wall and the berms against it: what a spawn must not face (`layoutDerby`). */
+export const DERBY_FREE_PROPS: readonly DerbyBox[] = DERBY_BOXES.filter((b) => b.kind !== DERBY_PROP.wall && b.kind !== DERBY_PROP.tyres);
+
 /** Grid nodes along a side: the grid reaches `gridHalf` m each way from the middle. */
 const NODES = 2 * gridHalf + 1;
 const FLOOR = SURFACE_IDS.indexOf(SURFACE.asphalt);

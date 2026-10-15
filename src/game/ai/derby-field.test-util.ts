@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { DerbyMatch, heatLimit, snapshotAiCar, type DerbyDecided } from "../match/derby.ts";
 import { DERBY_RADIUS } from "../scenes/derby-arena.ts";
 import { arenaWorld, leaveArena } from "../scenes/derby-arena.test-util.ts";
+import { DERBY_FREE_PROPS } from "../scenes/derby-ground.ts";
 import { applyDrive } from "../vehicle/car-drive.ts";
 import { fleetStyle, layoutDerby } from "../scenes/fleet.ts";
 import { DeformableCar } from "../vehicle/car.ts";
@@ -94,7 +95,7 @@ function runFieldHeat(n: number, seed: number, playerClass?: VehicleClassId, on?
   );
   let s = seed;
   const rng = () => ((s = (s * 16807) % 2147483647) - 1) / 2147483646;
-  const slots = layoutDerby(n, DERBY_RADIUS, rng);
+  const slots = layoutDerby(n, DERBY_RADIUS, rng, DERBY_FREE_PROPS);
   const match = new DerbyMatch();
   match.begin(
     cars.map((_, i) => ({ id: i, name: `c${i}` })),
