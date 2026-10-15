@@ -4,7 +4,8 @@ import type { WorldStage } from "./engine-world.ts";
 import { SURFACE_IDS, type PrefabId, type SurfaceId } from "../world/catalog.ts";
 import type { Placed } from "../world/placements.ts";
 import { PREFAB } from "../world/constants.ts";
-import { box, makePrefabMaterials, makeRaceTextures, painted, prefabParts, type Piece, type RaceTextures } from "./prefabs.ts";
+import { box, painted, type Piece } from "./prefab-pieces.ts";
+import { makePrefabMaterials, makeRaceTextures, prefabParts, type RaceTextures } from "./prefabs.ts";
 import { blankPoint, type Track } from "../world/track.ts";
 import { sections } from "../world/track-sections.ts";
 import {
@@ -15,6 +16,9 @@ import { buildGroundLayers, TerrainBatch } from "./track-ground.ts";
 import { depthProxy, groundMaterial, groundMesh, levelOrder } from "../scenes/ground-stack.ts";
 import { addDecks, addTunnels, addWalls, pillarPieces } from "./track-structures.ts";
 import { PropTumble } from "./prop-tumble.ts";
+import { backdropMesh, disposeBackdrop } from "./sky-backdrop.ts";
+import { nukeFlash } from "./people.ts";
+import { GroundsArt } from "./grounds-art.ts";
 
 /**
  * The visible course: terrain (with a far skirt), road / runoff ribbons for the loop, shortcuts and
@@ -44,13 +48,27 @@ export class TrackArt {
   private readonly m4 = new THREE.Matrix4();
   private readonly col = new THREE.Color();
   private readonly stage: Pick<WorldStage, "look">;
+  /** The picture on the course's sky (`environment.backdrop`), if it has one. */
+  private readonly backdrop: THREE.Mesh | null;
+  /** The course's secret is out (`reveal`): its VIP comes out instead of its guards. */
+  secretOut = false;
+  /** A guarded course's guards and VIP (`TrackJson.guards`), none on a course without. */
+  readonly grounds: GroundsArt | null;
 
-  /** `stage` takes the course's own daylight while the art stands (its sun, hemisphere and fill; none: the default). */
+  /** `stage` takes the course's own daylight while the art stands (its sun, hemisphere and fill; none: the default) and its sky colour. */
   constructor(track: Track, placed: readonly Placed[], stage: Pick<WorldStage, "look">) {
     this.group.name = "track-art";
     this.stage = stage;
     stage.look(track.json.environment.light ?? null, track.json.environment.sky);
+    const sky = track.json.environment.backdrop;
+    this.backdrop = sky ? backdropMesh(sky) : null;
+    if (this.backdrop) {
+      // A secret picture waits for `reveal`.
+      this.backdrop.visible = !sky!.secret;
+      this.group.add(this.backdrop);
+    }
     const ground = track.ground();
+    this.grounds = track.json.guards ? new GroundsArt(track.json.guards, ground, this.group) : null;
     const tex = makeRaceTextures();
     this.textures = tex;
     const mats = makePrefabMaterials(tex);
@@ -164,6 +182,15 @@ export class TrackArt {
     );
   }
 
+  /** The course's secret sky picture, if it has one still hidden: a slow flash over `over`, and at its height the picture stands. False: nothing to reveal. */
+  reveal(over: HTMLElement): boolean {
+    const b = this.backdrop;
+    if (!b || b.visible) return false;
+    this.secretOut = true;
+    nukeFlash(over, () => void (b.visible = true));
+    return true;
+  }
+
   /** Start gantry: 0 off, 1 red, 2 yellow, 3 green. Cheap to call every frame (no-op when unchanged). */
   setLights(l: 0 | 1 | 2 | 3): void {
     if (l === this.lights) return;
@@ -179,6 +206,11 @@ export class TrackArt {
 
   dispose(): void {
     this.stage.look(null);
+    this.grounds?.dispose();
+    if (this.backdrop) {
+      disposeBackdrop(this.backdrop);
+      this.backdrop.removeFromParent();
+    }
     const geos = new Set<THREE.BufferGeometry>();
     const mats = new Set<THREE.Material>();
     this.group.traverse((o) => {

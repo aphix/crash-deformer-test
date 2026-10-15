@@ -30,6 +30,20 @@ export const PREFAB = {
   palm: "palm",
   wall: "wall",
   dumpster: "dumpster",
+  obelisk: "obelisk",
+  capitol: "capitol",
+  marble: "marble",
+  whiteHouse: "white-house",
+  fountain: "fountain",
+  fence: "fence",
+  pool: "reflecting-pool",
+  basin: "basin",
+  lincoln: "lincoln",
+  capitolPool: "capitol-pool",
+  grantMemorial: "grant-memorial",
+  peaceMonument: "peace-monument",
+  garfieldMonument: "garfield-monument",
+  flagpole: "flagpole",
 } as const;
 
 /** The campaign's course ids, the `id` of each `tracks/*.json` (`CAMPAIGN` in tracks/index.ts races them in order). */
@@ -42,6 +56,7 @@ export const TRACK_ID = {
   damSpine: "dam-spine",
   razorShelf: "razor-shelf",
   breakerYard: "breaker-yard",
+  nationalMall: "national-mall",
 } as const;
 
 /** The id of the bench strip's generated course (`stripCourse`), also the `trackId` of its race program. */

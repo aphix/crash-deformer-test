@@ -60,6 +60,28 @@ const KIND_TOL: Partial<Record<PrefabId, number>> = {
   palm: 0.29,
   wall: 0.03,
   dumpster: 0.09,
+  // The shaft's taper over the first slice's foot.
+  obelisk: 0.01,
+  // The round parts' 64 sides inside their circles.
+  capitol: 0.03,
+  marble: 0.01,
+  // The panes standing proud of the walls; the columns' 16 sides inside their circles.
+  "white-house": 0.05,
+  // The water a centimetre over the rim.
+  fountain: 0.02,
+  fence: 0.01,
+  // The water a centimetre over the stone, so the pools read brim-full.
+  "reflecting-pool": 0.02,
+  basin: 0.02,
+  lincoln: 0.01,
+  // The water a centimetre over the rim.
+  "capitol-pool": 0.02,
+  // Bricks drawn and bounded alike.
+  "grant-memorial": 0.01,
+  "peace-monument": 0.01,
+  "garfield-monument": 0.01,
+  // The pole's 12 sides inside its circle; the canton standing proud of the stripes.
+  flagpole: 0.01,
 };
 
 const COURSES = [...TRACKS, ...OFF_MENU].map((json) => ({ id: parseTrack(json).id, json }));

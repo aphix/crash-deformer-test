@@ -277,6 +277,7 @@ export class CrashEngine extends EngineGarage {
       leave: () => this.setScene("fleet"),
       watchCam: () => void (this.view.spec = "auto"),
       hitFx: this.hitFx,
+      throwPassenger: (car, look) => this.ragdolls.throwPassenger(car, look),
       hit: (i, closing) => this.noteHit(i, closing),
       knockProp: (index, car, vx, vy, vz) => this.ragdolls.knockProp(index, car, vx, vy, vz),
       buildArt: (track, placed) => {

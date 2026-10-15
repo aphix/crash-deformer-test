@@ -2,12 +2,13 @@ import { mulberry32 } from "../world/placements.ts";
 import type { PersonPick } from "../match/look-data.ts";
 
 /**
- * A driver's look: tee, trousers, hair, a cap (its colour, null for none), a moustache, and whether she is a woman.
+ * A driver's look: tee, trousers, hair, a cap (its colour, null for none), a moustache, and whether she is a woman; `portly` (a
+ * figure of the course's own, never a drawn driver): a big man in a suit, white collar and red tie, his hair swept up and back.
  * Cosmetic only. A drawn driver is a pure function of (the race's look seed, the car's slot), through its own
  * `mulberry32` stream and never the sim's RNG, so sim digests do not move, and every peer, replay and highlight clip that
  * knows the seed draws the same driver; a player's own picks (`look-pick.ts`) then override fields of it.
  */
-export type DriverLook = { woman: boolean; shirt: number; pants: number; hair: number; hat: number | null; mustache: boolean };
+export type DriverLook = { woman: boolean; shirt: number; pants: number; hair: number; hat: number | null; mustache: boolean; portly?: boolean };
 
 /** A drawn driver's trousers: FlatOut's jeans (sRGB). */
 export const JEANS = 0x3a4d6d;

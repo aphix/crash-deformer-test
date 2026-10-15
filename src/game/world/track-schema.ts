@@ -131,6 +131,16 @@ const paint = z.object({ surface, poly: z.array(z.tuple([z.number(), z.number()]
 /** A ground anchor: position and heading (yaw 0 faces +Z, forward = (sin yaw, cos yaw)). */
 const anchor = z.object({ x: z.number(), z: z.number(), yaw: z.number() });
 
+/**
+ * A guarded house's grounds (`scenes/lawn-guard.ts`): a car on the `lawn` polygon raises the alarm, and the `count` guards come
+ * out of the `doors` (each a ground anchor facing out of the house) to fire on it.
+ */
+const guards = z.object({
+  lawn: z.array(z.tuple([z.number(), z.number()])).min(3),
+  doors: z.array(anchor).min(1).max(4),
+  count: z.number().int().min(1).max(12),
+});
+
 /** Survival mode: where the player starts and the cop formation slots behind that start (tight and staggered). */
 const survival = z.object({ start: anchor, formation: z.array(anchor).min(4).max(6) });
 
@@ -182,6 +192,8 @@ export const TrackSchema = z
       .optional(),
     /** Survival mode's anchors; absent on a course the mode is not played on. */
     survival: survival.optional(),
+    /** A guarded house's grounds; absent on a course with none. */
+    guards: guards.optional(),
     environment: z
       .object({
         sky: hexColour.default("#12141a"),
@@ -190,6 +202,17 @@ export const TrackSchema = z
         hills: z.array(hill).default([]),
         plateaus: z.array(plateau).default([]),
         paint: z.array(paint).default([]),
+        /** The race camera's far plane (m): a course whose landmarks stand further off than the default sees them. */
+        far: z.number().min(300).max(3000).default(900),
+        /** A picture painted on the sky past everything, centred on `bearing` (degrees from −z, the map's north, toward +x): none when absent. */
+        backdrop: z
+          .object({
+            kind: z.enum(["mushroom-cloud"]),
+            bearing: z.number().min(0).max(360),
+            /** Not there until the player types the Konami code in a race on the course (a slow flash, then it stands: `TrackArt.reveal`). */
+            secret: z.boolean().default(false),
+          })
+          .optional(),
         /** The course's own daylight (sun, hemisphere and fill colours, the sun's intensity); absent: the default day. */
         light: z
           .object({ sun: hexColour, sunIntensity: z.number().positive(), hemi: hexColour, fill: hexColour })
@@ -229,6 +252,8 @@ export const TrackSchema = z
     }
   });
 
+/** A course's guarded grounds (`TrackJson.guards`). */
+export type GuardSpec = z.output<typeof guards>;
 /** Survival mode's anchors (`Track.survival`). */
 export type SurvivalSpec = z.output<typeof survival>;
 /** Parsed track with defaults applied. */

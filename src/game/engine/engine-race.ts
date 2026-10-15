@@ -17,6 +17,9 @@ import { DRAFT, RaceSession } from "../match/session.ts";
 import { cleanName, RACE_MODES, TIMES_OF_DAY, type Entrant, type RaceCommand, type RacePhase, type RaceSnapshot } from "../match/types.ts";
 import type { Cand, Wreck } from "../match/auto-watch.ts";
 import { RaceHudLayer } from "./engine-race-hud.ts";
+import { LawnGuard } from "../scenes/lawn-guard.ts";
+import type { GroundsHost } from "../present/grounds-art.ts";
+import type { Track } from "../world/track.ts";
 
 /** Seconds between traffic-bubble passes. */
 const BUBBLE_EVERY = 0.25;
@@ -43,17 +46,45 @@ export class RaceDirector extends RaceHudLayer {
   /** The open ledger clusters as `AutoWatch` reads them: the pool, and the ones in use this frame. */
   private readonly wreckPool: Wreck[] = [];
   private readonly autoWrecks: Wreck[] = [];
+  /** The course's guarded grounds (`TrackJson.guards`): its squad's sim, made once per course (`armGuard`); none on a course without. */
+  private guard: LawnGuard | null = null;
+  private guardOn: Track | null = null;
+  /** What the grounds' people draw with: sparks at a hit, the VIP's throw. */
+  private readonly grounds: GroundsHost = {
+    sparks: (at, normal, impulse) => this.host.hitFx(at, normal, impulse),
+    throwPassenger: (car, look) => this.host.throwPassenger(car, look),
+  };
 
   protected override start(trackId: string, grid: readonly number[]): void {
     this.auto = false;
     this.free = false;
     this.lobbySeatedFor = -1;
     super.start(trackId, grid);
+    this.armGuard();
     // A Watch race opens on Auto driver + Auto camera (any manual pick still overrides).
     if (this.spectating) {
       this.goAuto();
       this.host.watchCam();
     }
+  }
+
+  /** A run starts: the course's guards (made once per course) back inside on a fresh seed, standing down while its secret is out. */
+  private armGuard(): void {
+    const tr = this.track;
+    if (tr !== this.guardOn) {
+      this.guardOn = tr;
+      this.guard = tr?.json.guards ? new LawnGuard(tr.json.guards, MAX_CARS) : null;
+    }
+    this.guard?.reset(this.seed);
+    if (this.guard) this.guard.standDown = this.art?.secretOut ?? false;
+    this.art?.grounds?.reset();
+  }
+
+  /** The course's secret comes out (`RaceField.revealSecret`): its guards stand down, its VIP comes out for the player instead. */
+  override revealSecret(over: HTMLElement): boolean {
+    if (!super.revealSecret(over)) return false;
+    if (this.guard) this.guard.standDown = true;
+    return true;
   }
 
   /** The camera chases the followed car (player or spectated) instead of orbiting. */
@@ -584,6 +615,7 @@ export class RaceDirector extends RaceHudLayer {
       return;
     }
     const racing = s.phase === "racing";
+    if (!this.mirrored) this.guard?.step(cars, dt);
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
       if (this.dormant[i]) continue;
@@ -635,6 +667,10 @@ export class RaceDirector extends RaceHudLayer {
     if (!this.active) return;
     const s = this.session;
     if (this.art) this.art.setLights(s ? s.lights : 0);
+    if (this.art?.grounds) {
+      const player = s && this.entrants[this.self]?.kind === "player" ? this.self : -1;
+      this.art.grounds.frame(wallDt, this.mirrored ? null : this.guard, this.art.secretOut, this.host.live(), player, this.grounds);
+    }
     if (s && s.phase === "finished" && (this.menu == null || this.menu === "dead")) {
       this.overFor += wallDt;
       if (this.overFor >= RESULTS_DELAY) {

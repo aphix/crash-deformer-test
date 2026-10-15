@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { KonamiCode } from "./konami.ts";
 import { DeformableCar } from "../vehicle/car.ts";
 import type { CarPaint } from "../vehicle/car-core.ts";
 import { WheelBatch } from "../vehicle/wheel-batch.ts";
@@ -292,6 +293,8 @@ export abstract class EngineCore {
   protected derbyRound = 0;
   protected seat = new DriverSeat();
   protected keys = new Set<string>();
+  /** Watches race key presses for the Konami code (`RaceField.revealSecret`). */
+  protected readonly konami = new KonamiCode();
   protected readonly pad = new GamepadInput();
   protected readonly raycaster = new THREE.Raycaster();
   protected readonly ndc = new THREE.Vector2();

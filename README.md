@@ -46,7 +46,8 @@ Each row links the document that covers the system; [`docs/ARCHITECTURE.md`](doc
 |---|---|---|
 | Fleet | The sandbox: up to 32 cars at a spawn speed you set, with a jersey barrier, ramp balls and jump ramps. | [`CONTROLS`](docs/CONTROLS.md) |
 | Derby | Demolition derby with AI drivers that pick targets, ram, reverse out and keep a hit clock; the score board ranks them. | [`DERBY_AI`](docs/DERBY_AI.md) |
-| Race | Eight courses and a campaign, 2 to 16 racers from the setup menu, NPC traffic, designed shortcuts, respawn or no-reset, AI difficulty (easy, medium, hard) and aggression, drafting. | [`RACE_DESIGN`](docs/RACE_DESIGN.md) |
+| Race | Nine courses and a campaign, 2 to 16 racers from the setup menu, NPC traffic, designed shortcuts, respawn or no-reset, AI difficulty (easy, medium, hard) and aggression, drafting. | [`RACE_DESIGN`](docs/RACE_DESIGN.md) |
+| Time of day | Daytime, Sunset or Nighttime behind a race: a panoramic sky for each, the sun's height and the lamps follow. Drawn only, never in the sim, a replay or the wire; share links carry it. | [`RACE_DESIGN`](docs/RACE_DESIGN.md) |
 | Police chase | A race option: cops stake out, pursue and bust a car held slow within 20 m. | [`RACE_DESIGN`](docs/RACE_DESIGN.md) |
 | Survival | Driver 2's mode on Havana's Plaza de la Revolución: a pack of cops that grows, the stopwatch is the score; co-op in a room. | [`SURVIVAL`](docs/SURVIVAL.md) |
 | Press | Two plates close on a car. | [`CONTACT_PARITY`](docs/CONTACT_PARITY.md) |

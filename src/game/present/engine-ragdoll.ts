@@ -31,6 +31,7 @@ import { ejectionVelocity, type Ejection } from "../vehicle/ejection.ts";
 import { disable, loadRapier, type Rapier } from "../kernel/rapier.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 import { type DriverLook, driverLook, pickedLook } from "./driver-look.ts";
+import { passengerThrow } from "./people.ts";
 import type { PersonPick } from "../match/look-data.ts";
 import type { SprayBitmap } from "./spray.ts";
 import { Purses } from "./ragdoll-purse.ts";
@@ -668,12 +669,12 @@ export class RagdollSystem {
 
   /**
    * Throw `t`'s dummy in the world's worker: it goes now, in whichever slot the worker has free; what its look and purse are
-   * is decided here and applied (`dress`) when the worker answers with the slot. The ride-along and the sandbox's follow
-   * hook hear of the throw at once, as an inline one's.
+   * is decided here (`dressed`: a look of its own, else its car's driver's) and applied (`dress`) when the worker answers with the slot.
+   * The ride-along and the sandbox's follow hook hear of the throw at once, as an inline one's.
    */
-  private launchRemote(t: Throw, cars: readonly DeformableCar[]): void {
+  private launchRemote(t: Throw, cars: readonly DeformableCar[], dressed: DriverLook | null = null): void {
     const own = t.cop ? null : this.lookOf(t.car);
-    const look = own ? pickedLook(driverLook(this.lookSeed, t.car), own.person) : driverLook(this.lookSeed, t.car);
+    const look = dressed ?? (own ? pickedLook(driverLook(this.lookSeed, t.car), own.person) : driverLook(this.lookSeed, t.car));
     const purse = look.woman && !t.cop;
     const id = this.remote!.throwDummy(t, purse, this.lookSeed, cars);
     this.dressing.set(id, { cop: t.cop, look, spray: own ? own.personSpray : null, purse, car: t.car, seed: this.lookSeed });
@@ -700,6 +701,21 @@ export class RagdollSystem {
     return this.spawn(t, slot, life);
   }
 
+  /**
+   * A passenger (the course's VIP, in `look`) thrown with car `car`'s driver, who was the latest throw (`next` still holds it): beside
+   * him, toward the passenger side, with his motion, in this thread's world or the worker's. Nothing when that was not the latest
+   * throw, or when no world is up to take him.
+   */
+  throwPassenger(car: number, look: DriverLook): void {
+    const ride = this.cars[car];
+    if (!ride || this.next.car !== car || this.next.cop) return;
+    if (this.mode !== "remote" && !this.world) return;
+    passengerThrow(ride, this.next.p);
+    this.next.age = 0;
+    if (this.mode === "remote") this.launchRemote(this.next, this.cars, look);
+    else this.spawn(this.next, -1, LIFE, look);
+  }
+
   /** Slot `s`'s torso centre after the last step into `p`, and its velocity (world) into `v` unless null; false while no dummy is out in it. */
   torso(s: number, p: THREE.Vector3, v: THREE.Vector3 | null): boolean {
     const d = this.dolls[s];
@@ -719,8 +735,8 @@ export class RagdollSystem {
     this.place(_p.set(d.cur[0]!, d.cur[1]!, d.cur[2]!), _q.set(d.cur[3]!, d.cur[4]!, d.cur[5]!, d.cur[6]!), v, _w.set(0, 0, 0), Infinity, s);
   }
 
-  /** Throw `t`'s dummy into slot `at` (-1: a free slot, else the oldest one's), to lie about `life` sim s; returns the slot. */
-  spawn(t: Throw, at = -1, life = LIFE): number {
+  /** Throw `t`'s dummy into slot `at` (-1: a free slot, else the oldest one's), to lie about `life` sim s, in `dressed` (none: his car's driver's look); returns the slot. */
+  spawn(t: Throw, at = -1, life = LIFE, dressed: DriverLook | null = null): number {
     let slot = at >= 0 ? at : this.dolls.findIndex((d) => !d.live);
     if (slot < 0) slot = this.dolls.reduce((o, d, s) => (d.age > this.dolls[o]!.age ? s : o), 0);
     this.despawn(slot);
@@ -795,7 +811,7 @@ export class RagdollSystem {
       d.prev[o + 6] = _qb.w;
     }
     const own = t.cop ? null : this.lookOf(t.car);
-    const look = own ? pickedLook(driverLook(this.lookSeed, t.car), own.person) : driverLook(this.lookSeed, t.car);
+    const look = dressed ?? (own ? pickedLook(driverLook(this.lookSeed, t.car), own.person) : driverLook(this.lookSeed, t.car));
     this.mesh.dress(slot, t.cop, look);
     this.mesh.spray(slot, own ? own.personSpray : null);
     if (t.purse ?? (look.woman && !t.cop)) this.purses?.launch(slot, t.car, t.p, t.v, this.lookSeed);

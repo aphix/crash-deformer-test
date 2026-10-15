@@ -559,6 +559,8 @@ export abstract class EngineInput extends EngineRigs {
     // Every Space keydown, repeats included: an unprevented repeat arms a focused HUD button and the release clicks it.
     if (e.code === "Space") e.preventDefault();
     if (e.repeat) return;
+    // The Konami code in a race brings out its course's secret (the keys still do their own jobs).
+    if (this.race.active && this.konami.press(e.code)) this.race.revealSecret(this.canvas.parentElement ?? this.canvas);
     if (this.race.active && this.raceKey(e.code)) return;
     if (e.code === "Space") {
       if (!driving) this.togglePlay();

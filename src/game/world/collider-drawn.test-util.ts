@@ -103,7 +103,7 @@ export type Worst = { d: number; at: string };
 export function prefabGap(id: PrefabId): { pieces: number; inward: Worst; outward: Worst } {
   const pieces = propColliders([{ prefab: id, x: 0, y: 0, z: 0, yaw: 0, sx: 1, sy: 1, sz: 1 }]);
   const plain = new THREE.MeshBasicMaterial();
-  const mats = { plain, concrete: plain, building: plain, billboard: plain };
+  const mats = { plain, concrete: plain, building: plain, billboard: plain, water: plain };
   // The art's own geometry: every part but a flat decal on the ground (a lamp's light pool).
   const parts = prefabParts(id, mats).map((p) => triangles(p.geometry));
   const solid = parts.filter((t) => {

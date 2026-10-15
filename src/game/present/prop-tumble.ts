@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { PREFABS, type PrefabId } from "../world/catalog.ts";
 import type { Placed } from "../world/placements.ts";
-import { prefabParts, type PrefabMaterials } from "./prefabs.ts";
+import { type PrefabMaterials } from "./prefab-pieces.ts";
+import { prefabParts } from "./prefabs.ts";
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _q = new THREE.Quaternion();

@@ -4,6 +4,7 @@
  */
 import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { PREFAB, SURFACE } from "./constants.ts";
+import { brickCollider, bricksTop, CAPITOL, CAPITOL_POOL, CAPITOL_TOP, capitolPlan, capitolPool, FLAGPOLE, flagpolePlan, GARFIELD_MONUMENT, GRANT_MEMORIAL, PEACE_MONUMENT, type Brick, type Collider } from "./landmarks.ts";
 
 export const SURFACE_IDS = [SURFACE.asphalt, SURFACE.concrete, SURFACE.cobble, SURFACE.dirt, SURFACE.gravel, SURFACE.grass, SURFACE.sand] as const;
 export type SurfaceId = (typeof SURFACE_IDS)[number];
@@ -45,15 +46,23 @@ export const PREFAB_IDS = [
   PREFAB.palm,
   PREFAB.wall,
   PREFAB.dumpster,
+  PREFAB.obelisk,
+  PREFAB.capitol,
+  PREFAB.marble,
+  PREFAB.whiteHouse,
+  PREFAB.fountain,
+  PREFAB.fence,
+  PREFAB.pool,
+  PREFAB.basin,
+  PREFAB.lincoln,
+  PREFAB.capitolPool,
+  PREFAB.grantMemorial,
+  PREFAB.peaceMonument,
+  PREFAB.garfieldMonument,
+  PREFAB.flagpole,
 ] as const;
 export type PrefabId = (typeof PREFAB_IDS)[number];
 
-/**
- * One solid of a prefab (metres at scale 1, +Z forward at yaw 0): a circle (`r`) or a box (`hx`, `hz`) about (`x`, `z`) (0 when
- * omitted), from `y0` (0) up to `y1` (the prefab's height). A box may be turned `yaw` (0) about its own centre, added to the
- * placement's: only on a solid prefab placed at one scale in plan (`sx` = `sz`). A placement scales plan by `sx`, `sz` and height by `sy`.
- */
-type Collider = ({ kind: "circle"; r: number } | { kind: "box"; hx: number; hz: number; yaw?: number }) & { x?: number; z?: number; y0?: number; y1?: number };
 
 /** A star plan's valley radius over its tip radius: the one number `present/prefabs.ts`'s `star` draws and `starPlan` bounds. */
 export const STAR_INNER = 0.45;
@@ -82,6 +91,196 @@ function starPlan(r: number, y0: number, y1: number): Collider[] {
   }
   return out;
 }
+
+/**
+ * The Washington Monument (m): a square shaft of half side `foot` on the ground and `shoulder` at `shaft`, the pyramidion to `tip`.
+ * The marble changes shade at `seam`, where building stopped for 23 years. `present/prefabs.ts` draws these, `obeliskPlan` bounds them.
+ */
+export const OBELISK = { foot: 8.4, shoulder: 5.25, seam: 46, shaft: 152, tip: 169 } as const;
+/** Boxes the shaft above the seam is cut into, each as wide as the shaft at its foot. */
+const OBELISK_SLICES = 5;
+
+/** Half side (m) of the obelisk's shaft at height y. */
+export function obeliskHalf(y: number): number {
+  const { foot, shoulder, shaft } = OBELISK;
+  return foot + ((shoulder - foot) * y) / shaft;
+}
+
+function obeliskPlan(): Collider[] {
+  const { seam, shaft, tip, shoulder } = OBELISK;
+  const cuts = [0, seam, ...Array.from({ length: OBELISK_SLICES }, (_, i) => seam + ((shaft - seam) * (i + 1)) / OBELISK_SLICES)];
+  const out: Collider[] = cuts.slice(0, -1).map((y0, i) => ({ kind: "box", hx: obeliskHalf(y0), hz: obeliskHalf(y0), y0, y1: cuts[i + 1]! }));
+  const mid = (shaft + tip) / 2;
+  out.push({ kind: "box", hx: shoulder, hz: shoulder, y0: shaft, y1: mid }, { kind: "box", hx: shoulder / 2, hz: shoulder / 2, y0: mid, y1: tip });
+  return out;
+}
+
+/** A box block of a building (m): half sizes, centre, foot and top. */
+type Block = { hx: number; hz: number; x: number; z: number; y0: number; y1: number };
+
+/** A plain marble block (m at scale 1): a footing course, the body, a projecting cornice, a parapet. Placements size it to a whole building. */
+export const MARBLE = { footing: { half: 6.2, y1: 1 }, body: { half: 6, y1: 13 }, cornice: { half: 6.3, y1: 13.6 }, parapet: { half: 6, y1: 14 } } as const;
+
+/** A round part (m): radius, centre, foot and top. */
+type Drum = { r: number; x: number; z: number; y0: number; y1: number };
+
+/** The South Portico's centre (m): the middle of the south front, where the oval rooms' bow stands out of the walls. */
+const SOUTH_FRONT = 13;
+
+/**
+ * The White House at full size (m, −Z the north front, +Z the south): the walls on a ground course under a cornice and a roof
+ * balustrade, a low hipped roof with four chimneys, the North Portico (a floor, 4 + 4 Ionic `northColumns`, an entablature and a
+ * pediment), the South Portico (a bow, a terrace, a half ring of 6 columns, the Truman Balcony, an entablature and a balustrade),
+ * the colonnades out to the West and East Wings, and the flag on the roof. `present/prefabs.ts` draws these, `whiteHousePlan` bounds them.
+ */
+export const WHITE_HOUSE = {
+  footing: { hx: 25.8, hz: 13.3, x: 0, z: 0, y0: 0, y1: 1.2 },
+  walls: { hx: 25.5, hz: SOUTH_FRONT, x: 0, z: 0, y0: 1.2, y1: 17 },
+  cornice: { hx: 26, hz: 13.5, x: 0, z: 0, y0: 17, y1: 17.8 },
+  balustrade: { hx: 25.5, hz: SOUTH_FRONT, x: 0, z: 0, y0: 17.8, y1: 18.9 },
+  /** The hip roof: its eaves' half sides, and its flat top's share of them. */
+  roof: { hx: 23.5, hz: 10.5, y0: 17.8, y1: 21.6, top: 0.4 },
+  chimneys: [-9, 9].flatMap((x) => [-7.5, 7.5].map((z) => ({ hx: 0.7, hz: 1.5, x, z, y0: 19, y1: 23.2 }))),
+  northFloor: { hx: 13.6, hz: 6.25, x: 0, z: -19.25, y0: 0, y1: 1.2 },
+  northColumns: [
+    ...[-9.6, -3.2, 3.2, 9.6].map((x) => ({ r: 0.65, x, z: -24.6, y0: 1.2, y1: 15.4 })),
+    ...[-12.6, 12.6].flatMap((x) => [-20.4, -16.2].map((z) => ({ r: 0.65, x, z, y0: 1.2, y1: 15.4 }))),
+  ] satisfies Drum[],
+  northEntablature: { hx: 13.6, hz: 6.25, x: 0, z: -19.25, y0: 15.4, y1: 17 },
+  /** The pediment over it: a gable as wide as the entablature, from its foot to its ridge. */
+  pediment: { hx: 13.6, hz: 6.25, x: 0, z: -19.25, y0: 17, y1: 21 },
+  bow: { r: 7.5, x: 0, z: SOUTH_FRONT, y0: 0, y1: 17 },
+  southTerrace: { r: 12.4, x: 0, z: SOUTH_FRONT, y0: 0, y1: 1.2 },
+  southColumns: [-75, -45, -15, 15, 45, 75].map((deg) => ({ r: 0.65, x: 11.2 * detSin((deg * Math.PI) / 180), z: SOUTH_FRONT + 11.2 * detCos((deg * Math.PI) / 180), y0: 1.2, y1: 15.4 })) satisfies Drum[],
+  balcony: { r: 11.8, x: 0, z: SOUTH_FRONT, y0: 7.4, y1: 8.6 },
+  southEntablature: { r: 12.2, x: 0, z: SOUTH_FRONT, y0: 15.4, y1: 17 },
+  southBalustrade: { r: 11.8, x: 0, z: SOUTH_FRONT, y0: 17, y1: 18.2 },
+  colonnades: [-43, 43].map((x) => ({ hx: 17.5, hz: 3.5, x, z: 7, y0: 0, y1: 5 })) satisfies Block[],
+  wings: [-80.5, 80.5].map((x) => ({ hx: 20, hz: 16, x, z: 3, y0: 0, y1: 9 })) satisfies Block[],
+  wingCornices: [-80.5, 80.5].map((x) => ({ hx: 20.4, hz: 16.4, x, z: 3, y0: 9, y1: 9.7 })) satisfies Block[],
+  flag: { pole: { r: 0.12, x: 0, z: 0, y0: 21.6, y1: 31 }, fly: 4.2, drop: 2.4 },
+} as const;
+
+function whiteHousePlan(): Collider[] {
+  const w = WHITE_HOUSE;
+  const box = (b: Block): Collider => ({ kind: "box", ...b });
+  const circle = (d: Drum): Collider => ({ kind: "circle", ...d });
+  const { pole, fly, drop } = w.flag;
+  return [
+    ...[w.footing, w.walls, w.cornice, w.balustrade, w.northFloor, w.northEntablature, w.pediment].map(box),
+    { kind: "box", hx: w.roof.hx, hz: w.roof.hz, y0: w.roof.y0, y1: w.roof.y1 },
+    ...w.chimneys.map(box),
+    ...w.northColumns.map(circle),
+    ...[w.bow, w.southTerrace, w.balcony, w.southEntablature, w.southBalustrade, ...w.southColumns].map(circle),
+    ...[...w.colonnades, ...w.wings, ...w.wingCornices].map(box),
+    circle(pole),
+    { kind: "box", hx: fly / 2, hz: 0.05, x: pole.r + fly / 2, y0: pole.y1 - drop, y1: pole.y1 },
+  ];
+}
+
+/**
+ * A reflecting pool (m at scale 1, stretched to its place by `size`): a stone kerb `rim` wide round water standing a centimetre over
+ * it, so the surface reads brim-full like the Mall's pools. `basin` is the round one (the WWII Memorial's Rainbow Pool), placed at one scale.
+ */
+export const POOL = { half: [50, 10] as const, rim: 1.5, y1: 0.5, brim: 0.01 } as const;
+export const BASIN = { r: 27.5, rim: 2, y1: 0.5 } as const;
+
+/** A box from `y0` to `y1`, half `hx` by `hz`, centred on (`x`, `z`) (0 where absent). */
+export type Slab = { readonly hx: number; readonly hz: number; readonly y0: number; readonly y1: number; readonly x?: number; readonly z?: number };
+
+/**
+ * A flight of `count` steps (m) up the local +Z front: step k rises `rise` above the last and is `run` shallower, all from `back`
+ * (the face the flight climbs to) toward `back + count * run`, `hx` to a side. Each step is one box from `y0` (the flight's foot)
+ * up to its own top, so the boxes nest and the drawn flight and its colliders are the same boxes.
+ */
+function flight(hx: number, back: number, y0: number, count: number, rise: number, run: number): Slab[] {
+  const out: Slab[] = [];
+  for (let k = 0; k < count; k++) {
+    const depth = (count - k) * run;
+    out.push({ hx, hz: depth / 2, y0, y1: y0 + (k + 1) * rise, z: back + depth / 2 });
+  }
+  return out;
+}
+
+/**
+ * The Lincoln Memorial (m, its front, the east colonnade, toward +Z), after the building: a granite `terrace` 5 m over the circle
+ * road and the grand `stair` of 20 steps down its front to the Reflecting Pool, between `cheeks` (a high block with a brazier on
+ * its `bowl`, a low one to the foot); on the terrace the three great steps of the `crepidoma`, the central `upper` flight through
+ * them and the `stylobate`; a peristyle of 36 Doric `columns` (12 to a long side, 8 to an end, tapered, a `capital` of echinus and
+ * abacus) round the `cella`, whose walls stand `wall` thick and leave the east front open `door` wide on the chamber and the
+ * seated Lincoln on his pedestal (`statue`); the entablature as `architrave`, `frieze` (a panel over each column for the 36
+ * states of 1865) and `cornice`; the attic (48 festoons for the states of 1922) under its own cornice, and the raised roof.
+ * `present/prefabs.ts` draws these. The colliders take everything a car can reach (the terrace, the stair and its cheeks) as drawn
+ * and box the rest, all of it above a car.
+ */
+/** A cheek block's plan (m): its width, half its length, its centre out to the side of the grand stair. */
+const CHEEK = { width: 5, hz: 5, x: 19.5 } as const;
+const GRAND_STAIR = { hx: 17, back: 30, count: 20, rise: 0.25, run: 1 } as const;
+export const LINCOLN = {
+  terrace: { hx: 40, hz: 30, y0: 0, y1: 5 },
+  stair: flight(GRAND_STAIR.hx, GRAND_STAIR.back, 0, GRAND_STAIR.count, GRAND_STAIR.rise, GRAND_STAIR.run),
+  cheeks: [
+    { hx: CHEEK.width / 2, hz: CHEEK.hz, x: CHEEK.x, y0: 0, y1: 6, z: 35 },
+    { hx: CHEEK.width / 2, hz: CHEEK.hz, x: CHEEK.x, y0: 0, y1: 2.6, z: 45 },
+  ],
+  bowl: { r: 0.9, foot: 0.45, y0: 6, y1: 7.3, z: 37 },
+  crepidoma: [
+    { hx: 34, hz: 24, y0: 5, y1: 6.2 },
+    { hx: 32.5, hz: 22.5, y0: 6.2, y1: 7.4 },
+    { hx: 31, hz: 21, y0: 7.4, y1: 8.6 },
+  ],
+  upper: flight(12, 18.5, 5, 16, 0.3, 0.4),
+  stylobate: { hx: 29, hz: 18.5, y0: 8.6, y1: 9.8 },
+  columns: { r0: 1.13, r1: 0.92, alongX: 12, alongZ: 8, hx: 27.6, hz: 17.1, y0: 9.8, y1: 23.2 },
+  capital: { echinus: 0.5, abacus: 0.4, flare: 1.22, half: 1.3 },
+  cella: { hx: 22, hz: 12, wall: 1.2, door: 6.5, y0: 9.8, y1: 23.2 },
+  statue: { pedestal: { hx: 2.6, hz: 2.7, y0: 9.8, y1: 13, z: -5 } },
+  architrave: { hx: 28.9, hz: 18.4, y0: 23.2, y1: 24.6 },
+  frieze: { hx: 28.7, hz: 18.2, y0: 24.6, y1: 26.2 },
+  cornice: { hx: 29.4, hz: 18.9, y0: 26.2, y1: 27 },
+  attic: { hx: 26, hz: 15.5, y0: 27, y1: 32 },
+  festoon: { w: 1.3, h: 1.2, proud: 0.2, y: 29.6, alongX: 16, alongZ: 8 },
+  atticCornice: { hx: 26.4, hz: 15.9, y0: 32, y1: 32.6 },
+  roof: { hx: 22, hz: 12, y0: 32.6, y1: 33.6 },
+} as const;
+
+/** How far (m) the memorial reaches to its front: the grand stair's foot. */
+const LINCOLN_REACH = GRAND_STAIR.back + GRAND_STAIR.count * GRAND_STAIR.run;
+
+/** The peristyle's column centres (x, z): evenly round the rectangle `hx` by `hz`, `alongX` to a long side, `alongZ` to an end, the corners shared. */
+export function lincolnColumns(): [number, number][] {
+  const { alongX, alongZ, hx, hz } = LINCOLN.columns;
+  const out: [number, number][] = [];
+  for (let i = 0; i < alongX; i++) for (const z of [-hz, hz]) out.push([-hx + (2 * hx * i) / (alongX - 1), z]);
+  for (let i = 1; i < alongZ - 1; i++) for (const x of [-hx, hx]) out.push([x, -hz + (2 * hz * i) / (alongZ - 1)]);
+  return out;
+}
+
+/** The Lincoln Memorial's colliders: the terrace, the stair and its cheeks as drawn; boxes round the building above them. */
+function lincolnPlan(): Collider[] {
+  const L = LINCOLN;
+  const slab = (b: Slab): Collider => ({ kind: "box", hx: b.hx, hz: b.hz, y0: b.y0, y1: b.y1, x: b.x ?? 0, z: b.z ?? 0 });
+  return [
+    slab(L.terrace),
+    ...L.stair.map(slab),
+    ...L.cheeks.flatMap((c) => [slab(c), slab({ ...c, x: -c.x! })]),
+    ...[1, -1].map((s) => slab({ hx: L.bowl.r, hz: L.bowl.r, y0: L.bowl.y0, y1: L.bowl.y1, x: s * L.cheeks[0].x, z: L.bowl.z })),
+    ...L.crepidoma.map(slab),
+    ...L.upper.map(slab),
+    slab(L.stylobate),
+    // The peristyle, the cella and the statue inside it, as one box between the stylobate and the entablature.
+    slab({ hx: L.stylobate.hx, hz: L.stylobate.hz, y0: L.columns.y0, y1: L.columns.y1 }),
+    slab({ hx: L.cornice.hx, hz: L.cornice.hz, y0: L.architrave.y0, y1: L.cornice.y1 }),
+    slab({ hx: L.atticCornice.hx, hz: L.atticCornice.hz, y0: L.attic.y0, y1: L.atticCornice.y1 }),
+    slab(L.roof),
+  ];
+}
+
+/** A lawn fountain (m): a stone basin with its water, a pedestal, the jet and the spray falling round it. */
+export const FOUNTAIN = { basin: { r: 6, y1: 0.72 }, water: { r: 5.5, y0: 0.6 }, pedestal: { r: 1.1, y1: 1.6 }, jet: { r: 0.3, y1: 6.6 }, spray: { r: 1.8, y0: 4.6 } } as const;
+
+/** One 10 m length of iron fence (m, along x): a stone kerb, the railings as one dark panel, a post at each end. */
+export const FENCE = { kerb: { hx: 5, hz: 0.3, y1: 0.6 }, rails: { hx: 5, hz: 0.05, y1: 2.2 }, post: { half: 0.15, x: 4.85, y1: 2.5 } } as const;
 
 type PrefabSpec = {
   /**
@@ -116,6 +315,13 @@ const SOFT_WOOD = 0.5;
 
 /** Half the 0.44 m footing (m) the `wall` prefab's 0.4 m wall stands on. */
 const WALL_FOOTING_HALF = 0.22;
+
+/** A monument of bricks (`landmarks.ts`): solid, its colliders the bricks themselves, bounded by its farthest brick. */
+function monumentSpec(bricks: readonly Brick[]): PrefabSpec {
+  const hx = Math.max(...bricks.map((b) => Math.abs(b.x) + b.hx));
+  const hz = Math.max(...bricks.map((b) => Math.abs(b.z) + b.hz));
+  return { body: "solid", collider: bricks.map(brickCollider), foot: hypot2(hx, hz), size: [2 * hx, bricksTop(bricks), 2 * hz], mass: 0 };
+}
 
 export const PREFABS: Record<PrefabId, PrefabSpec> = {
   cone: {
@@ -266,4 +472,83 @@ export const PREFABS: Record<PrefabId, PrefabSpec> = {
     mass: 0,
   },
   dumpster: { body: "solid", collider: [{ kind: "box", hx: 1, hz: 0.62 }], foot: hypot2(1, 0.62), size: [2, 1.4, 1.25], mass: 0 },
+  // The National Mall course's landmarks and its museum blocks.
+  obelisk: { body: "solid", collider: obeliskPlan(), foot: OBELISK.foot * Math.SQRT2, size: [OBELISK.foot * 2, OBELISK.tip, OBELISK.foot * 2], mass: 0 },
+  // To the foot of the west front's stair, the farthest corner from the middle.
+  capitol: { body: "solid", collider: capitolPlan(), foot: hypot2(CAPITOL.blocks[0].hx + CAPITOL.westStair.count * CAPITOL.westStair.run, CAPITOL.blocks[0].hz), size: [120, CAPITOL_TOP, 240], mass: 0 },
+  [PREFAB.capitolPool]: {
+    body: "solid",
+    collider: capitolPool().rim.map(brickCollider),
+    foot: hypot2(CAPITOL_POOL.halfLength + CAPITOL_POOL.westBulge, CAPITOL_POOL.westHalf),
+    size: [2 * (CAPITOL_POOL.halfLength + CAPITOL_POOL.westBulge), CAPITOL_POOL.y1, 2 * CAPITOL_POOL.westHalf],
+    mass: 0,
+  },
+  [PREFAB.grantMemorial]: monumentSpec(GRANT_MEMORIAL),
+  [PREFAB.peaceMonument]: monumentSpec(PEACE_MONUMENT),
+  [PREFAB.garfieldMonument]: monumentSpec(GARFIELD_MONUMENT),
+  [PREFAB.flagpole]: {
+    body: "solid",
+    collider: flagpolePlan(),
+    foot: FLAGPOLE.r + FLAGPOLE.flag.length,
+    size: [2 * (FLAGPOLE.r + FLAGPOLE.flag.length), FLAGPOLE.top, 2 * (FLAGPOLE.r + FLAGPOLE.flag.length)],
+    mass: 0,
+  },
+  marble: {
+    body: "solid",
+    collider: [
+      { kind: "box", hx: MARBLE.footing.half, hz: MARBLE.footing.half, y1: MARBLE.footing.y1 },
+      { kind: "box", hx: MARBLE.body.half, hz: MARBLE.body.half, y0: MARBLE.footing.y1, y1: MARBLE.body.y1 },
+      { kind: "box", hx: MARBLE.cornice.half, hz: MARBLE.cornice.half, y0: MARBLE.body.y1, y1: MARBLE.cornice.y1 },
+      { kind: "box", hx: MARBLE.parapet.half, hz: MARBLE.parapet.half, y0: MARBLE.cornice.y1, y1: MARBLE.parapet.y1 },
+    ],
+    foot: hypot2(MARBLE.cornice.half, MARBLE.cornice.half),
+    size: [MARBLE.cornice.half * 2, MARBLE.parapet.y1, MARBLE.cornice.half * 2],
+    mass: 0,
+  },
+  [PREFAB.whiteHouse]: {
+    body: "solid",
+    collider: whiteHousePlan(),
+    foot: hypot2(100.5, 25.4),
+    size: [201, WHITE_HOUSE.flag.pole.y1, 50.9],
+    mass: 0,
+  },
+  fountain: {
+    body: "solid",
+    collider: [
+      { kind: "circle", r: FOUNTAIN.basin.r, y1: FOUNTAIN.basin.y1 },
+      { kind: "circle", r: FOUNTAIN.pedestal.r, y0: FOUNTAIN.basin.y1, y1: FOUNTAIN.pedestal.y1 },
+      { kind: "circle", r: FOUNTAIN.jet.r, y0: FOUNTAIN.pedestal.y1, y1: FOUNTAIN.jet.y1 },
+      { kind: "circle", r: FOUNTAIN.spray.r, y0: FOUNTAIN.spray.y0, y1: FOUNTAIN.jet.y1 },
+    ],
+    foot: FOUNTAIN.basin.r,
+    size: [FOUNTAIN.basin.r * 2, FOUNTAIN.jet.y1, FOUNTAIN.basin.r * 2],
+    mass: 0,
+  },
+  [PREFAB.pool]: {
+    body: "solid",
+    collider: [{ kind: "box", hx: POOL.half[0], hz: POOL.half[1], y1: POOL.y1 }],
+    foot: hypot2(POOL.half[0], POOL.half[1]),
+    size: [POOL.half[0] * 2, POOL.y1, POOL.half[1] * 2],
+    mass: 0,
+  },
+  basin: { body: "solid", collider: [{ kind: "circle", r: BASIN.r, y1: BASIN.y1 }], foot: BASIN.r, size: [BASIN.r * 2, BASIN.y1, BASIN.r * 2], mass: 0 },
+  lincoln: {
+    body: "solid",
+    collider: lincolnPlan(),
+    // The terrace's corners and the stair's foot bound it: half its depth is the stair's reach to the front.
+    foot: Math.max(hypot2(LINCOLN.terrace.hx, LINCOLN.terrace.hz), hypot2(GRAND_STAIR.hx, LINCOLN_REACH)),
+    size: [LINCOLN.terrace.hx * 2, LINCOLN.roof.y1, LINCOLN_REACH * 2],
+    mass: 0,
+  },
+  fence: {
+    body: "solid",
+    collider: [
+      { kind: "box", hx: FENCE.kerb.hx, hz: FENCE.kerb.hz, y1: FENCE.kerb.y1 },
+      { kind: "box", hx: FENCE.rails.hx, hz: FENCE.rails.hz, y0: FENCE.kerb.y1, y1: FENCE.rails.y1 },
+      ...[-1, 1].map((s): Collider => ({ kind: "box", hx: FENCE.post.half, hz: FENCE.post.half, x: s * FENCE.post.x, y0: FENCE.kerb.y1, y1: FENCE.post.y1 })),
+    ],
+    foot: hypot2(FENCE.kerb.hx, FENCE.kerb.hz),
+    size: [FENCE.kerb.hx * 2, FENCE.post.y1, FENCE.kerb.hz * 2],
+    mass: 0,
+  },
 };

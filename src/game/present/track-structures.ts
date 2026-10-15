@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { hypot2 } from "../kernel/physics-core.js";
 import { clamp } from "../kernel/scalar.ts";
-import { TILE, box, type Piece } from "./prefabs.ts";
+import { box, type Piece } from "./prefab-pieces.ts";
+import { TILE } from "./prefabs.ts";
 import { blankPoint, pointOn, type TrackGround, type TrackPath } from "../world/track.ts";
 import { levelAt, runs, sampleStep, surfY, WALL_PERIOD, WALL_PROFILE, wallLateral, wallRuns } from "../world/track-sections.ts";
 import {

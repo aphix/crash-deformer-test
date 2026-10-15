@@ -61,6 +61,18 @@ describe("given the crash-test dummies drawn for thrown drivers", () => {
     assert.notEqual(man.length, woman.length, "a different set of pieces");
   });
 
+  it("when a portly man in a suit is dressed against a plain man, then he is broader through the chest and belly, wears a red tie and a white collar, and has more hair over his crown", () => {
+    const suit = { ...MAN, shirt: 0x1f3463, pants: 0x1f3463, hair: 0xe8bf6c };
+    const plain = drawn(suit, false);
+    const portly = drawn({ ...suit, portly: true }, false);
+    const widest = (rows: typeof plain) => Math.max(...rows.filter((r) => r.color.getHex() === new THREE.Color(suit.shirt).getHex()).map((r) => r.size.x * r.size.z));
+    assert.ok(widest(portly) > widest(plain) * 1.3, `torso section ${widest(portly).toFixed(3)} m² against ${widest(plain).toFixed(3)} m²`);
+    assert.ok(has(portly, 0xb3202a) && !has(plain, 0xb3202a), "a red tie");
+    assert.ok(has(portly, 0xf4f4f1) && !has(plain, 0xf4f4f1), "a white collar");
+    const hair = (rows: typeof plain) => rows.filter((r) => r.color.getHex() === new THREE.Color(suit.hair).getHex()).length;
+    assert.ok(hair(portly) >= hair(plain) + 3, `${hair(portly)} hair pieces against ${hair(plain)}`);
+  });
+
   it("when a driver picks trousers, a cap and a moustache, then his legs wear the trousers' colour, his crown the cap's, and his face gains one piece in his hair's colour", () => {
     const plain = drawn(MAN, false);
     const capped = drawn({ ...MAN, pants: 0x123456, hat: 0xee2211 }, false);

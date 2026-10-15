@@ -21,7 +21,7 @@ HUD with a focus view, controller-driven menus, and a campaign over every course
 | `ai/race-ai.ts`, `ai/contact-guard.ts` | `RaceBrain` (racing driver), `guardContact` |
 | `ai/traffic.ts` | `TrafficBrain` (loop lanes + side streets, observer bubble) |
 | `ai/police.ts`, `ai/pack-guard.ts` | `PoliceBrain` (stakeouts, pursuits, packs, attacks), `guardMates` |
-| `present/prefabs.ts`, `present/track-art.ts` | prefab meshes; `TrackArt`: terrain, ribbons, decks + pillars, tunnels, markings, walls, start gantry, instanced and knocked props |
+| `present/prefabs.ts`, `present/prefabs-mall.ts`, `present/prefab-pieces.ts`, `present/track-art.ts` | prefab meshes (the National Mall's landmarks in their own file, the shared pieces, boxes and materials in another); `TrackArt`: terrain, ribbons, decks + pillars, tunnels, markings, walls, start gantry, instanced and knocked props |
 | `hud/menu-nav.ts` | spatial focus maths for controller menus |
 | `engine/engine-race.ts`, `engine/engine-race-field.ts` | `RaceDirector` (rules glue, menus, campaign, netplay, HUD model) over `RaceField` (course, grid, spawns, respawns, traffic bubble, wall / prop contacts) |
 | `components/race-*.tsx`, `use-pad-menu.ts` | readouts, standings, overlays, menus; pad / keyboard menu navigation |
@@ -149,6 +149,30 @@ into `fight = clamp(mood, 0, 1)` and `shy = clamp(−mood, 0, 1)`. The derby AI 
   crest. A careful shove swings the lane at no more than `SHOVE_LAT` (0.5 m/s). Above 0.5 `mood` alone decides; aggression
   0 never fights.
 
+## Time of day (`present/sky-dome.ts`, `WorldStage.setTime`)
+
+The setup's **Time of day** (`RaceOptions.timeOfDay`: `daytime`, `sunset`, `nighttime`; share link `tod`) picks the race's sky
+and light. It is drawn only: the simulation, the replays and the wire never see it, so a netplay client keeps its own pick. The
+setup menu shows a change at once on the course behind it.
+
+- **Sky.** A 360° panorama strip (`public/sky/<time>.webp`, 4096 × 780, one column a 1/4096 turn) on a sphere round the camera,
+  drawn at infinity before everything (it writes no depth, takes no fog and no tone mapping, as the flat sky colour it replaces).
+  Under its `hazeTop` it fades into the scene's fog colour, so the fogged course meets it with no seam: by day that is each course's
+  own haze (a wide 0.2 rad band, the picture's horizon differing from it), at sunset and night the strip's own horizon colour, which
+  is then the fog's too. Past the strip's top it fades to its zenith colour. Each picture loads on first use and stays; the flat
+  colour shows until it is in. `SKY_LOOKS` holds what was read off each strip: horizon row, disc (sun or moon) position, horizon
+  and zenith colours. The day strip is five gpt-image-1 generations seam-matched row by row and cross-faded; sunset (the day
+  strip regraded to golden hour) and night (procedural stars, Milky Way and moon) were made locally when the image API ran out of
+  credit, and are due to be replaced by generated ones.
+- **Light.** The sun keeps the day's bearing and its 22 m height over the shadow box at every time; its elevation follows the
+  time: the day's 58.6° (unchanged), sunset's disc but no lower than 12° (the shadow texels stretch 1 / sin of it), night's moon
+  between 20° and 60°. The disc in the picture is turned onto that bearing (`uAtNorth`), and the shadow camera reaches 34 m past
+  the sun. Daytime is each course's own `environment.light`; sunset has its own palette (an orange sun, a rose-violet sky light, a
+  cool fill, the lamps lit early, dimmer reflections); nighttime is the sandbox's night lighting (`nightDepth`), lamps and pools on.
+  The settings' night toggle during a race switches between nighttime and daytime; leaving the race restores the sandbox's own
+  night setting.
+- A course's own `backdrop` (the National Mall's secret mushroom cloud, once out) stands in front of every time's sky.
+
 ## AI difficulty (`ai/constants.ts`, `RaceBrain.due`)
 
 The setup's **AI difficulty** (`RaceOptions.aiDifficulty`: easy, medium, hard; share link `diff`) sets how often a rival re-decides
@@ -178,12 +202,12 @@ therefore drives almost as hard does (0–1 mistakes a race on oval and city). T
 
 ## Campaign
 
-`CAMPAIGN` = oval, rally, city, stunt, four-count, dam-spine, razor-shelf, breaker-yard (8 rounds). Points 10, 8, 6, 5, 4,
+`CAMPAIGN` = oval, rally, city, stunt, four-count, dam-spine, razor-shelf, breaker-yard, national-mall (9 rounds). Points 10, 8, 6, 5, 4,
 3, 2, 1 for places 1–8. Standings: points, wins, the better place in the latest round, entry order. Round 1's grid is the
 entry order (player last); later grids are the standings, leader on pole. Retry re-runs a round without scoring it. A
 Watch campaign runs every round in spectate mode. Nothing is saved: a campaign lives only in the running page.
 
-The courses are the player's pick (`RaceOptions.campaign`, share key `camp`), defaulting to all eight in `CAMPAIGN` order. The
+The courses are the player's pick (`RaceOptions.campaign`, share key `camp`), defaulting to all nine in `CAMPAIGN` order. The
 setup menu's **Mode** row (`RaceOptions.mode`, share key `mode`: `single` or `campaign`, an unknown value is ignored; it is an option like the rest, so it survives the menu unmounting for a solo replay view or a scene change and rides in a link) switches the course cards to Campaign: a tap ticks a card at the end of the order (a number shows its
 round) or unticks it, **Select all** / **Unselect all** is one toggle, and tap order is play order (after Unselect all, the order
 tapped is the campaign). **Start campaign** is disabled with nothing ticked, and the `campaign` command ignores an empty list.
@@ -322,7 +346,7 @@ interface Ground {
 `FLAT_GROUND`: y 0, +Y, 1, asphalt. A race calls `setGround(track.ground())`. `TrackGround` bakes a 1 m heightfield over the
 bounds: banked road plane, flat shoulders over the runoff, smoothstep back to the base terrain over 24 m; every path is
 stamped, nearest centreline winning, except that a side path's blend never replaces the main loop's road or runoff and
-eases over `MEET` (8 m) beyond it. Deck spans are skipped and answered analytically from the path at its own height, so a
+eases over `MEET` (8 m) beyond it. Each segment measures only the cells of each row within its reach (`capsuleRow`), and an open side street's straight run of like samples is stamped as one segment (`sameRun`), so a cell is measured once per street rather than once per metre's sample near it; a painted polygon tests only the cells over its bounds. The National Mall's 4 M cells bake in about 0.37 s (6.2 s before). Deck spans are skipped and answered analytically from the path at its own height, so a
 bridge and the road under it coexist. On the main loop's road + runoff `world/road-crease.ts` keeps the crease where a bank
 meets the flat runoff sharp. Driven cars ride it pitched and rolled onto its normal; where it falls away faster than gravity
 follows they fly and land on whatever layer is below. Car pairs more than 2.5 m apart in height never touch.
@@ -380,6 +404,7 @@ past `SLAM_TEAR_J`. Knock props do not meet doors. Car-to-car contact is the san
 | `dam-spine` | Dam Spine | ≈ 4530 m | the dam crest at 4–22 m with a bridge deck, banked to 8°, asphalt / concrete | spillway off the south face, gravel (0 → 3) |
 | `razor-shelf` | Razor Shelf | ≈ 2930 m | the cliff road: a shelf at 2–14 m, banked to 8°, gravel / asphalt / dirt | inside cut off the shelf past the mesa, dirt (1 → 4): a deliberate high-risk line (≈ 38 s against the road's 65 s, its 12 m mouth admits one car at a time, so who makes it is close to a lottery; owner 10-07). Its first 48 m, into the mouth, are cobble (grip 0.85 against dirt's 0.72), a row of tall cones runs along the shelf's inside edge for the 110 m before the mouth and two rows line the cobble, and a CRUSH billboard stands just past the rejoin |
 | `breaker-yard` | Breaker Yard | ≈ 2270 m | the plant loop on concrete with a storm-drain culvert (tunnel) as the long way, 17 placed props | upper deck and yard cut, both concrete (1 → 3), both die on the drain gate |
+| `national-mall` | Washington DC | ≈ 2760 m | the 2026 Freedom 250 IndyCar street circuit round the National Mall, rebuilt from the street grid (the published sources give the streets, not a turn map): 3rd St start, the Pennsylvania Ave frontstretch (16 m wide, 0.4 mi), 9th St, Constitution Ave and 7th St round the National Archives, Independence Ave with 0.3 m bumps every 40 m into turn six, a roofed 3rd St underpass; concrete walls with 1 m runoff; Madison Drive cross traffic over 7th St (2 cars; it stops short of 3rd St, whose crossing 65 m past the line had the bunched field hitting it); grass only on the Mall's lawn between Madison and Jefferson Drives (two elm rows each side, a gravel walk), the museums on paved ground either side of it; 7th and 3rd Streets run open across the lawn (no walls from Madison Drive's crossing to Jefferson Drive, a line of 4 kg cones each side every 4 m) and the lawn is no shortcut: a car cutting across it skips the Independence Ave checkpoint and earns no lap; the Capitol on a 12 m plateau (its central block, wings and east portico under three pediments, colonnades on every front, two floors of windows, roof balustrades, the west front's stair toward the Mall, and the dome on its colonnaded drum with 36 ribs, the lantern in its ring of columns and the Statue of Freedom: `world/landmarks.ts`), and below it Union Square: the Capitol Reflecting Pool's wedge (its long west end convex, its short east end concave, about the published 6 acres) on its plaza, the Grant Memorial at its east end facing down the Mall (Grant mounted on his pedestal, the Cavalry group north and the Artillery group south on a 77 m platform), and 1st Street with the Peace Monument in Peace Circle and the Garfield Monument in Garfield Circle at the plaza's corners. Madison and Jefferson Drives run down the Mall to 3rd Street's edge, where the course's barrier closes them. West of 9th St the course is the map (the owner's Google Maps view: a map pixel a metre, about 3/4 of real, its Constitution Ave on the course's and its 15th St just west of 9th St's buildings, the blocks between them left out): 15th and 17th Sts, Constitution Ave out to the Lincoln Memorial, E and H Sts, the Pennsylvania Ave plaza, 18th to 23rd Sts and C to G Sts, with office blocks of 18-36 m and the State Department, the Federal Reserve, the OAS, Constitution Hall and the Interior's; the White House as it stands (North Portico to Lafayette Square and its trees, the Treasury east, the Eisenhower Executive Office Building west, fenced lawns with their fountains), the Ellipse and its road, the Washington Monument (169 m) on its grounds between 15th and 17th as the owner's map of them has them (a 3.5 m knoll under a paved circle ringed by 50 flags, the two gravel path circles crossing at its foot inside the oval walk, the walks curving out to Constitution Ave and 15th St and running straight west to 17th St, the Jefferson Pier stone, the Sylvan Theater, groves north-west, south and down 15th St round open lawn), the WWII Memorial (a 55 m basin, two fountains, 56 pillars and two arches on a granite plaza), Constitution Gardens' lake, the Lincoln Memorial Reflecting Pool (500 × 50 m between rows of elms) and the Lincoln Memorial facing east down it inside its circle road (on its granite terrace, the 20-step grand stair down to the pool between cheek blocks with braziers, the great steps and the flight through them, 36 tapered Doric columns with capitals, the frieze's 36 state panels, the attic's 48 festoons, and the open east front on the chamber, its Ionic rows and the seated Lincoln). The city is filled round the circuit (no ground within 150 m of the course, off its streets and lawns, is more than 40 m from a building, tree or monument): downtown north of Pennsylvania Ave (D to H Sts, 9th to 3rd Sts north; the Portrait Gallery, Capital One Arena, the Building Museum, the FBI building, Judiciary Square), the Federal Trade Commission and the Canadian Embassy between Constitution Ave and the grandstands, the National Gallery's lawn, plaza and Sculpture Garden, the Smithsonian gardens, the Arts and Industries Building, Jefferson Drive, the federal blocks south of Independence Ave to C St SW, the House office buildings west to east (Rayburn, Longworth, Cannon) about South Capitol St on the Capitol's axis, the Botanic Garden, Bartholdi Park, the Grant Memorial, the Capitol grounds' trees, the Senate Park with the Taft Carillon and the Russell building, the Sylvan Theater and groves on the Monument grounds, the Vietnam Veterans Memorial's wall and the Korean War Veterans Memorial, and the Tidal Basin's north shore under its cherry trees. The far plane is 2300 m and the fog 0.0007. A mushroom cloud waits on the sky (`backdrop`, `secret`): typing the Konami code (up up down down left right left right B A B A, `engine/konami.ts`) in a race on it brings a slow white-gold flash (`present/people.ts`, `nukeFlash`) and, at its height, the cloud, over the frontstretch's vanishing point toward the White House. The White House's fenced North and South Lawns are guarded (`guards`, `scenes/lawn-guard.ts`): a car on them raises the alarm, 2.5 s later the eight guards (half in the uniformed division's navy, half in black suits, `present/people.ts`, `GuardSquad`) are out of the North and South Porticos firing on it, a shot every 0.12 s, four in five hitting, and its 10th to 15th hit kills its engine (`DeformableCar.disable`: keyed for the highlight replay, `REPLAY_VERSION` 84), so the race counts it a wreck and resets it. Once the Konami code is in, the guards stand down and a blond VIP in a dark suit (`present/people.ts`, `VipEscort`) walks out of the nearest door to the player's car instead; when it waits for him at the passenger door he gets in and rides in the passenger seat until the driver is thrown out, and is thrown with him (`RagdollSystem.throwPassenger`). The guards fire on a netplay host's sim only, and the VIP is each browser's own: a client sees neither the guards nor a peer's VIP | none |
 
 Havana (`havana`, Survival only) is off the menu: [`SURVIVAL.md`](SURVIVAL.md).
 
@@ -402,11 +427,13 @@ self-crossing with neither level a deck, less than 4.5 m between levels, and a c
 | `along[]` | `{ prefab, every, side = "both", offset = 1.5, fromNode?, toNode?, route?, scale = 1 }` | repeated beside the wall line (or along side street `route`); copies on any road are skipped, and so is any non-knock copy whose drawn footprint a bend turns onto its own road or runoff. `course-intrusion.test.ts` holds every course to ≤ 0.1 m |
 | `scatter[]` | `{ prefab, count, near = 6, far = 60, seed = 1, scaleMin = 0.8, scaleMax = 1.25 }` | seeded scenery off every corridor |
 | `traffic` | `{ count = 0, speed = 9, lanes = [], routes = [] }?` | `lanes: [{ offset, dir: 1 \| -1 }]` on the race loop; `routes: [{ id, path, loop = false, width = 9, surface = "asphalt", count, lanes }]` side streets (open the race walls where they cross) |
-| `environment` | `{ sky = "#12141a", fog = 0.0035, terrain = "grass", hills: [{x, z, radius, height}], plateaus?, paint?, light? }` | look and base terrain (`plateaus` / `paint`: [`SURVIVAL.md`](SURVIVAL.md)) |
+| `environment` | `{ sky = "#12141a", fog = 0.0035, terrain = "grass", hills: [{x, z, radius, height}], plateaus?, paint?, light?, far = 900, backdrop? }` | look and base terrain (`plateaus` / `paint`: [`SURVIVAL.md`](SURVIVAL.md)); `far` is the race camera's far plane (m); `backdrop: {kind: "mushroom-cloud", bearing, secret = false}` paints a picture on the sky round `bearing` (degrees from −z toward +x), drawn at infinity behind the whole course with no fog (`present/sky-backdrop.ts`); a `secret` one is not there until the Konami code is typed in a race on the course (`TrackArt.reveal`) |
 | `survival` | `{ start: {x, z, yaw}, formation: [...] }?` | Survival anchors ([`SURVIVAL.md`](SURVIVAL.md)) |
+| `guards` | `{ lawn: [[x, z], ...], doors: [{x, z, yaw}], count }?` | guarded grounds (`scenes/lawn-guard.ts`): a car on the `lawn` polygon raises the alarm and `count` guards come out of the `doors` (facing out of the house) to fire on it; once the course's secret is out they stand down and its VIP comes out instead (`present/people.ts`, `VipEscort`) |
 
 Prefabs: knock `cone, tyre-stack, hay-bale, crate`; solid `barrier-block, rock, tree, building, grandstand, billboard, lamp`;
-scenery `gantry`, plus the courses' own (Havana's stucco, palm, monument, wall, dumpster). A prefab's front is its local +X;
+scenery `gantry`, plus the courses' own (Havana's stucco, palm, monument, wall, dumpster; the National Mall's obelisk, capitol,
+marble (a plain block a placement's `size` stretches to a whole museum without stretching any windows), white-house, fountain, fence, reflecting-pool and basin (the pools, their water on its own glossy material), lincoln, capitol-pool (the Capitol Reflecting Pool's wedge: a rim of turned bricks round a flat water sheet), and grant-memorial, peace-monument and garfield-monument (marble and bronze bricks, drawn and bounded alike: `world/landmarks.ts`), and flagpole (a pole flying the Stars and Stripes)). A prefab's front is its local +X;
 `along` copies face the road. The start gantry is built by `TrackArt` at s = 0.
 
 ## Engine integration

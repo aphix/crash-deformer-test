@@ -147,7 +147,7 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * layout gains a count and the part stirs after the stirs, so a clip of 83 or before does not decode.
  * 85: a keyframe's flight block carries whether the car's engine runs, and a car whose engine a guard's gunfire killed (the National Mall's
  * White House lawn, `LawnGuard`) is keyed in that step, so a replayed car shot dead stops where it did; and a side street's straight run
- * is stamped into the ground as one segment, so road-edge cells of the National Mall's ground and 16 of Havana's take the other street's surface.
+ * is stamped into the ground as one segment (a street's end stops at its round cap), so 40 road-edge cells of the National Mall's ground and 16 of Havana's take the other street's surface.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
 const REPLAY_VERSION = 85;

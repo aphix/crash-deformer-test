@@ -1,9 +1,11 @@
 import * as THREE from "three";
-import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { makeAsphalt, makeJerseyBarrier, makeLamp } from "./engine-world.ts";
 import { tagSurface } from "./ultra/surface-tag.ts";
-import { STAR_INNER, type PrefabId } from "../world/catalog.ts";
+import { FENCE, MARBLE, OBELISK, obeliskHalf, STAR_INNER, type PrefabId } from "../world/catalog.ts";
+import { box, cyl, MARBLE_SHADE, painted, type Piece, type PrefabMaterials, type PrefabPart, squareFrustum } from "./prefab-pieces.ts";
+import { basin, capitol, capitolPoolParts, flagpole, fountain, lincoln, monumentPieces, pool, whiteHouse } from "./prefabs-mall.ts";
 import { PREFAB } from "../world/constants.ts";
+import { GARFIELD_MONUMENT, GRANT_MEMORIAL, PEACE_MONUMENT } from "../world/landmarks.ts";
 import { LAMP_POOL } from "./constants.ts";
 
 /**
@@ -223,58 +225,14 @@ export function makeRaceTextures(): RaceTextures {
   };
 }
 
-/** Materials the prefabs draw with (shared with the track art where it says so). */
-export type PrefabMaterials = {
-  /** Flat-shaded vertex colours (most props, gantry). */
-  plain: THREE.Material;
-  /** Vertex colours × concrete texture (barrier blocks, walls). */
-  concrete: THREE.Material;
-  building: THREE.Material;
-  billboard: THREE.Material;
-};
-
 export function makePrefabMaterials(tex: RaceTextures): PrefabMaterials {
   return {
     plain: new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0.05 }),
     concrete: new THREE.MeshStandardMaterial({ vertexColors: true, map: tex.concrete, color: tex.concreteGain, roughness: 0.92, metalness: 0.04 }),
     building: new THREE.MeshStandardMaterial({ vertexColors: true, map: tex.windows, roughness: 0.8, metalness: 0.05 }),
     billboard: new THREE.MeshStandardMaterial({ map: tex.billboard, emissiveMap: tex.billboard, emissive: 0xffffff, emissiveIntensity: 0.25, roughness: 0.6 }),
+    water: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.05, metalness: 0.2, envMapIntensity: 1.4 }),
   };
-}
-
-/** A coloured piece: geometry already in prefab space and its sRGB colour. */
-export type Piece = [THREE.BufferGeometry, number];
-
-/** Merge pieces into one non-indexed geometry with position, normal, uv (zero when a piece has none) and a per-vertex `color`. */
-export function painted(pieces: readonly Piece[]): THREE.BufferGeometry {
-  const col = new THREE.Color();
-  const parts = pieces.map(([g, hex]) => {
-    const n = g.index ? g.toNonIndexed() : g;
-    if (n !== g) g.dispose();
-    for (const name of Object.keys(n.attributes)) if (name !== "position" && name !== "normal" && name !== "uv") n.deleteAttribute(name);
-    n.clearGroups();
-    const count = n.getAttribute("position").count;
-    if (!n.getAttribute("normal")) n.computeVertexNormals();
-    if (!n.getAttribute("uv")) n.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(count * 2), 2));
-    col.setHex(hex);
-    const c = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) col.toArray(c, i * 3);
-    n.setAttribute("color", new THREE.BufferAttribute(c, 3));
-    return n;
-  });
-  const merged = mergeGeometries(parts, false);
-  for (const p of parts) p.dispose();
-  return merged;
-}
-
-/** Axis-aligned box of size (w, h, d) centred at (x, y, z). */
-export function box(w: number, h: number, d: number, x: number, y: number, z: number): THREE.BufferGeometry {
-  return new THREE.BoxGeometry(w, h, d).translate(x, y, z);
-}
-
-/** Vertical cylinder / cone from y0 to y1 at (x, z). */
-function cyl(rTop: number, rBottom: number, y0: number, y1: number, seg: number, open = false): THREE.BufferGeometry {
-  return new THREE.CylinderGeometry(rTop, rBottom, y1 - y0, seg, 1, open).translate(0, (y0 + y1) / 2, 0);
 }
 
 /** Every uv of `g` set to (u, v). */
@@ -409,6 +367,36 @@ function wall(): Piece[] {
   ];
 }
 
+/** The Washington Monument: the shaft in its two shades of marble, then the pyramidion. */
+function obelisk(): Piece[] {
+  const { seam, shaft, tip, shoulder } = OBELISK;
+  return [
+    [squareFrustum(obeliskHalf(0), obeliskHalf(seam), 0, seam), MARBLE_SHADE.low],
+    [squareFrustum(obeliskHalf(seam), shoulder, seam, shaft), MARBLE_SHADE.high],
+    [squareFrustum(shoulder, 0, shaft, tip), MARBLE_SHADE.high],
+  ];
+}
+
+/** A plain neoclassical block: footing, body, projecting cornice, parapet. */
+function marble(): Piece[] {
+  const { footing, body, cornice, parapet } = MARBLE;
+  return [
+    [box(footing.half * 2, footing.y1, footing.half * 2, 0, footing.y1 / 2, 0), MARBLE_SHADE.trim],
+    [box(body.half * 2, body.y1 - footing.y1, body.half * 2, 0, (footing.y1 + body.y1) / 2, 0), MARBLE_SHADE.wall],
+    [box(cornice.half * 2, cornice.y1 - body.y1, cornice.half * 2, 0, (body.y1 + cornice.y1) / 2, 0), MARBLE_SHADE.trim],
+    [box(parapet.half * 2, parapet.y1 - cornice.y1, parapet.half * 2, 0, (cornice.y1 + parapet.y1) / 2, 0), MARBLE_SHADE.wall],
+  ];
+}
+
+function fence(): Piece[] {
+  const { kerb, rails, post } = FENCE;
+  return [
+    [box(kerb.hx * 2, kerb.y1, kerb.hz * 2, 0, kerb.y1 / 2, 0), C.concrete],
+    [box(rails.hx * 2, rails.y1 - kerb.y1, rails.hz * 2, 0, (kerb.y1 + rails.y1) / 2, 0), C.black],
+    ...[-1, 1].map((s): Piece => [box(post.half * 2, post.y1 - kerb.y1, post.half * 2, s * post.x, (kerb.y1 + post.y1) / 2, 0), C.black]),
+  ];
+}
+
 function dumpster(): Piece[] {
   return [
     [box(1.9, 1.05, 1.1, 0, 0.7, 0), 0x2f5d3a],
@@ -506,9 +494,6 @@ function barrierBlock(): Piece[] {
   return [[geometry, C.barrier]];
 }
 
-/** One drawable part of a prefab; `shared` materials belong to the scene and must not be disposed with the prefab. */
-type PrefabPart = { geometry: THREE.BufferGeometry; material: THREE.Material; shared: boolean };
-
 /** Prefab `id` at scale 1 as drawable parts (one for most; the lamp adds its head and night pool). */
 export function prefabParts(id: PrefabId, mats: PrefabMaterials): PrefabPart[] {
   const one = (pieces: Piece[], material: THREE.Material): PrefabPart[] => [{ geometry: painted(pieces), material, shared: false }];
@@ -539,6 +524,34 @@ export function prefabParts(id: PrefabId, mats: PrefabMaterials): PrefabPart[] {
       return one(wall(), mats.plain);
     case PREFAB.dumpster:
       return one(dumpster(), mats.plain);
+    case PREFAB.obelisk:
+      return one(obelisk(), mats.plain);
+    case PREFAB.capitol:
+      return one(capitol(), mats.plain);
+    case PREFAB.marble:
+      return one(marble(), mats.plain);
+    case PREFAB.whiteHouse:
+      return one(whiteHouse(), mats.plain);
+    case PREFAB.fountain:
+      return one(fountain(), mats.plain);
+    case PREFAB.fence:
+      return one(fence(), mats.plain);
+    case PREFAB.pool:
+      return pool(mats);
+    case PREFAB.basin:
+      return basin(mats);
+    case PREFAB.lincoln:
+      return one(lincoln(), mats.plain);
+    case PREFAB.capitolPool:
+      return capitolPoolParts(mats);
+    case PREFAB.grantMemorial:
+      return one(monumentPieces(GRANT_MEMORIAL), mats.plain);
+    case PREFAB.peaceMonument:
+      return one(monumentPieces(PEACE_MONUMENT), mats.plain);
+    case PREFAB.garfieldMonument:
+      return one(monumentPieces(GARFIELD_MONUMENT), mats.plain);
+    case PREFAB.flagpole:
+      return one(flagpole(), mats.plain);
     case PREFAB.grandstand:
       return one(grandstand(), mats.plain);
     case PREFAB.billboard:

@@ -17,10 +17,13 @@ const EYES = 7;
 const LOCKS = 8;
 /** A moustache in the hair's colour, drawn only on a driver who wears one. */
 const MUSTACHE = 9;
+/** A portly man's tie and shirt collar (`DriverLook.portly`). */
+const TIE = 10;
+const COLLAR = 11;
 /** FlatOut's thrown driver (sRGB, by role): skin, dark shoes and eyes are fixed; the tee, trousers and hair roles take the driver's `DriverLook`. */
-const CIVILIAN = [0, 0xd8a27f, 0, 0, 0x1c1c1e, 0, 0, 0x1a1410, 0, 0];
+const CIVILIAN = [0, 0xd8a27f, 0, 0, 0x1c1c1e, 0, 0, 0x1a1410, 0, 0, 0xb3202a, 0xf4f4f1];
 /** A police driver: dark navy shirt and trousers, navy cap with a black peak, a gold badge, dark glasses; only the hair under the cap is the driver's. */
-const COP = [0x1b2a4a, 0xd8a27f, 0x121a2e, 0x16213b, 0x0e0e10, 0x0b0b0d, 0xd4a52a, 0x0a0a0a, 0, 0];
+const COP = [0x1b2a4a, 0xd8a27f, 0x121a2e, 0x16213b, 0x0e0e10, 0x0b0b0d, 0xd4a52a, 0x0a0a0a, 0, 0, 0x101010, 0x8fa2c4];
 /** A civilian's cap peak against its crown. */
 const PEAK_SHADE = 0.6;
 const _c = new THREE.Color();
@@ -29,14 +32,18 @@ const _c = new THREE.Color();
 const BOTH = 0;
 const WOMAN = 1;
 const MAN = 2;
+/** `build`: drawn on every build (ANY_BUILD) or on a portly man's only (PORTLY). */
+const ANY_BUILD = 0;
+const PORTLY = 1;
 /** A drawn piece riding body part `part`: centre and size (m) in the part's frame (+y its near end, +z the front). */
-type Piece = { part: number; at: THREE.Vector3; size: THREE.Vector3; role: number; sex: number };
-const piece = (part: number, at: readonly number[], size: readonly number[], role: number, sex = BOTH): Piece => ({
+type Piece = { part: number; at: THREE.Vector3; size: THREE.Vector3; role: number; sex: number; build: number };
+const piece = (part: number, at: readonly number[], size: readonly number[], role: number, sex = BOTH, build = ANY_BUILD): Piece => ({
   part,
   at: new THREE.Vector3().fromArray(at),
   size: new THREE.Vector3().fromArray(size),
   role,
   sex,
+  build,
 });
 
 /**
@@ -79,6 +86,20 @@ const PIECES: readonly Piece[] = [
     piece(k, [0, -0.005, 0], [0.085, 0.28, 0.085], SKIN),
     piece(k, [0, -0.185, 0.005], [0.05, 0.11, 0.09], SKIN),
   ]),
+  // A portly man: a broad chest over a round belly in his suit, a white collar and a long red tie, jowls, and hair swept up off his
+  // forehead and back over the crown, full at the sides.
+  piece(0, [0, 0.08, 0], [0.47, 0.34, 0.28], SHIRT, MAN, PORTLY),
+  piece(0, [0, -0.1, 0.045], [0.47, 0.34, 0.37], SHIRT, MAN, PORTLY),
+  piece(0, [0, 0.21, 0.125], [0.13, 0.11, 0.03], COLLAR, MAN, PORTLY),
+  piece(0, [0, 0.3, -0.005], [0.15, 0.07, 0.15], COLLAR, MAN, PORTLY),
+  piece(0, [0, -0.02, 0.245], [0.075, 0.42, 0.02], TIE, MAN, PORTLY),
+  piece(1, [0, -0.075, 0.025], [0.18, 0.09, 0.18], SKIN, MAN, PORTLY),
+  // His suit's long sleeves down to the wrists.
+  ...[2, 4].map((k) => piece(k, [0, -0.01, 0], [0.12, 0.3, 0.12], SHIRT, MAN, PORTLY)),
+  ...[3, 5].map((k) => piece(k, [0, 0.02, 0], [0.105, 0.3, 0.105], SHIRT, MAN, PORTLY)),
+  piece(1, [0, 0.105, -0.01], [0.235, 0.1, 0.245], HAIR, MAN, PORTLY),
+  piece(1, [0.02, 0.085, 0.105], [0.215, 0.065, 0.075], HAIR, MAN, PORTLY),
+  piece(1, [0, 0.005, -0.065], [0.23, 0.13, 0.13], LOCKS, MAN, PORTLY),
   ...[6, 8].map((k) => piece(k, [0, 0, 0], [0.16, 0.45, 0.165], LEGS)),
   ...[7, 9].flatMap((k) => [
     piece(k, [0, 0.2, 0.012], [0.125, 0.08, 0.13], LEGS),
@@ -131,6 +152,8 @@ export class DummyMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.M
   private women = 0;
   /** Slots whose dummy wears a moustache, a bit each. */
   private whiskers = 0;
+  /** Slots whose dummy is a portly man, a bit each. */
+  private stout = 0;
   /** Every slot's spray (`PERSON_SPRAY`), one bitmap's rows per slot, slot 0 lowest. */
   private readonly sprayRgba: Uint8Array;
   private readonly sprayAtlas: THREE.DataTexture;
@@ -177,6 +200,8 @@ export class DummyMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.M
     else this.women &= ~(1 << s);
     if (look.mustache) this.whiskers |= 1 << s;
     else this.whiskers &= ~(1 << s);
+    if (look.portly) this.stout |= 1 << s;
+    else this.stout &= ~(1 << s);
     const base = cop ? COP : CIVILIAN;
     for (let i = 0; i < PIECES.length; i++) {
       const role = PIECES[i]!.role;
@@ -206,10 +231,11 @@ export class DummyMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.M
     this.count = (32 - Math.clz32(this.shown)) * PIECES.length;
     const woman = (this.women >> s) & 1;
     const whiskers = (this.whiskers >> s) & 1;
+    const stout = (this.stout >> s) & 1;
     for (let i = 0; i < PIECES.length; i++) {
       const t = PIECES[i]!;
       if (t.part !== k) continue;
-      if ((t.sex !== BOTH && (t.sex === WOMAN) !== (woman === 1)) || (t.role === MUSTACHE && whiskers === 0)) {
+      if ((t.sex !== BOTH && (t.sex === WOMAN) !== (woman === 1)) || (t.role === MUSTACHE && whiskers === 0) || (t.build === PORTLY && stout === 0)) {
         this.setMatrixAt(s * PIECES.length + i, HIDDEN);
         continue;
       }
