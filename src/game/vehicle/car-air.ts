@@ -85,12 +85,13 @@ const GROUND_MATCH = 1e-6;
 
 /**
  * Whether row `c` (a body point, not a tyre) is in the world's ground itself, not in a solid, a car's top or a wall: the ground has
- * no side to enter by, so a wreck's point in it is lifted out whatever carried it there. A crush that pushes a sill or a fender
+ * no side to enter by, so a wreck at rest lifts out of it whatever carried the point there. A crush that pushes a sill or a fender
  * down moves the cage's points with no speed of the rigid body's, so such a point closes on nothing and the lift that takes out a
- * landing's depth never saw it: wrecks rested 4-19 cm in the road on their own crushed underside.
+ * landing's depth never saw it: wrecks rested 4-19 cm in the road on their own crushed underside. Only a point deeper than a
+ * speculative gap: a slice's own gravity sink is under it, and the closing lift takes that out.
  */
 function standsOnGround(c: number): boolean {
-  if (TYRE[c] || SOFT[c] || OWN[c]! >= 0 || N[c]!.y < CLIMB_NY || SINK[c]! <= 0) return false;
+  if (TYRE[c] || SOFT[c] || OWN[c]! >= 0 || N[c]!.y < CLIMB_NY || SINK[c]! <= SPECULATIVE_GAP) return false;
   _row.copy(centreOfMass).add(R[c]!);
   const floor = _row.y + SINK[c]! / N[c]!.y;
   return Math.abs(activeGround().heightAt(_row.x, _row.z, _row.y) - floor) < GROUND_MATCH;
@@ -109,7 +110,8 @@ export function solveRows(n: number): void {
   let under = 0;
   // Each row's depth along its surface normal still to lift out (a steep face's vertical gap overstates it): `LEFT`.
   // A body at rest solves over more passes: its friction is rebuilt from 0 every slice and the residual slide integrates (a wreck at rest then sleeps, `integrateWreck`).
-  const passes = !part && v.lengthSq() < REST_SPEED * REST_SPEED && w.lengthSq() < REST_SPEED * REST_SPEED ? REST_PASSES : PASSES;
+  const atRest = !part && v.lengthSq() < REST_SPEED * REST_SPEED && w.lengthSq() < REST_SPEED * REST_SPEED;
+  const passes = atRest ? REST_PASSES : PASSES;
   for (let pass = 0; pass < passes; pass++) {
     for (let c = 0; c < n; c++) {
       const nrm = N[c]!;
@@ -255,7 +257,10 @@ export function solveRows(n: number): void {
   for (let c = 0; c < n; c++) {
     const s = SLOT[c]!;
     LEFT[c] = -Infinity;
-    if (body.wreck && !part && standsOnGround(c)) LEFT[c] = SINK[c]! - 0.5 * dt * _dvSolve.dot(N[c]!);
+    // A wreck at rest rises out of the ground at rest speed at most: a body that moves faster is not at rest, and its depth is what
+    // the move it is making (a door crushing against a piston, a wreck sliding up a bank) carries it through, which the lift must not
+    // pump energy into or pop it out of at once (a sunk wreck jumped 0.22 m in a slice, a piston's crush stopped short).
+    if (body.wreck && atRest && standsOnGround(c)) LEFT[c] = Math.min(SINK[c]! - 0.5 * dt * _dvSolve.dot(N[c]!), REST_SPEED * dt);
     else if (UNDER[c]) under = Math.max(under, Math.min(SINK[c]!, CLOSING[c]! < BOUNCE_V ? CLOSING[c]! * dt : 0));
     else if (s >= 0 && surf.isYielding(s)) {
       if (!SOFT[c]) surf.note(s, SINK[c]!, FOLLOW[c]!);
