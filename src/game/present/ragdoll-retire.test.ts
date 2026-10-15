@@ -5,8 +5,9 @@ import "../kernel/rapier-node.test-util.ts";
 import { makeCar } from "../contact/crash-scenarios.test-util.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { GROUND_REACH, RagdollSystem } from "./engine-ragdoll.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const STILL = new THREE.Vector3();
 /** Face down, as a thrown driver comes to rest. */
 const LYING = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);

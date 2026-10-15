@@ -1,8 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { VoicePool } from "./motor-voices.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const NO_PRIORITY = -1;
 
 function metres(...distances: number[]): Float64Array {

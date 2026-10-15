@@ -9,6 +9,7 @@ import { THROW_ONSET } from "../match/phase.ts";
 import { RANGE } from "../scenes/range.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
 import { shed } from "./ragdoll-body.ts";
+import { FINE_HZ, FRAME_HZ } from "../kernel/constants.ts";
 
 const GRAVITY = 9.6;
 type Doll = { live: boolean; bodies: RigidBody[] };
@@ -121,12 +122,12 @@ async function rangeThrow(frame: () => number): Promise<Run> {
 }
 
 describe("given the ejection range (a sedan at 100 km/h into the jersey barrier, the driver thrown over it onto sand)", () => {
-  it("when the throw is run at 60 and 240 Hz display rates, then he lands within 1 m of the same spot, inside FlatOut's 25–40 m", async () => {
-    const slow = await rangeThrow(() => 1 / 60);
-    const fast = await rangeThrow(() => 1 / 240);
-    assert.ok(slow.landing >= 25 && slow.landing <= 40, `60 Hz landing ${slow.landing.toFixed(1)} m`);
-    assert.ok(fast.landing >= 25 && fast.landing <= 40, `240 Hz landing ${fast.landing.toFixed(1)} m`);
-    assert.ok(Math.abs(slow.landing - fast.landing) <= 1, `60 Hz ${slow.landing.toFixed(1)} m, 240 Hz ${fast.landing.toFixed(1)} m`);
+  it(`when the throw is run at ${FRAME_HZ} and ${FINE_HZ} Hz display rates, then he lands within 1 m of the same spot, inside FlatOut's 25–40 m`, async () => {
+    const slow = await rangeThrow(() => 1 / FRAME_HZ);
+    const fast = await rangeThrow(() => 1 / FINE_HZ);
+    assert.ok(slow.landing >= 25 && slow.landing <= 40, `${FRAME_HZ} Hz landing ${slow.landing.toFixed(1)} m`);
+    assert.ok(fast.landing >= 25 && fast.landing <= 40, `${FINE_HZ} Hz landing ${fast.landing.toFixed(1)} m`);
+    assert.ok(Math.abs(slow.landing - fast.landing) <= 1, `${FRAME_HZ} Hz ${slow.landing.toFixed(1)} m, ${FINE_HZ} Hz ${fast.landing.toFixed(1)} m`);
   });
 
   it("when one throw is run at 30–360 Hz and with frames that vary 0.5–1.5×, then it lands in the same place", async () => {
@@ -134,7 +135,7 @@ describe("given the ejection range (a sedan at 100 km/h into the jersey barrier,
       const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
       await ragdolls.preload();
       ragdolls.sand = true;
-      ragdolls.update(1 / 60, [], true, true, null);
+      ragdolls.update(1 / FRAME_HZ, [], true, true, null);
       ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1.2, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2 + 0.3), v: new THREE.Vector3(27, 3.5, 0), w: new THREE.Vector3(0, 0, -3), age: 0, cop: false, rides: true });
       const torso = new THREE.Vector3();
       let x = NaN;
@@ -163,7 +164,7 @@ describe("given a dummy thrown while time runs at 0.03× (the deepest slow-mo)",
     for (const hz of [60, 240]) {
       const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
       await ragdolls.preload();
-      ragdolls.update(1 / 60, [], true, true, null);
+      ragdolls.update(1 / FRAME_HZ, [], true, true, null);
       ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1.2, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2 + 0.3), v: new THREE.Vector3(27, 3.5, 0), w: new THREE.Vector3(0, 0, -3), age: 0, cop: false, rides: true });
       // What the GPU gets: his slot's pieces (slot 0, the first throw), the throw frame's pose first.
       const drawn: Float32Array = ragdolls["mesh"].instanceMatrix.array as Float32Array;
@@ -209,7 +210,7 @@ describe("given a thrown dummy (the ejected driver's jointed ragdoll)", () => {
   it("when a part's motion is shed against another part at any velocities, then it takes kinetic energy out of the pair and keeps their momentum", async () => {
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
-    ragdolls.update(1 / 60, [], true, true, null);
+    ragdolls.update(1 / FRAME_HZ, [], true, true, null);
     ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1, 0), q: new THREE.Quaternion(), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false, rides: true });
     const bodies: RigidBody[] = ragdolls["dolls"][0]!.bodies;
     const [torso, arm] = [bodies[0]!, bodies[2]!];
@@ -239,7 +240,7 @@ describe("given a thrown dummy (the ejected driver's jointed ragdoll)", () => {
     await ragdolls.preload();
     const frame = () => {
       tickWorld(w);
-      ragdolls.update(1 / 60, [car], true, true, null);
+      ragdolls.update(1 / FRAME_HZ, [car], true, true, null);
     };
     frame();
     ragdolls["spawn"]({ car: 5, p: new THREE.Vector3(0, 0.3, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false, rides: true });
@@ -256,7 +257,7 @@ describe("given a thrown dummy (the ejected driver's jointed ragdoll)", () => {
   it("when every dummy lies asleep and no car is near, then nothing is stepped, and a car coming within reach steps the world again", async () => {
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
-    ragdolls.update(1 / 60, [], true, true, null);
+    ragdolls.update(1 / FRAME_HZ, [], true, true, null);
     ragdolls["spawn"]({ car: 5, p: new THREE.Vector3(0, 0.3, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false, rides: true });
     const world: World = ragdolls["world"]!;
     const step = world.step.bind(world);
@@ -266,17 +267,17 @@ describe("given a thrown dummy (the ejected driver's jointed ragdoll)", () => {
       step();
     };
     const torso: RigidBody = ragdolls["dolls"][0]!.bodies[0]!;
-    for (let f = 0; f < 240; f++) ragdolls.update(1 / 60, [], true, true, null);
+    for (let f = 0; f < 4 * FRAME_HZ; f++) ragdolls.update(1 / FRAME_HZ, [], true, true, null);
     assert.ok(torso.isSleeping(), "he lies asleep after four seconds");
     const asleep = steps;
-    for (let f = 0; f < 60; f++) ragdolls.update(1 / 60, [], true, true, null);
+    for (let f = 0; f < FRAME_HZ; f++) ragdolls.update(1 / FRAME_HZ, [], true, true, null);
     assert.equal(steps, asleep, "a second of him asleep stepped nothing");
     const car = makeCar("shape", 0.32, 0.45);
     launch(car, -3, 0, Math.PI / 2, 0, 0);
-    for (let f = 0; f < 60; f++) ragdolls.update(1 / 60, [car], true, true, null);
+    for (let f = 0; f < FRAME_HZ; f++) ragdolls.update(1 / FRAME_HZ, [car], true, true, null);
     assert.equal(steps, asleep, "a wreck lying 3 m from him steps nothing either");
     launch(car, -8, 0, Math.PI / 2, 5, 0);
-    ragdolls.update(1 / 60, [car], true, true, null);
+    ragdolls.update(1 / FRAME_HZ, [car], true, true, null);
     ragdolls.dispose();
     assert.ok(steps > asleep, "a car driving 8 m away steps the world");
   });

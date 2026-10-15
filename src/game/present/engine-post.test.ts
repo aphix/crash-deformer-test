@@ -1,10 +1,11 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { easeFade } from "./engine-post.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-describe("given the post chain's strengths after a switch from a plain tier, at 60 Hz", () => {
+describe(`given the post chain's strengths after a switch from a plain tier, at ${FRAME_HZ} Hz`, () => {
   it("when it eases in from 0, then it never moves more than a quarter in a frame, takes more than 0.15 s and less than 0.5 s, and lands exactly on 1", () => {
-    const FRAME = 1 / 60;
+    const FRAME = 1 / FRAME_HZ;
     let fade = 0;
     let frames = 0;
     for (; fade < 1 && frames < 600; frames++) {

@@ -11,8 +11,11 @@ import { FREEWHEEL, launch, makeCar, makeWorld, tickWorld } from "../contact/cra
 import { armKill, DEFAULT_REALISM } from "../vehicle/vehicle-classes.ts";
 import { THROW_ONSET } from "../match/phase.ts";
 import { RANGE } from "../scenes/range.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const STEP = 1 / 120;
+// The old 120 Hz floor this suite pins its burst timing to, independent of the shipped rates.
+const STEP_HZ = 120;
+const STEP = 1 / STEP_HZ;
 /** A throw out of a windscreen at 20 m/s: the torso's pose and velocity, as `RagdollSystem.eject` places them. */
 const V = new THREE.Vector3(20, 3.5, 5);
 
@@ -91,7 +94,7 @@ describe("given a thrown crash-test dummy driver who may carry a handbag (a woma
     const r = await system(seedWhere(true));
     throwOut(r);
     let low = Infinity;
-    for (let n = 0; n < 8 * 120; n++) {
+    for (let n = 0; n < 8 * STEP_HZ; n++) {
       r.update(STEP, [], true, true, null);
       for (const b of bodiesOf(r)) if (b.isEnabled()) low = Math.min(low, b.translation().y);
     }
@@ -175,9 +178,9 @@ describe("given a thrown crash-test dummy driver who may carry a handbag (a woma
     let spin = 0;
     let torso = NaN;
     let still = 0;
-    for (let wall = 0; wall < 14 && still < 3; wall += 1 / 60) {
-      tickWorld(w, 1 / 60);
-      r.update((1 / 60) * w.clock.timeScale, [car], true, true, new THREE.Group());
+    for (let wall = 0; wall < 14 && still < 3; wall += 1 / FRAME_HZ) {
+      tickWorld(w, 1 / FRAME_HZ);
+      r.update((1 / FRAME_HZ) * w.clock.timeScale, [car], true, true, new THREE.Group());
       const d = r["dolls"].find((x) => x.live);
       if (!d) continue;
       for (const b of bodiesOf(r)) if (b.isEnabled()) spin = Math.max(spin, Math.hypot(b.angvel().x, b.angvel().y, b.angvel().z));

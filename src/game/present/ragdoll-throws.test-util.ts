@@ -7,8 +7,9 @@ import { RANGE } from "../scenes/range.ts";
 import { setGround } from "../world/ground.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
 import { noPose, type Part, pose, type Pose, type Shot, worst } from "./ragdoll-pose.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 type Doll = { live: boolean; bodies: Part[] };
 
 export const dollsOf = (sys: RagdollSystem): Doll[] => sys["dolls"];

@@ -4,6 +4,7 @@ import * as THREE from "three";
 import "../kernel/rapier-node.test-util.ts";
 import { BODIES, carInState, drawnField, gapsOver, STATES, TOP_P95_M, TOP_PARTS, TOP_WORST_M, topGapsOff } from "../vehicle/drawn-body.test-util.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * docs/UNIFIED_CONTACT.md stage 3: the dummies' world sees each car as its drawn body (its proxies "fed from the cage"). A
@@ -13,7 +14,7 @@ import { RagdollSystem } from "./engine-ragdoll.ts";
  * 21): the lower box top 0.85 m stood 0.34-0.59 m over the hood and deck and 0.5 m under a deck of a pickup; the cabin box
  * did not follow the crushed roof.
  */
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const RAY_FROM_M = 3;
 const RAY_LENGTH_M = 8;
 

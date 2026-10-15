@@ -14,8 +14,9 @@ import { TRACKS } from "../world/tracks/index.ts";
 import { TUNNEL_GAP, TUNNEL_SIDE } from "./track-mesh.ts";
 import { levelAt, surfY } from "../world/track-sections.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** Most a part's centre may sit inside a solid (m): one 1/120 s step at 15 m/s is 0.125 m, and Rapier resolves it the next step. */
 const SOAK = 0.15;
 const UP = new THREE.Vector3(0, 1, 0);

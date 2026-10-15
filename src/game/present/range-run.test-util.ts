@@ -17,6 +17,7 @@ import { RagdollSystem } from "./engine-ragdoll.ts";
 import { PARTS } from "./ragdoll-body.ts";
 import { stream } from "./ragdoll-pose.test-util.ts";
 import { throwComing } from "./ragdoll-trigger.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** One car type of the setup menu (`DRIVER_CARS`): a class on its body. */
 export type DriverCar = (typeof DRIVER_CARS)[number];
@@ -100,7 +101,7 @@ export function rangeCar(type: DriverCar): DeformableCar {
 function preSlowmo(c: PhaseClock, car: DeformableCar, barrier: JerseyBarrier, wallDt: number, simT: number): void {
   if (c.phase !== "approach") return;
   car.refreshBasis();
-  preImpact(c, barrier.contactEta([car], Number.POSITIVE_INFINITY), simT, Math.max(PRE_IMPACT_LEAD, wallDt + 1 / 60), 1 / 60, () => throwComing([car], barrier));
+  preImpact(c, barrier.contactEta([car], Number.POSITIVE_INFINITY), simT, Math.max(PRE_IMPACT_LEAD, wallDt + 1 / FRAME_HZ), 1 / FRAME_HZ, () => throwComing([car], barrier));
 }
 
 type Doll = RagdollSystem["dolls"][number];

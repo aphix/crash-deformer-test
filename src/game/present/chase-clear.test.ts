@@ -16,8 +16,9 @@ import { CHASE } from "./drive-cam.ts";
 import { ChaseSolids } from "./chase-solids.ts";
 import { EyeClear } from "./eye-clear.ts";
 import { carsBlock, CINE, occluder, raceSight, solid, type Sight } from "./spectate-cam.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const DT = 1 / 60;
+const DT = 1 / FRAME_HZ;
 /** A car's length: an eye pulled in closer than this swings round instead. */
 const CAR_LENGTH = 4.44;
 const NO_PICK: CarPicker = { at: () => -1, choose() {} };

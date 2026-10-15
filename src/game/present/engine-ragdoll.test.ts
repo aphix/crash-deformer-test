@@ -14,8 +14,9 @@ import { FLAT_GROUND } from "../world/ground.ts";
 import { occluder, sightLine, solid, type Occluder, type Sight } from "./spectate-cam.ts";
 import { BELT_Y, SILL_Y, UNDER } from "./ragdoll-proxy.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** The sandbox's open flat ground: nothing to stand in or look through. */
 const OPEN: () => Sight = () => ({ ground: FLAT_GROUND, path: null, wallTop: 0, rim: Infinity, occ: [] });
 const TORSO = [0.18, 0.27, 0.11];

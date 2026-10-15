@@ -13,8 +13,9 @@ import { CHASE, DriveCam } from "./drive-cam.ts";
 import { LANDING } from "./landing.ts";
 import { type CarPicker, ChaseCamera, RIDE_PAUSE, type SpecScene } from "./engine-camera.ts";
 import { occluder, solid, type Sight } from "./spectate-cam.ts";
+import { FINE_HZ, FRAME_HZ } from "../kernel/constants.ts";
 
-const DT = 1 / 60;
+const DT = 1 / FRAME_HZ;
 const NO_PICK: CarPicker = { at: () => -1, choose() {} };
 
 /** A canvas that is just an event target: the camera only listens and captures pointers. */
@@ -60,7 +61,7 @@ describe("given the ride-along camera following a thrown driver's dummy", () => 
     pointer(canvas, "pointerdown", 100, 100);
     for (const dy of [4000, -8000]) {
       pointer(canvas, "pointermove", 100, 100 + dy);
-      for (let f = 0; f < 240; f++) view.orbit(DT, 0, false);
+      for (let f = 0; f < 4 * FRAME_HZ; f++) view.orbit(DT, 0, false);
       const off = camera.position.clone().sub(look);
       const elev = Math.asin(off.y / off.length());
       assert.ok(elev >= 0.079 && elev <= 1.221, `elevation ${elev.toFixed(3)} rad`);
@@ -190,7 +191,7 @@ describe("given the derby's orbit round a car 4 m from the bowl's 38 m wall", ()
 });
 
 describe("given the chase eye drifting toward a wall along the course", () => {
-  it("when the eye drifts into the wall's clearance at 60 and 240 Hz, then it is pulled in smoothly, not by whole metres", (t) => {
+  it(`when the eye drifts into the wall's clearance at ${FRAME_HZ} and ${FINE_HZ} Hz, then it is pulled in smoothly, not by whole metres`, (t) => {
     // A wall along z with its face at x = 3. The car drives along z, drifting toward it, nose turned off it: the chase eye sits on the wall's side.
     const wall: Sight = { ground: FLAT_GROUND, path: null, wallTop: 0, rim: Infinity, occ: [occluder(53, 0, 0, 50, 2000, false, 0, 30)] };
     const car = new DeformableCar({ body: 0x808080, accent: 0x404040, name: "car" }, new THREE.Scene());
@@ -211,7 +212,7 @@ describe("given the chase eye drifting toward a wall along the course", () => {
       }
       return out;
     };
-    for (const hz of [60, 240]) {
+    for (const hz of [FRAME_HZ, FINE_HZ]) {
       const free = eyes(hz, null);
       const held = eyes(hz, wall);
       let pushed = 0;
@@ -263,9 +264,11 @@ describe("given a spectator camera taking a car up from another shot", () => {
 });
 
 describe("given the chase camera on a car driven by its own drive", () => {
-  const H = 1 / 240;
+  const H = 1 / FINE_HZ;
+  /** Fine steps in one display frame: the frame-rate rig updates every this many. */
+  const PER_FRAME = FINE_HZ / FRAME_HZ;
 
-  /** A sedan from `v0` under `input` for `seconds`, stepped as the engine does, followed by one rig at 240 Hz and one at 60 Hz. */
+  /** A sedan from `v0` under `input` for `seconds`, stepped as the engine does, followed by one rig at the fine rate and one at the frame rate. */
   function followed(v0: number, input: (car: DeformableCar) => Partial<DriveInput>, seconds: number) {
     setGround(null);
     const car = new DeformableCar(paint(), new THREE.Scene());
@@ -278,7 +281,7 @@ describe("given the chase camera on a car driven by its own drive", () => {
       applyDrive(car, { ...idleDrive(), ...input(car) }, H);
       stepWorld(w, H);
       rigs[0]!.update(cams[0]!, car, "third", H, 0, 0);
-      if (i % 4 === 3) rigs[1]!.update(cams[1]!, car, "third", 4 * H, 0, 0);
+      if (i % PER_FRAME === PER_FRAME - 1) rigs[1]!.update(cams[1]!, car, "third", PER_FRAME * H, 0, 0);
     }
     for (const cam of cams) cam.updateMatrixWorld();
     return { car, rigs, fine: cams[0]!, coarse: cams[1]! };
@@ -291,22 +294,22 @@ describe("given the chase camera on a car driven by its own drive", () => {
     return ((car.group.position.x - cam.position.x) * f.z - (car.group.position.z - cam.position.z) * f.x) / l;
   }
 
-  it("when the car holds 20 m/s straight for 3 s, then the eye sits the chase offset behind it and 60 and 240 Hz agree", () => {
+  it(`when the car holds 20 m/s straight for 3 s, then the eye sits the chase offset behind it and ${FRAME_HZ} and ${FINE_HZ} Hz agree`, () => {
     const r = followed(20, (car) => ({ throttle: Math.min(1, Math.max(0, 0.3 + (20 - car.speed) * 0.5)) }), 3);
     const p = r.car.group.position;
     const dist = CHASE.third.dist + Math.min(r.car.speed, 30) * CHASE.pullback;
     const gap = Math.hypot(r.fine.position.x - (p.x - r.car.fwdFlat.x * dist), r.fine.position.y - (p.y + CHASE.third.height), r.fine.position.z - (p.z - r.car.fwdFlat.z * dist));
     assert.ok(gap < 0.02, `the eye is ${(gap * 100).toFixed(1)} cm off the chase offset`);
     const rates = r.fine.position.distanceTo(r.coarse.position);
-    assert.ok(rates < 0.01, `60 and 240 Hz eyes are ${(rates * 100).toFixed(2)} cm apart`);
+    assert.ok(rates < 0.01, `${FRAME_HZ} and ${FINE_HZ} Hz eyes are ${(rates * 100).toFixed(2)} cm apart`);
   });
 
-  it("when the car holds a 15 m/s turn at steer 0.5 for 2 s, then it sits off the camera's centre line, the same at 60 and 240 Hz", () => {
+  it(`when the car holds a 15 m/s turn at steer 0.5 for 2 s, then it sits off the camera's centre line, the same at ${FRAME_HZ} and ${FINE_HZ} Hz`, () => {
     const r = followed(15, (car) => ({ throttle: Math.min(1, Math.max(0, 0.3 + (15 - car.speed) * 0.5)), steer: 0.5 }), 2);
     const fine = Math.abs(offCentre(r.fine, r.car));
     const coarse = Math.abs(offCentre(r.coarse, r.car));
     assert.ok(fine >= 0.55, `the car is ${fine.toFixed(2)} m off the camera's centre line`);
-    assert.ok(Math.abs(fine - coarse) <= 0.05 * fine, `60 Hz ${coarse.toFixed(3)} m, 240 Hz ${fine.toFixed(3)} m`);
+    assert.ok(Math.abs(fine - coarse) <= 0.05 * fine, `${FRAME_HZ} Hz ${coarse.toFixed(3)} m, ${FINE_HZ} Hz ${fine.toFixed(3)} m`);
   });
 
   it("when the car slides 40 degrees off its heading at 12 m/s, then the aim leads along its velocity, not its nose", () => {
@@ -368,7 +371,7 @@ describe("given the chase camera on a car driven by its own drive", () => {
   }
 
   it("when the car lands on four wheels after 0.4 s falling at 8 m/s, then the eye dips under its settled height and is back within 1 cm by 1.5 s", () => {
-    for (const h of [1 / 60, H]) {
+    for (const h of [1 / FRAME_HZ, H]) {
       const l = landing(h, false);
       assert.ok(l.dip >= 0.03, `at ${Math.round(1 / h)} Hz the eye dipped ${(l.dip * 100).toFixed(1)} cm`);
       assert.ok(l.off < 0.01, `at ${Math.round(1 / h)} Hz the eye was ${(l.off * 100).toFixed(1)} cm off its settled height after 1.5 s`);
@@ -429,9 +432,9 @@ describe("given the chase camera on a car driven by its own drive", () => {
 });
 
 describe("given the chase eye's springs", () => {
-  it("when an underdamped spring runs at 60 and 240 Hz, then it overshoots its target by the damping ratio's share and lands in the same place", () => {
+  it(`when an underdamped spring runs at ${FRAME_HZ} and ${FINE_HZ} Hz, then it overshoots its target by the damping ratio's share and lands in the same place`, () => {
     const zeta = 0.45;
-    const rates = [1 / 60, 1 / 240].map((h) => {
+    const rates = [1 / FRAME_HZ, 1 / FINE_HZ].map((h) => {
       const s = new Spring();
       s.x = 1;
       let peak = 0;
@@ -440,7 +443,7 @@ describe("given the chase eye's springs", () => {
     });
     const overshoot = Math.exp((-Math.PI * zeta) / Math.sqrt(1 - zeta * zeta));
     assert.ok(Math.abs(rates[1]!.peak - overshoot) < 0.01, `overshoot ${rates[1]!.peak.toFixed(3)}, expected ${overshoot.toFixed(3)}`);
-    assert.ok(Math.abs(rates[0]!.x - rates[1]!.x) < 1e-9, `60 Hz ${rates[0]!.x}, 240 Hz ${rates[1]!.x}`);
+    assert.ok(Math.abs(rates[0]!.x - rates[1]!.x) < 1e-9, `${FRAME_HZ} Hz ${rates[0]!.x}, ${FINE_HZ} Hz ${rates[1]!.x}`);
   });
 
   it("when a speed cap is set, then the eye's speed relative to its target never passes it", () => {

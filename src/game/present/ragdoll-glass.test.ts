@@ -6,8 +6,9 @@ import type { GlassName } from "../vehicle/car-core.ts";
 import { makeCar } from "../contact/crash-scenarios.test-util.ts";
 import { glassOf, paneFrame } from "../vehicle/car-glass.test-util.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** One physics step of the dummies' world: the strikes are followed step by step. */
 const STEP = 1 / 480;
 /** Steps a strike is followed: 0.125 s, before a torso through a pane can reach the far side of the cabin. */

@@ -6,8 +6,9 @@ import { makeCar } from "../contact/crash-scenarios.test-util.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
 import { RagdollRemote } from "./ragdoll-remote.ts";
 import { LAG, type FromWorker, type ResultMessage, type ToWorker } from "./ragdoll-wire.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const WINDSHIELD = 0;
 const CRACKED = 1;
 

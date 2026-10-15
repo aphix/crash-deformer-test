@@ -7,6 +7,7 @@ import { FREEWHEEL, launch, makeCar, makeWorld, tickWorld } from "../contact/cra
 import { blankEjection } from "../vehicle/ejection.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * A 32-car field: every car drives a ring around the middle (no car physics; the dummies only read the cars' poses),
@@ -14,7 +15,7 @@ import { RagdollSystem } from "./engine-ragdoll.ts";
  * frame with a scavenge counts as 0, so this only undercounts.
  */
 const CARS = 32;
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const UP = new THREE.Vector3(0, 1, 0);
 
 function field(): { cars: DeformableCar[]; drive: (t: number) => void } {

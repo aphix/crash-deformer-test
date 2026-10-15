@@ -10,8 +10,9 @@ import type { GlassName } from "../vehicle/car-core.ts";
 import { glassOf } from "../vehicle/car-glass.test-util.ts";
 import { B_PILLAR_Z } from "../vehicle/car-mesh.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 
 /** Every car's whole sim state: pose, velocities, each mass, the drivetrain. */
 function simState(cars: readonly DeformableCar[]): number[] {

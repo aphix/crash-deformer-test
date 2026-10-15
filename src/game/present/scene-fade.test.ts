@@ -2,8 +2,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { celStrength, FADE, SceneFade } from "./scene-fade.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const DT = 1 / 60;
+const DT = 1 / FRAME_HZ;
 
 /** Frames until the switch fires (or `max`); returns the target and the frame count. */
 function toSwitch(f: SceneFade<string>, calm: boolean, max = 600): { target: string | null; frames: number } {

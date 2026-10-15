@@ -13,6 +13,7 @@ import type { DriverLook } from "./driver-look.ts";
 import { GroundsArt } from "./grounds-art.ts";
 import { GuardSquad, People, VipEscort, nukeFlash } from "./people.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** Once the Konami code is in, a man in a suit walks out of the White House to the car, rides with the player and is thrown out with the driver when it crashes. */
 const json = TRACKS.find((j) => parseTrack(j).id === TRACK_ID.nationalMall)!;
@@ -20,7 +21,7 @@ const track = new Track(json);
 const spec = track.json.guards!;
 const ground = track.ground();
 setGround(ground);
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** The North Lawn, 40 m in front of the North Portico. */
 const NORTH_LAWN = { x: -990, z: -1104 };
 /** A spot out on the Ellipse's road past the south fence, off the grounds. */

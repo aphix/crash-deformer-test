@@ -13,8 +13,9 @@ import { parseTrack } from "../world/track-schema.ts";
 import { square } from "../world/track.test-util.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
 import { deepestInStatics, lowestPoint } from "./ragdoll-props.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const UP = new THREE.Vector3(0, 1, 0);
 /**
  * The ground contact slop (m): how far the lowest point of a knocked prop's own shape (`lowestPoint`) gets under the

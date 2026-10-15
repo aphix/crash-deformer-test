@@ -7,9 +7,10 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { blankStrike, fell, runsDown } from "../scenes/figure-strike.ts";
 import { RagdollSystem, type Throw } from "./engine-ragdoll.ts";
 import { PARTS } from "./ragdoll-body.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 const FIRST_WORKER_ID = 7;
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** Torso height (m) of the dummy standing on the ground (`PARTS`), and his upper arm's height hanging against raised over his head. */
 const TORSO_STANDING = PARTS[0].c[1];
 const ARM_HANGING = PARTS[2].c[1];
