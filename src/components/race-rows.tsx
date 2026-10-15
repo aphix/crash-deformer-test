@@ -1,7 +1,8 @@
 import { Minus, Plus } from "lucide-react";
 import { useId } from "react";
 import { Button } from "@/components/ui/button";
-import { FOCUS_WITHIN } from "@/components/race-menu-styles";
+import { FOCUS, FOCUS_WITHIN } from "@/components/race-menu-styles";
+import { TIMES_OF_DAY, type TimeOfDay } from "@/game/match/types";
 import { cn } from "@/lib/utils";
 
 /** A ←/→ adjustable row of the race menus: a number (and with `slider` a range input) stepped by `step`; pad and keyboard drive its `data-step` buttons. */
@@ -110,31 +111,43 @@ export function Choice({ label, off, on, value, onSet }: { label: string; off: s
   );
 }
 
-/** An n-way row: a tap on a segment picks it; ←/→ pick the neighbours (the segment before the lit one is `data-step="-1"`, the one after `"1"`). */
-export function Pick({ label, options, value, onSet }: { label: string; options: readonly { id: string; name: string }[]; value: string; onSet: (id: string) => void }) {
-  const lit = options.findIndex((o) => o.id === value);
-  const segment = (on: boolean) =>
-    cn(
-      "h-11 rounded-md px-2 font-display text-sm font-medium transition-colors duration-[var(--motion-quick)] sm:h-7",
-      on ? "bg-accent text-accent-fg" : "text-muted hover:text-fg",
-    );
+const TIME_OF_DAY_LABEL: Record<TimeOfDay, string> = { daytime: "Daytime", sunset: "Sunset", nighttime: "Nighttime" };
+
+/** The setup menus' Time of day row (the Race and Survival menus share it): the sky and the light the course is drawn in. */
+export function TimeOfDayRow({ value, onSet }: { value: TimeOfDay; onSet: (value: TimeOfDay) => void }) {
   return (
-    <div
+    <Stepper
+      label="Time of day"
+      value={TIMES_OF_DAY.indexOf(value)}
+      min={0}
+      max={TIMES_OF_DAY.length - 1}
+      step={1}
+      shown={TIME_OF_DAY_LABEL[value]}
+      hint="The sky and the light: midday sun, a low golden sunset, or moonlight with the street lamps on"
+      onSet={(k) => onSet(TIMES_OF_DAY[k]!)}
+    />
+  );
+}
+
+/** A course card of a setup menu's grid: name over blurb, lit when picked (`round`: the campaign's play order, shown before the name). */
+export function CourseCard({ name, blurb, on, round, onPick }: { name: string; blurb: string; on: boolean; round?: number; onPick: () => void }) {
+  return (
+    <button
+      type="button"
       data-nav
-      data-adjust
-      tabIndex={0}
-      role="group"
-      aria-label={`${label}: ${options[lit]?.name ?? ""}`}
-      className={cn("flex min-h-11 items-center gap-2 rounded-md bg-surface-2 py-0.5 pl-2 pr-0.5 shadow-[var(--shadow-border)] sm:min-h-8", FOCUS_WITHIN)}
+      aria-pressed={on}
+      onClick={onPick}
+      className={cn(
+        "flex min-h-11 flex-col items-start rounded-md px-2 py-1.5 text-left shadow-[var(--shadow-border)] transition-colors duration-[var(--motion-quick)]",
+        on ? "bg-accent text-accent-fg" : "bg-surface-2 text-fg hover:bg-surface",
+        FOCUS,
+      )}
     >
-      <span className="hud-label w-24 shrink-0 text-muted sm:w-32">{label}</span>
-      <div className="grid flex-1 auto-cols-fr grid-flow-col gap-0.5 rounded-md bg-surface p-0.5">
-        {options.map((o, i) => (
-          <button key={o.id} type="button" tabIndex={-1} data-step={i === lit - 1 ? "-1" : i === lit + 1 ? "1" : undefined} aria-pressed={i === lit} onClick={() => onSet(o.id)} className={segment(i === lit)}>
-            {o.name}
-          </button>
-        ))}
-      </div>
-    </div>
+      <span className="font-display text-lg font-semibold leading-tight">
+        {round ? <span data-round={round}>{round}. </span> : null}
+        {name}
+      </span>
+      <span className={cn("mt-1 text-xs leading-snug", on ? "text-accent-fg" : "text-muted")}>{blurb}</span>
+    </button>
   );
 }

@@ -1,7 +1,11 @@
-import { RotateCcw, Trophy } from "lucide-react";
+import { MapPinned, RotateCcw, Siren, Trophy } from "lucide-react";
+import { AudioRows } from "@/components/race-audio";
+import { DriverRows } from "@/components/race-driver";
 import { MenuShell, NavButton } from "@/components/race-menu-shell";
 import { copCount } from "@/components/cop-count";
 import { ReelList } from "@/components/race-reel";
+import { CourseCard, TimeOfDayRow } from "@/components/race-rows";
+import type { AudioLevels } from "@/game/hud/audio-levels";
 import { fmtTime } from "@/game/hud/race-clock";
 import type { RaceCommand, RaceHud, SurvivalCause, SurvivalHud } from "@/game/match/types";
 
@@ -40,8 +44,43 @@ export function SurvivalReadout({ race, survival }: { race: RaceHud; survival: S
   );
 }
 
-/** The end-of-run card: the time, the best (and a new one), the cops wrecked, why it ended; Retry or leave. The crash reel, when the run left one, plays behind it. */
-export function SurvivalResults({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCommand: (cmd: RaceCommand) => void }) {
+/**
+ * Survival's own setup menu, up before the run (the bottom bar's Survival opens it; Race's menu has no Survival bits): the Survival courses as
+ * cards, the rows that apply to a run (the car, the time of day, the sound), Start survival, Back to the fleet. A pick shows the course behind the menu.
+ */
+export function SurvivalMenu({ race, pad, onCommand, audio }: { race: RaceHud; pad: boolean; onCommand: (cmd: RaceCommand) => void; audio: AudioLevels }) {
+  const quit = () => onCommand({ type: "quit" });
+  const start = () => onCommand({ type: "start" });
+  return (
+    <MenuShell id="survival" eyebrow="Survival" title="Pick a course" pad={pad} wide adjust onBack={quit} onStart={start}>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {race.survivalCourses.map((c) => (
+          <CourseCard key={c.id} name={c.name} blurb={c.blurb} on={c.id === race.survivalCourse} onPick={() => onCommand({ type: "survivalCourse", id: c.id })} />
+        ))}
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-1.5">
+        <DriverRows />
+        <TimeOfDayRow value={race.options.timeOfDay} onSet={(timeOfDay) => onCommand({ type: "options", options: { timeOfDay } })} />
+        <AudioRows audio={audio} />
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-1.5">
+        <NavButton onClick={start}>
+          <Siren />
+          Start survival
+        </NavButton>
+        <NavButton variant="ghost" onClick={quit}>
+          Back
+        </NavButton>
+      </div>
+    </MenuShell>
+  );
+}
+
+/**
+ * The end-of-run card: the time, the best (and a new one), the cops wrecked, why it ended; Retry (the same course), Change course (back to Survival's menu) or leave.
+ * The crash reel, when the run left one, plays behind it. `canChange`: a room's course is the lobby gate's, so a room has no way back to the menu.
+ */
+export function SurvivalResults({ race, pad, canChange, onCommand }: { race: RaceHud; pad: boolean; canChange: boolean; onCommand: (cmd: RaceCommand) => void }) {
   const r = race.survival?.result;
   const quit = () => onCommand({ type: "quit" });
   return (
@@ -69,7 +108,13 @@ export function SurvivalResults({ race, pad, onCommand }: { race: RaceHud; pad: 
           <RotateCcw />
           Retry
         </NavButton>
-        <NavButton variant="ghost" onClick={quit}>
+        {canChange ? (
+          <NavButton variant="secondary" onClick={() => onCommand({ type: "survivalMenu" })}>
+            <MapPinned />
+            Change course
+          </NavButton>
+        ) : null}
+        <NavButton variant="ghost" className={canChange ? "col-span-2" : undefined} onClick={quit}>
           Leave
         </NavButton>
       </div>

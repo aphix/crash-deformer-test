@@ -106,7 +106,7 @@ export abstract class EngineScenes extends EngineDerby {
     if (this.fadeScenes && !this.warming) {
       this.sceneFade.request(next);
       this.emitHud();
-    } else this.applyScene(next);
+    } else this.applyScene(next, true);
   }
 
   protected stepSceneFade(wallDt: number): void {
@@ -125,7 +125,7 @@ export abstract class EngineScenes extends EngineDerby {
     // The canvas-only tiers have no cel pass: they fade to black and back alone.
     const calm = this.clock.reduceMotion || this.cine.tier === "off" || this.cine.tier === "minimal";
     const next = fade.frame(wallDt, calm, this.warmsInFlight > 0);
-    if (next !== null) this.applyScene(next);
+    if (next !== null) this.applyScene(next, true);
     this.cine.post.cel = celStrength(this.celLook, fade.cel);
     // Black is a DOM veil over the canvas and the HUD at every tier; written only while it changes.
     if (fade.black !== this.veilBlack) {
@@ -134,7 +134,8 @@ export abstract class EngineScenes extends EngineDerby {
     }
   }
 
-  protected applyScene(next: SceneId): void {
+  /** `menu`: the player picked the scene (bar, key): Survival opens its course menu first. A `#` (`engine-share.ts`) starts the run at once, as every other scene starts. */
+  protected applyScene(next: SceneId, menu = false): void {
     if (this.net.client) return;
     // The range and the garage are one-car scenes: the sandbox's field comes back after them (the range's wall is its own, never the user's).
     // The stack and the Lab run their own car counts and give the sandbox's back.
@@ -149,7 +150,7 @@ export abstract class EngineScenes extends EngineDerby {
       this.sandboxCars = this.carCount;
       this.ensureCars(next === "range" || next === "garage" ? 1 : next === "lab" ? this.lab.types.length : this.stack.config.cars);
     }
-    if (next === "race" || next === "survival") this.setRace(true, next === "survival");
+    if (next === "race" || next === "survival") this.setRace(true, next === "survival", false, next === "survival" && menu && this.net.role === "off");
     else this.sceneId = next;
     this.followSceneTypes();
     this.tryUnlockAudio();
@@ -285,7 +286,7 @@ export abstract class EngineScenes extends EngineDerby {
     else this.race.holdReset();
   }
 
-  protected setRace(on: boolean, survival = false, lobby = false): void {
+  protected setRace(on: boolean, survival = false, lobby = false, menu = false): void {
     if (on === this.race.active) return;
     if (on) {
       if (this.derbyMode) this.setDerby(false);
@@ -308,7 +309,7 @@ export abstract class EngineScenes extends EngineDerby {
     if (on) {
       // The seats first: a Survival run starts at `enter`, with whoever is seated.
       this.race.setSeats(this.netSeats);
-      this.race.enter(survival, lobby);
+      this.race.enter(survival, lobby, menu);
     } else {
       this.stopReel();
       this.sceneId = "fleet";

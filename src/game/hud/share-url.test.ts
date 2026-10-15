@@ -274,6 +274,16 @@ describe("given a share link that may carry a netplay room", () => {
     assert.equal(decodeShare("#room=K7M2QX9P&scene=range").scene, "range");
   });
 
+  it("when scene=survival names a track, then it decodes to that course and writes back as scene=survival&track=<id>, in the order a link is read", () => {
+    const mall: ShareState = { ...DEFAULTS, scene: "survival", track: "national-mall" };
+    assert.equal(encodeShare(mall), "scene=survival&track=national-mall");
+    const read = decodeShare("#scene=survival&track=national-mall");
+    assert.equal(read.scene, "survival");
+    assert.equal(read.track, "national-mall");
+    assert.equal(json(decodeShare(`#${encodeShare(mall)}`)), json(mall));
+    assert.equal(decodeShare("#scene=survival").track, DEFAULTS.track, "a link without track= names no course: the engine keeps the one picked");
+  });
+
   it("when the # is written for a host, a guest and someone who left, then a host's carries its settings and room, a guest's only the room, and leaving drops the room", () => {
     const hosting: ShareState = { ...DEFAULTS, room: "ABCD2345", cars: 7 };
     assert.equal(shareFragment(hosting, false), "room=ABCD2345&cars=7");

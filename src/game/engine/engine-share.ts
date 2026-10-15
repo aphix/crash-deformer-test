@@ -75,7 +75,8 @@ export abstract class EngineShare extends EngineReel {
       dkph: this.doorRig.kph,
       dkg: this.doorRig.kg,
       dside: this.doorRig.side < 0 ? "left" : "right",
-      track: o.trackId,
+      // The race's course while it is the scene, the Survival course while Survival is (one `track=`); another scene's is not a setting.
+      track: sc === "survival" ? this.race.survivalId : o.trackId,
       camp: o.campaign,
       mode: o.mode,
       laps: o.laps,
@@ -144,6 +145,11 @@ export abstract class EngineShare extends EngineReel {
       }
       if (differs("scars", "sdrop", "sgap")) this.setStackConfig({ cars: t.scars, drop: t.sdrop, gap: t.sgap });
       if (differs("dkph", "dkg", "dside")) this.setDoorConfig({ kph: t.dkph, kg: t.dkg, side: t.dside === "left" ? -1 : 1 });
+      // Survival: the `track=` is its course (an id Survival is not played on, as a bare `scene=survival` carries, keeps the picked one). A run or its menu on another course moves to the named one.
+      if (t.scene === "survival") {
+        if (this.race.active) this.raceCommand({ type: "survivalCourse", id: t.track });
+        else this.race.pickSurvivalCourse(t.track);
+      }
       if (t.scene !== this.sceneId) this.applyScene(t.scene);
       if (t.scene === "fleet") {
         c = this.shareState();

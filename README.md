@@ -49,7 +49,7 @@ Each row links the document that covers the system; [`docs/ARCHITECTURE.md`](doc
 | Race | Nine courses and a campaign, 2 to 16 racers from the setup menu, NPC traffic, designed shortcuts, respawn or no-reset, AI difficulty (easy, medium, hard) and aggression, drafting. | [`RACE_DESIGN`](docs/RACE_DESIGN.md) |
 | Time of day | Daytime, Sunset or Nighttime behind a race: a panoramic sky for each, the sun's height and the lamps follow. Drawn only, never in the sim, a replay or the wire; share links carry it. | [`RACE_DESIGN`](docs/RACE_DESIGN.md) |
 | Police chase | A race option: cops stake out, pursue and bust a car held slow within 20 m. | [`RACE_DESIGN`](docs/RACE_DESIGN.md) |
-| Survival | Driver 2's mode on Havana's Plaza de la Revolución or the National Mall (the setup menu's Survival course row picks): a pack of cops that grows, the stopwatch is the score; co-op in a room. | [`SURVIVAL`](docs/SURVIVAL.md) |
+| Survival | Driver 2's mode on Havana's Plaza de la Revolución or the National Mall (the bottom bar's Survival opens its own course menu; a `#scene=survival&track=…` link starts the run): a pack of cops that grows, the stopwatch is the score; co-op in a room. | [`SURVIVAL`](docs/SURVIVAL.md) |
 | Press | Two plates close on a car. | [`CONTACT_PARITY`](docs/CONTACT_PARITY.md) |
 | Pistons | Eight horizontal rams around a car, fired one at a time or all together. | [`PISTON_RIG`](docs/PISTON_RIG.md) |
 | Doors | A rig that rams an open or shut door and mirror from the side. | [`DOOR_RIG`](docs/DOOR_RIG.md) |

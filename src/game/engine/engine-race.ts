@@ -110,10 +110,11 @@ export class RaceDirector extends RaceHudLayer {
   }
 
   /**
-   * Race mode on. `survival`: a Survival run on the picked Survival course instead of the setup menu. `lobby`: the free-drive
-   * lobby of a hosted room, on that course (no menu, no rules, no hunters; `showLobby`) with a car for the host and each seated peer.
+   * Race mode on. `survival`: a Survival run on the picked Survival course instead of the setup menu; with `menu`, the Survival menu
+   * (the picked course, no run) first and the run starts on its `start`. `lobby`: the free-drive lobby of a hosted room, on that course
+   * (no menu, no rules, no hunters; `showLobby`) with a car for the host and each seated peer.
    */
-  enter(survival = false, lobby = false): void {
+  enter(survival = false, lobby = false, menu = false): void {
     if (this.active) return;
     this.active = true;
     this.survival = survival;
@@ -121,7 +122,7 @@ export class RaceDirector extends RaceHudLayer {
     const scene = this.host.scene;
     this.saved = { background: scene.background as THREE.Color | null, fog: scene.fog, far: this.host.camera.far };
     this.host.seat.drivable = (i) => (this.free ? i === this.self : this.entrants[i]?.kind === "player" && this.session != null && !this.spectating);
-    if (survival) {
+    if (survival && !menu) {
       this.entrants = this.field();
       this.start(this.survivalId, this.defaultGrid());
     } else if (lobby) this.toLobby();
@@ -196,6 +197,14 @@ export class RaceDirector extends RaceHudLayer {
     else this.park();
   }
 
+  /** The run again on course `trackId` (Retry: the one it is on; a Survival pick: the new one). A hosted Survival run takes in the peers who joined (or lets go of those who left) since the last one: between runs, never in one. */
+  private rerun(trackId: string): void {
+    if (this.survival && this.seatsChanged()) {
+      this.entrants = this.field();
+      this.start(trackId, this.defaultGrid());
+    } else this.start(trackId, this.grid);
+  }
+
   command(cmd: RaceCommand): void {
     if (!this.active) return;
     switch (cmd.type) {
@@ -223,14 +232,23 @@ export class RaceDirector extends RaceHudLayer {
       case "program":
         this.setProgram(cmd.options);
         return;
-      case "survivalCourse":
-        // The lobby is on the Survival course, so a pick there moves it (a hosted room's guests follow through the lobby message).
-        if (this.pickSurvivalCourse(cmd.id) && this.free) this.showLobby(cmd.id);
+      case "survivalCourse": {
+        const was = this.survivalId;
+        if (!this.pickSurvivalCourse(cmd.id)) return;
+        // The lobby is on the Survival course, so a pick there moves it (a hosted room's guests follow through the lobby message); the Survival menu shows it parked; a run starts afresh on it (a `#` edit).
+        if (this.free) this.showLobby(cmd.id);
+        else if (this.menu === "survival") this.park();
+        else if (this.survival && this.session && cmd.id !== was) this.rerun(cmd.id);
+        return;
+      }
+      case "survivalMenu":
+        // The run is dropped for the menu (a room's host cannot: its run is the team's, and the HUD offers none).
+        if (this.survival && !this.free && this.session) this.toSetup();
         return;
       case "start":
         this.campaign = null;
         this.entrants = this.field();
-        this.start(this.rules.trackId, this.defaultGrid());
+        this.start(this.survival ? this.survivalId : this.rules.trackId, this.defaultGrid());
         return;
       case "campaign":
         if (this.rules.campaign.length === 0) return;
@@ -240,11 +258,7 @@ export class RaceDirector extends RaceHudLayer {
         return;
       case "retry":
         if (!this.track || !this.session) return;
-        // A hosted Survival run takes in the peers who joined (or lets go of those who left) since the last one: between runs, never in one.
-        if (this.survival && this.seatsChanged()) {
-          this.entrants = this.field();
-          this.start(this.track.id, this.defaultGrid());
-        } else this.start(this.track.id, this.grid);
+        this.rerun(this.track.id);
         return;
       case "fullUi":
         this.fullUi = cmd.on;

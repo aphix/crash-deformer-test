@@ -184,8 +184,8 @@ export abstract class RaceField {
   private readonly sphere = new THREE.Sphere();
   protected readonly host: RaceHost;
   private readonly survivalJson: unknown;
-  /** The Survival course the next run, and a hosted room's lobby, is on: one of `survivalCourses` (`RaceDirector.enter(true)` starts the run on it). */
-  protected survivalId: string;
+  /** The Survival course the next run, and a hosted room's lobby, is on: one of `survivalCourses` (`RaceDirector.enter(true)` starts the run on it). The `#` follows it (`engine-share.ts`). */
+  survivalId: string;
   readonly courses: { id: string; name: string; blurb: string }[];
   /** The courses Survival can be played on (those with `survival` anchors): the constructor's own first, then the menu's. */
   readonly survivalCourses: { id: string; name: string; blurb: string }[];
@@ -283,7 +283,7 @@ export abstract class RaceField {
   }
 
   /** The next Survival run (and a lobby) is on course `id`; false when Survival is not played on it. */
-  protected pickSurvivalCourse(id: string): boolean {
+  pickSurvivalCourse(id: string): boolean {
     if (!this.survivalCourses.some((c) => c.id === id)) return false;
     this.survivalId = id;
     return true;
@@ -468,14 +468,15 @@ export abstract class RaceField {
     this.resetProps();
   }
 
+  /** The field parked for the menu: on the race's grid, or (the Survival menu) abreast on the Survival course's start like the run's. */
   protected park(): void {
-    const tr = this.load(this.rules.trackId);
+    const tr = this.load(this.survival ? this.survivalId : this.rules.trackId);
     this.entrants = this.field();
     this.grid = this.defaultGrid();
     const cars = this.host.live();
     for (const [k, id] of this.grid.entries()) {
       this.rowOf[id] = k;
-      const slot = tr.gridSlot(k);
+      const slot = this.survival ? this.lobbySlot(k) : tr.gridSlot(k);
       this.place(cars[id]!, slot.x, slot.z, slot.yaw, slot.y);
     }
   }

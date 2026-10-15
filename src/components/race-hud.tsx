@@ -10,7 +10,6 @@ import {
   PanelsTopLeft,
   Play,
   RotateCcw,
-  Siren,
   Skull,
   TriangleAlert,
   Trophy,
@@ -22,20 +21,19 @@ import { copyText } from "@/lib/clipboard";
 import { DriverRows } from "@/components/race-driver";
 import { CARD, MenuShell, NavButton } from "@/components/race-menu-shell";
 import { BustedBanner } from "@/components/race-busted";
-import { FOCUS } from "@/components/race-menu-styles";
 import { AudioRows } from "@/components/race-audio";
 import type { AudioLevels } from "@/game/hud/audio-levels";
 import { ReelList, SavedList } from "@/components/race-reel";
-import { Choice, Pick, Stepper } from "@/components/race-rows";
+import { Choice, CourseCard, Stepper, TimeOfDayRow } from "@/components/race-rows";
 import { ResetPrompt } from "@/components/reset-prompt";
 import { StartLights } from "@/components/start-lights";
-import { SurvivalResults } from "@/components/survival-hud";
+import { SurvivalMenu, SurvivalResults } from "@/components/survival-hud";
 import { useReelCover } from "@/components/use-reel-cover";
 import { AI_DIFFICULTIES } from "@/game/ai/constants";
 import { missedCheckpointText, type ResetInput } from "@/game/hud/reset-prompt";
 import { courseTap, selectAll } from "@/game/hud/setup-patch";
 import { LEAVE_MS, STANDING_LI, withLeavers, type StandingSlot } from "@/game/hud/standings-motion";
-import { TIMES_OF_DAY, type CarStatus, type RaceCommand, type RaceHud, type RaceHudRow, type RaceOptions, type TimeOfDay } from "@/game/match/types";
+import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/match/types";
 import { fmtGap, fmtTime } from "@/game/hud/race-clock";
 import { cn } from "@/lib/utils";
 
@@ -247,7 +245,7 @@ export function RaceOverlay({
   reset,
   onReset,
   onCommand,
-  onSurvival,
+  inRoom,
   audio,
 }: {
   race: RaceHud;
@@ -255,12 +253,12 @@ export function RaceOverlay({
   reset: ResetInput | null;
   onReset: () => void;
   onCommand: Send;
-  /** Enter Survival from the setup menu; null where the mode is not offered (a room). */
-  onSurvival: (() => void) | null;
+  /** This browser is in a netplay room: Survival's course is the lobby gate's, so its results card offers no way back to the course menu. */
+  inRoom: boolean;
   /** The sound settings the setup and pause menus show (the modal covers the settings panel). */
   audio: AudioLevels;
 }) {
-  if (race.menu !== null) return <RaceMenu race={race} pad={pad} onCommand={onCommand} onSurvival={onSurvival} audio={audio} />;
+  if (race.menu !== null) return <RaceMenu race={race} pad={pad} onCommand={onCommand} inRoom={inRoom} audio={audio} />;
   const you = race.you;
   return (
     <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex flex-col items-center gap-3 px-3 sm:top-1/4">
@@ -362,13 +360,15 @@ function FinishCard({ race }: { race: RaceHud }) {
   );
 }
 
-function RaceMenu({ race, pad, onCommand, onSurvival, audio }: { race: RaceHud; pad: boolean; onCommand: Send; onSurvival: (() => void) | null; audio: AudioLevels }) {
+function RaceMenu({ race, pad, onCommand, inRoom, audio }: { race: RaceHud; pad: boolean; onCommand: Send; inRoom: boolean; audio: AudioLevels }) {
   const quit = () => onCommand({ type: "quit" });
   const retry = () => onCommand({ type: "retry" });
   const end = () => onCommand({ type: "end" });
   switch (race.menu) {
     case "setup":
-      return <SetupMenu race={race} pad={pad} onCommand={onCommand} onSurvival={onSurvival} audio={audio} />;
+      return <SetupMenu race={race} pad={pad} onCommand={onCommand} audio={audio} />;
+    case "survival":
+      return <SurvivalMenu race={race} pad={pad} onCommand={onCommand} audio={audio} />;
     case "pause": {
       const resume = () => onCommand({ type: "resume" });
       return (
@@ -421,7 +421,7 @@ function RaceMenu({ race, pad, onCommand, onSurvival, audio }: { race: RaceHud; 
         </MenuShell>
       );
     case "results":
-      return race.survival ? <SurvivalResults race={race} pad={pad} onCommand={onCommand} /> : <ResultsMenu race={race} pad={pad} onCommand={onCommand} />;
+      return race.survival ? <SurvivalResults race={race} pad={pad} canChange={!inRoom} onCommand={onCommand} /> : <ResultsMenu race={race} pad={pad} onCommand={onCommand} />;
     case "standings":
       return <StandingsMenu race={race} pad={pad} onCommand={onCommand} />;
     case null:
@@ -429,7 +429,7 @@ function RaceMenu({ race, pad, onCommand, onSurvival, audio }: { race: RaceHud; 
   }
 }
 
-function SetupMenu({ race, pad, onCommand, onSurvival, audio }: { race: RaceHud; pad: boolean; onCommand: Send; onSurvival: (() => void) | null; audio: AudioLevels }) {
+function SetupMenu({ race, pad, onCommand, audio }: { race: RaceHud; pad: boolean; onCommand: Send; audio: AudioLevels }) {
   const o = race.options;
   const options = (patch: Partial<RaceOptions>) => onCommand({ type: "options", options: patch });
   const campaign = o.mode === "campaign";
@@ -448,27 +448,7 @@ function SetupMenu({ race, pad, onCommand, onSurvival, audio }: { race: RaceHud;
       <div className="grid gap-2 sm:grid-cols-3">
         {race.courses.map((c) => {
           const place = o.campaign.indexOf(c.id) + 1;
-          const on = campaign ? place > 0 : c.id === o.trackId;
-          return (
-            <button
-              key={c.id}
-              type="button"
-              data-nav
-              aria-pressed={on}
-              onClick={() => options(courseTap(o, c.id))}
-              className={cn(
-                "flex min-h-11 flex-col items-start rounded-md px-2 py-1.5 text-left shadow-[var(--shadow-border)] transition-colors duration-[var(--motion-quick)]",
-                on ? "bg-accent text-accent-fg" : "bg-surface-2 text-fg hover:bg-surface",
-                FOCUS,
-              )}
-            >
-              <span className="font-display text-lg font-semibold leading-tight">
-                {campaign && on ? <span data-round={place}>{place}. </span> : null}
-                {c.name}
-              </span>
-              <span className={cn("mt-1 text-xs leading-snug", on ? "text-accent-fg" : "text-muted")}>{c.blurb}</span>
-            </button>
-          );
+          return <CourseCard key={c.id} name={c.name} blurb={c.blurb} on={campaign ? place > 0 : c.id === o.trackId} round={campaign ? place : undefined} onPick={() => options(courseTap(o, c.id))} />;
         })}
       </div>
       <div className="mt-3 grid grid-cols-1 gap-1.5">
@@ -497,19 +477,9 @@ function SetupMenu({ race, pad, onCommand, onSurvival, audio }: { race: RaceHud;
           hint="How well rivals drive: hard never slips and reacts every physics step; easy brakes late, runs wide and drifts off the line"
           onSet={(k) => options({ aiDifficulty: AI_DIFFICULTIES[k]! })}
         />
-        <Stepper
-          label="Time of day"
-          value={TIMES_OF_DAY.indexOf(o.timeOfDay)}
-          min={0}
-          max={TIMES_OF_DAY.length - 1}
-          step={1}
-          shown={TIME_OF_DAY_LABEL[o.timeOfDay]}
-          hint="The sky and the light: midday sun, a low golden sunset, or moonlight with the street lamps on"
-          onSet={(k) => options({ timeOfDay: TIMES_OF_DAY[k]! })}
-        />
+        <TimeOfDayRow value={o.timeOfDay} onSet={(timeOfDay) => options({ timeOfDay })} />
         <Choice label="Wrecks" off="Respawn" on="No reset" value={o.noReset} onSet={(noReset) => options({ noReset })} />
         <Choice label="Police" off="Off" on="Chase" value={o.police} onSet={(police) => options({ police })} />
-        {onSurvival && race.survivalCourses.length > 1 ? <Pick label="Survival course" options={race.survivalCourses} value={race.survivalCourse} onSet={(id) => onCommand({ type: "survivalCourse", id })} /> : null}
         <AudioRows audio={audio} />
       </div>
       <div className="mt-3 grid grid-cols-2 gap-1.5">
@@ -517,13 +487,7 @@ function SetupMenu({ race, pad, onCommand, onSurvival, audio }: { race: RaceHud;
           {campaign ? <Trophy /> : <Flag />}
           {campaign ? `Start campaign (${o.campaign.length})` : "Start race"}
         </NavButton>
-        {onSurvival ? (
-          <NavButton variant="secondary" onClick={onSurvival}>
-            <Siren />
-            Survival
-          </NavButton>
-        ) : null}
-        <NavButton variant="ghost" className={onSurvival ? undefined : "col-span-2"} onClick={() => onCommand({ type: "quit" })}>
+        <NavButton variant="ghost" className="col-span-2" onClick={() => onCommand({ type: "quit" })}>
           Back
         </NavButton>
       </div>
@@ -531,8 +495,6 @@ function SetupMenu({ race, pad, onCommand, onSurvival, audio }: { race: RaceHud;
     </MenuShell>
   );
 }
-
-const TIME_OF_DAY_LABEL: Record<TimeOfDay, string> = { daytime: "Daytime", sunset: "Sunset", nighttime: "Nighttime" };
 
 const RESULT_STATUS: Record<CarStatus, string> = { racing: "Racing", respawning: "Racing", finished: "", out: "Out", dnf: "DNF" };
 

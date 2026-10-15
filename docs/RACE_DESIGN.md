@@ -428,7 +428,7 @@ its speed, under what a player can tell from the throttle); like every dummy he 
 sees neither the standing guards nor the thrown ones, as before; the VIP is each browser's own, so a car that runs him down on his walk (the player's, or
 any on that browser's field) throws him on that browser alone (`VipEscort`).
 
-Havana (`havana`, Survival only) is off the menu: [`SURVIVAL.md`](SURVIVAL.md). A course with `survival` anchors is a Survival course (Havana, the National Mall): `RaceField.survivalCourses`.
+Havana (`havana`, Survival only) is off the menu: [`SURVIVAL.md`](SURVIVAL.md). A course with `survival` anchors is a Survival course (Havana, the National Mall): `RaceField.survivalCourses`. Race's menu lists race courses and nothing of Survival; Survival's own setup menu (the bottom bar's Survival) lists the Survival courses.
 
 ## Track JSON
 

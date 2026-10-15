@@ -19,14 +19,13 @@ const track = new Track(mall);
 const spec = track.survival!;
 const monument = placeProps(track).find((p) => p.prefab === "obelisk")!;
 
-/** A world whose Survival run is on the Mall, picked as the setup menu's Survival course row picks it. */
+/** A world whose Survival run is on the Mall, picked as Survival's own menu picks it (the course card, then Start survival). */
 function mallWorld(seed = 1): World {
   const w = makeWorld();
   w.race.reseed(seed);
-  w.race.enter();
+  w.race.enter(true, false, true);
   w.race.command({ type: "survivalCourse", id: TRACK_ID.nationalMall });
-  w.race.exit();
-  w.race.enter(true);
+  w.race.command({ type: "start" });
   return w;
 }
 
@@ -36,18 +35,23 @@ function toGreen(w: World, state: { acc: number }): void {
 }
 
 describe("given the Survival course list", () => {
-  it("when the setup menu reads it, then it offers Havana and Washington DC, Havana picked until the player picks the Mall, and a course Survival is not played on is refused", () => {
+  it("when Survival's menu reads it, then it offers Havana and Washington DC with no run behind it, Havana picked until the player picks the Mall, and a course Survival is not played on is refused", () => {
     const w = makeWorld();
     try {
-      w.race.enter();
+      w.race.enter(true, false, true);
       const first = w.race.hud();
+      assert.equal(first.menu, "survival");
+      assert.equal(first.phase, null, "no run until Start");
       assert.equal(first.survivalCourses.map((c) => c.id).join(), `havana,${TRACK_ID.nationalMall}`);
       assert.equal(first.survivalCourses[1]!.name, "Washington DC");
       assert.equal(first.survivalCourse, "havana");
       w.race.command({ type: "survivalCourse", id: TRACK_ID.nationalMall });
       assert.equal(w.race.hud().survivalCourse, TRACK_ID.nationalMall);
+      assert.equal(w.race.courseId, TRACK_ID.nationalMall, "the course behind the menu follows the pick");
       w.race.command({ type: "survivalCourse", id: "oval" });
       assert.equal(w.race.hud().survivalCourse, TRACK_ID.nationalMall, "the oval has no Survival anchors");
+      assert.equal(w.race.hud().menu, "survival", "picking starts nothing");
+      assert.equal(w.race.hud().phase, null);
     } finally {
       leaveSurvival(w);
     }

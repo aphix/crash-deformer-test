@@ -238,17 +238,19 @@ export type CampaignSnapshot = {
 
 /**
  * UI → engine (`CrashEngine.raceCommand`). The HUD never touches race state; it sends these.
- * setup menu: options / start / campaign / quit · pause menu: resume / retry / end / quit ·
- * dead menu: retry / end / spectate · results: retry / next / quit · standings: next / quit.
+ * setup menu: options / start / campaign / quit · Survival menu (the scene bar's Survival): survivalCourse / options / start / quit ·
+ * pause menu: resume / retry / end / quit · dead menu: retry / end / spectate · results: retry / next / quit (a Survival card: survivalMenu) · standings: next / quit.
  */
 export type RaceCommand =
   | { type: "options"; options: Partial<RaceOptions> }
   /** A program's own rules (the bench, a weak public host) for the runs that follow, laid over the player's options without changing them; null drops them. */
   | { type: "program"; options: Partial<RaceOptions> | null }
-  /** Setup menu or a hosted lobby: the Survival course (`RaceHud.survivalCourses`) the next Survival run, and the lobby, is on. */
+  /** Survival menu or a hosted lobby: the Survival course (`RaceHud.survivalCourses`) the next Survival run, and the lobby, is on. A Survival run on another course starts afresh on it (a `#` edit). */
   | { type: "survivalCourse"; id: string }
-  /** Single race on `options.trackId`. */
+  /** Single race on `options.trackId`; from the Survival menu, a Survival run on the picked course. */
   | { type: "start" }
+  /** A Survival run or its results card: back to Survival's menu, the run dropped, to pick another course. */
+  | { type: "survivalMenu" }
   /** New campaign over `CAMPAIGN` from round 1. */
   | { type: "campaign" }
   /** Same course again (a campaign round restarts with the same grid). */
@@ -314,7 +316,7 @@ export type FlagClip = { title: string; course: string; from: "reel" | "saved"; 
 /** What a submission says about where it came from: the scene and its flat settings (`EngineInput.submitContext`; the server stores both). */
 export type SubmitContext = { scene: string; settings: Record<string, string | number | boolean | null> };
 
-export type RaceMenu = "setup" | "pause" | "dead" | "results" | "standings" | null;
+export type RaceMenu = "setup" | "survival" | "pause" | "dead" | "results" | "standings" | null;
 
 export type RaceHudRow = {
   id: number;

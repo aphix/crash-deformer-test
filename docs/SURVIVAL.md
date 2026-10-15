@@ -6,9 +6,14 @@ stopwatch that is the score. Survive as long as possible while more and more cop
 ## The mode
 
 - **Entry:** the scene bar's **Survival** button (desktop dock and phone picker), the **S** key from the whole-field view
-  (S is the brake once a car is driven), the **Survival** button in the Race "Pick a course" menu, or `#scene=survival`. Each starts the run on the
-  **Survival course** last picked (Havana until the player picks the Mall): the setup menu's "Survival course" row lists every course with
-  `survival` anchors (`RaceField.survivalCourses`: Havana, Washington DC) and the pick is the director's (`RaceCommand` `survivalCourse`; it is not in the share URL, so a shared link opens Havana).
+  (S is the brake once a car is driven) open **Survival's own setup menu** first ("Pick a course", `RaceMenu` `"survival"`, `components/survival-hud.tsx`
+  `SurvivalMenu`): the Survival courses as cards (`RaceField.survivalCourses`, every course with `survival` anchors: Havana, Washington DC; the same
+  `CourseCard` as Race's menu), the rows that apply to a run (the car and driver, the time of day, the sound; nothing race-only: no laps, AI cars, wrecks
+  or police), **Start survival** and **Back** to the fleet. The field is parked on the picked course's start behind it and nothing runs until Start
+  (`RaceDirector.enter(true, false, true)`; commands `survivalCourse`, then `start`). Race's own setup menu has no Survival row or button: Survival is its own
+  mode, not a race option. The pick starts as Havana until the player picks the Mall and is kept for the next entry. A link starts the run at once instead:
+  `#scene=survival&track=<id>` boots straight into a run on that course (`scene=survival` alone, on the picked one, Havana at boot), and the `#` follows the
+  run's course (`engine-share.ts`, [`CONTROLS.md`](CONTROLS.md)); editing `track=` in the open page restarts the run on it.
 - **Single player or a team.** A private room's host may run it: the button stays on while hosting, and every peer seated at the
   run's start plays it as one team (see **Co-op** below). A public room refuses it (`EngineScenes.setScene`: it runs the race or
   derby its name says), a guest cannot pick it (it follows its host's scene), and a guest's own run ends when it joins a room
@@ -23,9 +28,9 @@ stopwatch that is the score. Survive as long as possible while more and more cop
 - **Wrecked:** the race's `judge` (driver thrown out, engine dead, upside down for 2.5 s). Survival is a no-reset run: either
   ends it.
 - **Results:** the BUSTED / WRECKED banner (`race-busted.tsx`) and the race's crash reel come first, then the results card
-  (`components/survival-hud.tsx`: time, best with a *New best* mark, cops wrecked, the cause) with Retry and Leave. Retry
-  restarts through the race's `start`; Leave and the pause menu's Quit go to the fleet.
-- The run is a `RaceDirector` in survival mode (`enter(true)`): `session.noReset`, `session.endless` (no gates, laps or
+  (`components/survival-hud.tsx`: time, best with a *New best* mark, cops wrecked, the cause) with Retry, **Change course** and Leave. Retry
+  restarts through the race's `start` on the same course; Change course (`RaceCommand` `survivalMenu`, not offered in a room: its course is the lobby gate's) drops the run for Survival's menu to pick another; Leave and the pause menu's Quit go to the fleet.
+- The run is a `RaceDirector` in survival mode (`enter(true)`, or `enter(true, false, true)` for the menu before it): `session.noReset`, `session.endless` (no gates, laps or
   finish), no traffic, the hunters instead of the police brain. The crash cinematic, slow-mo and the loop's auto-reset are
   off, as in a race.
 
@@ -143,14 +148,15 @@ Not built: rescue (ramming the cop that is busting a teammate cancels the bust) 
 | the schedule, drop-ins only where hidden, wreck / lost put away only unseen and replaced, drop spot on a road in the band, steering round a wall, attack geometry, wedge back-off | `ai/hunter.test.ts` |
 | start, countdown, bust through the real stack, wrecked ends the run, best-time store (new / worse / blocked), Retry, Quit, schedule on the HUD | `world/survival.test.ts` |
 | 5 minutes of scripted play with a chase camera: no drop-in in the camera's view | `world/survival.test.ts` |
-| `scene=survival` round trip, never with a room | `hud/share-url.test.ts` |
+| `scene=survival` round trip, never with a room; `scene=survival&track=national-mall` decodes and encodes back | `hud/share-url.test.ts` |
+| the real engine booted on `#scene=survival&track=national-mall` is in a Survival run on the Mall with no menu; the scene bar's Survival opens Survival's menu with no run, no clock, a pick moving the course behind it and Start running the picked course; Change course from a run (and its results card) is the menu again; the address follows the pick and the run; an edited `track=` restarts the run on it | `engine/engine-survival-pick.test.ts` |
 | the map is closed: no gap in the solids, no seam of the rim lets a car at 60 m/s through | `world/survival-chase.test.ts` |
 | a fleeing player's run ends (straight, flee, ring, held: busted or wrecked within 300 s). In the closed arena, with the formation held to a race second spread evenly from 8.1 to 12.1 s over seeds 1–24, the pack ends at least 22 of 24 fleeing runs within 120 s with a cop touching; hunters that never steer miss the bar; a player cornered at 3 m/s is busted in at least 14 of 24 runs and by cops that never move in none | `world/survival-chase.test.ts` |
 | the opening set piece on the real course: the cops reach the foot behind the player and leave the ground at the crest | `world/survival-setpiece.test.ts` |
 | wheels on the grass and the crest: drop matrix and drive matrix over the face, plaza, crest and alley | `vehicle/havana-fit.test.ts` |
 | a team's pack: the cops wanted, the cap and the units grow with the humans (1, 2, 4), never past the car list; each cop's quarry is the nearest free human; no drop-in within `dropMin` of any human | `ai/hunter-team.test.ts` |
 | a hosted run with several humans: they start on their own slots, the run goes on while one is free and ends when none is, its time is the last fall, a car nobody drives is parked, Retry seats the peers the room has now; with every cop in view wrecked and the humans parked, a drop-in still comes every `HUNT.gap`; a client reads the pack, the team and the run's time as the host does | `world/survival-coop.test.ts`, `net/race-net.test.ts` |
-| the Survival course list (Havana, Washington DC), the Mall's start on the pole slot facing the monument with the cops behind, drop-ins out of view over 150 s, the White House guards ending a run on the lawn, the Mall closed (flood fill, 12 launches at the rim) | `world/survival-mall.test.ts` |
+| the Survival menu's course list (Havana, Washington DC) with no run behind it, the Mall's start on the pole slot facing the monument with the cops behind, drop-ins out of view over 150 s, the White House guards ending a run on the lawn, the Mall closed (flood fill, 12 launches at the rim) | `world/survival-mall.test.ts` |
 | the lobby's Survival course picked by the host, followed by a guest present, joining and joining mid-run | `net/lobby.test.ts` |
 
 Harnesses: `world/survival-run.test-util.ts` (the director in survival mode, a scripted player, the chase camera),

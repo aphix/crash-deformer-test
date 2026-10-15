@@ -210,7 +210,7 @@ export abstract class RaceHudLayer extends RaceWatch {
     return id ? (this.courses.find((c) => c.id === id)?.name ?? null) : null;
   }
 
-  /** Setup menu: the chosen course with the field parked on its grid, no race running. */
+  /** Setup menu: the chosen course with the field parked on its grid, no race running. In Survival (`enter(true, false, true)`): the Survival menu, the picked Survival course's start, no run. */
   protected toSetup(): void {
     this.campaign = null;
     this.setProgram(null);
@@ -220,7 +220,7 @@ export abstract class RaceHudLayer extends RaceWatch {
     this.police = null;
     this.spectating = false;
     this.auto = false;
-    this.menu = "setup";
+    this.menu = this.survival ? "survival" : "setup";
     this.host.setPaused(false);
     this.host.seat.clear();
     this.park();

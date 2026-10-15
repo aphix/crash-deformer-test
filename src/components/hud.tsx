@@ -174,7 +174,7 @@ export function Hud(props: HudProps) {
         {focus && state.race ? (
           <header className="hud-ink min-w-0 font-display">
             <p className="truncate text-sm font-semibold uppercase leading-tight tracking-[0.12em] text-fg/80">
-              {state.race.survival ? "Survival" : state.race.mode === "campaign" ? "Campaign" : "Race"} · <span className="text-fg">{state.race.trackName || "Pick a course"}</span>
+              {state.race.survival || state.race.menu === "survival" ? "Survival" : state.race.mode === "campaign" ? "Campaign" : "Race"} · <span className="text-fg">{state.race.trackName || "Pick a course"}</span>
             </p>
           </header>
         ) : null}
@@ -250,7 +250,7 @@ export function Hud(props: HudProps) {
           reset={reset}
           onReset={tapReset}
           onCommand={raceCommand}
-          onSurvival={state.inRoom ? null : () => engine.current?.toggleSurvival()}
+          inRoom={state.inRoom}
           audio={audioLevels(state, engine)}
         />
       ) : null}
