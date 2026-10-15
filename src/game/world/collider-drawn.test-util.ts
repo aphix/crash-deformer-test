@@ -20,12 +20,12 @@ const REACH = 3.5;
 
 export type P3 = readonly [number, number, number];
 
-/** Distance (m) from a point to a collider as a solid (0 inside): a yawed box or a circle, a prism from `base` to `top`. */
-export function gap(c: PropCollider, x: number, y: number, z: number): number {
+/** Distance (m) from a point to a collider as a solid (0 inside): a yawed box or a circle, a prism from `base` to `top`. `cos`, `sin`: the collider's yaw's, for a caller measuring many points against one. */
+export function gap(c: PropCollider, x: number, y: number, z: number, cos = Math.cos(c.yaw), sin = Math.sin(c.yaw)): number {
   const ex = x - c.x;
   const ez = z - c.z;
-  const lx = ex * Math.cos(c.yaw) - ez * Math.sin(c.yaw);
-  const lz = ex * Math.sin(c.yaw) + ez * Math.cos(c.yaw);
+  const lx = ex * cos - ez * sin;
+  const lz = ex * sin + ez * cos;
   const dy = Math.max(c.base - y, y - c.top, 0);
   if (c.kind === "circle") return Math.hypot(Math.max(Math.hypot(lx, lz) - c.hx, 0), dy);
   return Math.hypot(Math.max(Math.abs(lx) - c.hx, 0), Math.max(Math.abs(lz) - c.hz, 0), dy);
@@ -70,25 +70,80 @@ const _tri = new THREE.Triangle();
 const _p = new THREE.Vector3();
 const _q = new THREE.Vector3();
 
+/** Edge (m) of a cell of the plan-view grid `meshGap` looks triangles up in. */
+const CELL = 4;
+
+/** The plan-view grid of a triangle list: per cell, the triangles whose bounds touch it, so a query reads the few near it, not all. */
+type TriangleGrid = Map<number, number[]>;
+const cellKey = (ix: number, iz: number): number => (ix + 32768) * 65536 + (iz + 32768);
+const grids = new WeakMap<Float32Array, TriangleGrid>();
+
+function gridOf(tris: Float32Array): TriangleGrid {
+  let grid = grids.get(tris);
+  if (grid) return grid;
+  grid = new Map();
+  for (let t = 0; t + 8 < tris.length; t += 9) {
+    const x0 = Math.min(tris[t]!, tris[t + 3]!, tris[t + 6]!);
+    const x1 = Math.max(tris[t]!, tris[t + 3]!, tris[t + 6]!);
+    const z0 = Math.min(tris[t + 2]!, tris[t + 5]!, tris[t + 8]!);
+    const z1 = Math.max(tris[t + 2]!, tris[t + 5]!, tris[t + 8]!);
+    for (let ix = Math.floor(x0 / CELL); ix <= Math.floor(x1 / CELL); ix++) {
+      for (let iz = Math.floor(z0 / CELL); iz <= Math.floor(z1 / CELL); iz++) {
+        const key = cellKey(ix, iz);
+        const cell = grid.get(key);
+        if (cell) cell.push(t);
+        else grid.set(key, [t]);
+      }
+    }
+  }
+  grids.set(tris, grid);
+  return grid;
+}
+
 /** Distance (m) from a point to the nearest of `tris` (9 floats each), skipping the ones whose bounds are further than `within`. */
 export function meshGap(tris: Float32Array, x: number, y: number, z: number, within: number): number {
+  const grid = gridOf(tris);
   let best = Infinity;
   _p.set(x, y, z);
-  for (let t = 0; t + 8 < tris.length; t += 9) {
-    let ok = true;
-    for (let a = 0; a < 3 && ok; a++) {
-      const c = a === 0 ? x : a === 1 ? y : z;
-      const lo = Math.min(tris[t + a]!, tris[t + 3 + a]!, tris[t + 6 + a]!);
-      const hi = Math.max(tris[t + a]!, tris[t + 3 + a]!, tris[t + 6 + a]!);
-      if (c < lo - within || c > hi + within) ok = false;
+  for (let ix = Math.floor((x - within) / CELL); ix <= Math.floor((x + within) / CELL); ix++) {
+    for (let iz = Math.floor((z - within) / CELL); iz <= Math.floor((z + within) / CELL); iz++) {
+      for (const t of grid.get(cellKey(ix, iz)) ?? []) {
+        let ok = true;
+        for (let a = 0; a < 3 && ok; a++) {
+          const c = a === 0 ? x : a === 1 ? y : z;
+          const lo = Math.min(tris[t + a]!, tris[t + 3 + a]!, tris[t + 6 + a]!);
+          const hi = Math.max(tris[t + a]!, tris[t + 3 + a]!, tris[t + 6 + a]!);
+          if (c < lo - within || c > hi + within) ok = false;
+        }
+        if (!ok) continue;
+        _tri.a.set(tris[t]!, tris[t + 1]!, tris[t + 2]!);
+        _tri.b.set(tris[t + 3]!, tris[t + 4]!, tris[t + 5]!);
+        _tri.c.set(tris[t + 6]!, tris[t + 7]!, tris[t + 8]!);
+        best = Math.min(best, _tri.closestPointToPoint(_p, _q).distanceTo(_p));
+      }
     }
-    if (!ok) continue;
-    _tri.a.set(tris[t]!, tris[t + 1]!, tris[t + 2]!);
-    _tri.b.set(tris[t + 3]!, tris[t + 4]!, tris[t + 5]!);
-    _tri.c.set(tris[t + 6]!, tris[t + 7]!, tris[t + 8]!);
-    best = Math.min(best, _tri.closestPointToPoint(_p, _q).distanceTo(_p));
   }
   return best;
+}
+
+/** Edge (m) of a cell of the plan-view grid `pieceGrid` looks colliders up in. */
+const PIECE_CELL = 8;
+
+/** A plan-view grid of colliders: `near(x, z)` lists every piece whose circle (radius `r` plus `margin`) can reach that point, and some that cannot. */
+export function pieceGrid(pieces: readonly PropCollider[], margin: number): (x: number, z: number) => readonly PropCollider[] {
+  const grid = new Map<number, PropCollider[]>();
+  for (const c of pieces) {
+    const reach = c.r + margin;
+    for (let ix = Math.floor((c.x - reach) / PIECE_CELL); ix <= Math.floor((c.x + reach) / PIECE_CELL); ix++) {
+      for (let iz = Math.floor((c.z - reach) / PIECE_CELL); iz <= Math.floor((c.z + reach) / PIECE_CELL); iz++) {
+        const key = cellKey(ix, iz);
+        const cell = grid.get(key);
+        if (cell) cell.push(c);
+        else grid.set(key, [c]);
+      }
+    }
+  }
+  return (x, z) => grid.get(cellKey(Math.floor(x / PIECE_CELL), Math.floor(z / PIECE_CELL))) ?? [];
 }
 
 /** The farthest (m) of one kind, and where. */
@@ -121,12 +176,25 @@ export function prefabGap(id: PrefabId): { pieces: number; inward: Worst; outwar
     all.set(t, at);
     at += t.length;
   }
+  const cosines = pieces.map((c) => Math.cos(c.yaw));
+  const sines = pieces.map((c) => Math.sin(c.yaw));
+  /** Whether a piece other than `skip` lies within `limit` m of the point: only pieces whose circumscribed circle reaches it are measured (`r`, exact for a prop piece). */
+  const pieceWithin = (x: number, y: number, z: number, limit: number, skip = -1): boolean => {
+    for (let i = 0; i < pieces.length; i++) {
+      const c = pieces[i]!;
+      const reach = c.r + limit + 1e-6;
+      if (i === skip || (x - c.x) ** 2 + (z - c.z) ** 2 > reach * reach) continue;
+      if (gap(c, x, y, z, cosines[i], sines[i]) <= limit) return true;
+    }
+    return false;
+  };
   const inward: Worst = { d: 0, at: "" };
   // Drawn points over the ground only: what stands under it is never seen or met.
   for (const [x, y, z] of drawnPoints(all)) {
-    if (y < 0) continue;
+    // A piece within the worst so far: this point is no worse than it.
+    if (y < 0 || pieceWithin(x, y, z, inward.d)) continue;
     let d = Infinity;
-    for (const c of pieces) d = Math.min(d, gap(c, x, y, z));
+    for (let i = 0; i < pieces.length; i++) d = Math.min(d, gap(pieces[i]!, x, y, z, cosines[i], sines[i]));
     if (d > inward.d) {
       inward.d = d;
       inward.at = `(${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)})`;
@@ -145,7 +213,7 @@ export function prefabGap(id: PrefabId): { pieces: number; inward: Worst; outwar
       const x = c.x + u * cs + w * sn;
       const z = c.z - u * sn + w * cs;
       for (const y of ys) {
-        if (pieces.some((o, i) => i !== k && gap(o, x, y, z) < 1e-9)) continue;
+        if (pieceWithin(x, y, z, 1e-9, k)) continue;
         const d = meshGap(all, x, y, z, REACH);
         if (d > outward.d) {
           outward.d = d;

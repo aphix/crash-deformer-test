@@ -6,7 +6,7 @@ import { colliderSolids, courseSolids } from "../present/ragdoll-solids.ts";
 import { Mesher } from "../present/track-mesh.ts";
 import { addWalls } from "../present/track-structures.ts";
 import { PREFAB_IDS, PREFABS, type PrefabId } from "./catalog.ts";
-import { BAND, gap, meshGap, prefabGap, triangles, type P3 } from "./collider-drawn.test-util.ts";
+import { BAND, gap, meshGap, pieceGrid, prefabGap, triangles, type P3 } from "./collider-drawn.test-util.ts";
 import { placeProps, propColliders, solidsOf } from "./placements.ts";
 import { Track } from "./track.ts";
 import { parseTrack } from "./track-schema.ts";
@@ -98,9 +98,10 @@ describe("given each course's drawn walls (`addWalls`) and its wall colliders (`
 
     it(`when every vertex of the ${course.id} course's drawn walls is measured against the colliders, then none stands more than ${WALL_IN} m out of them`, () => {
       let worst = { d: 0, at: "" };
+      const near = pieceGrid(pieces, WALL_IN);
       for (let i = 0; i < tris.length; i += 3) {
         let d = Infinity;
-        for (const c of pieces) if (Math.hypot(c.x - tris[i]!, c.z - tris[i + 2]!) < c.r + WALL_IN) d = Math.min(d, gap(c, tris[i]!, tris[i + 1]!, tris[i + 2]!));
+        for (const c of near(tris[i]!, tris[i + 2]!)) if (Math.hypot(c.x - tris[i]!, c.z - tris[i + 2]!) < c.r + WALL_IN) d = Math.min(d, gap(c, tris[i]!, tris[i + 1]!, tris[i + 2]!));
         if (d !== Infinity && d > worst.d) worst = { d, at: `(${tris[i]!.toFixed(2)}, ${tris[i + 1]!.toFixed(2)}, ${tris[i + 2]!.toFixed(2)})` };
       }
       assert.ok(worst.d <= WALL_IN, `a drawn wall vertex at ${worst.at} is ${worst.d.toFixed(3)} m outside every collider`);
