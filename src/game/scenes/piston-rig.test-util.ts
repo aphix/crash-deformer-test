@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { PISTON, PISTON_IDS, PistonHead, PistonRig, type PistonConfig, type PistonId } from "./piston-rig.ts";
 import type { MassNode } from "../deform/deform-rig.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** Piston shot harness for the piston, skin and contact-parity suites: fire one shot, measure it. Not a test file itself. */
 
@@ -203,7 +204,7 @@ export function firePiston(car: DeformableCar, id: PistonId, shot: PistonShot = 
     car.speed = u;
     car.sampleMotion();
   } else rig.fire(id);
-  const frame = 1 / 60;
+  const frame = 1 / FRAME_HZ;
   const after = shot.after ?? 1.5;
   let since = 0;
   for (let f = 0; f < 60 * 20; f++) {

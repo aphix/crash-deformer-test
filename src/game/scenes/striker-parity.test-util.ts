@@ -6,6 +6,7 @@ import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { PLATE } from "./compactor.ts";
 import { JerseyBarrier } from "./engine-props.ts";
 import { firePiston } from "./piston-rig.test-util.ts";
+import { QUIET_HZ } from "../kernel/constants.ts";
 
 /**
  * One car, one hard flat face, one closing speed, delivered by every striker the scenes have (docs/UNIFIED_CONTACT.md 13): the
@@ -18,7 +19,7 @@ import { firePiston } from "./piston-rig.test-util.ts";
 const SQUASH = 0.32;
 /** Start the car 6 m from the struck face so no striker's approach is in the measurement. */
 const RUN_UP = 6;
-const SLICE = 1 / 80;
+const SLICE = 1 / QUIET_HZ;
 const SECONDS = 4;
 /** The piston's mass (kg): 23 times the car's, so it is nearly the unmoving face the slab is. */
 export const PISTON_KG = 20000;

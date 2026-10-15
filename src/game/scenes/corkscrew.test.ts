@@ -9,8 +9,9 @@ import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { droop } from "../vehicle/car-suspension.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const DEG = 180 / Math.PI;
 
 type Run = { air: number; landRoll: number; upY: number; dip: number; rest: "wheels" | "roof" | "side" };

@@ -7,11 +7,12 @@ import { TRACK_ID } from "../world/constants.ts";
 import { STRIKE_SPEED } from "./figure-strike.ts";
 import { FIRE_EVERY, GUARD_AT_POST, GUARD_DEPLOY_S, GUARD_DOWN, GUARD_IN, KILL_HITS_MIN, KILL_HITS_SPREAD, LawnGuard, NO_TARGET, SHOT_RING } from "./lawn-guard.ts";
 import { KILL_WINDOW_S } from "./lawn-guard.test-util.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /** The National Mall's White House grounds (`TrackJson.guards`). */
 const spec = TRACKS.map((j) => parseTrack(j)).find((t) => t.id === TRACK_ID.nationalMall)!.guards!;
 /** A fixed step at the race's finest slice. */
-const STEP = 1 / 240;
+const STEP = 1 / FINE_HZ;
 /** A spot on the North Lawn, between the house and Pennsylvania Avenue, and one out on the Ellipse's road past the south fence. */
 const NORTH_LAWN = { x: -1000, z: -1090 };
 const OFF_GROUNDS = { x: -1000, z: -760 };

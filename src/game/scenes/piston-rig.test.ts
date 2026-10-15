@@ -6,6 +6,7 @@ import { regionCrushBands } from "../kernel/physics-core.js";
 import { firePiston, pistonLocality, PISTON_FAR, PISTON_STRUCK, type PistonShot, type PistonShotResult } from "./piston-rig.test-util.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { QUIET_HZ } from "../kernel/constants.ts";
 
 /**
  * Piston rig: eight impactors around a parked car (docs/PISTON_RIG.md).
@@ -372,9 +373,9 @@ describe("given a shape-deform-mode car at squash setting 0.32 and at 0.4, struc
       let drop = 0;
       for (let f = 0; f < 60 * 4; f++) {
         for (let s = 0; s < 2; s++) {
-          rig.step(1 / 80);
-          car.afterContacts(1 / 80);
-          car.stepBreakage(1 / 80);
+          rig.step(1 / QUIET_HZ);
+          car.afterContacts(1 / QUIET_HZ);
+          car.stepBreakage(1 / QUIET_HZ);
         }
         car.updateSkin();
         const touching = rig.heads.some((h) => h.touching);

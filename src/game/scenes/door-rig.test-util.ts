@@ -1,6 +1,7 @@
 import type { DeformableCar } from "../vehicle/car.ts";
 import { applyDrive, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { DoorRig, type DoorScenario, type RamShot } from "./door-rig.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** Brakes off, no thrust: a freewheeling car (the road's rolling and air drag and the tyres' grip are all that act on it). */
 const NEUTRAL: DriveInput = { ...idleDrive(), neutral: true };
@@ -22,7 +23,7 @@ export function fireRam(
   rig.shape = opts.shape ?? null;
   rig.carMoves = opts.carMoves ?? false;
   rig.fire(scenario, opts.side ?? 1, opts.kph, opts.kg);
-  const dt = 1 / 60;
+  const dt = 1 / FRAME_HZ;
   for (let t = 0; t < 30 && rig.phase !== "idle"; t += dt) {
     if (opts.tyres) tyresStep([car], dt);
     car.integrate(dt);

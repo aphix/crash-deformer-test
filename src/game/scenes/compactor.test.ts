@@ -7,6 +7,7 @@ import { TYRE_R } from "../deform/deform-state.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import type { StreamedDeformation } from "../deform/streamed-deform.ts";
 import { forModes } from "../vehicle/test-support.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 function travelOf(d: StreamedDeformation, name: string): number {
   const m = d.masses.find((n) => n.name === name);
@@ -453,9 +454,9 @@ describe("given a shape-deform-mode car at squash setting 0.32 and at 0.4, press
       let drop = 0;
       let worst = "";
       for (let f = 0; f < 120; f++) {
-        r.step(1 / 60, COMPACTOR.maxFace);
-        car.afterContacts(1 / 60);
-        car.stepBreakage(1 / 60);
+        r.step(1 / FRAME_HZ, COMPACTOR.maxFace);
+        car.afterContacts(1 / FRAME_HZ);
+        car.stepBreakage(1 / FRAME_HZ);
         car.updateSkin();
         for (const [i, m] of d.masses.entries()) {
           if (at[i]! - crush(m) > drop) {

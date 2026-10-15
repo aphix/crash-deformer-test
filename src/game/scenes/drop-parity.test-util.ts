@@ -5,6 +5,7 @@ import { armSolids, Surface } from "../world/surfaces.ts";
 import { carState } from "./contact-parity.test-util.ts";
 import { firePiston, fitRigid, PISTON_FAR } from "./piston-rig.test-util.ts";
 import { PISTON, type PistonId } from "./piston-rig.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * A car dropped onto each point the Piston scene's rams strike, set against the ram's own hit
@@ -26,7 +27,7 @@ import { PISTON, type PistonId } from "./piston-rig.ts";
  * at most 0.3 s: later motion (a car toppling off its corner, settling) is not part of the hit.
  */
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** The crush window never runs longer than this after first touch (s). */
 const WINDOW_CAP = 0.3;
 /** The window ends once the deepest particle has not sunk a further `GROW_MM` for this long (s): the crush has peaked. */

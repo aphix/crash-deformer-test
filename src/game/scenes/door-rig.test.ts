@@ -6,6 +6,9 @@ import type { DoorScenario, RamShot } from "./door-rig.ts";
 import { fireRam } from "./door-rig.test-util.ts";
 import { assertSameDigest } from "../vehicle/test-support.ts";
 
+/** The door swing integrates at its own 120 Hz, a finer step than the quiet one: the test pins one second of it, not the shipped step. */
+const SWING_HZ = 120;
+
 /**
  * Door/mirror knock scenes (docs/DOOR_RIG.md, sketch docs/door-mirror-sketch.png). A ram on a lane
  * beside a parked car: A grazes the shut door's mirror, B drives the open door past its stop,
@@ -90,7 +93,7 @@ describe("given a car's right door swung from half a radian open at a chosen ope
     const car = makeCar();
     car.setDoorOpen(1, theta);
     car.doorHinge(1).omega = omega;
-    for (let i = 0; i < 120; i++) car.swingDoors(1 / 120);
+    for (let i = 0; i < SWING_HZ; i++) car.swingDoors(1 / SWING_HZ);
     return car;
   };
 
