@@ -41,7 +41,7 @@ export const PROP_FLOATS = 8;
 type Triple = readonly [number, number, number];
 type Quad = readonly [number, number, number, number];
 
-export interface ThrowMessage {
+interface ThrowMessage {
   type: "throw";
   id: number;
   car: number;
@@ -76,7 +76,7 @@ export interface CageMessage {
   step: number;
 }
 
-export interface FrameMessage {
+interface FrameMessage {
   type: "frame";
   seq: number;
   epoch: number;

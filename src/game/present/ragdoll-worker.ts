@@ -5,7 +5,6 @@ import { Track } from "../world/track.ts";
 import { RagdollSystem, type Throw } from "./engine-ragdoll.ts";
 import { RemoteCar } from "./ragdoll-car-view.ts";
 import { SLOTS } from "./ragdoll-config.ts";
-import type { PropDraw } from "./ragdoll-props.ts";
 import { PURSE_BLOCK } from "./ragdoll-purse.ts";
 import { DOLL_FLOATS, type FromWorker, type ResultMessage, type ToWorker } from "./ragdoll-wire.ts";
 
@@ -16,7 +15,7 @@ import { DOLL_FLOATS, type FromWorker, type ResultMessage, type ToWorker } from 
  */
 
 /** The props' draw here: where each knocked prop was placed since the last answer. */
-class PropRecorder implements PropDraw {
+class PropRecorder {
   private placed: number[] = [];
   /** Every prop went back on its spot since the last answer (the places before it are void). */
   restored = false;
@@ -41,9 +40,8 @@ const recorder = new PropRecorder();
 const spawned: { id: number; slot: number }[] = [];
 const cars: RemoteCar[] = [];
 const early: ToWorker[] = [];
-let system: RagdollSystem | null = null;
-let epoch = 0;
-let stepsAnswered = 0;
+/** The world, once it has loaded; the epoch of the run the main thread last reset to; the `world.step()` calls already reported. */
+const state: { system: RagdollSystem | null; epoch: number; stepsAnswered: number } = { system: null, epoch: 0, stepsAnswered: 0 };
 
 function post(message: FromWorker, transfer: Transferable[] = []): void {
   self.postMessage(message, { transfer });
@@ -55,13 +53,13 @@ function answer(world: RagdollSystem, seq: number): void {
   const lastSlot = world.snapshot(dolls, purses);
   const props = recorder.take();
   const stats = world.stats;
-  const stepMs = new Float64Array(stats.steps - stepsAnswered);
-  for (let n = stepsAnswered; n < stats.steps; n++) stepMs[n - stepsAnswered] = stats.log[n % stats.log.length]!;
-  stepsAnswered = stats.steps;
+  const stepMs = new Float64Array(stats.steps - state.stepsAnswered);
+  for (let n = state.stepsAnswered; n < stats.steps; n++) stepMs[n - state.stepsAnswered] = stats.log[n % stats.log.length]!;
+  state.stepsAnswered = stats.steps;
   const result: ResultMessage = {
     type: "result",
     seq,
-    epoch,
+    epoch: state.epoch,
     dolls,
     alpha: world.drawAlpha,
     lastSlot,
@@ -103,7 +101,7 @@ function handle(world: RagdollSystem, m: ToWorker): void {
     setGround(track.ground());
     world.setCourse(track, placeProps(track), recorder);
   } else if (m.type === "reset") {
-    epoch = m.epoch;
+    state.epoch = m.epoch;
     world.reset();
     cars.length = 0;
     spawned.length = 0;
@@ -124,12 +122,12 @@ function handle(world: RagdollSystem, m: ToWorker): void {
 }
 
 function hear(m: ToWorker): void {
-  if (system === null) {
+  if (state.system === null) {
     early.push(m);
     return;
   }
   try {
-    handle(system, m);
+    handle(state.system, m);
   } catch (err) {
     post({ type: "failed", message: err instanceof Error ? (err.stack ?? err.message) : String(err) });
   }
@@ -141,7 +139,7 @@ try {
   const world = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
   world.host();
   await world.preload();
-  system = world;
+  state.system = world;
   post({ type: "ready" });
   for (const m of early.splice(0)) hear(m);
 } catch (err) {

@@ -39,7 +39,7 @@ export type RagCar = Pick<DeformableCar, "group" | "velocity" | "speed" | "falli
 };
 
 /** A car as the world's thread has it: what the main thread sent with the last frame (`setFrame`) and its last cage (`setCage`). */
-export class RemoteCar implements RagCar {
+export class RemoteCar {
   readonly group = new THREE.Group();
   readonly velocity = new THREE.Vector3();
   speed = 0;

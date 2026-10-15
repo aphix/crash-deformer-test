@@ -60,15 +60,22 @@ function glassAfterFrame(arrive: number, frames: number): number[] {
   return seen;
 }
 
+/** The two sequences are as long and agree at every index; a failure names the first index they differ at and both values. */
+function assertSame(actual: readonly number[], expected: readonly number[], label: string): void {
+  assert.equal(actual.length, expected.length, `${label}: lengths`);
+  const at = actual.findIndex((value, index) => value !== expected[index]);
+  assert.equal(at, -1, `${label}: first difference at ${at}: ${actual[at]} against ${expected[at]}`);
+}
+
 describe("given the dummies' world in a worker whose answer to frame 1 struck a car's windshield", () => {
   it("when the answer arrives at different times, then the pane is struck on the car at the same frame, LAG frames after the one struck in", () => {
     const early = glassAfterFrame(0, 5);
     const justInTime = glassAfterFrame(LAG - 1, 5);
     const sim = glassAfterFrame(-1, 5);
     const expected = [0, 0, CRACKED, CRACKED, CRACKED];
-    assert.deepEqual(early, expected, "answer in before frame 2");
-    assert.deepEqual(justInTime, expected, "answer in before frame LAG");
-    assert.deepEqual(sim, expected, "answer in only when the sim waited for it");
+    assertSame(early, expected, "answer in before frame 2");
+    assertSame(justInTime, expected, "answer in before frame LAG");
+    assertSame(sim, expected, "answer in only when the sim waited for it");
   });
 });
 
@@ -113,9 +120,9 @@ describe("given the same scripted strike of a car's windshield in the dummies' w
     const inline = await inlineGlassAfterFrame(5);
     const worker = glassAfterFrame(0, 5);
     const stalled = glassAfterFrame(-1, 5);
-    assert.deepEqual(inline.glass, [0, 0, CRACKED, CRACKED, CRACKED], "main thread's own world");
-    assert.deepEqual(inline.glass, worker, "worker, answer early");
-    assert.deepEqual(inline.glass, stalled, "worker, sim stalled for the answer");
+    assertSame(inline.glass, [0, 0, CRACKED, CRACKED, CRACKED], "main thread's own world");
+    assertSame(inline.glass, worker, "worker, answer early");
+    assertSame(inline.glass, stalled, "worker, sim stalled for the answer");
     assert.match(inline.digest, /^1 /, "the car ends with the windshield cracked and sits where it was");
   });
 });
