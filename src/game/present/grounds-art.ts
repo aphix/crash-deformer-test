@@ -7,9 +7,9 @@ import type { GuardSpec } from "../world/track-schema.ts";
 import type { DriverLook } from "./driver-look.ts";
 import { GuardSquad, People, VIP_SLOT, VipEscort } from "./people.ts";
 
-/** What the grounds' people need from the race each frame: the sparks of a hit, and the dummies' world for the VIP's throw out of his car (`throwPassenger`) and where a car runs him down (`throwFigure`). */
+/** What the grounds' people need from the race each frame: the sparks of a shot's hit (at the car's surface, off the face's `normal`), and the dummies' world for the VIP's throw out of his car (`throwPassenger`) and where a car runs him down (`throwFigure`). */
 export type GroundsHost = {
-  sparks: (at: THREE.Vector3, normal: THREE.Vector3, impulse: number) => void;
+  sparks: (at: THREE.Vector3, normal: THREE.Vector3) => void;
   throwPassenger: (car: number, look: DriverLook) => void;
   throwFigure: (strike: FigureStrike) => void;
 };

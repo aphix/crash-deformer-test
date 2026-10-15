@@ -95,3 +95,46 @@ describe("given a clip that lists the figures its cars ran down", () => {
     });
   }
 });
+
+const SQUAD = makeClip().clip.squad!;
+const refusedSquads = [
+  { it: "when a decision names a car the clip does not carry", squad: { ...SQUAD, events: [{ step: 3, kind: 2, a: 0, b: 2, c: 1 }] }, expectedMessage: "clip squad event" },
+  { it: "when a decision names a guard the squad does not have", squad: { ...SQUAD, events: [{ step: 3, kind: 3, a: 3, b: 0, c: 0 }] }, expectedMessage: "clip squad event" },
+  { it: "when a decision is not a kind", squad: { ...SQUAD, events: [{ step: 3, kind: 4, a: 0, b: 0, c: 0 }] }, expectedMessage: "clip squad event" },
+  { it: "when a decision comes after the clip's last step", squad: { ...SQUAD, events: [{ step: 600, kind: 0, a: 1, b: 0, c: 0 }] }, expectedMessage: "clip squad event" },
+  { it: "when a decision comes before the one listed ahead of it", squad: { ...SQUAD, events: [{ step: 20, kind: 0, a: 1, b: 0, c: 0 }, { step: 19, kind: 0, a: 0, b: 0, c: 0 }] }, expectedMessage: "clip squad event" },
+  { it: "when the squad's state holds a mode no guard has", squad: { ...SQUAD, state: Float32Array.from(SQUAD.state, (v, i) => (i === 2 ? 9 : v)) }, expectedMessage: "clip squad state" },
+  { it: "when the squad's state names a target car the clip does not carry", squad: { ...SQUAD, state: Float32Array.from(SQUAD.state, (v, i) => (i === 1 ? 2 : v)) }, expectedMessage: "clip squad state" },
+  { it: "when the squad lists one decision more than the cap", squad: { ...SQUAD, events: Array.from({ length: 2049 }, () => ({ step: 3, kind: 0, a: 1, b: 0, c: 0 })) }, expectedMessage: "clip squad events" },
+] as const;
+
+describe("given a clip that carries the guard squad", () => {
+  it("when it is written and read back, then its size is the bytes written and the squad's state and decisions come back bit for bit", () => {
+    const { clip, car } = makeClip();
+    const w = new Writer(clipBytes(clip));
+    writeClip(w, clip);
+    assert.equal(w.off, clipBytes(clip), "bytes written");
+    const got = readClip(new Reader().reset(w.done()), carLayout(car));
+    assert.equal(got.squad!.events.length, 4, "decisions decoded");
+    sameClip(got, clip);
+  });
+
+  it("when the course has no squad, then the clip carries none and reads back the same", () => {
+    const { clip, car } = makeClip();
+    const bare = { ...clip, squad: null };
+    const w = new Writer(clipBytes(bare));
+    writeClip(w, bare);
+    assert.equal(w.off, clipBytes(bare), "bytes written");
+    assert.equal(readClip(new Reader().reset(w.done()), carLayout(car)).squad, null);
+  });
+
+  for (const testCase of refusedSquads) {
+    it(`${testCase.it}, then the decoder refuses the clip`, () => {
+      const { clip, car } = makeClip();
+      const bad = { ...clip, squad: testCase.squad as HighlightClip["squad"] };
+      const w = new Writer(clipBytes(bad));
+      writeClip(w, bad);
+      assert.throws(() => readClip(new Reader().reset(w.done()), carLayout(car)), { name: "RangeError", message: testCase.expectedMessage });
+    });
+  }
+});

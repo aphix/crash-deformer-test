@@ -63,6 +63,8 @@ interface RaceHost {
   leave(): void;
   /** Sparks / debris at a wall or prop hit. */
   hitFx(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void;
+  /** A guard's shot hit a car: a shower of sparks off its surface at `contact`, off the face's `normal` (no throttle: one poof a hit; headless: nothing). */
+  shotFx(contact: THREE.Vector3, normal: THREE.Vector3): void;
   /** A wall or prop hit car `i`, closing at `closing` m/s: its view shakes if it is the watched car. */
   hit(i: number, closing: number): void;
   /** Knockable prop `index` knocked off its spot by car `car` at (vx, vy, vz) m/s: drawn flying and tumbling (cosmetic; headless: nothing). */

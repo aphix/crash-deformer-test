@@ -117,6 +117,7 @@ export function makeWorld(survivalCourse?: unknown): World {
       w.leaves++;
     },
     hitFx: () => {},
+    shotFx: () => {},
     hit: () => {},
     knockProp: (index, car, vx, vy, vz) => w.onKnock?.(index, car, vx, vy, vz),
     buildArt: () => null,

@@ -421,12 +421,13 @@ cage's plan box (as crushed) grown by 0.3 m meets a guard, standing, running out
 hands at his sides, in the dress he wore, at the car's velocity with a lift, a kick off its centre line (the car goes on at speed whatever it hit, so he is thrown
 clear of its path) and a tumble: the thrown drivers' own launch (`RagdollSystem.throwFigure`: the worker's world on a course, ragdoll-worker.ts, or this thread's). The
 squad's guards are SIM state (`LawnGuard.step`: where each is, the strike, once per guard per race), so a netplay host decides it on its fixed step and a highlight clip
-that carries the striking car throws him again at that step (`ClipStrike`, `REPLAY_VERSION` 89). A guard run down is out of the squad until the next race (a restart or
+that carries the striking car throws him again at that step (`ClipStrike`, `REPLAY_VERSION` 89), and carries the whole squad (`ClipSquad`, `REPLAY_VERSION` 91: its state at the clip's start and its decisions, docs/HIGHLIGHTS.md) so the replay draws the guards standing, running out and firing as the race had them. A guard run down is out of the squad until the next race (a restart or
 the Konami reset: `LawnGuard.reset`, standing again at his post once the alarm calls him), never the shooter, and the squad's rate falls with the guns left
 (a shot every 0.12 s at full strength, 0.12 s × guards ÷ guards standing). The car feels nothing from him (an 80 kg man against a car of a tonne or more would take under 8 % of
-its speed, under what a player can tell from the throttle); like every dummy he reaches the sim only through a torso striking another car's pane. A netplay client never steps the squad, so it
-sees neither the standing guards nor the thrown ones, as before; the VIP is each browser's own, so a car that runs him down on his walk (the player's, or
-any on that browser's field) throws him on that browser alone (`VipEscort`).
+its speed, under what a player can tell from the throttle); like every dummy he reaches the sim only through a torso striking another car's pane. A netplay client never steps the squad, so in the race it
+sees neither the standing guards nor the thrown ones, as before (its results reel draws them from the clips); the VIP is each browser's own, so a car that runs him down on his walk (the player's, or
+any on that browser's field) throws him on that browser alone (`VipEscort`). A shot that hits throws the grind's spark shower (`CrashEngine.sparkShower`, one poof a hit, no throttle: `RaceHost.shotFx`) off the car's body, where the shot's tracer ends: the ray from the muzzle to the aim point enters the car's box (its cage's plan box between keel and crown)
+and walks down the cage's height field to the first point inside the body (`present/people.ts` `onBody`), so the tracer and the sparks start on the car's surface facing the guard, not inside it. A miss draws its tracer wide of the car and no sparks.
 
 Havana (`havana`, Survival only) is off the menu: [`SURVIVAL.md`](SURVIVAL.md). A course with `survival` anchors is a Survival course (Havana, the National Mall): `RaceField.survivalCourses`. Race's menu lists race courses and nothing of Survival; Survival's own setup menu (the bottom bar's Survival) lists the Survival courses.
 

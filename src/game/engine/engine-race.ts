@@ -20,6 +20,7 @@ import { RaceHudLayer } from "./engine-race-hud.ts";
 import { LawnGuard } from "../scenes/lawn-guard.ts";
 import type { GroundsHost } from "../present/grounds-art.ts";
 import type { Track } from "../world/track.ts";
+import type { GuardSpec } from "../world/track-schema.ts";
 
 /** Seconds between traffic-bubble passes. */
 const BUBBLE_EVERY = 0.25;
@@ -48,7 +49,7 @@ export class RaceDirector extends RaceHudLayer {
   private guardOn: Track | null = null;
   /** What the grounds' people draw with: sparks at a hit, the VIP's throw out of his car and where a car runs him down. */
   private readonly grounds: GroundsHost = {
-    sparks: (at, normal, impulse) => this.host.hitFx(at, normal, impulse),
+    sparks: (at, normal) => this.host.shotFx(at, normal),
     throwPassenger: (car, look) => this.host.throwPassenger(car, look),
     throwFigure: (strike) => this.host.throwFigure(strike),
   };
@@ -66,6 +67,11 @@ export class RaceDirector extends RaceHudLayer {
     }
   }
 
+  /** The course's guarded grounds (`TrackJson.guards`), for a replay's squad to be stepped on; null on a course without. */
+  guardSpec(): GuardSpec | null {
+    return this.track?.json.guards ?? null;
+  }
+
   /** A run starts: the course's guards (made once per course) back inside on a fresh seed, and its secret back in. */
   private armGuard(): void {
     const tr = this.track;
@@ -74,6 +80,7 @@ export class RaceDirector extends RaceHudLayer {
       this.guard = tr?.json.guards ? new LawnGuard(tr.json.guards, MAX_CARS) : null;
     }
     this.guard?.reset(this.seed);
+    this.recorder.watchSquad(this.guard);
     this.stowSecret();
   }
 
@@ -649,6 +656,8 @@ export class RaceDirector extends RaceHudLayer {
         this.host.throwFigure(strikes[k]!);
         this.recorder.strike(strikes[k]!);
       }
+      const events = this.guard.takeEvents();
+      for (let k = 0; k < events.length; k++) this.recorder.squadEvent(events[k]!);
     }
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
@@ -696,14 +705,14 @@ export class RaceDirector extends RaceHudLayer {
     }
   }
 
-  /** Once per rendered frame. */
-  frame(wallDt: number): void {
+  /** Once per rendered frame. `guard`: the squad the grounds draw (default the race's own, none on a netplay client); a reel plays its clip's (`ReelDirector.squad`), null for none. */
+  frame(wallDt: number, guard: LawnGuard | null = this.mirrored ? null : this.guard): void {
     if (!this.active) return;
     const s = this.session;
     if (this.art) this.art.setLights(s ? s.lights : 0);
     if (this.art?.grounds) {
       const player = s && this.entrants[this.self]?.kind === "player" ? this.self : -1;
-      this.art.grounds.frame(wallDt, this.mirrored ? null : this.guard, this.secretOut, this.host.live(), player, this.grounds);
+      this.art.grounds.frame(wallDt, guard, this.secretOut, this.host.live(), player, this.grounds);
     }
     if (s && s.phase === "finished" && (this.menu == null || this.menu === "dead")) {
       this.overFor += wallDt;

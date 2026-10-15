@@ -24,6 +24,21 @@ export const NO_TARGET = -1;
 /** Shots the ring keeps for the art to draw (`shots` counts them all): at `FIRE_EVERY` it covers over 7 s. */
 export const SHOT_RING = 64;
 
+/**
+ * What the squad decides, which a highlight clip keeps to draw it again (docs/HIGHLIGHTS.md "Guards"): `SQUAD_ALARM` (`a`: 1 raised, 0
+ * lowered), `SQUAD_TARGET` (`a`: the car it fires on, `NO_TARGET` for none), `SQUAD_SHOT` (`a`: the guard, `b`: the car, `c`: 1 for a hit)
+ * and `SQUAD_DOWN` (`a`: the guard a car ran down). Everything else the squad does (who runs where, who aims) follows from these and
+ * the guards' state (`snapshot`), so a replay steps it with `apply` and `follow` and no car but the ones it draws.
+ */
+export const SQUAD_ALARM = 0;
+export const SQUAD_TARGET = 1;
+export const SQUAD_SHOT = 2;
+export const SQUAD_DOWN = 3;
+export type SquadEvent = { kind: number; a: number; b: number; c: number };
+/** The floats `LawnGuard.snapshot` writes for `count` guards: the alarm clock, the target, then per guard his mode, place and facing. */
+export const squadStateLength = (count: number): number => 2 + 5 * count;
+const NO_EVENTS: readonly SquadEvent[] = [];
+
 /** A guard's state (`LawnGuard.mode`): inside the house, running out of it, at his post aiming, running back in, or run down by a car and out of the squad until the next race. */
 export const GUARD_IN = 0;
 export const GUARD_RUNNING_OUT = 1;
@@ -91,6 +106,7 @@ export class LawnGuard {
   /** Guards on their way out or at their posts (`GUARD_RUNNING_OUT`, `GUARD_AT_POST`): the guns the squad fires with. */
   private armed = 0;
   private struck: FigureStrike[] = [];
+  private events: SquadEvent[] = [];
   private rand = mulberry32(0);
 
   constructor(spec: GuardSpec, maxCars: number) {
@@ -140,6 +156,7 @@ export class LawnGuard {
     this.shots = 0;
     this.armed = 0;
     this.struck = [];
+    this.events = [];
     this.mode.fill(GUARD_IN);
     this.hits.fill(0);
     for (let i = 0; i < this.lethal.length; i++) this.lethal[i] = this.rollLethal();
@@ -158,10 +175,87 @@ export class LawnGuard {
     return out;
   }
 
+  /** The squad's decisions since the last call, in the order they came (a shared empty array when there are none). */
+  takeEvents(): readonly SquadEvent[] {
+    if (this.events.length === 0) return NO_EVENTS;
+    const out = this.events;
+    this.events = [];
+    return out;
+  }
+
+  /** The alarm clock, the target and every guard's mode, place and facing into `out` (`squadStateLength` floats, float32 as a clip stores them). */
+  snapshot(out: Float32Array): void {
+    out[0] = this.alarm;
+    out[1] = this.target;
+    for (let i = 0, o = 2; i < this.mode.length; i++, o += 5) {
+      out[o] = this.mode[i]!;
+      out[o + 1] = this.guardX[i]!;
+      out[o + 2] = this.guardZ[i]!;
+      out[o + 3] = this.faceX[i]!;
+      out[o + 4] = this.faceZ[i]!;
+    }
+  }
+
+  /** The squad as `snapshot` left it, no shot yet drawn: a replay starts from it. */
+  restore(from: Float32Array): void {
+    this.alarm = from[0]!;
+    this.target = from[1]!;
+    this.shots = 0;
+    for (let i = 0, o = 2; i < this.mode.length; i++, o += 5) {
+      this.mode[i] = from[o]!;
+      this.guardX[i] = from[o + 1]!;
+      this.guardZ[i] = from[o + 2]!;
+      this.faceX[i] = from[o + 3]!;
+      this.faceZ[i] = from[o + 4]!;
+    }
+  }
+
+  /** A replay takes one decision the record kept for the step it is about to `follow` (`SquadEvent`; its cars are engine slots). */
+  apply(e: SquadEvent): void {
+    switch (e.kind) {
+      case SQUAD_ALARM:
+        this.alarm = e.a === 1 ? 0 : -1;
+        break;
+      case SQUAD_TARGET:
+        this.target = e.a;
+        break;
+      case SQUAD_SHOT: {
+        const k = this.shots % SHOT_RING;
+        this.shotGuard[k] = e.a;
+        this.shotCar[k] = e.b;
+        this.shotHit[k] = e.c;
+        this.shots++;
+        break;
+      }
+      case SQUAD_DOWN:
+        this.mode[e.a] = GUARD_DOWN;
+        break;
+    }
+  }
+
+  /**
+   * A replay's step of `dt` s after its decisions (`apply`): the alarm clock runs on and the guards move as `step` moves them, but no car
+   * runs one down (the record's `SQUAD_DOWN` did) and none is queued for a ragdoll (the clip's strikes throw those). `cars` by engine slot,
+   * holes for the cars the replay leaves out: a guard aiming at one keeps his facing.
+   */
+  follow(cars: readonly (DeformableCar | undefined)[], dt: number): void {
+    if (this.alarm >= 0) this.alarm += dt;
+    this.moveGuards(cars, dt, false);
+  }
+
   /** One fixed step of `dt` s, after the world moved the cars. */
   step(cars: readonly DeformableCar[], dt: number): void {
+    const raised = this.alarm >= 0;
+    const target = this.target;
     this.alert(cars, dt);
-    this.moveGuards(cars, dt);
+    if (raised !== this.alarm >= 0) this.note(SQUAD_ALARM, raised ? 0 : 1, 0, 0);
+    if (target !== this.target) this.note(SQUAD_TARGET, this.target, 0, 0);
+    this.moveGuards(cars, dt, true);
+  }
+
+  /** The squad decided something (`SquadEvent`): kept for `takeEvents`. */
+  private note(kind: number, a: number, b: number, c: number): void {
+    this.events.push({ kind, a, b, c });
   }
 
   /** The alarm, the target and the squad's fire for one step. */
@@ -200,7 +294,7 @@ export class LawnGuard {
   }
 
   /** One step of every guard on the lawn: called out by the alarm (two a beat) he runs to his post and turns to the target, once it is down he runs home; a car moving fast enough over him runs him down. */
-  private moveGuards(cars: readonly DeformableCar[], dt: number): void {
+  private moveGuards(cars: readonly (DeformableCar | undefined)[], dt: number, runsDownGuards: boolean): void {
     const target = this.target !== NO_TARGET ? cars[this.target] : undefined;
     this.armed = 0;
     for (let i = 0; i < this.mode.length; i++) {
@@ -228,7 +322,7 @@ export class LawnGuard {
         this.faceToward(i, target.group.position.x, target.group.position.z);
       }
       this.mode[i] = !called ? GUARD_RUNNING_IN : left >= ARRIVE ? GUARD_RUNNING_OUT : GUARD_AT_POST;
-      this.runOver(cars, i);
+      if (runsDownGuards) this.runOver(cars as readonly DeformableCar[], i);
       if (called && this.mode[i] !== GUARD_DOWN) this.armed++;
     }
   }
@@ -259,6 +353,7 @@ export class LawnGuard {
 
   private knockDown(i: number, carIndex: number, car: DeformableCar, groundY: number): void {
     this.mode[i] = GUARD_DOWN;
+    this.note(SQUAD_DOWN, i, 0, 0);
     this.struck.push(fell(car, carIndex, i, this.guardX[i]!, groundY, this.guardZ[i]!, this.faceX[i]!, this.faceZ[i]!, blankStrike()));
   }
 
@@ -294,6 +389,7 @@ export class LawnGuard {
     this.shotCar[k] = i;
     this.shotHit[k] = hit ? 1 : 0;
     this.shots++;
+    this.note(SQUAD_SHOT, this.shotGuard[k]!, i, hit ? 1 : 0);
     if (!hit) return;
     this.hits[i] = this.hits[i]! + 1;
     if (this.hits[i]! < this.lethal[i]!) return;

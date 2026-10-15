@@ -46,7 +46,7 @@ import { TrackArt } from "../present/track-art.ts";
 import { EngineGarage } from "./engine-garage.ts";
 import { GARAGE } from "../present/garage-art.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
-import { SMOKE_PUFF_HZ, SPARK_MIN_IMPULSE } from "./constants.ts";
+import { SHOT_SPARK_IMPULSE, SMOKE_PUFF_HZ, SPARK_MIN_IMPULSE } from "./constants.ts";
 import { FRAME_HZ } from "../kernel/constants.ts";
 import { firstMassContact } from "./car-contact-scan.ts";
 
@@ -145,6 +145,14 @@ export class CrashEngine extends EngineGarage {
     this.sparkAt = this.elapsedWall;
     this.sparks.poof(contact, normal, Math.min(56, 12 + impulse * 1.2) * this.fxDensity);
     if (impulse > 6) this.debris.burst(contact, normal, Math.min(40, impulse * 1.5) * this.fxDensity);
+  };
+  /** The spark shower of a contact closing at `impulse`: two cars grinding (`fixedStep`), and a guard's shot landing on a car (`shotFx`). */
+  private sparkShower(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void {
+    this.sparks.poof(contact, normal, Math.min(56, 18 + impulse * 0.8) * this.fxDensity);
+  }
+  /** A guard's shot landed on a car at `contact`: one shower a hit, on no throttle of its own (a car scraping at that moment must not swallow it), where the camera sees it. */
+  private readonly shotFx = (contact: THREE.Vector3, normal: THREE.Vector3): void => {
+    if (this.witness.sees(contact, FX_REACH.sparks)) this.sparkShower(contact, normal, SHOT_SPARK_IMPULSE);
   };
 
   constructor(canvas: HTMLCanvasElement, hudStore: HudStore, veil: HTMLElement) {
@@ -285,6 +293,7 @@ export class CrashEngine extends EngineGarage {
       leave: () => this.setScene("fleet"),
       watchCam: () => void (this.view.spec = "auto"),
       hitFx: this.hitFx,
+      shotFx: this.shotFx,
       throwPassenger: (car, look) => this.ragdolls.throwPassenger(car, look),
       throwFigure: (strike) => this.ragdolls.throwFigure(strike, this.live()),
       hit: (i, closing) => this.noteHit(i, closing),
@@ -308,7 +317,7 @@ export class CrashEngine extends EngineGarage {
     return new ReelDirector({
       carsOf: (clip) => clip.cars.map((c) => this.cars[c.slot]!),
       live: () => this.live(),
-      scene: { dress: (car) => this.dressCar(car), collide: (car, slot, h) => this.race.courseHit(car, slot, h), restore: (slot, mem, at) => this.race.remember(slot, mem, at), stored: (slot, x, z) => this.race.stored(slot, x, z), knocks: (bits) => this.race.knockTo(bits), blend: this.blend },
+      scene: { dress: (car) => this.dressCar(car), collide: (car, slot, h) => this.race.courseHit(car, slot, h), restore: (slot, mem, at) => this.race.remember(slot, mem, at), stored: (slot, x, z) => this.race.stored(slot, x, z), knocks: (bits) => this.race.knockTo(bits), guards: () => this.race.guardSpec(), blend: this.blend },
       resetProps: () => this.race.resetProps(),
       clear: () => this.clearLocal(),
       sight: (focus) => this.sceneSight(focus, true),
@@ -501,7 +510,7 @@ export class CrashEngine extends EngineGarage {
     this.net.frame(wallDt);
     // The reel's replay presents its own steps through the same blend (`ClipSim.present`, before the skins above): the world's pace has no step to show.
     if (!this.highlights.playing) this.blend.present(this.live(), this.pace.alpha);
-    if (this.race.active) this.race.frame(this.playing && !held ? wallDt : 0);
+    if (this.race.active) this.race.frame(this.playing && !held ? wallDt : 0, this.highlights.playing ? this.highlights.squad : undefined);
     const focus = this.highlights.playing ? this.highlights.focus() : null;
     if (focus) this.race.followSun(focus);
     this.updateCamera(wallDt);
@@ -680,7 +689,7 @@ export class CrashEngine extends EngineGarage {
       this.beginCinematic(contact, normal, impulse);
     } else if ((this.derbyMode || this.race.active) && contact && normal && impulse > SPARK_MIN_IMPULSE && this.elapsedWall - this.sparkAt > 0.16 && this.witness.sees(contact, FX_REACH.sparks)) {
       this.sparkAt = this.elapsedWall;
-      this.sparks.poof(contact, normal, Math.min(56, 18 + impulse * 0.8) * this.fxDensity);
+      this.sparkShower(contact, normal, impulse);
     }
   }
 

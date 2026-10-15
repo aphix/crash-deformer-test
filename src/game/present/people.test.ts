@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { launch, makeCar } from "../contact/crash-scenarios.test-util.ts";
 import type { FigureStrike } from "../scenes/figure-strike.ts";
-import { GUARD_DOWN, LawnGuard } from "../scenes/lawn-guard.ts";
+import { GUARD_DOWN, LawnGuard, SHOT_RING } from "../scenes/lawn-guard.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
@@ -12,6 +12,7 @@ import { setGround } from "../world/ground.ts";
 import type { DriverLook } from "./driver-look.ts";
 import { GroundsArt } from "./grounds-art.ts";
 import { GuardSquad, People, VipEscort, nukeFlash } from "./people.ts";
+import { drawnTriangles } from "../vehicle/drawn-body.test-util.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 import { FRAME_HZ } from "../kernel/constants.ts";
 
@@ -112,7 +113,7 @@ function lawn() {
       people.update(FRAME);
     }
   };
-  return { people, squad, guard, bullet, frames };
+  return { people, squad, guard, car, cars, bullet, frames };
 }
 
 /** Whether slot `slot` of the people's one mesh is drawn. */
@@ -156,6 +157,68 @@ describe("given the National Mall's guard squad, inside the house until the alar
     people.update(0.2);
     assert.equal(people.group.visible, false, "the shot is out");
     assert.ok(!people["tracers"].visible, "the tracer is out");
+  });
+
+  /** The squad out and aiming at the parked car, then one shot of guard 0's at it drawn on its own frame: where its tracer ended and the sparks asked for. */
+  function shotAtCar(hit: boolean) {
+    const { people, squad, guard, car, cars, frames } = lawn();
+    frames(3, false);
+    const k = guard.shots % SHOT_RING;
+    guard.shotGuard[k] = 0;
+    guard.shotCar[k] = 0;
+    guard.shotHit[k] = hit ? 1 : 0;
+    guard.shots++;
+    const sparked: { at: THREE.Vector3; normal: THREE.Vector3 }[] = [];
+    squad.frame(guard, cars, (at, normal) => void sparked.push({ at: at.clone(), normal: normal.clone() }));
+    const muzzle = people.muzzle(1, new THREE.Vector3()).clone();
+    const tracer = people["tracerAt"] as Float32Array;
+    const last = ((people["tracerNext"] as number) + 23) % 24;
+    return { car, sparked, muzzle, tracerEnd: new THREE.Vector3().fromArray(tracer, last * 6 + 3) };
+  }
+
+  /** Distance (m) along the ray from `o` along `d` to the first of the triangles (9 numbers each: Moller-Trumbore); Infinity for none. */
+  function firstTriangle(tris: Float32Array, o: THREE.Vector3, d: THREE.Vector3): number {
+    const edge1 = new THREE.Vector3();
+    const edge2 = new THREE.Vector3();
+    const p = new THREE.Vector3();
+    const rel = new THREE.Vector3();
+    const q = new THREE.Vector3();
+    let best = Infinity;
+    for (let i = 0; i < tris.length; i += 9) {
+      edge1.fromArray(tris, i + 3).sub(rel.fromArray(tris, i));
+      edge2.fromArray(tris, i + 6).sub(rel.fromArray(tris, i));
+      const det = edge1.dot(p.crossVectors(d, edge2));
+      if (Math.abs(det) < 1e-12) continue;
+      rel.copy(o).sub(q.fromArray(tris, i));
+      const u = rel.dot(p) / det;
+      q.crossVectors(rel, edge1);
+      const v = d.dot(q) / det;
+      const t = edge2.dot(q) / det;
+      if (u >= 0 && v >= 0 && u + v <= 1 && t >= 0) best = Math.min(best, t);
+    }
+    return best;
+  }
+
+  it("when a hit shot lands on a car, then the sparks start on the car's surface facing the shooter, where its tracer ends, not inside the body", () => {
+    const { car, sparked, muzzle, tracerEnd } = shotAtCar(true);
+    assert.equal(sparked.length, 1, "one shower for the hit");
+    const { at, normal } = sparked[0]!;
+    const inside = car.group.position.clone().add(new THREE.Vector3(0, 0.7, 0));
+    assert.ok(muzzle.distanceTo(at) < muzzle.distanceTo(inside) - 0.5, `the point is ${(muzzle.distanceTo(inside) - muzzle.distanceTo(at)).toFixed(2)} m nearer the shooter than the car's middle`);
+    assert.ok(normal.dot(muzzle.clone().sub(at)) > 0 && Math.abs(normal.length() - 1) < 1e-6, "the face's unit normal points at the shooter");
+    // On the body: a ray from 5 cm off the point straight back at the car meets a drawn triangle of its body within a few cm of that.
+    const turn = car.group.quaternion.clone().invert();
+    const from = at.clone().addScaledVector(normal, 0.05).sub(car.group.position).applyQuaternion(turn);
+    const way = normal.clone().negate().applyQuaternion(turn);
+    const t = firstTriangle(drawnTriangles(car), from, way);
+    assert.ok(Math.abs(t - 0.05) < 0.05, `the body is ${t.toFixed(3)} m along the ray from 5 cm off the point`);
+    assert.ok(tracerEnd.distanceTo(at) < 1e-4, "the tracer ends where the sparks start");
+  });
+
+  it("when a shot misses the car, then its tracer flies past and no sparks fly", () => {
+    const { sparked, tracerEnd, car } = shotAtCar(false);
+    assert.equal(sparked.length, 0, "no sparks");
+    assert.ok(tracerEnd.distanceTo(car.group.position) > 2, "the tracer ends wide of the car");
   });
 });
 

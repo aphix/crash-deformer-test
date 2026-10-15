@@ -3,6 +3,8 @@ import { detAtan2, detSin, hypot2 } from "../kernel/physics-core.js";
 import { blankStrike, fell, runsDown, type FigureStrike } from "../scenes/figure-strike.ts";
 import { GUARD_AT_POST, GUARD_DOWN, GUARD_IN, GUARD_RUNNING_IN, GUARD_RUNNING_OUT, NO_TARGET, SHOT_RING, type LawnGuard } from "../scenes/lawn-guard.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { cageLift, crownY, keelY } from "../vehicle/car-cage-rig.ts";
+import { SAMPLE, sampleAt } from "../vehicle/car-cage.ts";
 import type { Ground } from "../world/ground.ts";
 import { insidePolygon } from "../world/terrain.ts";
 import type { GuardSpec } from "../world/track-schema.ts";
@@ -51,10 +53,9 @@ export function guardDress(guard: number): { cop: boolean; look: DriverLook } {
   return { cop: guard % 2 === 0, look: AGENT };
 }
 
-/** A shot's aim (m over the car's origin), how far (m) a miss goes past it, and the sparks a hit throws (`RaceHost.hitFx`'s impulse). */
+/** A shot's aim (m over the car's origin) and how far (m) a miss goes past it. */
 const AIM_Y = 0.7;
 const MISS_WIDE = 2.5;
-const HIT_SPARKS = 4;
 
 /** The VIP: portly, in a navy-blue suit with a red tie, his golden-blond hair swept back. */
 export const VIP_LOOK: DriverLook = { woman: false, shirt: 0x1f3463, pants: 0x1f3463, hair: 0xe8bf6c, hat: null, mustache: false, portly: true };
@@ -93,6 +94,9 @@ const _s = new THREE.Vector3();
 const _at = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _muzzle = new THREE.Vector3();
+const _from = new THREE.Vector3();
+const _probe = new THREE.Vector3();
+const _way = new THREE.Vector3();
 const _pane = new THREE.Vector3();
 const _root = new THREE.Vector3();
 const _door = new THREE.Vector3();
@@ -309,6 +313,62 @@ export class People {
 export const VIP_SLOT = 0;
 const GUARD_SLOT = 1;
 
+/** How far (m) the shot's ray moves between looks at the cage's height field (a lattice node is `CAGE_STEP`, 5 cm): the point it lands on is outside the body by less than this. */
+const BODY_STEP = 0.04;
+
+/**
+ * The shot's end on `car`: the ray from `from` to the aim point `aim` enters the car's box (the cage's plan box, between its keel and its crown, in its own frame:
+ * the box the dummies' world reads it by) and walks on down the cage's height field (`top` and `bottom` over each lattice node, the car as crushed) to the first point
+ * inside the body. `aim` moves to the last point before it, on the body to within `BODY_STEP`, and `n` becomes the unit normal of the face of the box the ray came in at.
+ * A ray that misses the box, or meets no body before the aim (the car crushed flat under it), leaves both as they were.
+ */
+function onBody(car: DeformableCar, from: THREE.Vector3, aim: THREE.Vector3, n: THREE.Vector3): void {
+  const plan = car.cage.fields.planBox;
+  const crown = crownY(car);
+  const keel = keelY(car);
+  _turn.copy(car.group.quaternion).invert();
+  _from.copy(from).sub(car.group.position).applyQuaternion(_turn);
+  _way.copy(aim).sub(car.group.position).applyQuaternion(_turn).sub(_from);
+  let enter = 0;
+  let leave = Infinity;
+  let axis = -1;
+  let side = 0;
+  for (let a = 0; a < 3; a++) {
+    const o = _from.getComponent(a);
+    const d = _way.getComponent(a);
+    const lo = a === 0 ? plan[0]! : a === 1 ? keel : plan[2]!;
+    const hi = a === 0 ? plan[1]! : a === 1 ? crown : plan[3]!;
+    if (Math.abs(d) < 1e-9) {
+      if (o < lo || o > hi) return;
+      continue;
+    }
+    const t0 = Math.min((lo - o) / d, (hi - o) / d);
+    if (t0 > enter) {
+      enter = t0;
+      axis = a;
+      side = d > 0 ? -1 : 1;
+    }
+    leave = Math.min(leave, Math.max((lo - o) / d, (hi - o) / d));
+    if (enter > leave) return;
+  }
+  if (axis < 0 || enter > 1) return;
+  const { top, bottom } = car.cage.fields;
+  const lift = cageLift(car);
+  const step = BODY_STEP / _way.length();
+  for (let t = enter; t < Math.min(1, leave); t += step) {
+    _probe.copy(_way).multiplyScalar(t).add(_from);
+    SAMPLE[0] = _probe.x;
+    SAMPLE[1] = _probe.z;
+    sampleAt(top, car.cage.style);
+    const high = SAMPLE[2]!;
+    sampleAt(bottom, car.cage.style);
+    if (!(_probe.y - lift <= high && _probe.y - lift >= SAMPLE[2]!)) continue;
+    aim.copy(_way).multiplyScalar(Math.max(enter, t - step)).add(_from).applyQuaternion(car.group.quaternion).add(car.group.position);
+    n.set(0, 0, 0).setComponent(axis, side).applyQuaternion(car.group.quaternion);
+    return;
+  }
+}
+
 /** One guard as drawn: his stride, where he stood last frame (the stride follows the ground he covers) and whether he is in view. */
 type Guard = { phase: number; lastX: number; lastZ: number; shown: boolean };
 
@@ -344,8 +404,8 @@ export class GuardSquad {
     }
   }
 
-  /** One frame: the guards drawn where the sim has them, and its new shots drawn (`sparks` at a hit). */
-  frame(guard: LawnGuard, cars: readonly DeformableCar[], sparks: (at: THREE.Vector3, normal: THREE.Vector3, impulse: number) => void): void {
+  /** One frame: the guards drawn where the sim has them, and its new shots drawn (`sparks` at the point a hit lands on the car, its face's outward `normal`). */
+  frame(guard: LawnGuard, cars: readonly DeformableCar[], sparks: (at: THREE.Vector3, normal: THREE.Vector3) => void): void {
     if (guard.shots < this.drawn) this.drawn = 0;
     for (let i = 0; i < this.guards.length; i++) this.draw(i, guard);
     for (; this.drawn < guard.shots; this.drawn++) {
@@ -359,10 +419,11 @@ export class GuardSquad {
       _at.y += AIM_Y;
       _n.copy(_muzzle).sub(_at).normalize();
       const hit = guard.shotHit[k];
+      if (hit) onBody(car, _muzzle, _at, _n);
       // A miss flies past the car, off to one side by the shot's number.
-      if (!hit) _at.addScaledVector(_n, -MISS_WIDE).add(_muzzle.set(_n.z, 0, -_n.x).multiplyScalar(this.drawn % 2 ? MISS_WIDE : -MISS_WIDE));
+      else _at.addScaledVector(_n, -MISS_WIDE).add(_muzzle.set(_n.z, 0, -_n.x).multiplyScalar(this.drawn % 2 ? MISS_WIDE : -MISS_WIDE));
       this.people.fire(GUARD_SLOT + g, _at.x, _at.y, _at.z);
-      if (hit) sparks(_at, _n, HIT_SPARKS);
+      if (hit) sparks(_at, _n);
     }
   }
 

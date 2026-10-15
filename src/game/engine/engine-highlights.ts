@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { FigureStrike } from "../scenes/figure-strike.ts";
+import type { LawnGuard } from "../scenes/lawn-guard.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import type { CarSurfaces } from "../vehicle/car-surfaces.ts";
 import { beginImpact, CONTACT_HOLD, easeTimeScale, FUDGE_GAP, impactScale, phaseClock, PRE_IMPACT_LEAD, SLOMO_HOLD, stepPhase, THROW_HOLD, type CrashPhase, type PhaseClock } from "../match/phase.ts";
@@ -336,6 +337,11 @@ export class ReelDirector {
   /** The driver-look seed of the clip on screen (`driverLook`), null while no clip plays: its drivers look as they did in the race. */
   get look(): number | null {
     return this.playing ? (this.cur?.clip.look ?? null) : null;
+  }
+
+  /** The guard squad of the clip on screen (`ClipSim.squad`), null while no clip plays or the clip carries none: what the grounds draw while a reel plays, not the race's own squad. */
+  get squad(): LawnGuard | null {
+    return this.playing ? (this.cur?.sim.squad ?? null) : null;
   }
 
   /** The cars' tops of the clip on screen's replay world (`World.surfaces`), null while no clip plays. */

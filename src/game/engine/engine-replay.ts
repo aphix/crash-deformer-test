@@ -5,7 +5,7 @@ import { PART_STATE } from "../vehicle/part-state.ts";
 import { EXIT_PANES } from "../vehicle/car-core.ts";
 import { applyDrive, BRAKE_STEPS, idleDrive, THROTTLE_STEPS, type DriveInput } from "../vehicle/car-drive.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
-import { countsAsImpact, INPUT_BYTES, MEMORY, type HighlightClip } from "../match/highlights.ts";
+import { CLIP_NO_CAR, countsAsImpact, INPUT_BYTES, MEMORY, type HighlightClip } from "../match/highlights.ts";
 import { DRAFT } from "../match/session.ts";
 import { makeSnapshot, readSnapshot, Reader, type Snapshot } from "../net/codec.ts";
 import { carLayout } from "../net/car-pose.ts";
@@ -14,6 +14,8 @@ import type { PoseBlend } from "../present/pose-blend.ts";
 import { newWorld, settleStep, stepWorld, type World } from "./world-step.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import type { FigureStrike } from "../scenes/figure-strike.ts";
+import { LawnGuard, NO_TARGET, SQUAD_SHOT, SQUAD_TARGET, squadStateLength, type SquadEvent } from "../scenes/lawn-guard.ts";
+import type { GuardSpec } from "../world/track-schema.ts";
 import { hypot2 } from "../kernel/physics-core.js";
 
 /**
@@ -29,6 +31,8 @@ export type ReplayScene = {
   /** A scene with a course that puts cars away: whether car `slot` standing at (x, z) is put away there (hidden, as the record had it), not on the road (`RaceDirector.stored`). */
   stored?(slot: number, x: number, z: number): boolean;
   knocks?(bits: Uint8Array): void;
+  /** A scene with a course that has guarded grounds: their spec (`TrackJson.guards`), which a clip's squad (`HighlightClip.squad`) is stepped on; none otherwise. */
+  guards?(): GuardSpec | null;
   /** The blend the cars are drawn with, live play's (`PoseBlend`): the sim brackets its steps with it and draws between them. */
   blend: PoseBlend;
 };
@@ -101,6 +105,16 @@ export class ClipSim {
   private strikeAt = 0;
   private struck: FigureStrike[] = [];
   /**
+   * The clip's guard squad stepped alongside it (null: the clip or its course has none): the recorded decisions (`HighlightClip.squad`) applied at their steps and the guards moved
+   * as the live sim moved them, so the replay draws them as they stood. It throws no figure (the clip's `strikes` do) and kills nothing (the recorder keyed the kills).
+   */
+  readonly squad: LawnGuard | null = null;
+  private squadAt = 0;
+  private readonly squadState = new Float32Array(0);
+  private readonly squadEvent: SquadEvent = { kind: 0, a: 0, b: 0, c: 0 };
+  /** The clip's cars by engine slot (a hole for every other car): what the squad aims at. */
+  private readonly squadCars: DeformableCar[] = [];
+  /**
    * Clip time each car pair (a·n + b, a < b) and each car against the walls last touched: a contact marks the first hit
    * only after a quiet spell and hard enough, the recorder's own rule (`countsAsImpact`).
    */
@@ -166,6 +180,12 @@ export class ClipSim {
     this.restoreCar = scene.restore;
     this.stored = scene.stored;
     this.restoreKnocks = scene.knocks;
+    const spec = clip.squad ? scene.guards?.() : null;
+    if (clip.squad && spec && clip.squad.state.length === squadStateLength(spec.count)) {
+      this.squad = new LawnGuard(spec, 0);
+      this.squadState = new Float32Array(clip.squad.state.length);
+      for (const [j, c] of clip.cars.entries()) this.squadCars[c.slot] = cars[j]!;
+    }
   }
 
   get done(): boolean {
@@ -234,6 +254,26 @@ export class ClipSim {
     }
   }
 
+  /** The engine slot a squad car code of the clip names (`CLIP_NO_CAR`: no car; a car the clip leaves out keeps its code, a slot no car has). */
+  private squadSlot(code: number): number {
+    return code === CLIP_NO_CAR ? NO_TARGET : (this.clip.cars[code]?.slot ?? code);
+  }
+
+  /** Step `s` of `h` s has run: the squad decided what the record says it did in it, then moves. */
+  private followSquad(s: number, h: number): void {
+    const events = this.clip.squad!.events;
+    const e = this.squadEvent;
+    for (; this.squadAt < events.length && events[this.squadAt]!.step <= s; this.squadAt++) {
+      const x = events[this.squadAt]!;
+      e.kind = x.kind;
+      e.a = x.kind === SQUAD_TARGET ? this.squadSlot(x.a) : x.a;
+      e.b = x.kind === SQUAD_SHOT ? this.clip.cars[x.b]!.slot : x.b;
+      e.c = x.c;
+      this.squad!.apply(e);
+    }
+    this.squad!.follow(this.squadCars, h);
+  }
+
   /** Prop `prop` is knocked off its spot, as `RaceField.knockTo` does for a keyframe's bits (a prop the course does not have is ignored). */
   private knockProp(prop: number): void {
     const bits = this.knockBits;
@@ -257,6 +297,12 @@ export class ClipSim {
     this.fired = [];
     this.struck = [];
     this.stepAt = 0;
+    this.squadAt = 0;
+    if (this.squad) {
+      this.squadState.set(this.clip.squad!.state);
+      this.squadState[1] = this.squadSlot(this.squadState[1]!);
+      this.squad.restore(this.squadState);
+    }
     // The cars go back on the sim's own poses before they are respawned (a drawn pose written back after it would undo the respawn).
     this.blend.restore();
     this.heading.set(0, 0);
@@ -317,6 +363,7 @@ export class ClipSim {
       stepWorld(this.world, h);
       settleStep(cars, h, clip.bleed);
       this.fire(s);
+      if (this.squad) this.followSquad(s, h);
       // A cluster opened by a kill: the struck car's drivetrain dying is the impact.
       const a = cars[clip.firstA]!;
       if (clip.firstB < 0 && this.aliveA && !a.deform.drivetrainAlive) this.markHit();

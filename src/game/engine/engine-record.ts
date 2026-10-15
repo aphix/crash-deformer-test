@@ -5,6 +5,7 @@ import { LOOSE_BODIES, PART_STATE } from "../vehicle/part-state.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import type { FigureStrike } from "../scenes/figure-strike.ts";
+import { SQUAD_SHOT, SQUAD_TARGET, squadStateLength, type LawnGuard, type SquadEvent } from "../scenes/lawn-guard.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { CAGES } from "../kernel/rig-spec.ts";
 import type { ContactHit } from "../scenes/engine-props.ts";
@@ -30,6 +31,11 @@ import {
   type ReelCar,
   MAX_PART_STIRS,
   MAX_STRIKES,
+  MAX_SQUAD_EVENTS,
+  CLIP_NO_CAR,
+  CLIP_OUT_CAR,
+  type ClipSquad,
+  type ClipSquadEvent,
 } from "../match/highlights.ts";
 import { THROW_HOLD_SIM } from "../match/phase.ts";
 import { ensureFrames, makeSnapshot, readSnapshot, Reader, snapshotMaxBytes, writeSnapshot, Writer, type NetLayout, type Snapshot } from "../net/codec.ts";
@@ -198,6 +204,13 @@ export class CrashRecorder {
   private readonly ejected: { step: number; e: Ejection }[] = [];
   /** Every figure a car ran down this race (`strike`): the step, and a copy of the record; a clip takes those of its steps and cars. */
   private readonly struck: { step: number; s: FigureStrike }[] = [];
+  /** The course's guard squad, if it has one (`watchSquad`): its state is taken with every keyframe, its decisions with their steps. */
+  private squad: LawnGuard | null = null;
+  private squadNow = new Float32Array(0);
+  /** Per kept keyframe: the squad's state as the keyframe's step began (`LawnGuard.snapshot`, `squadStateLength` floats a slot). */
+  private keySquad = new Float32Array(0);
+  /** Every decision the squad made in the last ring's worth of steps (`squadEvent`): the step, and the event. Older than the ring, none is wanted again (`endStep` drops them). */
+  private readonly squadLog: { step: number; e: SquadEvent }[] = [];
   /** Every prop knocked off its spot this race (`knock`): the step it went in, the prop and the car that knocked it; a clip takes those of its steps by cars it leaves out. */
   private readonly knocked: { step: number; prop: number; car: number }[] = [];
   /** Every sleeping wreck woken by a mover near it this race (`endStep`): the step, the car and the slice; a clip takes those of its steps and cars. Older than the ring, none is wanted again (`endStep` drops them). */
@@ -244,6 +257,7 @@ export class CrashRecorder {
     this.ledger.clear();
     this.ejected.length = 0;
     this.struck.length = 0;
+    this.squadLog.length = 0;
     this.knocked.length = 0;
     this.stirred.length = 0;
     this.bodyStirs.length = 0;
@@ -324,6 +338,10 @@ export class CrashRecorder {
     this.keyStep[slot] = this.step;
     this.keyPos.set(this.lastPos, slot * MAX_CARS * 2);
     this.keyN[slot] = n;
+    if (this.squad) {
+      this.squad.snapshot(this.squadNow);
+      this.keySquad.set(this.squadNow, slot * this.squadNow.length);
+    }
     let wrecks = 0;
     for (let i = 0; i < n; i++) if (s.cars[i]!.wreck) wrecks |= 1 << i;
     this.keyWreck[slot] = wrecks >>> 0;
@@ -375,6 +393,7 @@ export class CrashRecorder {
     this.step++;
     this.sliceCount += shape + 1;
     while (this.stirred.length > 0 && this.stirred[0]!.step <= this.step - RING) this.stirred.shift();
+    while (this.squadLog.length > 0 && this.squadLog[0]!.step <= this.step - RING) this.squadLog.shift();
     if (this.step % RING === 0) this.dropOldBodyStirs();
     if (this.throwing) {
       this.throwing = false;
@@ -485,6 +504,21 @@ export class CrashRecorder {
     if (!this.on) return;
     if (this.struck.length >= MAX_STRUCK) this.struck.shift();
     this.struck.push({ step: this.step, s: { ...s } });
+  }
+
+  /** The race's guard squad (null: none), whose state each keyframe takes (`LawnGuard.snapshot`) and whose decisions `squadEvent` keeps for the clips that carry the lawn. */
+  watchSquad(squad: LawnGuard | null): void {
+    this.squad = squad;
+    const n = squad ? squadStateLength(squad.mode.length) : 0;
+    if (this.squadNow.length !== n) {
+      this.squadNow = new Float32Array(n);
+      this.keySquad = new Float32Array(KEY_SLOTS * n);
+    }
+  }
+
+  /** The squad decided `e` in the step under way (`LawnGuard.takeEvents`). */
+  squadEvent(e: SquadEvent): void {
+    if (this.on && this.squad) this.squadLog.push({ step: this.step, e });
   }
 
   /**
@@ -831,6 +865,7 @@ export class CrashRecorder {
       const j = slots.indexOf(x.s.car);
       if (j >= 0 && x.step >= start && x.step < this.step && strikes.length < MAX_STRIKES) strikes.push({ step: x.step - start, s: { ...x.s, car: j } });
     }
+    const squad = this.clipSquad(slot, slots, start);
     const hits: ClipHit[] = c.hits().map((p) => ({ t: p.t - t0, x: p.x, y: p.y, z: p.z, a: slots.indexOf(p.a), b: p.b < 0 ? -1 : slots.indexOf(p.b) }));
     // The props knocked off their spot during the clip's steps by cars it leaves out: the replay knocks them at those steps (the clip's own cars do their own).
     const knocks: ClipKnock[] = [];
@@ -854,6 +889,7 @@ export class CrashRecorder {
       stirs,
       partStirs,
       strikes,
+      squad,
       peakKph: c.peak * 3.6,
       hitKph: c.hitMps * 3.6,
       deform,
@@ -898,5 +934,25 @@ export class CrashRecorder {
       out.push({ step: opensInClip ? x.step - start : 0, car, body: x.body, slice: opensInClip ? x.slice : 0, slices: Math.min(MAX_RUN_SLICES, x.length - slicesBefore) });
     }
     return out.slice(0, MAX_PART_STIRS);
+  }
+
+  /**
+   * The squad as a clip starting at keyframe `slot` (the global step `start`) draws it: its state then and its decisions in the clip's steps, the cars as
+   * the clip's indices (`CLIP_NO_CAR`: none; `CLIP_OUT_CAR`: one the clip leaves out, a target it cannot draw; a shot at one is not kept: nobody sees it fired).
+   */
+  private clipSquad(slot: number, slots: readonly number[], start: number): ClipSquad | null {
+    if (!this.squad) return null;
+    const code = (car: number): number => (car < 0 ? CLIP_NO_CAR : slots.includes(car) ? slots.indexOf(car) : CLIP_OUT_CAR);
+    const n = this.squadNow.length;
+    const state = this.keySquad.slice(slot * n, (slot + 1) * n);
+    state[1] = code(state[1]!);
+    const events: ClipSquadEvent[] = [];
+    for (const { step, e } of this.squadLog) {
+      if (step < start || step >= this.step || events.length === MAX_SQUAD_EVENTS) continue;
+      const car = e.kind === SQUAD_SHOT ? slots.indexOf(e.b) : 0;
+      if (car < 0) continue;
+      events.push({ step: step - start, kind: e.kind, a: e.kind === SQUAD_TARGET ? code(e.a) : e.a, b: e.kind === SQUAD_SHOT ? car : e.b, c: e.c });
+    }
+    return { state, events };
   }
 }

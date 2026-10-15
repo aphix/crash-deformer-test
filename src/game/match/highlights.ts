@@ -5,6 +5,7 @@ import type { DeformMode } from "../deform/deform-rig.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import type { FigureStrike } from "../scenes/figure-strike.ts";
+import type { SquadEvent } from "../scenes/lawn-guard.ts";
 import { CLASSES, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 
 /**
@@ -542,6 +543,19 @@ export const MAX_STRIKES = 16;
 /** A figure a clip's car ran down in the step `step` (counted from the clip's first step): the record, its `car` a clip car index. */
 export type ClipStrike = { step: number; s: FigureStrike };
 
+/** Most guards a squad has (`GuardSpec.count`) and most decisions a clip lists (a clip is under 18 s, a shot every 0.12 s at most); a decoder takes no more. */
+export const MAX_SQUAD = 12;
+export const MAX_SQUAD_EVENTS = 2048;
+/** A car named in a clip's squad: none, or one the clip leaves out (a target it cannot draw); else its index in `cars`. */
+export const CLIP_NO_CAR = 255;
+export const CLIP_OUT_CAR = 254;
+
+/** A squad decision (`SquadEvent`, its cars a clip car index, `CLIP_NO_CAR` or `CLIP_OUT_CAR`) in the step `step` (counted from the clip's first step). */
+export type ClipSquadEvent = SquadEvent & { step: number };
+
+/** The White House squad as the clip draws it: `state` at the clip's start (`LawnGuard.snapshot`, its target a clip car code), then its decisions in step order. */
+export type ClipSquad = { state: Float32Array; events: ClipSquadEvent[] };
+
 /** One highlight: initial conditions, every step's dt and drive outputs, and the steps a car was put on a spot. */
 export type HighlightClip = {
   trackId: string;
@@ -574,6 +588,8 @@ export type HighlightClip = {
   partStirs: ClipPartStir[];
   /** Every figure (a lawn guard, the VIP) the clip's cars ran down, in step order, at most `MAX_STRIKES` (one a car the clip leaves out ran down is not listed): the replay throws him again at that step. */
   strikes: ClipStrike[];
+  /** The course's guard squad (the National Mall's White House lawn) at the clip's start and every decision it made in the clip's steps (shots at a car the clip leaves out are not listed), null on a course without; the replay steps a squad from them, so the standing guards are drawn as they were. */
+  squad: ClipSquad | null;
   /** Strongest closing speed (km/h) in the clip's scope: the flash a replayed hit throws. */
   peakKph: number;
   /** The main car's own speed (km/h) in its strongest impact (a wall hit's speed into the wall): the title's speed. */

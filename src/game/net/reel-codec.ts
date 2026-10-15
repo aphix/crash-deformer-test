@@ -1,10 +1,11 @@
 import { FLIGHT } from "../vehicle/car-flight.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
 import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
-import { INPUT_BYTES, MAX_HITS, MAX_KNOCKS, MAX_PART_STIRS, MAX_STIRS, MAX_STRIKES, MEMORY, simFingerprint, type ClipEjection, type ClipHit, type ClipKnock, type ClipPartStir, type ClipStir, type ClipStrike, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
+import { CLIP_NO_CAR, CLIP_OUT_CAR, INPUT_BYTES, MAX_HITS, MAX_KNOCKS, MAX_PART_STIRS, MAX_SQUAD, MAX_SQUAD_EVENTS, MAX_STIRS, MAX_STRIKES, MEMORY, simFingerprint, type ClipEjection, type ClipHit, type ClipKnock, type ClipPartStir, type ClipSquad, type ClipStir, type ClipStrike, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
 import { LOOSE_BODIES } from "../vehicle/part-state.ts";
 import { blankStrike } from "../scenes/figure-strike.ts";
 import { blankEjection } from "../vehicle/ejection.ts";
+import { GUARD_DOWN, SQUAD_ALARM, SQUAD_DOWN, SQUAD_SHOT, SQUAD_TARGET, squadStateLength } from "../scenes/lawn-guard.ts";
 import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapshot, Reader, writeEjection, Writer, type NetLayout } from "./codec.ts";
 
 /**
@@ -160,9 +161,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * down is a thrown figure, not a pose, so a replayed run past the lawn shows it. A saved clip's layout gains a count and the strikes after the part stirs, so a clip of 88 or before does not decode.
  * 90: a quiet step is 1/80 s (it was 1/90 s since 81): a step in contact is three slices of exactly 1/240 s (not three of 1/270 s, which made a crowded race 270 slices a second against
  * 240 at 1/120 s), and a quiet step is one slice up to 13 ms (it was 12), so a replay of a clip of 89 or before steps and slices a crash on other lengths.
+ * 91: a clip carries the course's guard squad (`ClipSquad`: the National Mall's White House guards): its state at the clip's start and its decisions (alarm, target, each shot, each guard run
+ * down) per step, and a replay steps a squad from them and draws the standing guards, their run out of the doors and their fire (a clip recorded before showed no guard until a strike threw one). A saved
+ * clip's layout gains the squad after the strikes, so a clip of 90 or before does not decode.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 90;
+const REPLAY_VERSION = 91;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -181,6 +185,8 @@ const STIR_BYTES = 4 + 1 + 1;
 const PART_STIR_BYTES = 4 + 1 + 1 + 1 + 2;
 /** A clip's strike: its step (u32), the car (u8), the guard (u8: 255 for the VIP, -1) and 11 x f32 (position, facing, velocity, spin). */
 const STRIKE_BYTES = 4 + 1 + 1 + 11 * 4;
+/** A clip's squad decision: its step (u32), kind, and its three operands (u8 each). */
+const SQUAD_EVENT_BYTES = 4 + 4;
 /** A clip's scope hit: its time (f64), position (3 x f32) and cars (2 x u8). */
 const HIT_BYTES = 8 + 4 + 4 + 4 + 2;
 
@@ -190,7 +196,8 @@ export function clipBytes(c: HighlightClip): number {
   let n = 1 + utf8(c.trackId) + 91 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
   n += 4 + c.h.length * (8 + nc * INPUT_BYTES) + 2;
   for (const k of c.keys) n += 12 + k.length;
-  return n + 1 + c.ejections.length * EJECTION_BYTES + 2 + c.knocks.length * KNOCK_BYTES + 2 + c.stirs.length * STIR_BYTES + 2 + c.partStirs.length * PART_STIR_BYTES + 1 + c.strikes.length * STRIKE_BYTES + 1 + c.hits.length * HIT_BYTES;
+  const squad = c.squad ? 1 + c.squad.state.length * 4 + 2 + c.squad.events.length * SQUAD_EVENT_BYTES : 1;
+  return n + 1 + c.ejections.length * EJECTION_BYTES + 2 + c.knocks.length * KNOCK_BYTES + 2 + c.stirs.length * STIR_BYTES + 2 + c.partStirs.length * PART_STIR_BYTES + 1 + c.strikes.length * STRIKE_BYTES + squad + 1 + c.hits.length * HIT_BYTES;
 }
 
 export function writeClip(w: Writer, c: HighlightClip): void {
@@ -281,6 +288,18 @@ export function writeClip(w: Writer, c: HighlightClip): void {
     w.f32(s.wx);
     w.f32(s.wy);
     w.f32(s.wz);
+  }
+  w.u8(c.squad ? (c.squad.state.length - 2) / 5 : 0);
+  if (c.squad) {
+    for (const v of c.squad.state) w.f32(v);
+    w.u16(c.squad.events.length);
+    for (const x of c.squad.events) {
+      w.u32(x.step);
+      w.u8(x.kind);
+      w.u8(x.a);
+      w.u8(x.b);
+      w.u8(x.c);
+    }
   }
   w.u8(c.hits.length);
   for (const x of c.hits) {
@@ -454,6 +473,7 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (step >= steps || s.car >= nc || (k > 0 && step < strikes[k - 1]!.step)) throw new RangeError("clip strike");
     strikes.push({ step, s });
   }
+  const squad = readSquad(r, steps, nc);
   const nh = r.u8();
   if (nh > MAX_HITS) throw new RangeError("clip hits");
   const hits: ClipHit[] = [];
@@ -468,7 +488,34 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (!Number.isFinite(t) || a >= nc || b >= nc || (k > 0 && t < hits[k - 1]!.t)) throw new RangeError("clip hit");
     hits.push({ t, x: hx, y: hy, z: hz, a, b });
   }
-  return { trackId, score, impacts, kills, ejects, hit, ejections, knocks, stirs, partStirs, strikes, peakKph, hitKph, deform, hits, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, shape, inputs, keyStep, keyCars, keys };
+  return { trackId, score, impacts, kills, ejects, hit, ejections, knocks, stirs, partStirs, strikes, squad, peakKph, hitKph, deform, hits, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, shape, inputs, keyStep, keyCars, keys };
+}
+
+/** A clip's squad block (`squadBytes`); throws RangeError on one that names a guard, a car or a step the clip has not. */
+function readSquad(r: Reader, steps: number, nc: number): ClipSquad | null {
+  const guards = r.u8();
+  if (guards === 0) return null;
+  if (guards > MAX_SQUAD) throw new RangeError("clip squad");
+  const state = new Float32Array(squadStateLength(guards));
+  for (let k = 0; k < state.length; k++) state[k] = r.fin32();
+  const carCode = (v: number): boolean => v === CLIP_NO_CAR || v === CLIP_OUT_CAR || v < nc;
+  if (!carCode(state[1]!)) throw new RangeError("clip squad state");
+  for (let g = 0; g < guards; g++) if (!Number.isInteger(state[2 + 5 * g]!) || state[2 + 5 * g]! < 0 || state[2 + 5 * g]! > GUARD_DOWN) throw new RangeError("clip squad state");
+  const n = r.u16();
+  if (n > MAX_SQUAD_EVENTS) throw new RangeError("clip squad events");
+  const events: ClipSquad["events"] = [];
+  for (let k = 0; k < n; k++) {
+    const step = r.u32();
+    const kind = r.u8();
+    const a = r.u8();
+    const b = r.u8();
+    const c = r.u8();
+    const ok =
+      (kind === SQUAD_ALARM && a <= 1) || (kind === SQUAD_TARGET && carCode(a)) || (kind === SQUAD_SHOT && a < guards && b < nc && c <= 1) || (kind === SQUAD_DOWN && a < guards);
+    if (!ok || step >= steps || (k > 0 && step < events[k - 1]!.step)) throw new RangeError("clip squad event");
+    events.push({ step, kind, a, b, c });
+  }
+  return { state, events };
 }
 
 /** A decoder never inflates past this (a hostile peer's or a corrupt store's deflate bomb). */

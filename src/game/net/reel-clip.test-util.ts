@@ -3,7 +3,8 @@ import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
 import { FLIGHT } from "../vehicle/car-flight.ts";
 import { assertSameDigest, assertSameNumbers } from "../vehicle/test-support.ts";
-import { INPUT_BYTES, MEMORY, type HighlightClip } from "../match/highlights.ts";
+import { CLIP_NO_CAR, INPUT_BYTES, MEMORY, type HighlightClip } from "../match/highlights.ts";
+import { SQUAD_ALARM, SQUAD_DOWN, SQUAD_SHOT, SQUAD_TARGET } from "../scenes/lawn-guard.ts";
 import { makeCarFrame, makeSnapshot, snapshotMaxBytes, writeSnapshot, Writer } from "./codec.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
 import { FINE_HZ } from "../kernel/constants.ts";
@@ -99,6 +100,16 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
       { step: 120, s: { guard: 4, car: 0, x: 12.5, y: 0.25, z: -30.75, faceX: 0.5, faceZ: -0.875, vx: 9.5, vy: 1.5, vz: -4.25, wx: 0.75, wy: 0, wz: 2.125 } },
       { step: 361, s: { guard: -1, car: 1, x: -3.5, y: 0.125, z: 8, faceX: 0, faceZ: 1, vx: -6, vy: 0.5, vz: 11.25, wx: -1.5, wy: 0, wz: 0.25 } },
     ],
+    // Three guards: one at his post aiming at clip car 1, one running out, one run down; then a hit shot at car 1, the run-down of guard 1, the target lost and the alarm lowered.
+    squad: {
+      state: Float32Array.of(1.5, 1, 2, 10.5, -20.25, 0.5, -0.875, 1, 11.25, -18, 0, 1, 4, 0, 0, 0, 1),
+      events: [
+        { step: 3, kind: SQUAD_SHOT, a: 0, b: 1, c: 1 },
+        { step: 120, kind: SQUAD_DOWN, a: 1, b: 0, c: 0 },
+        { step: 200, kind: SQUAD_TARGET, a: CLIP_NO_CAR, b: 0, c: 0 },
+        { step: 300, kind: SQUAD_ALARM, a: 0, b: 0, c: 0 },
+      ],
+    },
     peakKph: 96,
     hitKph: 48,
     deform: 1.25,
@@ -169,6 +180,7 @@ export function sameClip(got: HighlightClip, want: HighlightClip): void {
     assert.equal(x.step, w.step, `strike ${i} step`);
     for (const k of ["guard", "car", "x", "y", "z", "faceX", "faceZ", "vx", "vy", "vz", "wx", "wy", "wz"] as const) assert.equal(x.s[k], w.s[k], `strike ${i} ${k}`);
   }
+  assert.deepEqual(got.squad && { state: Array.from(got.squad.state), events: got.squad.events }, want.squad && { state: Array.from(want.squad.state), events: want.squad.events }, "squad");
   assert.equal(got.hits.length, want.hits.length);
   for (const [i, p] of got.hits.entries()) {
     const w = want.hits[i]!;

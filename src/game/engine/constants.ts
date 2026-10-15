@@ -16,6 +16,8 @@ export const STRIP_QUERY = { cars: "cars", same: "same", len: "len", props: "pro
 export const SETTING_KEY = { night: "night", wet: "wet", sky: "sky", realism: "realism", fx: "fx", celLook: "celLook" } as const;
 /** A hit whose impulse is no more than this throws no sparks: a brush, not a crash. */
 export const SPARK_MIN_IMPULSE = 1.2;
+/** The impulse a guard's shot hit throws its spark shower at (the grind's shower for that impulse, `CrashEngine.sparkShower`: 26 sparks; guessed, by eye). */
+export const SHOT_SPARK_IMPULSE = 10;
 /** A clip's timeline steps the phase clock at this fixed wall rate (Hz): the same curve on every peer, whatever its frame rate. */
 export const TIMELINE_HZ = 120;
 /** A burning engine puffs smoke at this wall rate (Hz) whatever the refresh rate. */
