@@ -37,15 +37,23 @@ function navItems(menu: HTMLElement): HTMLElement[] {
   return Array.from(menu.querySelectorAll<HTMLElement>("[data-nav]")).filter((el) => !el.matches(":disabled") && el.getClientRects().length > 0);
 }
 
+/** The focused `[data-nav]` item inside `menu`, if focus is in it. */
+function focusedNav(menu: HTMLElement): HTMLElement | null {
+  const active = document.activeElement;
+  return active instanceof HTMLElement && menu.contains(active) ? active.closest<HTMLElement>("[data-nav]") : null;
+}
+
+function focusItem(el: HTMLElement | undefined, scroll = true): void {
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  if (scroll) el.scrollIntoView({ block: "nearest" });
+}
+
 /** Click the focused `[data-nav]` item inside `menu`; with none focused, focus the first. */
 export function activateIn(menu: HTMLElement): void {
-  const active = document.activeElement;
-  const cur = active instanceof HTMLElement && menu.contains(active) ? active.closest<HTMLElement>("[data-nav]") : null;
-  if (cur) return cur.click();
-  const first = navItems(menu)[0];
-  if (!first) return;
-  first.focus({ preventScroll: true });
-  first.scrollIntoView({ block: "nearest" });
+  const cur = focusedNav(menu);
+  if (cur) cur.click();
+  else focusItem(navItems(menu)[0]);
 }
 
 /**
@@ -69,15 +77,8 @@ export function usePadMenu(root: RefObject<HTMLElement | null>, id: string, acti
     const menu = root.current;
     if (!menu) return;
     const items = (): HTMLElement[] => navItems(menu);
-    const current = (): HTMLElement | null => {
-      const active = document.activeElement;
-      return active instanceof HTMLElement && menu.contains(active) ? active.closest<HTMLElement>("[data-nav]") : null;
-    };
-    const focus = (el: HTMLElement | undefined, scroll = true): void => {
-      if (!el) return;
-      el.focus({ preventScroll: true });
-      if (scroll) el.scrollIntoView({ block: "nearest" });
-    };
+    const current = (): HTMLElement | null => focusedNav(menu);
+    const focus = focusItem;
     const move = (dir: NavDir): void => {
       const cur = current();
       if (!cur) return focus(items()[0]);
