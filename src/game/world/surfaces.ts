@@ -301,7 +301,7 @@ export class Surface {
   private addPatch(kind: number): number {
     const i = this.count++;
     if ((i + 1) * P_STRIDE > this.p.length) {
-      const cap = i + GROW;
+      const cap = Math.max(i + GROW, i * 2);
       const p = new Float64Array(cap * P_STRIDE);
       p.set(this.p);
       this.p = p;
