@@ -8,7 +8,7 @@ import { MAX_CARS } from "../scenes/fleet.ts";
  * the `|aim| < 0.25` line (owner capture `derby-scoot-2026-10-04`: four cars, no hit for 20 s). It drops the caution and
  * attacks for up to BRAVE s, or until its hit lands. DWELL and BRAVE scale a per-driver hash roll (0.5 … 1.5 ×), so a
  * field of sandbaggers never breaks out on the same tick; the roll count advances the hash, never `Math.random`, so a
- * replay and the netplay host agree. Measured in `derby-ai.test.ts` (late-heat scoot share) and docs/DERBY_AI.md.
+ * replay and the netplay host agree. Measured in `derby-ai.ai-long-run.ts` (late-heat scoot share) and docs/DERBY_AI.md.
  */
 const POCKET = 9;
 const DWELL = 6;

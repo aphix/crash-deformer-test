@@ -46,7 +46,7 @@ function wedged(depth: number): { wreck: DeformableCar; world: CrashWorld } {
 }
 
 describe("given a settled wreck with two plain cars wedged 1.4 m into its flank", () => {
-  // Zip: a live mass centroid moving more than 3·v·h + 5 cm in a step (the derby bar, derby-ai.test.ts). The pair
+  // Zip: a live mass centroid moving more than 3·v·h + 5 cm in a step (the derby bar, `zip-bound.test-util.ts`). The pair
   // solver's pushes shared one satPushCap a slice, 0.09 m at this slice, and the wreck went 0.079 m in a step and
   // 0.062 the next, against the 0.05 m the bound gives a wreck at rest.
   it("when four 1/60 s steps run, then its centre never moves more than 3 × its speed × the step + 5 cm in a step", () => {

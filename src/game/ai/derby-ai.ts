@@ -101,7 +101,7 @@ const SPIN_LAG = 0.05;
 const BOOST_RANGE = 25;
 /**
  * …and lets go this close to it (m): the last run-in coasts off the boost. Boosting through the hit took the ten-car
- * contact-spin peak of seed 4 to 6.73 rad/s (limit 6.5, `derby-ai.test.ts`); letting go at 8 m reads 4.30–4.61 over seeds 1–8.
+ * contact-spin peak of seed 4 to 6.73 rad/s (limit 6.5, `derby-ai.ai-long-run.ts`); letting go at 8 m reads 4.30–4.61 over seeds 1–8.
  */
 const BOOST_RELEASE = 8;
 /** …and this far ahead: the target's bearing within ~25° of the nose (cosine of the angle)… */

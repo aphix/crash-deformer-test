@@ -3,7 +3,7 @@
 How the demolition-derby drivers fight, what the aggression slider means for them, the count-out
 rules, and how the field is validated. Code: `src/game/ai/derby-ai.ts` (`DerbyBrain`, `DERBY_RULES`),
 `src/game/match/derby.ts` (`DerbyMatch`), `src/game/scenes/derby-arena.ts` (the drawn arena, `WinnerSpot`) and `derby-ground.ts` (its ground and props),
-`src/game/ai/ai-aggression.ts` (shared with race mode). Tests: `derby-ai.test.ts`, `derby.test.ts`.
+`src/game/ai/ai-aggression.ts` (shared with race mode). Tests: `derby-ai.test.ts`, `derby.test.ts`; the 10-car heat sweep is `derby-ai.ai-long-run.ts`.
 
 Sources: `.extraResearch/perplexity/40-derby-driver-techniques.md`, `41-derby-rules-door-timer.md`,
 `50-derby-elimination-rules.md` (lane/calib-defaults).
@@ -120,8 +120,8 @@ ramp) would be the next step.
 
 ## Validation (10 cars, default slider, real stack, headless)
 
-`derby-ai.test.ts` runs the engine's derby step path (dressed as `dressCar` at the game defaults,
-`INITIAL_HUD` and killTravel(class, `HANDLING.realism`, "derby")) to the end of the heat. CI runs the fixed seeds 1–8
+`derby-ai.ai-long-run.ts` (`npm run test:ai-long-run`, the full-sanity suite, not per commit) runs the engine's derby step path (dressed as `dressCar` at the game defaults,
+`INITIAL_HUD` and killTravel(class, `HANDLING.realism`, "derby")) to the end of the heat, over the fixed seeds 1–8
 (`DERBY_SEEDS=1,2,...` changes them); the statistics are judged on the set, not per seed, because every heat is chaotic
 and a single seed fails by chance (see below). Per seed, because they must never happen: a winner by the heat time
 limit; no AI-made spin (> 5 rad/s for 0.2 s with no car contact in the 0.5 s before it was flagged) in the first
