@@ -148,9 +148,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 85: a keyframe's flight block carries whether the car's engine runs, and a car whose engine a guard's gunfire killed (the National Mall's
  * White House lawn, `LawnGuard`) is keyed in that step, so a replayed car shot dead stops where it did; and a side street's straight run
  * is stamped into the ground as one segment (a street's end stops at its round cap), so 40 road-edge cells of the National Mall's ground and 16 of Havana's take the other street's surface.
+ * 86: a car whose engine a guard's gunfire killed is a wreck like a crash's kill (`DeformableCar.disable`: its masses armed, `crashed`, a dead drivetrain), so it rolls to a stop on dragged wheels
+ * and sleeps at rest, where before it kept its speed for as long as the run lasted; its kill is keyed in its step by its own count (`DeformableCar.kills`, not `placements`), and the keyframe's
+ * flight block no longer carries whether the engine runs (the wreck's section does), so a clip of 85 does not decode.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 85;
+const REPLAY_VERSION = 86;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

@@ -22,8 +22,8 @@ import { PoseBlend } from "../present/pose-blend.ts";
  * step for step against what the live sim did. Not a test file itself.
  */
 
-/** Numbers per car in a trace: x, y, z, vx, vy, vz, crush, wreck flag, and how many times the car was put on a spot (`DeformableCar.placements`). */
-const STATE = 9;
+/** Numbers per car in a trace: x, y, z, vx, vy, vz, crush, wreck flag, how many times the car was put on a spot (`DeformableCar.placements`) and had its engine killed from outside the crash sim (`kills`). */
+const STATE = 10;
 
 /** A crash recorded: the clip, the world's cars, and every car's state at the start of every recorder step. */
 export interface Recording {
@@ -60,6 +60,7 @@ function capture(cars: readonly DeformableCar[], out: Float64Array): void {
     out[o + 6] = crush(c);
     out[o + 7] = c.deform.massActive ? 1 : 0;
     out[o + 8] = c.placements;
+    out[o + 9] = c.kills;
   }
 }
 
@@ -87,6 +88,12 @@ export interface Spawn {
   steer?: number;
 }
 
+/** A car whose engine dies at the first step on or after `at` s of the recording (`DeformableCar.disable`). */
+export interface Shot {
+  car: number;
+  at: number;
+}
+
 /** `dress` as the engine's `dressCar` does it for a sandbox or a derby (the killing context differs). */
 function dresser(derby: boolean): (car: DeformableCar) => void {
   return (car) => {
@@ -103,7 +110,7 @@ function dresser(derby: boolean): (car: DeformableCar) => void {
  * does: frames of 1/60 s cut into `physicsSlice` steps (never shorter than `floor`: 1/90 s is the adaptive pacer's coarse
  * slice), every car on its own pedals, the clip the best the ledger kept.
  */
-export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boolean, touched: readonly number[] = [], floor = 1 / 240): Recording {
+export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boolean, touched: readonly number[] = [], floor = 1 / 240, shot: Shot | null = null): Recording {
   const scene = new THREE.Scene();
   const dress = dresser(derby);
   const cars = spawns.map((s, i) => {
@@ -141,6 +148,8 @@ export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boo
         applyDrive(car, input, h);
       }
       stepWorld(world, h);
+      // A guard's gunfire (`LawnGuard.step`, after the world, ahead of the recorder's end of step): the car's engine dies from outside the crash sim.
+      if (shot && rec.now >= shot.at && cars[shot.car]!.kills === 0) cars[shot.car]!.disable();
       rec.endStep(cars, h, world.shape);
       settleStep(cars, h, false);
       acc -= h;
@@ -244,7 +253,7 @@ export function agreement(rec: Recording, resetProps: () => void = () => {}): Ag
     const before = rec.trace[rec.s0 + sim.step - 1]!;
     for (const { slot } of clip.cars) {
       const o = slot * STATE;
-      if (live[o + 8] !== before[o + 8]) continue;
+      if (live[o + 8] !== before[o + 8] || live[o + 9] !== before[o + 9]) continue;
       pose.push(Math.hypot(replay[o]! - live[o]!, replay[o + 1]! - live[o + 1]!, replay[o + 2]! - live[o + 2]!));
       vel.push(Math.hypot(replay[o + 3]! - live[o + 3]!, replay[o + 4]! - live[o + 4]!, replay[o + 5]! - live[o + 5]!));
       crushes.push(Math.abs(replay[o + 6]! - live[o + 6]!));

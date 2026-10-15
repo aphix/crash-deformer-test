@@ -43,7 +43,8 @@ describe("given the White House grounds' guard post (owner, 2026-10-14: drive on
     assert.ok(firstShotAt >= GUARD_DEPLOY_S - STEP && firstShotAt < GUARD_DEPLOY_S + 0.1, `first shot at ${firstShotAt.toFixed(2)} s`);
     assert.ok(diedAt > firstShotAt && diedAt < firstShotAt + 4, `the engine died at ${diedAt.toFixed(2)} s`);
     assert.ok(hitsToKill >= 10 && hitsToKill <= 15, `${hitsToKill} hits killed it`);
-    assert.equal(car.placements, 2, "the spawn and the kill: the recorder keys the step the guards killed it in");
+    assert.equal(car.placements, 1, "the spawn only: the guards' kill is no placement");
+    assert.equal(car.kills, 1, "the kill: the recorder keys the step the guards killed it in");
     assert.equal(guard.target, NO_TARGET, "a dead car is no target");
   });
 

@@ -276,3 +276,34 @@ describe("given a car the recorder read while crashed, then respawned with the r
     assert.ok(rowB.some((v, k) => v !== rowA[k]), "the second crash's row differs from the first's");
   });
 });
+
+describe("given a crashed car the recorder tracks, whose engine is then killed from outside the crash sim (`DeformableCar.disable`: a guard's gunfire)", () => {
+  /** The recorder after a few steps with `cars[0]` a crashed wreck (its strain baseline held) and `cars[1]` a running car. */
+  function setup(): { rec: CrashRecorder; cars: DeformableCar[]; firstKey: number } {
+    const scene = new THREE.Scene();
+    const cars = Array.from({ length: 2 }, (_, i) => new DeformableCar({ body: 0x808080, accent: 0, name: `c${i}` }, scene, null, fleetStyle(i)));
+    cars[0]!.spawn(0, 0, 0);
+    cars[1]!.spawn(20, 0, 0);
+    crashed(cars[0]!, 30);
+    const rec = new CrashRecorder();
+    rec.begin("oval", HANDLING.realism, false, 2, (i) => `c${i}`, 1);
+    for (let s = 0; s < 5; s++) {
+      rec.startStep(cars);
+      rec.endStep(cars, H, 0);
+    }
+    assert.equal(rec["strainCar"][0], cars[0], "the wreck's strain baseline is held");
+    assert.equal(rec["keyCount"], 1, "one keyframe (the first step's)");
+    return { rec, cars, firstKey: rec["keyStep"][0]! };
+  }
+
+  it("when the next step starts, then the kill step is keyed, the wreck keeps its strain baseline and no car is marked as arrived", () => {
+    const { rec, cars, firstKey } = setup();
+    cars[0]!.disable();
+    rec.startStep(cars);
+    assert.equal(rec["keyCount"], 2, "the kill step is keyed");
+    assert.equal(rec["strainCar"][0], cars[0], "the strain baseline survives (the car was not put anywhere)");
+    assert.equal(rec["keyPlaced"][1], 0, "no car was put on a spot in the kill step's keyframe");
+    assert.equal(rec["keyShot"][1], 1, "the shot car is the keyframe's");
+    assert.equal(rec["arrivedAt"](0, Infinity, 0), firstKey, "the shot car arrived at its first keyframe, not at the kill");
+  });
+});

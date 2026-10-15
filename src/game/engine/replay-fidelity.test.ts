@@ -137,6 +137,13 @@ describe("given a highlight clip recorded from a crash and replayed from its key
         it(testCase.it, () => run(testCase.name, BYSTANDER, testCase.touched));
       }
     });
+    it("when the car behind a head-on's cars has its engine killed from outside the crash sim just after the impact (a guard's gunfire), then the replay matches the live sim at every step, to the bit, the shot car's wreck state and dead engine included", () => {
+      const spawns = pile(0);
+      const rec = recordFlat(spawns, 8, true, [], 1 / 240, { car: 2, at: 2.4 });
+      assert.equal(rec.cars[2]!.deform.drivetrainAlive, false, "the shot car's engine is dead");
+      assert.ok(rec.clip.cars.some((c) => c.slot === 2), "the shot car is in the clip");
+      check("derby shot car", rec, agreement(rec));
+    });
   });
 
   // The adaptive pacer (`SimPacer`) steps a slow device at 1/90 s; the recorder stores each step's dt, so its clips replay as exactly.

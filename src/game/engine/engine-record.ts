@@ -159,6 +159,8 @@ export class CrashRecorder {
   private readonly wallAt = new Float64Array(MAX_CARS);
   /** Per car: its `placements` at the last step's start. */
   private readonly placed = new Uint32Array(MAX_CARS);
+  /** Per car: its `kills` at the last step's start. */
+  private readonly killed = new Uint32Array(MAX_CARS);
   /** Every car's (x, z) at the current step's start, and as of each kept keyframe (with that keyframe's car count), for `file`'s bystander pass. */
   private readonly lastPos = new Float32Array(MAX_CARS * 2);
   private readonly keyPos = new Float32Array(KEY_SLOTS * MAX_CARS * 2);
@@ -167,6 +169,8 @@ export class CrashRecorder {
   private readonly keyWreck = new Uint32Array(KEY_SLOTS);
   /** Per kept keyframe: the cars put on a spot (`DeformableCar.placements` moved) in its step. */
   private readonly keyPlaced = new Uint32Array(KEY_SLOTS);
+  /** Per kept keyframe: the cars whose engine was killed from outside the crash sim (`DeformableCar.kills` moved) in its step. */
+  private readonly keyShot = new Uint32Array(KEY_SLOTS);
   /**
    * Per car, each cage's frame strain (m, `DeformState.cageStrain`): as the step under way began (`strainPre`), as it was when the car
    * joined an open cluster or began a contact (`strainBase`) and the most a step has left it since (`strainPeak`), which a clip's
@@ -289,6 +293,7 @@ export class CrashRecorder {
     s.count = n;
     s.time = this.time;
     let placed = 0;
+    let shot = 0;
     for (let i = 0; i < n; i++) {
       const f = s.cars[i]!;
       const car = cars[i]!;
@@ -298,10 +303,13 @@ export class CrashRecorder {
       // Placed (a respawn, a wake, a put-away, wherever it landed): the replay cannot drive there, so a keyframe is taken at once, and a clip keeps it for this car.
       if (i < prev && car.placements !== this.placed[i]) placed |= 1 << i;
       this.placed[i] = car.placements;
+      // Its engine killed from outside the crash sim (`DeformableCar.disable`): a keyframe too, but the car did not arrive anywhere, so `placed` and the strain baseline are not touched.
+      if (i < prev && car.kills !== this.killed[i]) shot |= 1 << i;
+      this.killed[i] = car.kills;
       this.lastPos[2 * i] = f.x;
       this.lastPos[2 * i + 1] = f.z;
     }
-    if (this.time < this.nextKey && placed === 0) return;
+    if (this.time < this.nextKey && placed === 0 && shot === 0) return;
     this.nextKey = this.time + KEY_EVERY;
     const slot = this.keyCount++ % KEY_SLOTS;
     this.encodeKey(this.keys[slot]!);
@@ -312,6 +320,7 @@ export class CrashRecorder {
     for (let i = 0; i < n; i++) if (s.cars[i]!.wreck) wrecks |= 1 << i;
     this.keyWreck[slot] = wrecks >>> 0;
     this.keyPlaced[slot] = placed >>> 0;
+    this.keyShot[slot] = shot >>> 0;
   }
 
   /**
@@ -782,14 +791,14 @@ export class CrashRecorder {
     const placedKeys: number[] = [];
     for (let k = 0; k < filled; k++) {
       const st = this.keyStep[k]!;
-      if (k !== slot && st > start && st < this.step && (this.keyPlaced[k]! & mask) !== 0) placedKeys.push(k);
+      if (k !== slot && st > start && st < this.step && ((this.keyPlaced[k]! | this.keyShot[k]!) & mask) !== 0) placedKeys.push(k);
     }
     placedKeys.sort((a, b) => this.keyStep[a]! - this.keyStep[b]!);
     const keyStep: number[] = [0];
     const keyCars: number[] = [(2 ** nc - 1) >>> 0];
     const keys: Uint8Array[] = [this.cutKey(this.keys[slot]!.done(), slots)];
     for (const k of placedKeys) {
-      const here = slots.filter((i) => (this.keyPlaced[k]! >>> i) & 1);
+      const here = slots.filter((i) => ((this.keyPlaced[k]! | this.keyShot[k]!) >>> i) & 1);
       keyStep.push(this.keyStep[k]! - start);
       keyCars.push(here.reduce((m, i) => (m | (1 << slots.indexOf(i))) >>> 0, 0));
       keys.push(this.cutKey(this.keys[k]!.done(), here));

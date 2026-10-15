@@ -6,7 +6,7 @@ import { activeGround } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S } from "./car-core.ts";
 import { COM_Y, REST_SPEED } from "./car-air-body.ts";
-import { FLIGHT_BORNE, FLIGHT_CONTACT, FLIGHT_DOWN, FLIGHT_DRIFT, FLIGHT_END_AGO, FLIGHT_END_REACH, FLIGHT_END_SQUEEZE, FLIGHT_ENGINE, FLIGHT_EULER, FLIGHT_INV_YAW, FLIGHT_POSITION, FLIGHT_QUATERNION, FLIGHT_RAMPS, FLIGHT_REST, FLIGHT_STALL, FLIGHT_VELOCITY } from "./car-flight.ts";
+import { FLIGHT_BORNE, FLIGHT_CONTACT, FLIGHT_DOWN, FLIGHT_DRIFT, FLIGHT_END_AGO, FLIGHT_END_REACH, FLIGHT_END_SQUEEZE, FLIGHT_EULER, FLIGHT_INV_YAW, FLIGHT_POSITION, FLIGHT_QUATERNION, FLIGHT_RAMPS, FLIGHT_REST, FLIGHT_STALL, FLIGHT_VELOCITY } from "./car-flight.ts";
 import { readContact } from "./car-air-points.ts";
 import { stepFree, wreckCentre, wreckInvI } from "./car-air.ts";
 import { bodyLift, Suspension, UPRIGHT_UP_Y } from "./car-suspension.ts";
@@ -135,12 +135,15 @@ export class DeformableCar extends CarParts {
   }
 
   /**
-   * The engine dies from outside the crash sim (a guard's gunfire, `LawnGuard`): no hit the replay re-runs killed it, so the step
-   * counts as one the car was put on a spot in (`placements`), and the recorder keys it with the flight block's dead engine.
+   * The engine dies from outside the crash sim (a guard's gunfire, `LawnGuard`). The car becomes what a crash's kill leaves: a wreck (`crashed`, its
+   * masses armed) with a dead drivetrain, so it rolls to a stop on dragged wheels and sleeps at rest (`integrateWreck`), and the recorder keys it
+   * with its wreck sections (the dead engine rides them). No hit the replay re-runs did it, so the step counts as a kill (`kills`) the recorder keys.
    */
   disable(): void {
+    if (!this.deform.massActive) this.deform.armMasses(this.group, this.velocity, this.angular);
+    this.crashed = true;
     this.deform.drivetrainAlive = false;
-    this.placements++;
+    this.kills++;
   }
 
   /** Upright at (x, z) facing `yaw`, moving at `speed` along `dir` (`forward` or `fwdFlat`, read after the basis refresh). */
@@ -324,7 +327,6 @@ export class DeformableCar extends CarParts {
       this.restoreContact();
       this.contact(buf, o, true);
       this.invYaw = buf[o + FLIGHT_INV_YAW]!;
-      this.deform.drivetrainAlive = buf[o + FLIGHT_ENGINE] !== 0;
       this.restS = buf[o + FLIGHT_REST]!;
       if (this.restS >= WRECK_REST_S) {
         this.asleep = true;
@@ -352,7 +354,6 @@ export class DeformableCar extends CarParts {
     buf[o + FLIGHT_REST] = this.restS;
     buf[o + FLIGHT_RAMPS] = this.drive.ebrakeK;
     buf[o + FLIGHT_RAMPS + 1] = this.drive.boostK;
-    buf[o + FLIGHT_ENGINE] = this.deform.drivetrainAlive ? 1 : 0;
   }
 
   /**
