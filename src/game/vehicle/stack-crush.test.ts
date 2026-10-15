@@ -17,7 +17,21 @@ import { crownY, keelY } from "./car-cage-rig.ts";
 const ROOF_REST_Y = MASS_SPECS.find((m) => m.name === "roof")!.rest[1];
 /** Belly-to-roof gap of a car above (m): its belly starts this far over the drawn roof of the car below. */
 const GAP = 0.02;
+/** A stack has settled once every car's speed and spin stay under `STILL_SPEED` for `STILL_S`; it has done so within this many seconds of the drop (measured about 1 s). */
 const SETTLE_S = 8;
+const STILL_SPEED = 1e-3;
+const STILL_S = 0.5;
+
+/** Run `w` until every car stands still for `STILL_S`: the settled stack the claims are about. One that never does fails here, not as a wrong number below. */
+function settle(w: CrashWorld, cars: readonly DeformableCar[], hz: number): void {
+  let still = 0;
+  for (let f = 0; f < SETTLE_S * hz; f++) {
+    tickWorld(w, 1 / hz);
+    still = cars.some((c) => c.velocity.length() + c.angular.length() > STILL_SPEED) ? 0 : still + 1;
+    if (still >= STILL_S * hz) return;
+  }
+  throw new Error(`the stack did not stand still within ${SETTLE_S} s`);
+}
 
 function roofSink(c: DeformableCar): number {
   return ROOF_REST_Y - c.deform.massLocal("roof").y;
@@ -42,7 +56,7 @@ function stack(n: number, hz = 60): { cars: DeformableCar[]; w: CrashWorld } {
     cars.push(c);
   }
   const w = makeWorld(cars, false, false);
-  run(w, SETTLE_S, hz);
+  settle(w, cars, hz);
   return { cars, w };
 }
 
