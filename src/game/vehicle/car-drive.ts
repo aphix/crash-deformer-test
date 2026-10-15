@@ -512,7 +512,7 @@ export class DriverSeat {
   view: SeatView = "third";
   carIndex = -1;
   boost = 1;
-  /** The boost push the driven car applied last slice (`drive.boostK`): the meter drains by it, so the ramp out burns what it still pushes with. */
+  /** The boost push the driven car applied last slice (`drive.boostK`, 0 or 1): the meter drains by it. */
   private thrust = 0;
   /** The driven car's slide as the HUD reads it (`DriftView`): its seconds are paid out as boost when a clean slide ends. Copy it to publish; the seat keeps writing it. */
   readonly drift: DriftView = { s: 0, clean: true, paid: 0 };

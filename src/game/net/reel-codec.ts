@@ -134,9 +134,9 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * clip's layout gains a count and the stirs after the knocks, so a clip of 79 or before does not decode.
  * 81: a quiet step is 1/90 s, one per 90 Hz frame (it was 1/120 s), and a step in contact is cut to slices of the 1/240 s floor (3 of 1/270 s), so a
  * clip saved at 80 holds steps of another length and a replayed crash lands on other slices (the 1/240 s crush-window steps are as before).
- * 82: the handbrake, the boost and a slide's entry fade instead of switching: the handbrake grips over 0.08 s and lets go over 0.12 s (a tap's short window never gets it to full),
- * the boost's thrust ramps over 0.15 s, a slide starts as hard as the inputs are past each gate, the yaw clamp hands over to the slide across drift 0.05-0.15, and the flight block holds the two ramps,
- * so a replayed clip's handbrake flicks, boosts and slide starts run differently; and a respawn that falls due while another racing car is bearing down on its spot waits for it (up to 2 s),
+ * 82: the handbrake and a slide's entry fade instead of switching: the handbrake grips over 0.08 s and lets go over 0.12 s (a tap's short window never gets it to full),
+ * a slide starts as hard as the inputs are past each gate, the yaw clamp hands over to the slide across drift 0.05-0.15, and the flight block holds the handbrake's grip and the boost's level,
+ * so a replayed clip's handbrake flicks and slide starts run differently; and a respawn that falls due while another racing car is bearing down on its spot waits for it (up to 2 s),
  * so a replayed race's respawns land later where a car was closing.
  * 83: a pane a thrown dummy's torso strikes is applied to the car `LAG` (2) dummy-world frames after the frame it was struck in, in every mode (the
  * world runs in a worker on race courses and must answer at a fixed frame; the inline world used to apply it at once), and the dummies' world no

@@ -1,7 +1,7 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { applyDrive, BOOST, DRIVE, DriverSeat, driftPay, idleDrive, type DriveInput } from "./car-drive.ts";
+import { applyDrive, DRIVE, DriverSeat, driftPay, idleDrive, type DriveInput } from "./car-drive.ts";
 import { blankIntent, FEEL, readIntent, shapeDrive } from "./drive-input.ts";
 import { DeformableCar } from "./car.ts";
 import { DT } from "./test-support.ts";
@@ -124,7 +124,7 @@ for (const dt of RATES) {
       const k = CLASSES.sedan;
       const speed = k.topSpeed * (1 + (k.boostTop - 1) / 2);
       const car = carAt(speed);
-      // In the air the boost is not applied: what a ramp would have drained to 0 by touchdown.
+      // Airborne the boost is off, so it touches down with no thrust applied.
       car.drive.boostK = 0;
       for (let t = 0; t < 0.1 - 1e-9; t += dt) applyDrive(car, { ...idleDrive(), throttle: 1, boost: true }, dt);
       const v = Math.hypot(car.velocity.x, car.velocity.z);
@@ -158,21 +158,5 @@ describe("given the seat paying out a slide that ends", () => {
     assert.ok(Math.abs(pay[1]! - full * 0.5) < 1e-9, `0.25 s: ${pay[1]}`);
     assert.ok(Math.abs(pay[3]! - full) < 1e-9 && Math.abs(pay[4]! - full) < 1e-9, `clean: ${pay[3]} ${pay[4]}`);
     assert.ok(pay[3]! - pay[2]! < 0.05 * full, `cliff: ${pay[2]} → ${pay[3]}`);
-  });
-});
-
-describe("given the seat's boost meter while the car's thrust ramps", () => {
-  it("when Shift is let go with the thrust still on its way out, then the meter keeps draining by the thrust the car still applies and refills only once it is 0", () => {
-    const seat = new DriverSeat();
-    seat.mode = "drive";
-    seat.boost = 0.5;
-    const car = { velocity: new THREE.Vector3(), fwdFlat: new THREE.Vector3(0, 0, 1), drive: { drift: 0, boostK: 0.5 }, deform: { quietTime: () => 9 } };
-    seat.input(car as never, DT);
-    seat.step(DT);
-    assert.ok(Math.abs(seat.boost - (0.5 - (0.5 * DT) / BOOST.full)) < 1e-12, `draining: ${seat.boost}`);
-    car.drive.boostK = 0;
-    seat.input(car as never, DT);
-    seat.step(DT);
-    assert.ok(seat.boost > 0.5 - (0.5 * DT) / BOOST.full, `refilling: ${seat.boost}`);
   });
 });
