@@ -372,9 +372,9 @@ describe("given a shape-deform-mode car at squash setting 0.32 and at 0.4, struc
       let drop = 0;
       for (let f = 0; f < 60 * 4; f++) {
         for (let s = 0; s < 2; s++) {
-          rig.step(1 / 90);
-          car.afterContacts(1 / 90);
-          car.stepBreakage(1 / 90);
+          rig.step(1 / 80);
+          car.afterContacts(1 / 80);
+          car.stepBreakage(1 / 80);
         }
         car.updateSkin();
         const touching = rig.heads.some((h) => h.touching);

@@ -45,7 +45,7 @@ crashes every hit up to it.
 | Truck | 0.3 / 0.53 / 0.76 / 1 | 16.3 / 7.8 / 4.3 / 1.8 | 5 / 2.48 / 2.2 / 1.08 |
 | Monster | 0.3 / 0.53 / 0.76 / 1 | 17.1 / 11.5 / 5.0 / 1.8 | 8.4 / 5.65 / 2.45 / 0.88 |
 
-Launch targets (`vehicle-classes.test.ts` `LAUNCH`, full throttle at 1/90 s and 1/240 s steps): 0–100 km/h and time to top at each
+Launch targets (`vehicle-classes.test.ts` `LAUNCH`, full throttle at 1/80 s and 1/240 s steps): 0–100 km/h and time to top at each
 end of the slider. The realistic end is the sourced 0–60 mph read as 0–100 km/h, time to top about 2× the arcade end;
 the arcade end is about × 0.4 and × 0.5 of those, the real order kept (muscle and monster quickest, truck slowest off the line).
 

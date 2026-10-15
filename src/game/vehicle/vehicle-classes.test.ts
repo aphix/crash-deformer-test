@@ -23,7 +23,7 @@ import {
   type VehicleClassId,
 } from "./vehicle-classes.ts";
 
-const RATES = [1 / 90, 1 / 240] as const;
+const RATES = [1 / 80, 1 / 240] as const;
 const PAINT = { body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" };
 const DEFAULT_REALISM = HANDLING.realism;
 

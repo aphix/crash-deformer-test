@@ -77,7 +77,7 @@ const WALL_SKIN = 0.015;
 
 /**
  * Seconds of travel ahead of a car driving hard into a fixed solid or another car at which its step is a hit step (`nearHit`): a step
- * and a half of `SimPacer`'s 1/90 s floor, so no step carries it from clear of the face to inside it (0.61 m a step at 55 m/s).
+ * and a third of `SimPacer`'s 1/80 s floor, so no step carries it from clear of the face to inside it (0.69 m a step at 55 m/s).
  */
 export const HIT_AHEAD = 1 / 60;
 /**

@@ -63,7 +63,7 @@ export type World = {
   partStirs: number[];
   /** The slice (s) the pacer's 1/240 s floor takes now (`SimPacer.fine`), which a step in contact is cut to; 0 where no pacer steps the world (a harness: contact is cut to `FINE_SLICE`; a replay: the recorded `shape` decides). */
   fine: number;
-  /** Steps in contact that `stepWorld` ran in more slices than a step of that length out of contact takes (1, or 2 above 12 ms), counted up for ever where `fine` is set (the bench reads differences). */
+  /** Steps in contact that `stepWorld` ran in more slices than a step of that length out of contact takes (1, or 2 above 13 ms), counted up for ever where `fine` is set (the bench reads differences). */
   fineCuts: number;
 };
 
@@ -167,7 +167,7 @@ export function stepWorld(w: World, dt: number): void {
       hz = Math.max(hz, contactHz(car));
       hit = hit || car.nearHit;
     }
-    const quiet = dt > 0.012 ? 2 : 1;
+    const quiet = dt > 0.013 ? 2 : 1;
     const cut = Math.min(8, Math.ceil(dt / (w.fine > 0 ? w.fine : FINE_SLICE) - 1e-6));
     const contact = cut !== quiet && (hit || nearWall || carsInReach(cars));
     slices = contact ? cut : quiet;

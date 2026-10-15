@@ -31,7 +31,7 @@ function course(id: string) {
   const colliders = propColliders(placed);
   const hits: number[] = [];
   w.race.onWallHit = (i) => hits.push(i);
-  const props = (car: DeformableCar): void => propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / 90);
+  const props = (car: DeformableCar): void => propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / 80);
   // A prop's top is its highest piece's (a palm's fronds), its foot where it stands.
   const top = (c: PropCollider): number => Math.max(...colliders.filter((o) => o.index === c.index).map((o) => o.top));
   return { w, colliders, placed, hits, props, top, foot: (c: PropCollider) => placed[c.index]!.y };

@@ -159,7 +159,7 @@ function fixedStep(w: World, dt: number): void {
 
 /**
  * One rendered frame of `CrashEngine.tickInner` (physics part) at 1× time; `slice` sees each step's length before it runs. With `pace`
- * the frame is stepped as the engine does (`SimPacer`: whole slices of its floor, `pace.pin` holding the 1/240 s or the 1/90 s one);
+ * the frame is stepped as the engine does (`SimPacer`: whole slices of its floor, `pace.pin` holding the 1/240 s or the 1/80 s one);
  * without it the frame's time is cut into `physicsSlice`s that end exactly on it.
  */
 export function frame(w: World, state: { acc: number }, slice?: (h: number) => void, pace?: SimPacer): void {

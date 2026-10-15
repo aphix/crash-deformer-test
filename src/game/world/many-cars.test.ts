@@ -10,7 +10,7 @@ import { SimPacer } from "../engine/sim-pace.ts";
 /**
  * Fields past the 32-car cap: the step's near-pair list (`world-step.ts` `collectNear`) holds 32 cars' pairs and grows
  * for more, and the approach marks (`markApproaches`) walk it. Before this no run ever stepped more than 32 cars. The
- * headless stack (`race-world.test-util.ts`) with the engine's pacer held on the 1/90 s floor, so the approach marks run
+ * headless stack (`race-world.test-util.ts`) with the engine's pacer held on the 1/80 s floor, so the approach marks run
  * every step: the field on a ring, every car driving at its centre, a pile-up of all of them.
  */
 const SIZES = [36, 40];
@@ -60,7 +60,7 @@ function pileup(n: number): Pileup {
   return { thrown, nonFinite, fine: w.step.fine, pastCap, contacts };
 }
 
-describe("given a field of 36 or 40 cars on a ring, each driving at its centre, stepped on the 1/90 s floor", () => {
+describe("given a field of 36 or 40 cars on a ring, each driving at its centre, stepped on the 1/80 s floor", () => {
   for (const n of SIZES) {
     it(`when ${n} cars pile up for ${SECONDS} s, then the step runs, every car stays at a real position and cars past the 32nd collide`, (t) => {
       const r = pileup(n);

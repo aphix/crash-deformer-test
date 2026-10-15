@@ -12,7 +12,7 @@ import { newWorld, stepWorld } from "../engine/world-step.ts";
  * quaternion before it sets it from the Euler angles, and each is the other's derived copy only up to rounding).
  * The pair is one car and its twin, both driven with the same pedals on the same flat road, one slice at a time.
  */
-const SLICE_S = 1 / 90;
+const SLICE_S = 1 / 80;
 const SLICES = 60;
 const WARM_SLICES = 20;
 const SPAWN_SPEED = 20;

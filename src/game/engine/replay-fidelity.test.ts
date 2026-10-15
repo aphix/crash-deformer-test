@@ -146,15 +146,15 @@ describe("given a highlight clip recorded from a crash and replayed from its key
     });
   });
 
-  // The adaptive pacer (`SimPacer`) steps a slow device at 1/90 s; the recorder stores each step's dt, so its clips replay as exactly.
+  // The adaptive pacer (`SimPacer`) steps a slow device at 1/80 s; the recorder stores each step's dt, so its clips replay as exactly.
   // A clip saved at the old 1/120 s floor holds its own steps just the same: the replay runs the clip's steps, never the pacer's.
-  for (const [floor, rate] of [[1 / 90, "1/90"], [1 / 120, "1/120"]] as const) {
+  for (const [floor, rate] of [[1 / 80, "1/80"], [1 / 120, "1/120"]] as const) {
     describe(`given a derby recorded on a slow device whose sim steps at ${rate} s instead of 1/240 s`, () => {
       const HEAD = Math.PI / 2;
       const run = (name: string, spawns: Spawn[]): void => {
         const rec = recordFlat(spawns, 8, true, [], floor);
         const coarse = rec.clip.h.filter((h) => h > floor - 1e-6).length;
-        // A 1/60 s frame is one 1/90 s step and a 1/180 s remainder, so half the steps are the floor's by the frames' own grid.
+        // A 1/60 s frame is one 1/80 s step and a 1/240 s remainder, so half the steps are the floor's by the frames' own grid.
         assert.ok(coarse >= rec.clip.h.length / 2, `${name}: ${coarse} of ${rec.clip.h.length} steps at ${rate} s (the rest are frame remainders)`);
         check(`${name} ${rate}`, rec, agreement(rec));
       };

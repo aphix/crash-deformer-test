@@ -13,7 +13,7 @@ import { newWorld, stepWorld } from "../engine/world-step.ts";
  * the masses' velocities where they were, so a spinning wreck that was steered lost (or, counter-steered, gained)
  * angular momentum with no torque behind it: derby seed 39 c1 went 3.3 → 8.7 rad/s over 0.45 s, ΔL −6394.
  */
-const H = 1 / 90;
+const H = 1 / 80;
 
 /** A sedan, masses live at 8 m/s along +z, every mass turning rigidly at `w` rad/s about the masses' centroid (v = w (z, −x)). */
 function spinning(w: number): DeformableCar {

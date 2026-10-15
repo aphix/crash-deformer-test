@@ -524,7 +524,7 @@ function skinOverlap(striker: DeformableCar, struck: DeformableCar, side: Map<nu
 
 /**
  * A police sedan at `mps` m/s nose-first into the right side of a parked sedan, run at the pacer's pinned slice (`SimPacer.pin`:
- * false 1/240 s, true 1/90 s) until both have stopped. The overlap is read once per frame, on the skin that frame draws.
+ * false 1/240 s, true 1/80 s) until both have stopped. The overlap is read once per frame, on the skin that frame draws.
  */
 export function copIntoSide(mps: number, coarse: boolean): SideHit {
   const struck = parkCar();

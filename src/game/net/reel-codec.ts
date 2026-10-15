@@ -158,9 +158,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * a prop list (and keyframe knocked-prop bits) of another length and a replayed car meets blocks the record never had.
  * 89: a clip lists the guards a car in it ran down (`ClipStrike`: the National Mall's White House lawn), and a replay throws each again as a ragdoll at that step: a guard a car ran
  * down is a thrown figure, not a pose, so a replayed run past the lawn shows it. A saved clip's layout gains a count and the strikes after the part stirs, so a clip of 88 or before does not decode.
+ * 90: a quiet step is 1/80 s (it was 1/90 s since 81): a step in contact is three slices of exactly 1/240 s (not three of 1/270 s, which made a crowded race 270 slices a second against
+ * 240 at 1/120 s), and a quiet step is one slice up to 13 ms (it was 12), so a replay of a clip of 89 or before steps and slices a crash on other lengths.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 89;
+const REPLAY_VERSION = 90;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

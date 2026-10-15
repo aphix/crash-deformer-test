@@ -14,7 +14,7 @@ function shaped(keys: string[], along: number, seconds: number) {
   const intent = readIntent(new Set(keys), null, blankIntent());
   const feel = { wheel: 0, gas: 0, brake: 0, brakeHeld: 0, pulse: 0 };
   const out = idleDrive();
-  for (let t = 0; t < seconds - 1e-9; t += 1 / 90) shapeDrive(intent, feel, along, 1 / 90, out);
+  for (let t = 0; t < seconds - 1e-9; t += 1 / 80) shapeDrive(intent, feel, along, 1 / 80, out);
   return { out, feel, intent };
 }
 
@@ -72,7 +72,7 @@ describe("given a driver steering with the keyboard", () => {
     const out = idleDrive();
     const run = (k: string[], s: number) => {
       const intent = readIntent(new Set(k), null, blankIntent());
-      for (let t = 0; t < s - 1e-9; t += 1 / 90) shapeDrive(intent, feel, 5, 1 / 90, out);
+      for (let t = 0; t < s - 1e-9; t += 1 / 80) shapeDrive(intent, feel, 5, 1 / 80, out);
     };
     run(["KeyA"], 0.4);
     const held = feel.wheel;
@@ -89,8 +89,8 @@ describe("given a driver steering with the keyboard", () => {
     const out = idleDrive();
     let t = 0;
     while (feel.wheel > 0 && t < 1) {
-      shapeDrive(intent, feel, 5, 1 / 90, out);
-      t += 1 / 90;
+      shapeDrive(intent, feel, 5, 1 / 80, out);
+      t += 1 / 80;
     }
     assert.ok(t < 0.2, `took ${t.toFixed(3)} s to centre`);
   });
@@ -141,12 +141,12 @@ describe("given a driver using the keyboard pedals (brake, reverse, handbrake)",
     const out = idleDrive();
     const run = (k: string[], s: number) => {
       const intent = keys(k);
-      for (let t = 0; t < s - 1e-9; t += 1 / 90) shapeDrive(intent, feel, 15, 1 / 90, out);
+      for (let t = 0; t < s - 1e-9; t += 1 / 80) shapeDrive(intent, feel, 15, 1 / 80, out);
     };
     run(["KeyW", "KeyA"], 0.4);
     run(["KeyW", "KeyA", "KeyS"], 0.15);
     assert.equal(out.ebrake, false);
-    run(["KeyW", "KeyA"], 1 / 90);
+    run(["KeyW", "KeyA"], 1 / 80);
     assert.equal(out.ebrake, true);
     run(["KeyW", "KeyA"], 0.15);
     assert.equal(out.ebrake, false);
@@ -157,8 +157,8 @@ describe("given a driver using the keyboard pedals (brake, reverse, handbrake)",
     const feel = { wheel: 0, gas: 0, brake: 0, brakeHeld: 0, pulse: 0 };
     const drive = (k: string[], s: number, out = centred) => {
       const intent = readIntent(new Set(k), null, blankIntent());
-      for (let t = 0; t < s - 1e-9; t += 1 / 90) {
-        shapeDrive(intent, feel, 15, 1 / 90, out);
+      for (let t = 0; t < s - 1e-9; t += 1 / 80) {
+        shapeDrive(intent, feel, 15, 1 / 80, out);
         assert.equal(out.ebrake, false);
       }
     };
@@ -181,8 +181,8 @@ describe("given a driver using the keyboard pedals (brake, reverse, handbrake)",
     const run = (gas: number, brake: number, s: number) => {
       intent.gas = gas;
       intent.brake = brake;
-      for (let t = 0; t < s - 1e-9; t += 1 / 90) {
-        shapeDrive(intent, feel, 15, 1 / 90, out);
+      for (let t = 0; t < s - 1e-9; t += 1 / 80) {
+        shapeDrive(intent, feel, 15, 1 / 80, out);
         assert.equal(out.ebrake, false, `handbrake pulsed with the wheel at ${feel.wheel.toFixed(2)}`);
       }
     };

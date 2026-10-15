@@ -16,7 +16,7 @@ import { newLooseShape, stepLoose } from "./loose-step.ts";
 import { corner, LIES_FLAT, lowest, RESTS, thinAxisUp } from "./loose-step.test-util.ts";
 import { assertSameDigest, paint } from "./test-support.ts";
 
-const H = 1 / 90;
+const H = 1 / 80;
 
 /** A flat road at height `raise`, under everything. */
 class RaisedRoad extends Ground {

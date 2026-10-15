@@ -107,7 +107,7 @@ function dresser(derby: boolean): (car: DeformableCar) => void {
 
 /**
  * A crash on a flat field with no walls (the derby's rules: `derby` arms the wear kill), the recorder fed as the engine
- * does: frames of 1/60 s cut into `physicsSlice` steps (never shorter than `floor`: 1/90 s is the adaptive pacer's coarse
+ * does: frames of 1/60 s cut into `physicsSlice` steps (never shorter than `floor`: 1/80 s is the adaptive pacer's coarse
  * slice), every car on its own pedals, the clip the best the ledger kept.
  */
 export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boolean, touched: readonly number[] = [], floor = 1 / 240, shot: Shot | null = null): Recording {

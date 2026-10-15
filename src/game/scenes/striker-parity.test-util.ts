@@ -18,7 +18,7 @@ import { firePiston } from "./piston-rig.test-util.ts";
 const SQUASH = 0.32;
 /** Start the car 6 m from the struck face so no striker's approach is in the measurement. */
 const RUN_UP = 6;
-const SLICE = 1 / 90;
+const SLICE = 1 / 80;
 const SECONDS = 4;
 /** The piston's mass (kg): 23 times the car's, so it is nearly the unmoving face the slab is. */
 export const PISTON_KG = 20000;
