@@ -300,6 +300,8 @@ export abstract class CarCore {
   /** Plan position where it fell asleep: a moved prop, solid or awake car top within reach wakes it (`stirNear`). */
   sleepX = 0;
   sleepZ = 0;
+  /** The slice (0-based) of the step `stepWorld` last ran in which a sleeping wreck was woken by something that moves coming within reach (`stirNear`), −1: none. The recorder keeps it per step (`HighlightClip.stirs`): a replay without the cars that stirred it wakes it there. */
+  stirSlice = -1;
   /** Contact rows the last rigid step solved (tyres + points). */
   contacts = 0;
 

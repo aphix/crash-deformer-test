@@ -21,6 +21,7 @@ import {
   type ClipEjection,
   type ClipHit,
   type ClipKnock,
+  type ClipStir,
   type HighlightClip,
   type ReelCar,
 } from "../match/highlights.ts";
@@ -172,6 +173,8 @@ export class CrashRecorder {
   private readonly ejected: { step: number; e: Ejection }[] = [];
   /** Every prop knocked off its spot this race (`knock`): the step it went in, the prop and the car that knocked it; a clip takes those of its steps by cars it leaves out. */
   private readonly knocked: { step: number; prop: number; car: number }[] = [];
+  /** Every sleeping wreck woken by a mover near it this race (`endStep`): the step, the car and the slice; a clip takes those of its steps and cars. Older than the ring, none is wanted again (`endStep` drops them). */
+  private readonly stirred: { step: number; car: number; slice: number }[] = [];
   /**
    * Recorder time up to which the last driver thrown out (`eject`) is owed his reel slow-mo hold (`THROW_HOLD_SIM` past
    * the end of his step); `throwing`: one was thrown in the step under way; `closing`: the race is over (`over`) and recording runs on until then.
@@ -204,6 +207,7 @@ export class CrashRecorder {
     this.ledger.clear();
     this.ejected.length = 0;
     this.knocked.length = 0;
+    this.stirred.length = 0;
     this.alive.fill(1);
     this.tracked = 0;
     this.strainCar.fill(null);
@@ -311,6 +315,8 @@ export class CrashRecorder {
         const { x, z } = c.group.position;
         if (i < this.racers || this.ledger.joins(this.time, i, -1, x, z)) this.ledger.kill(this.time, i, x, z);
       }
+      // A sleeping wreck woken by something that moves coming near it (`DeformableCar.stirSlice`), the slice of this step it was in: a clip that leaves the mover out replays the wake.
+      if (c.stirSlice >= 0) this.stirred.push({ step: this.step, car: i, slice: c.stirSlice });
       this.alive[i] = alive;
       // A car carried on another's roof (`CarSurfaces`) is in contact with it, though the plan SAT leaves the pair alone.
       const under = c.airborne && c.restsOn ? cars.indexOf(c.restsOn) : -1;
@@ -319,6 +325,7 @@ export class CrashRecorder {
     this.trackCrush(cars, n);
     this.time += h;
     this.step++;
+    while (this.stirred.length > 0 && this.stirred[0]!.step <= this.step - RING) this.stirred.shift();
     if (this.throwing) {
       this.throwing = false;
       this.owed = this.time + THROW_HOLD_SIM;
@@ -721,6 +728,12 @@ export class CrashRecorder {
     // The props knocked off their spot during the clip's steps by cars it leaves out: the replay knocks them at those steps (the clip's own cars do their own).
     const knocks: ClipKnock[] = [];
     for (const x of this.knocked) if (x.step >= start && x.step < this.step && !slots.includes(x.car)) knocks.push({ step: x.step - start, prop: x.prop });
+    // The sleeping wrecks of the clip woken during its steps by something that moves near them (often a car the clip leaves out): the replay wakes them at those slices.
+    const stirs: ClipStir[] = [];
+    for (const x of this.stirred) {
+      const j = slots.indexOf(x.car);
+      if (j >= 0 && x.step >= start && x.step < this.step) stirs.push({ step: x.step - start, car: j, slice: x.slice });
+    }
     this.ledger.keep({
       trackId: this.trackId,
       score,
@@ -730,6 +743,7 @@ export class CrashRecorder {
       hit: c.hit,
       ejections,
       knocks,
+      stirs,
       peakKph: c.peak * 3.6,
       hitKph: c.hitMps * 3.6,
       deform,

@@ -180,6 +180,12 @@ crash it recorded. What it takes, each found by the replay straying from the liv
   finds nothing there in the record. `CrashRecorder.knock` keeps each knock with its step and car; a clip lists those of its
   steps by cars it does not carry (`HighlightClip.knocks`: step u32, prop u16, after the ejections) and the replay knocks the
   prop before that step runs (the clip's own cars knock theirs themselves). Seeds 18, 31 and 64 of the city sweep replayed a wreck 0.1 mm to 0.7 m off without it.
+- **Wrecks stirred by cars the clip leaves out** (80). A wreck at rest sleeps (its rigid step is skipped) and wakes when a car that moves comes
+  within `REACH` (2.5 m) of where it lies (`stirNear`, which reads every car's roof in the world). A racer driving past a sleeping wreck, too far
+  from the crash to be carried, woke it in the record; the replay world has no roof for that car and the wreck slept on, so its settling differed (4e-8 m the step it woke,
+  then a pile's push-out: seed 1 of the city sweep, 0.22 m). `stepWorld` notes the slice a sleeper was woken in that way (`DeformableCar.stirSlice`), `CrashRecorder.endStep` keeps it with its step
+  and car, a clip lists those of its steps and cars (`HighlightClip.stirs`: step u32, car u8, slice u8, after the knocks) and the replay
+  wakes the wreck at that slice (`World.stirs`). `engine-record-stir.test.ts` replays a clip whose wreck a car the clip leaves out drove past: exact with the stirs, 2.5e-5 m off without.
 - **The world's step schedule** (23). A step runs 1 to 3 slices of 1 to 3 SAT passes, decided by every car in the world
   (`World.shape`), and a replay of a few cars cannot work them out: the clip carries it (`World.plan`).
 - **Masses touching** (23). A car that only pressed its masses or a door on a clip car is in the clip (`touch`, `partContactPair`).

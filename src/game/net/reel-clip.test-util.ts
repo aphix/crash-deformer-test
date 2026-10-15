@@ -84,6 +84,11 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
       { step: 100, prop: 17 },
       { step: 432, prop: 200 },
     ],
+    stirs: [
+      { step: 241, car: 0, slice: 0 },
+      { step: 241, car: 1, slice: 3 },
+      { step: 500, car: 1, slice: 7 },
+    ],
     peakKph: 96,
     hitKph: 48,
     deform: 1.25,
@@ -146,6 +151,7 @@ export function sameClip(got: HighlightClip, want: HighlightClip): void {
     assertSameDigest({ ...x.e, pos: x.e.pos.toArray(), local: x.e.local.toArray(), dir: x.e.dir.toArray(), quat: x.e.quat.toArray(), rel: x.e.rel.toArray(), carVel: x.e.carVel.toArray(), spin: x.e.spin.toArray() }, { ...w.e, pos: w.e.pos.toArray(), local: w.e.local.toArray(), dir: w.e.dir.toArray(), quat: w.e.quat.toArray(), rel: w.e.rel.toArray(), carVel: w.e.carVel.toArray(), spin: w.e.spin.toArray() }, `ejection ${i}`);
   }
   assert.deepEqual(got.knocks, want.knocks, "knocked props");
+  assert.deepEqual(got.stirs, want.stirs, "stirred wrecks");
   assert.equal(got.hits.length, want.hits.length);
   for (const [i, p] of got.hits.entries()) {
     const w = want.hits[i]!;

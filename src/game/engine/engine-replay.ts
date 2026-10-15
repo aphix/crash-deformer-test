@@ -72,6 +72,8 @@ export class ClipSim {
   private readonly knocked: Uint8Array[] = [];
   /** Next of `clip.knocks` to apply, and a scratch in the keyframes' bit layout to hand the scene one prop at a time (`knockProp`). */
   private knockAt = 0;
+  /** Next of `clip.stirs` to hand the world. */
+  private stirAt = 0;
   private readonly knockBits: Uint8Array;
   private readonly sim: (Float64Array | null)[][] = [];
   /** The replay's own world: `strongest` holds the last step's hardest contact. */
@@ -192,6 +194,7 @@ export class ClipSim {
     this.time = 0;
     this.ejectAt = 0;
     this.knockAt = 0;
+    this.stirAt = 0;
     this.fired = [];
     this.stepAt = 0;
     // The cars go back on the sim's own poses before they are respawned (a drawn pose written back after it would undo the respawn).
@@ -230,6 +233,10 @@ export class ClipSim {
       }
       // The props a car the clip leaves out knocked off their spot in this step: gone before the clip's cars reach them, as in the record. (A clip car at one in the same step would have knocked it itself.)
       for (const ks = clip.knocks; this.knockAt < ks.length && ks[this.knockAt]!.step <= s; this.knockAt++) this.knockProp(ks[this.knockAt]!.prop);
+      // The sleeping wrecks the record woke in this step by a mover the clip leaves out (or its own): woken at the same slice (`World.stirs`).
+      const stirs = this.world.stirs;
+      stirs.length = 0;
+      for (const ss = clip.stirs; this.stirAt < ss.length && ss[this.stirAt]!.step <= s; this.stirAt++) if (ss[this.stirAt]!.step === s) stirs.push(ss[this.stirAt]!.slice, ss[this.stirAt]!.car);
       const h = clip.h[s]!;
       const inp = clip.inputs;
       const d = this.input;

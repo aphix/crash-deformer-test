@@ -49,6 +49,12 @@ export type World = {
   shape: number;
   /** A recorded `shape` the next `stepWorld` runs to the letter (a highlight replay); −1: the cars decide, as live. */
   plan: number;
+  /**
+   * A replay's recorded stirs for the next `stepWorld`, flat `[slice, car, slice, car, …]` (car: index in `cars`): each sleeping wreck listed is woken at the start
+   * of that slice, as the live step woke it when something that moves came within reach (`stirNear`) - a car the replay leaves out, whose roof the replay world
+   * does not have. Empty live (the cars decide: `DeformableCar.stirSlice` says which slice woke each sleeper) and where a clip records none.
+   */
+  stirs: number[];
   /** The slice (s) the pacer's 1/240 s floor takes now (`SimPacer.fine`), which a step in contact is cut to; 0 where no pacer steps the world (a harness: contact is cut to `FINE_SLICE`; a replay: the recorded `shape` decides). */
   fine: number;
   /** Steps in contact that `stepWorld` ran in more slices than a step of that length out of contact takes (1, or 2 above 12 ms), counted up for ever where `fine` is set (the bench reads differences). */
@@ -70,6 +76,7 @@ export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier 
     surfaces: new CarSurfaces(),
     shape: 0,
     plan: -1,
+    stirs: [],
     fine: 0,
     fineCuts: 0,
   };
@@ -168,6 +175,7 @@ export function stepWorld(w: World, dt: number): void {
   w.surfaces.cars = cars;
   for (let ci = 0; ci < n; ci++) {
     cars[ci]!.slot = ci;
+    cars[ci]!.stirSlice = -1;
     cars[ci]!.surfaces = w.surfaces;
     cars[ci]!.group.updateWorldMatrix(false, false);
     w.surfaces.sync(ci, cars[ci]!);
@@ -185,7 +193,11 @@ export function stepWorld(w: World, dt: number): void {
       car.slot = ci;
       // A wreck is its rigid body's: `integrate` steps the body and carries its masses.
       const wreck = car.deform.massActive;
+      for (let k = 0; k < w.stirs.length; k += 2) if (w.stirs[k] === i && w.stirs[k + 1] === ci) car.wake();
+      // A sleeper at rest that this slice wakes (`integrateWreck`: nothing but `stirNear` wakes a still one) was stirred in slice `i`.
+      const sleeper = wreck && car.asleep && car.velocity.lengthSq() + car.angular.lengthSq() === 0;
       car.integrate(h);
+      if (sleeper && !car.asleep) car.stirSlice = i;
       if (!wreck) {
         if (car.deform.massActive) car.syncPose(h);
         else car.refreshBasis();

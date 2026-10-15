@@ -512,6 +512,17 @@ export type ClipHit = { t: number; x: number; y: number; z: number; a: number; b
 /** A prop (the course's placed props, by index) a car the clip does not carry knocked off its spot in the step `step` (counted from the clip's first step). */
 export type ClipKnock = { step: number; prop: number };
 
+/**
+ * Most stirs a clip lists (a clip is under 18 s and a wreck sleeps after a second of rest, so each of its at most 32 cars stirs under 18 times; a decoder takes no more).
+ */
+export const MAX_STIRS = 1024;
+
+/**
+ * A sleeping wreck (the clip's car `car`) woken in slice `slice` of the step `step` (counted from the clip's first step) because something that moves came
+ * within reach of where it lies (`stirNear`): the wake a replay without that car cannot make itself.
+ */
+export type ClipStir = { step: number; car: number; slice: number };
+
 /** One highlight: initial conditions, every step's dt and drive outputs, and the steps a car was put on a spot. */
 export type HighlightClip = {
   trackId: string;
@@ -530,6 +541,13 @@ export type HighlightClip = {
    * did not knock it. Knocks by the clip's own cars are not listed: the replay does them itself. Keyframe 0 holds the props knocked before the clip.
    */
   knocks: ClipKnock[];
+  /**
+   * The sleeping wrecks of the clip woken by something that moves coming within reach of them, in step order. The mover is often a car the clip leaves out
+   * (a racer driving past a wreck at rest, too far from the crash to be carried): the replay world has no roof for it, so the replay wakes the wreck at the slice the
+   * record did (`World.stirs`) or it sleeps on while the live one settled. A wake by contact or a pedal is not a stir (the replay does those itself); a stir by one of the clip's own
+   * moving cars is listed too, which the replay would make anyway: a wake twice is the same wake.
+   */
+  stirs: ClipStir[];
   /** Strongest closing speed (km/h) in the clip's scope: the flash a replayed hit throws. */
   peakKph: number;
   /** The main car's own speed (km/h) in its strongest impact (a wall hit's speed into the wall): the title's speed. */

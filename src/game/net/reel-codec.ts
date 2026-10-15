@@ -1,7 +1,7 @@
 import { FLIGHT } from "../vehicle/car.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
 import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
-import { INPUT_BYTES, MAX_HITS, MAX_KNOCKS, MEMORY, simFingerprint, type ClipEjection, type ClipHit, type ClipKnock, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
+import { INPUT_BYTES, MAX_HITS, MAX_KNOCKS, MAX_STIRS, MEMORY, simFingerprint, type ClipEjection, type ClipHit, type ClipKnock, type ClipStir, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
 import { blankEjection } from "../vehicle/ejection.ts";
 import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapshot, Reader, writeEjection, Writer, type NetLayout } from "./codec.ts";
 
@@ -129,9 +129,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * or more behind it, each with 20 m to spare) and a cop put on the road stays 12 s unless it is knocked out, stuck or 300 m from every racer, so a replayed race's stakeouts, reinforcements and stand-downs happen elsewhere and later.
  * 79: a police car put on the road already chasing (a reinforcement coming up behind its target) has its sirens on from its first frame, not a patrol beat (0.25 s) later,
  * and the director resets a stalled AI racer `STALL_WINDOW` (8 s) after it last gained `STALL_GAIN` (25 m) of track, not at the end of a fixed grid window (8 to 16 s after a pin), so a replayed race's pinned racers respawn sooner.
+ * 80: a clip lists the sleeping wrecks woken in a step by something that moves coming near them (`ClipStir`), and a replay wakes each at that slice: a wreck beside the road
+ * that a racer the clip leaves out drove past woke in the record and slept on in the replay, so its settling (millimetres in a step, then a pile's push-out) differed after it. A saved
+ * clip's layout gains a count and the stirs after the knocks, so a clip of 79 or before does not decode.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 79;
+const REPLAY_VERSION = 80;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -144,6 +147,8 @@ const utf8 = (s: string): number => Math.min(255, new TextEncoder().encode(s).le
 const EJECTION_BYTES = 4 + 1 + 2 + 22 * 4;
 /** A clip's knocked prop: its step (u32) and the prop (u16). */
 const KNOCK_BYTES = 4 + 2;
+/** A clip's stir: its step (u32), the car (u8) and the slice (u8). */
+const STIR_BYTES = 4 + 1 + 1;
 /** A clip's scope hit: its time (f64), position (3 x f32) and cars (2 x u8). */
 const HIT_BYTES = 8 + 4 + 4 + 4 + 2;
 
@@ -153,7 +158,7 @@ export function clipBytes(c: HighlightClip): number {
   let n = 1 + utf8(c.trackId) + 91 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
   n += 4 + c.h.length * (8 + nc * INPUT_BYTES) + 2;
   for (const k of c.keys) n += 12 + k.length;
-  return n + 1 + c.ejections.length * EJECTION_BYTES + 2 + c.knocks.length * KNOCK_BYTES + 1 + c.hits.length * HIT_BYTES;
+  return n + 1 + c.ejections.length * EJECTION_BYTES + 2 + c.knocks.length * KNOCK_BYTES + 2 + c.stirs.length * STIR_BYTES + 1 + c.hits.length * HIT_BYTES;
 }
 
 export function writeClip(w: Writer, c: HighlightClip): void {
@@ -212,6 +217,12 @@ export function writeClip(w: Writer, c: HighlightClip): void {
   for (const x of c.knocks) {
     w.u32(x.step);
     w.u16(x.prop);
+  }
+  w.u16(c.stirs.length);
+  for (const x of c.stirs) {
+    w.u32(x.step);
+    w.u8(x.car);
+    w.u8(x.slice);
   }
   w.u8(c.hits.length);
   for (const x of c.hits) {
@@ -340,6 +351,16 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (step >= steps || (k > 0 && step < knocks[k - 1]!.step)) throw new RangeError("clip knock");
     knocks.push({ step, prop });
   }
+  const nst = r.u16();
+  if (nst > MAX_STIRS) throw new RangeError("clip stirs");
+  const stirs: ClipStir[] = [];
+  for (let k = 0; k < nst; k++) {
+    const step = r.u32();
+    const car = r.u8();
+    const slice = r.u8();
+    if (step >= steps || car >= nc || slice >= 8 || (k > 0 && step < stirs[k - 1]!.step)) throw new RangeError("clip stir");
+    stirs.push({ step, car, slice });
+  }
   const nh = r.u8();
   if (nh > MAX_HITS) throw new RangeError("clip hits");
   const hits: ClipHit[] = [];
@@ -354,7 +375,7 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (!Number.isFinite(t) || a >= nc || b >= nc || (k > 0 && t < hits[k - 1]!.t)) throw new RangeError("clip hit");
     hits.push({ t, x: hx, y: hy, z: hz, a, b });
   }
-  return { trackId, score, impacts, kills, ejects, hit, ejections, knocks, peakKph, hitKph, deform, hits, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, shape, inputs, keyStep, keyCars, keys };
+  return { trackId, score, impacts, kills, ejects, hit, ejections, knocks, stirs, peakKph, hitKph, deform, hits, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, shape, inputs, keyStep, keyCars, keys };
 }
 
 /** A decoder never inflates past this (a hostile peer's or a corrupt store's deflate bomb). */
