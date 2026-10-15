@@ -7,7 +7,7 @@ import { assignClass, HANDLING } from "../vehicle/vehicle-classes.ts";
 import { fleetClass, fleetStyle } from "../scenes/fleet.ts";
 import { Reader, Writer } from "../net/codec.ts";
 import { carLayout } from "../net/car-pose.ts";
-import { clipBytes, readClip, writeClip } from "../net/reel-codec.ts";
+import { clipBytes, encodeSaved, readClip, writeClip } from "../net/reel-codec.ts";
 import { makeWorld } from "../world/race-world.test-util.ts";
 import type { HighlightClip } from "../match/highlights.ts";
 import { newWorld, settleStep, stepWorld } from "./world-step.ts";
@@ -133,10 +133,12 @@ describe("given a head-on recorded as a highlight, its torn parts lying asleep o
   const { clip } = run;
   const s0 = Math.round(clip.t0 / H);
 
-  it("when the clip is filed, then it carries the pair but not the passing car, and lists the parts' wakes as runs of slices that begin before the passer is nearest", (t) => {
+  it("when the clip is filed, then it carries the pair but not the passing car, and lists the parts' wakes as runs of slices that begin before the passer is nearest", async (t) => {
     const bytes = clipBytes(clip) - clipBytes({ ...clip, partStirs: [] });
     const slices = clip.partStirs.reduce((n, x) => n + x.slices, 0);
-    t.diagnostic(`clip cars ${clip.cars.map((c) => c.slot).join(",")}, steps ${s0} to ${s0 + clip.h.length}; passer nearest at step ${run.closest.step} (${run.closest.gap.toFixed(2)} m); ${clip.partStirs.length} part stirs over ${slices} slices cost ${bytes} bytes`);
+    // A saved clip is the deflated bytes in base64 (3 bytes to 4 characters).
+    const [withRuns, without] = await Promise.all([encodeSaved(clip), encodeSaved({ ...clip, partStirs: [] })]);
+    t.diagnostic(`clip cars ${clip.cars.map((c) => c.slot).join(",")}, steps ${s0} to ${s0 + clip.h.length}; passer nearest at step ${run.closest.step} (${run.closest.gap.toFixed(2)} m); ${clip.partStirs.length} part stirs over ${slices} slices cost ${bytes} bytes raw of ${clipBytes(clip)}, ${Math.round(((withRuns.length - without.length) * 3) / 4)} deflated of ${Math.round((withRuns.length * 3) / 4)}`);
     assert.ok(clip.cars.some((c) => c.slot === A) && clip.cars.some((c) => c.slot === B), "the pair is in the clip");
     assert.ok(!clip.cars.some((c) => c.slot === PASSER), "the car that joined the field after the clip began is left out");
     assert.ok(s0 + clip.h.length > run.closest.step, "the passer comes by inside the clip");
@@ -148,8 +150,9 @@ describe("given a head-on recorded as a highlight, its torn parts lying asleep o
     assert.deepEqual(replayLooseBodies(run, clip), { firstOff: -1, worst: 0 });
   });
 
-  it("when the same clip is replayed without its part stirs, then the parts the passer woke lie still while the live ones settled, so the replay strays (the case holds what it is for)", () => {
+  it("when the same clip is replayed without its part stirs, then the parts the passer woke lie still while the live ones settled, so the replay strays (the case holds what it is for)", (t) => {
     const strayed = replayLooseBodies(run, { ...clip, partStirs: [] });
+    t.diagnostic(`without the part stirs the replay is first off at clip step ${strayed.firstOff} (race step ${s0 + strayed.firstOff}), worst ${strayed.worst.toExponential(2)} m`);
     assert.ok(strayed.firstOff >= 0, `without the part stirs the replay stays exact: ${JSON.stringify(strayed)}`);
   });
 });
