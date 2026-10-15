@@ -772,12 +772,18 @@ export class StreamedDeformation extends DeformSolve {
       m.local.set(src.skinPos[r]!, src.skinPos[r + 1]!, src.skinPos[r + 2]!);
       m.popped = (src.skinPopped & (1 << i)) !== 0;
     }
-    // Skinned now, LoD or not: a deferred flush would read the hubs after they move on below.
-    this.solveCages();
+    // A car no skin bake ever ran for (a torn mirror and no crash, a gun-killed car) has zeros for its skin inputs: skinned from them
+    // the whole body collapses on the origin. It is the rest mesh, which stays (and a re-read of this state is zeros again: not baked).
+    let baked = false;
+    for (let i = 0; i < src.skinPos.length && !baked; i++) baked = src.skinPos[i] !== 0;
+    this.skinBaked = baked;
     this.cageDue = true;
-    this.cageExact = true;
-    this.skinBaked = true;
-    this.flushSkin(geometry, true);
+    if (baked) {
+      // Skinned now, LoD or not: a deferred flush would read the hubs after they move on below.
+      this.solveCages();
+      this.cageExact = true;
+      this.flushSkin(geometry, true);
+    } else this.restoreRest(geometry);
     this.skinOwed = false;
     group.updateWorldMatrix(false, false);
     for (let i = 0, r = 0; i < this.masses.length; i++, r += 3) {

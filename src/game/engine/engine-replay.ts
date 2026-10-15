@@ -26,6 +26,8 @@ export type ReplayScene = {
   dress(car: DeformableCar): void;
   collide(car: DeformableCar, slot: number, h: number): void;
   restore?(slot: number, mem: Float64Array, at: number): void;
+  /** A scene with a course that puts cars away: whether car `slot` standing at (x, z) is put away there (hidden, as the record had it), not on the road (`RaceDirector.stored`). */
+  stored?(slot: number, x: number, z: number): boolean;
   knocks?(bits: Uint8Array): void;
   /** The blend the cars are drawn with, live play's (`PoseBlend`): the sim brackets its steps with it and draws between them. */
   blend: PoseBlend;
@@ -87,6 +89,7 @@ export class ClipSim {
   readonly world: World;
   private readonly dress: (car: DeformableCar) => void;
   private readonly restoreCar: ((slot: number, mem: Float64Array, at: number) => void) | undefined;
+  private readonly stored: ((slot: number, x: number, z: number) => boolean) | undefined;
   private readonly restoreKnocks: ((bits: Uint8Array) => void) | undefined;
   private readonly input: DriveInput = idleDrive();
   /** The first impact's car still had a running engine after the last step (a kill-opened cluster's impact is its death). */
@@ -161,11 +164,22 @@ export class ClipSim {
     this.world = w;
     this.dress = scene.dress;
     this.restoreCar = scene.restore;
+    this.stored = scene.stored;
     this.restoreKnocks = scene.knocks;
   }
 
   get done(): boolean {
     return this.step >= this.clip.h.length;
+  }
+
+  /**
+   * The clip car the shots, the sun's shadow box and the heading follow: the clip's focus once it is on the road. A focus put away at
+   * the clip's start (a cop that drops in seconds after it) is not there to frame: the first impact's car that is, until it is.
+   */
+  get subject(): number {
+    const { focus, firstA, firstB } = this.clip;
+    if (this.cars[focus]!.group.visible) return focus;
+    return this.cars[firstA]!.group.visible ? firstA : firstB >= 0 ? firstB : focus;
   }
 
   /**
@@ -251,7 +265,7 @@ export class ClipSim {
     this.wallAt.fill(-Infinity);
     for (let j = 0; j < this.cars.length; j++) this.spawn(j, 0);
     this.restoreKnocks?.(this.knocked[0]!);
-    foldHeading(this.heading, this.cars[this.clip.focus]!, 0);
+    foldHeading(this.heading, this.cars[this.subject]!, 0);
     this.aliveA = this.cars[this.clip.firstA]!.deform.drivetrainAlive;
     this.key = 1;
   }
@@ -310,7 +324,7 @@ export class ClipSim {
       this.time += h;
       this.step++;
       this.blend.end(cars);
-      foldHeading(this.heading, this.cars[this.clip.focus]!, h);
+      foldHeading(this.heading, this.cars[this.subject]!, h);
     }
     HANDLING.realism = saved;
   }
@@ -400,6 +414,8 @@ export class ClipSim {
     car.surfaces = this.world.surfaces;
     car.slot = j;
     car.flight(this.flight[k]!, j * FLIGHT, true);
+    // A car put away (traffic, a cop waiting off the course) is hidden where it waits, as in the record, until a keyframe puts it on the road.
+    car.group.visible = !this.stored?.(this.clip.cars[j]!.slot, f.x, f.z);
     this.restoreCar?.(this.clip.cars[j]!.slot, this.memory[k]!, j * MEMORY);
     car.speed = hypot2(car.velocity.x, car.velocity.z);
     car.refreshBasis();

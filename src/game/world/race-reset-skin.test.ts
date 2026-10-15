@@ -8,8 +8,8 @@ import { Track } from "./track.ts";
 import { FRAME, makeWorld, frame, type World } from "./race-world.test-util.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 
-/** The player's car on the oval 8 s in, with a mirror torn off and a hit taken, then settled: its torn mirror lies on the road. */
-function crashed(): { w: World; car: DeformableCar; state: { acc: number } } {
+/** The player's car on the oval 8 s in, with a mirror torn off and (`hit`) a hit taken, then settled: its torn mirror lies on the road. */
+function crashed(hit = true): { w: World; car: DeformableCar; state: { acc: number } } {
   const w = makeWorld();
   const track = new Track(TRACKS.find((j) => parseTrack(j).id === "oval"));
   w.race.enter();
@@ -26,7 +26,7 @@ function crashed(): { w: World; car: DeformableCar; state: { acc: number } } {
   }
   const car = w.live()[0]!;
   car.breakMirror(1, new THREE.Vector3(0, 0, 1));
-  car.applyImpact(car.group.position.clone().addScaledVector(car.forward, 2), car.forward.clone().negate(), 6, 6);
+  if (hit) car.applyImpact(car.group.position.clone().addScaledVector(car.forward, 2), car.forward.clone().negate(), 6, 6);
   w.seat.intent.gas = 0;
   const flying = (): boolean => car["parts"].some((p) => p.detached && (p.velocity.length() > 0.05 || p.angular.length() > 0.05));
   for (let n = 0; n < 60 || (flying() && n < 900); n++) frame(w, state);
@@ -54,6 +54,16 @@ describe("given the player's car crashed in a race with a mirror torn off and ly
       frame(w, state);
       assert.ok(skinDrift(skin, car) < 0.001, `hold ${k}: the drawn body drifted ${skinDrift(skin, car).toFixed(3)} m from the damaged car's`);
     }
+  });
+
+  it("when only a mirror is torn (no hit: no skin was ever baked) and the reset is held, then the drawn body is the whole, undented one, not collapsed by the net state's zero skin inputs", (t) => {
+    t.after(() => setGround(null));
+    const { w, car, state } = crashed(false);
+    const skin = car.skinGeometries().map((g) => Float32Array.from(g.getAttribute("position").array));
+    assert.ok(!car.deform.massActive && car.hasLoosePart(), "the fixture's car has a part off and no crash");
+    w.race.holdReset();
+    frame(w, state);
+    assert.ok(skinDrift(skin, car) < 0.001, `the drawn body drifted ${skinDrift(skin, car).toFixed(3)} m from the car's own`);
   });
 
   it("when the reset is held again and again, then the torn mirror stays torn and where it lies, thrown no more", (t) => {

@@ -175,6 +175,19 @@ describe("given a flat-field head-on recorded as a highlight with 19 bystander c
     assert.deepEqual(cars[MIRROR]!.deform.impactInward.toArray(), [0, 0, -1]);
   });
 
+  it("when the clip is restored, then a car with a torn mirror and no crash is drawn in its rest skin, not collapsed by the zero skin inputs of its network state (no bake ever ran for it)", () => {
+    const { clip, cars, dress } = run;
+    const car = cars[MIRROR]!;
+    const sim = new ClipSim(clip, clip.cars.map((c) => cars[c.slot]!), { dress, collide: () => {}, blend: new PoseBlend() });
+    sim.restart();
+    assert.ok(car.hasLoosePart() && !car.crashed, "the mirror car is restored with its mirror off and no wreck");
+    const drawn = car.body.geometry.getAttribute("position").array as Float32Array;
+    const rest = car.deform.restSkin;
+    let off = 0;
+    for (let i = 0; i < rest.length; i++) off = Math.max(off, Math.abs(drawn[i]! - rest[i]!));
+    assert.equal(off, 0, `the body skin is ${off} m off its rest shape at the clip's first frame`);
+  });
+
   it("when the clip is replayed, then a prop that a car outside the clip knocked off its spot is in the clip's knocks and is knocked again at that step, while a clip car's own knock is not", () => {
     const { clip, cars, dress } = run;
     const s0 = Math.round(clip.t0 / H);
@@ -327,5 +340,23 @@ describe("given a head-on whose car A was put on the road a second before the im
     const worst = replayWorst(run);
     t.diagnostic([...worst].map(([slot, d]) => `car ${slot}: ${d} m off`).join("\n"));
     assert.deepEqual([...worst.values()].filter((d) => d !== 0), [], "every car of the clip is where the sim had it at every step");
+  });
+
+  it("when the replay's scene knows where cars wait put away, then A is hidden there from the clip's start to the step its keyframe puts it on the road, and the shots frame a drawn car throughout", () => {
+    const { clip, cars, dress } = recordArrival();
+    const j = clip.cars.findIndex((c) => c.slot === A);
+    const put = clip.keyStep.findIndex((s, i) => i > 0 && ((clip.keyCars[i]! >>> j) & 1) === 1);
+    assert.ok(j >= 0 && put > 0, "A is in the clip and has a keyframe of its own: its respawn");
+    const at = clip.keyStep[put]!;
+    const sim = new ClipSim(clip, clip.cars.map((c) => cars[c.slot]!), { dress, collide: () => {}, stored: (_slot, _x, z) => z > PILE_Z - 50, blend: new PoseBlend() });
+    sim.restart();
+    while (sim.step <= at) {
+      assert.equal(cars[A]!.group.visible, false, `A is drawn at step ${sim.step}, before the step ${at} that puts it on the road`);
+      assert.ok(sim.cars[sim.subject]!.group.visible, `the shots frame a hidden car at step ${sim.step}`);
+      if (clip.focus === j) assert.notEqual(sim.subject, j, "the shots frame A while it waits");
+      sim.advanceTo(sim.time + 1e-6);
+    }
+    assert.equal(cars[A]!.group.visible, true, `A is still hidden after step ${at}, which puts it on the road`);
+    assert.equal(sim.subject, clip.focus, "the shots are on the clip's focus once it is on the road");
   });
 });

@@ -307,7 +307,7 @@ export class CrashEngine extends EngineGarage {
     return new ReelDirector({
       carsOf: (clip) => clip.cars.map((c) => this.cars[c.slot]!),
       live: () => this.live(),
-      scene: { dress: (car) => this.dressCar(car), collide: (car, slot, h) => this.race.courseHit(car, slot, h), restore: (slot, mem, at) => this.race.remember(slot, mem, at), knocks: (bits) => this.race.knockTo(bits), blend: this.blend },
+      scene: { dress: (car) => this.dressCar(car), collide: (car, slot, h) => this.race.courseHit(car, slot, h), restore: (slot, mem, at) => this.race.remember(slot, mem, at), stored: (slot, x, z) => this.race.stored(slot, x, z), knocks: (bits) => this.race.knockTo(bits), blend: this.blend },
       resetProps: () => this.race.resetProps(),
       clear: () => this.clearLocal(),
       sight: (focus) => this.sceneSight(focus, true),

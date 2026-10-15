@@ -167,7 +167,10 @@ crash it recorded. What it takes, each found by the replay straying from the liv
   double: a restored wreck is bit for bit the live one. It includes the hit vectors (`impactLocal`, `impactInward`), the body
   frame, the ground samples, the shape clusters' fit state (`Rprev`, `rotQ`, warm start) and the clocks (`elapsed`,
   `lastContact`, `lastPower`, `contactAt`, compared by holds of whole steps). A car with a part torn off carries it whether or
-  not it crashed: its netplay wreck section alone leaves the hit frame zeroed (`impactInward` (0, 0, 0) for the intact car's (0, 0, -1)).
+  not it crashed: its netplay wreck section alone leaves the hit frame zeroed (`impactInward` (0, 0, 0) for the intact car's (0, 0, -1)) and, when no skin
+  bake ever ran for it, the skin inputs zeroed too: `StreamedDeformation.writeNetState` leaves such a car its rest mesh, where skinning from zeros collapsed
+  its body, hood, boot and glass on the origin (owner flag ZD1Z-TQXR: a player's car with a torn mirror replayed as a bare frame until the first contact baked a skin;
+  `engine-record-bystander.test.ts`). A netplay client's gun-killed car and a held reset's undented car read the same way.
 - **The cage is the sim's alone** (52). A car's contact shape, its cage (`CarCage`), is fitted from the skin the *sim* bakes (`DeformState.stepCrush`:
   every step of a crush window and a load crush's step) and from its parts' state
   (`hingePose`), never from what was drawn: drawing writes the mesh from the last bake and solves nothing (`engine/cage-draw-independence.test.ts`:
@@ -264,7 +267,10 @@ the shot. A peer at 45 Hz and one at 60 Hz therefore frame the same camera at th
 - **Late join.** A peer that reaches a clip more than `JOIN_LATE` (0.25 s) in (a late join, back from the solo view, a
   stalled tab) hovers over it until the next flight instead of replaying seconds in one frame.
 - **Cars.** While the reel plays, the engine's own sim is paused. Every car but the clip's is hidden, and all of them
-  are restored when the reel stops.
+  are restored when the reel stops. A clip car the record had put away (a Survival cop waiting off the course until it drops in: `RaceField.putAway`
+  parks it at a spot `RaceDirector.stored` knows) is hidden where it waits, until the keyframe of its placement puts it on the road (`ClipSim.pose`,
+  `ReplayScene.stored`); drawn, it floated 4 km out in the opener's sky for the first seconds. The shots, the sun's shadow box and the heading follow
+  `ClipSim.subject`: the clip's focus once it is on the road, until then the first impact's other car.
 
 ### Cameras
 

@@ -489,13 +489,13 @@ export class ReelDirector {
     const k = Math.max(0, this.shot);
     const ctx = p.shots[k]!.ctx;
     if (ctx && ctx.fov > 0) contextPose(cam, ctx.eye, ctx.aim, ctx.fov);
-    else this.shotCam.pose(cam, p.sim.cars[p.clip.focus]!, plainShot(p.shots, k), p.sim.heading);
+    else this.shotCam.pose(cam, p.sim.cars[p.sim.subject]!, plainShot(p.shots, k), p.sim.heading);
   }
 
-  /** The car the shot follows (the sun's shadow box goes with it); null in a flight. */
+  /** The car the shot follows (the sun's shadow box goes with it): the clip's subject (`ClipSim.subject`); null in a flight. */
   focus(): DeformableCar | null {
     const p = this.cur;
-    return p && !this.flying ? p.sim.cars[p.clip.focus]! : null;
+    return p && !this.flying ? p.sim.cars[p.sim.subject]! : null;
   }
 
   /** The cars of the clip being played (the lamp pool lights them for real); none when no clip is. */
@@ -672,7 +672,7 @@ export class ReelDirector {
       shot = plainShot(p.shots, this.shot);
       next = c.b;
     }
-    const car = sim.cars[clip.focus]!;
+    const car = sim.cars[sim.subject]!;
     const cam = this.shotCam;
     cam.frame(shot, car, this.host.sight(car), clip.x, clip.z);
     const still = this.host.still();

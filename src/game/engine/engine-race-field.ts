@@ -105,9 +105,10 @@ const STALL_GAIN = 25;
 const CONTACT = 5;
 /** Seconds a dead traffic car stays put before the bubble puts it away. */
 const TRAFFIC_DEAD = 6;
-/** Where put-away traffic waits (far off every course). */
+/** Where put-away traffic waits (far off every course): car `i`'s spot is (`parkX(i)`, `PARK_Z`). */
 const PARK_X = 4000;
 const PARK_Z = 4000;
+const parkX = (i: number): number => PARK_X + i * 12;
 /** A Survival drop-in must be this many metres outside the camera's view (or behind a solid): the view swings while the cop is already on the road. */
 const HIDE_MARGIN = 8;
 const _c = new THREE.Vector3();
@@ -625,10 +626,15 @@ export abstract class RaceField {
   private putAway(i: number, car: DeformableCar): void {
     this.dormant[i] = 1;
     this.deadFor[i] = 0;
-    car.spawnFacing(PARK_X + i * 12, PARK_Z, 0, 0);
+    car.spawnFacing(parkX(i), PARK_Z, 0, 0);
     car.group.visible = false;
-    this.snaps[i]!.x = PARK_X + i * 12;
+    this.snaps[i]!.x = parkX(i);
     this.snaps[i]!.z = PARK_Z;
+  }
+
+  /** Whether car `slot` standing at (x, z) is put away (`putAway`: hidden where it waits): a replay of a clip that holds it keeps it hidden there until a keyframe puts it on the road (`ReplayScene.stored`). */
+  stored(slot: number, x: number, z: number): boolean {
+    return Math.abs(x - parkX(slot)) < 1 && Math.abs(z - PARK_Z) < 1;
   }
 
   /** True when (x, z) is inside the local camera's view (traffic never pops in there). */
