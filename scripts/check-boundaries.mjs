@@ -193,11 +193,11 @@ const sccs = [];
 }
 check("C2", "import cycles (strongly connected file groups)", sccs.map((c) => c.join(" <-> ")));
 
-// C3: hot kernels (*-core.js) import nothing and never name THREE.
+// C3: hot kernels (*-core.js) import nothing but another pure kernel core (./physics-core.js) and never name THREE.
 const c3 = [];
 for (const [f, p] of parsed) {
   if (!/-core\.js$/.test(f)) continue;
-  for (const im of p.imports) c3.push(`${f}:${im.line} imports ${im.spec}`);
+  for (const im of p.imports) if (im.spec !== "./physics-core.js") c3.push(`${f}:${im.line} imports ${im.spec}`);
   const visit = (n) => { if (ts.isIdentifier(n) && n.text === "THREE") c3.push(`${f}:${p.sf.getLineAndCharacterOfPosition(n.getStart()).line + 1} names THREE`); ts.forEachChild(n, visit); };
   visit(p.sf);
 }

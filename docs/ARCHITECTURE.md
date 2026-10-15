@@ -63,7 +63,7 @@ Deploy (`deploy/`, `server/`, `scripts/` build helpers) sits outside `src/` and 
   a `*.test.ts`, `*.test-util.ts` or `test-support.ts`. A lateral or upward need means a type or function is in the wrong
   context: move it down, do not add an exception. *Check C1.*
 - **B3.** No import cycles between production files (value imports). *Check C2.*
-- **B4.** Kernels (`*-core.js`) import nothing and never name `THREE`. They take numbers and typed arrays. *Check C3.*
+- **B4.** Kernels (`*-core.js`) import nothing but another pure kernel core (`./physics-core.js`, which imports nothing) and never name `THREE`. They take numbers and typed arrays. *Check C3.*
 - **B5.** Rule and data contexts (`kernel`, `world`, `ai`, `match`, `hud`, `net`) never name a scene-graph class (meshes,
   materials, geometries, lights, textures, cameras, groups). THREE maths types (`Vector3`, `Quaternion`, curves) are fine.
   *Check C4.*

@@ -1,14 +1,6 @@
 "use strict";
 // Hand-kept JS kernel (Müller 2005 shape matching). No TS transform.
-/** physics-core's hypot3: Math.hypot bit for bit, minus the boxed builtin call (kernels import nothing, C3). */
-function hypot3(x, y, z) {
-  const a = Math.abs(x), b = Math.abs(y), c = Math.abs(z), ab = a > b || b !== b ? a : b, max = c > ab || ab !== ab ? c : ab;
-  if (max > Number.MAX_VALUE || a !== a || b !== b || c !== c) return max > Number.MAX_VALUE ? max : a + b + c;
-  if (max === 0) return 0;
-  const p = a / max, q = b / max, r = c / max, s = p * p + q * q;
-  return Math.sqrt(s + (r * r - (s - p * p - q * q))) * max;
-}
-
+import { detAcos, hypot3 } from "./physics-core.js";
 function m3() {
   return new Float64Array(9);
 }
@@ -260,7 +252,7 @@ function extractRotation(A, flip, q) {
 
 /** Largest rotation (rad) one cluster fit may apply; kept unchanged from the Newton polar in e4962a0. */
 const ROT_CLAMP = 0.85;
-/** cos(ROT_CLAMP) as the correctly rounded double (detCos(0.85) and every engine's Math.cos agree on it); a literal, as hot kernels import nothing (C3). */
+/** cos(ROT_CLAMP) as the correctly rounded double (detCos(0.85) and every engine's Math.cos agree on it). */
 const COS_ROT_CLAMP = 0.6599831458849822;
 /**
  * A = R·S with R a proper rotation (|angle| clamped to 0.85 rad) and S = sym(R^T A)
@@ -327,7 +319,7 @@ function m3Orthonormalize(R) {
 function clampRotation(R, maxRad, cosMax) {
   const cosA = (R[0] + R[4] + R[8] - 1) * 0.5;
   if (!(cosA < cosMax)) return;
-  const ang = Math.acos(Math.max(-1, cosA));
+  const ang = detAcos(Math.max(-1, cosA));
   if (ang < 1e-6) return;
   const t = maxRad / ang;
   R[0] = 1 + (R[0] - 1) * t;
