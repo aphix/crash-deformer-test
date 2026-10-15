@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
 import { FLAT_GROUND, setGround } from "../world/ground.ts";
-import { placeProps, propColliders, type PropCollider } from "../world/placements.ts";
+import { placeProps, propColliders } from "../world/placements.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { blankPoint, blankProjection, projectPath, Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
@@ -11,62 +11,22 @@ import { FRAME, frame, makeWorld } from "../world/race-world.test-util.ts";
 import { aheadPoints, camUsable, CINE, CineCam, CLEAR, clearSpot, DutchCam, occluder, raceSight, SightLines, type Sight } from "./spectate-cam.ts";
 import { AutoCam, type AutoScene } from "./auto-cam.ts";
 import { WHEEL_POS } from "../vehicle/car-mesh.ts";
-import { levelAt } from "../world/track-sections.ts";
+import { eyeProblems } from "./spectate-cam.test-util.ts";
 
 /** The dutch cam's mounts: each wheel well, looking forward and back. */
 const MOUNT_COUNT = WHEEL_POS.length * 2;
 
-/**
- * Oracle for the trackside eye, independent of `solid`: the cars' own collision footprints (props, `propContact`), each piece over its own
- * heights, the wall's 0.6 m body on the wall line (`wallColliders`' pieces), and the ground.
- */
-function blocked(track: Track, cols: readonly PropCollider[], x: number, y: number, z: number): string | null {
-  const ground = track.ground();
-  if (y <= ground.heightAt(x, z, y)) return "under the ground";
-  for (const c of cols) {
-    if (y < c.base || y > c.top) continue;
-    const ex = x - c.x;
-    const ez = z - c.z;
-    const cos = Math.cos(c.yaw);
-    const sin = Math.sin(c.yaw);
-    const inside = c.kind === "circle" ? ex * ex + ez * ez < c.r * c.r : Math.abs(ex * cos - ez * sin) < c.hx && Math.abs(ex * sin + ez * cos) < c.hz;
-    if (inside) return `in ${c.prefab} #${c.index}`;
-  }
-  const path = track.path;
-  const pr = projectPath(path, x, z, -1, blankProjection());
-  const left = pr.lateral > 0;
-  const over = Math.abs(pr.lateral) - path.half[pr.k]! - (left ? path.runL[pr.k]! : path.runR[pr.k]!);
-  if ((left ? path.wallL[pr.k] : path.wallR[pr.k]) && over > 0 && over < 0.6 && y < levelAt(path, pr.k, pr.lateral) + track.json.road.wallHeight) return "in the wall";
-  return null;
-}
-
-/** What the oracle finds wrong with a camera at `e` filming the car at `p`: inside a solid, a blocked sight line (10 cm steps up to the car's `stop` margin), or a solid within 1.9 m flat (a spot may stand beside a bank, so not the ground). */
-function eyeProblems(track: Track, cols: readonly PropCollider[], e: THREE.Vector3, p: THREE.Vector3): string[] {
-  const bad: string[] = [];
-  const at = blocked(track, cols, e.x, e.y, e.z);
-  if (at) bad.push(`eye (${e.x.toFixed(1)}, ${e.y.toFixed(1)}, ${e.z.toFixed(1)}) ${at}`);
-  const len = e.distanceTo(p);
-  for (let d = 0.1; d < len - CINE.stop; d += 0.1) {
-    const f = d / len;
-    const why = blocked(track, cols, e.x + (p.x - e.x) * f, e.y + (p.y + CINE.aimUp - e.y) * f, e.z + (p.z - e.z) * f);
-    if (why) {
-      bad.push(`sight line ${why} at ${d.toFixed(1)} m of ${len.toFixed(1)}`);
-      break;
-    }
-  }
-  for (let i = 0; i < 12; i++) {
-    const a = (i * Math.PI) / 6;
-    const why = blocked(track, cols, e.x + 1.9 * Math.cos(a), e.y, e.z + 1.9 * Math.sin(a));
-    if (why && why !== "under the ground") bad.push(`${why} within 1.9 m of the eye`);
-  }
-  return bad;
-}
-
 const COURSES = TRACKS.map((j) => new Track(parseTrack(j)));
+/** The per-commit cases run the oval's lap; `spectate-cam.ai-long-run.ts` runs every course's. */
+const OVAL_ONLY = COURSES.filter((c) => c.id === "oval");
+/** How fast the watched car drives round the course (m/s). */
+const WATCHED_SPEED = 30;
+/** How far apart (m along the course) the two cars of the cut test drive: a pack's length. */
+const PAIR_GAP = 12;
 const scene = new THREE.Scene();
 
 describe("given the trackside cinematic camera (a fixed eye beside the course that cuts to the followed car)", () => {
-  for (const track of COURSES) {
+  for (const track of OVAL_ONLY) {
     it(`when a lap is driven on ${track.id}, then every spot the camera picks stands clear of every solid and sees the car`, (t) => {
       const placed = placeProps(track);
       const cols = propColliders(placed);
@@ -346,30 +306,29 @@ describe("given the oval course and a car driving across it", () => {
 });
 
 describe("given the Auto spectator camera (the shot director that cuts between shot kinds while watching a race)", () => {
-  for (const { id } of COURSES) {
-    it(`when a race is watched on ${id}, then every trackside or high cut stands clear and sees the car, and the cuts mix shot kinds`, (t) => {
-      const track = COURSES.find((c) => c.id === id)!;
+  for (const track of OVAL_ONLY) {
+    it(`when a car drives 90 s round ${track.id} at ${WATCHED_SPEED} m/s, then every trackside or high cut stands clear and sees the car, and the cuts mix shot kinds`, (t) => {
       const placed = placeProps(track);
       const cols = propColliders(placed);
-      const w = makeWorld();
+      const sight = raceSight(track, placed);
+      const ground = track.ground();
+      setGround(ground);
       try {
-        w.race.enter();
-        w.race.command({ type: "options", options: { trackId: id, laps: 1, aiCount: 4, spectate: true } });
-        w.race.reseed(3);
-        w.race.command({ type: "start" });
+        const car = new DeformableCar({ body: 0x808080, accent: 0x404040, name: "watched" }, scene, null);
         const camera = new THREE.PerspectiveCamera(56, 16 / 9, 0.1, 900);
         const auto = new AutoCam();
-        const scene: AutoScene = { sight: () => w.race.courseSight()!, cut: (car) => car };
-        const state = { acc: 0 };
+        const autoScene: AutoScene = { sight: () => sight, cut: (c) => c };
+        const pt = blankPoint();
         const kinds = new Set<string>();
         const bad: string[] = [];
         let cuts = 0;
         let playing: typeof auto.shot = null;
         let checked = 0;
         for (let n = 0; n < 90 / FRAME; n++) {
-          frame(w, state);
-          const car = w.cars[w.seat.carIndex]!;
-          auto.update(camera, car, scene, FRAME);
+          track.pointAt((n * FRAME * WATCHED_SPEED) % track.length, pt);
+          car.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz), WATCHED_SPEED);
+          car.group.position.y = ground.heightAt(pt.x, pt.z, pt.y + 0.5);
+          auto.update(camera, car, autoScene, FRAME);
           if (auto.shot === playing) continue;
           playing = auto.shot;
           cuts++;
@@ -380,44 +339,47 @@ describe("given the Auto spectator camera (the shot director that cuts between s
           checked++;
           for (const why of eyeProblems(track, cols, camera.position, car.group.position)) bad.push(`cut ${cuts} (${kind}) at ${(n * FRAME).toFixed(1)} s: ${why}`);
         }
-        t.diagnostic(`${id}: ${cuts} cuts in 90 s (${[...kinds].join(", ")}), ${checked} searched spots checked`);
+        t.diagnostic(`${track.id}: ${cuts} cuts in 90 s (${[...kinds].join(", ")}), ${checked} searched spots checked`);
         assert.deepEqual(bad, []);
         assert.ok(cuts >= 8, `${cuts} cuts in 90 s`);
         assert.ok(kinds.size >= 3, `only ${[...kinds].join(", ")}`);
         assert.ok(checked >= 3, `${checked} searched spots`);
       } finally {
-        w.race.exit();
         setGround(null);
       }
     });
   }
 
   it("when the camera cuts onto another car, then the chase shot is posed on it while its opener is searched, not at the old shot's eye", () => {
-    const w = makeWorld();
+    const track = COURSES.find((c) => c.id === "city")!;
+    const sight = raceSight(track, placeProps(track));
+    const ground = track.ground();
+    setGround(ground);
     try {
-      w.race.enter();
-      w.race.command({ type: "options", options: { trackId: "city", laps: 1, aiCount: 4, spectate: true } });
-      w.race.reseed(3);
-      w.race.command({ type: "start" });
       const camera = new THREE.PerspectiveCamera(56, 16 / 9, 0.1, 900);
       const auto = new AutoCam();
-      const pair = [w.cars[0]!, w.cars[1]!];
+      const pair = [new DeformableCar({ body: 0x808080, accent: 0x404040, name: "first" }, scene, null), new DeformableCar({ body: 0x808080, accent: 0x404040, name: "second" }, scene, null)];
       let watched = pair[0]!;
       // The Auto driver's cut: the other car of the pair.
       const autoScene: AutoScene = {
-        sight: () => w.race.courseSight()!,
+        sight: () => sight,
         cut: (car) => {
           watched = car === pair[0] ? pair[1]! : pair[0]!;
           return watched;
         },
       };
-      const state = { acc: 0 };
+      const pt = blankPoint();
       const bad: string[] = [];
       // The trackside or high shot a switch cuts away from, until the new car's opener lands.
       let held: typeof auto.shot = null;
       let checked = 0;
       for (let n = 0; n < 120 / FRAME; n++) {
-        frame(w, state);
+        // The pair drives round the course a pack's length apart.
+        for (const [k, car] of pair.entries()) {
+          track.pointAt((n * FRAME * WATCHED_SPEED + k * PAIR_GAP) % track.length, pt);
+          car.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz), WATCHED_SPEED);
+          car.group.position.y = ground.heightAt(pt.x, pt.z, pt.y + 0.5);
+        }
         const was = watched;
         const before = auto.shot;
         const fixedEye = (before?.kind === "cine" || before?.kind === "high") && auto.cam.found;
@@ -435,7 +397,6 @@ describe("given the Auto spectator camera (the shot director that cuts between s
       assert.deepEqual(bad, []);
       assert.ok(checked >= 3, `${checked} frames of a searched opener after a cut away from a fixed eye`);
     } finally {
-      w.race.exit();
       setGround(null);
     }
   });

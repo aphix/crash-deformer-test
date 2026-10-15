@@ -1,12 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { AI_DIFFICULTIES } from "../ai/constants.ts";
+import { AI_DIFFICULTIES, type AiDifficulty } from "../ai/constants.ts";
+import { fieldAggression } from "../ai/ai-aggression.ts";
+import { assertSameNumbers } from "../vehicle/test-support.ts";
 import { setGround } from "./ground.ts";
 import { classifyContact, contactRace, type Role, type Sample } from "./race-contact.test-util.ts";
-import { COURSE_IDS, makeWorld } from "./race-world.test-util.ts";
-import { parseTrack } from "./track-schema.ts";
+import { makeWorld, raceOnce, type Outcome, type World } from "./race-world.test-util.ts";
 import { Track } from "./track.ts";
-import { TRACKS } from "./tracks/index.ts";
+import oval from "./tracks/oval.json" with { type: "json" };
 
 type Kin = Omit<Sample, "bumped">;
 
@@ -119,32 +120,52 @@ describe("given the contact classifier (it says which car of a racer-racer conta
   }
 });
 
-/**
- * Each rival rolls its aggression in [0, slider]: at 0 every field is the same, so the seed does not vary the race, the course and the field size do.
- * Medium and hard hold it: a medium rival is at most 10 ms stale and its contact guard runs every slice. Easy rivals decide up to 200 ms late (a car 77 ms
- * behind a lead that brakes hard at 40 m/s closes the gap before it looks again: razor-shelf x4 at 10 Hz, city x7 at 20 Hz), so no clean-racing bar is claimed
- * for them; `race-ai.test.ts` holds their laps and road share.
- */
-for (const difficulty of AI_DIFFICULTIES.slice(1)) {
-  describe(`given the aggression slider at 0, so every rival is as gentle as can be and the field seed does not vary the race, at ${difficulty} AI`, () => {
-    for (const course of COURSE_IDS) {
-      for (const aiCount of [4, 7]) {
-        it(`when a 2-lap race runs on the ${course} course with ${aiCount} AI rivals, then no racer drives into another car`, (t) => {
-          const track = new Track(TRACKS.find((j) => parseTrack(j).id === course));
-          const w = makeWorld();
-          w.race.enter();
-          try {
-            const r = contactRace(w, track, 4.5 + 2 * 3 * (track.length / 9), 1, 0, aiCount, difficulty);
-            const mine = r.contacts.filter((c) => !c.traffic && c.initiator >= 0);
-            t.diagnostic(`${course} x${aiCount}: ${r.contacts.length} contacts, ${mine.length} racer-initiated, finished ${r.outcome.finished}`);
-            const hits = mine.map((c) => `frame ${c.frame}: car ${c.initiator} into car ${c.initiator === c.a ? c.b : c.a} (closing ${c.verdict.closing.toFixed(1)} m/s)`);
-            assert.equal(hits.length, 0, hits.join("; "));
-          } finally {
-            w.race.exit();
-            setGround(null);
-          }
-        });
-      }
+/** Race seconds from the first frame to the green (the grid and countdown) and the seconds of racing read after it: the pack at its most bunched. */
+const COUNTDOWN = 4.5;
+const OPENING = 3;
+/** The rivals racing each other from the oval's grid. */
+const AI_RIVALS = 4;
+
+/** A fresh oval world run for the countdown and the opening seconds at `slider` and field `seed`. */
+function opening<T>(slider: number, seed: number, difficulty: AiDifficulty, read: (w: World, outcome: Outcome) => T): T {
+  const track = new Track(oval);
+  const w = makeWorld();
+  w.race.enter();
+  try {
+    return read(w, raceOnce(w, track, COUNTDOWN + OPENING, seed, slider, undefined, AI_RIVALS, difficulty));
+  } finally {
+    w.race.exit();
+    setGround(null);
+  }
+}
+
+describe("given the aggression slider at 0, so every rival is as gentle as can be", () => {
+  it("when field seeds 1 to 5 roll the rivals' aggression, then every rival's is 0 whatever the seed", () => {
+    for (let seed = 1; seed <= 5; seed++) {
+      for (let id = 1; id <= AI_RIVALS + 3; id++) assert.equal(fieldAggression(0, seed, id), 0, `seed ${seed}, rival ${id}`);
     }
   });
-}
+
+  for (const difficulty of AI_DIFFICULTIES.slice(1)) {
+    it(`when field seeds 1 and 2 start the same oval race at ${difficulty} AI, then every car stands where it does under the other seed after ${OPENING} s of racing`, () => {
+      const stand = (seed: number) => opening(0, seed, difficulty, (w) => w.live().flatMap((c) => c.group.position.toArray()));
+      const first = stand(1);
+      assert.ok(first.length >= 3 * (AI_RIVALS + 1) && first.some((v) => v !== 0), "the cars stand somewhere: the test proves nothing otherwise");
+      assertSameNumbers(stand(2), first, "every car's position under field seed 2");
+    });
+
+    it(`when ${AI_RIVALS} rivals leave the oval's grid at ${difficulty} AI, then no racer drives into another car in the first ${OPENING} s of racing`, () => {
+      const track = new Track(oval);
+      const w = makeWorld();
+      w.race.enter();
+      try {
+        const r = contactRace(w, track, COUNTDOWN + OPENING, 1, 0, AI_RIVALS, difficulty);
+        const hits = r.contacts.filter((c) => !c.traffic && c.initiator >= 0).map((c) => `frame ${c.frame}: car ${c.initiator} into car ${c.initiator === c.a ? c.b : c.a} (closing ${c.verdict.closing.toFixed(1)} m/s)`);
+        assert.deepEqual(hits, []);
+      } finally {
+        w.race.exit();
+        setGround(null);
+      }
+    });
+  }
+});

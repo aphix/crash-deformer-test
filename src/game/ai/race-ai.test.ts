@@ -1,130 +1,21 @@
 import { describe, it } from "node:test";
-import { BOOST, DRIVE } from "../vehicle/car-drive.ts";
+import { BOOST } from "../vehicle/car-drive.ts";
 import assert from "node:assert/strict";
-import * as THREE from "three";
-import { applyDrive, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
-import { DeformableCar } from "../vehicle/car.ts";
+import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { blankAiCar, type AiCar } from "./derby-ai.ts";
-import { snapshotAiCar } from "../match/derby.ts";
-import { fleetStyle } from "../scenes/fleet.ts";
-import { SURFACES } from "../world/catalog.ts";
-import { RaceBrain, copyDrive, onSurface } from "./race-ai.ts";
+import { RaceBrain, copyDrive } from "./race-ai.ts";
+import { race, raced, summarize } from "./race-ai.test-util.ts";
 import { AI_DIFFICULTIES, AI_EVERY_SLICE, SLIP_RECOVER, SLIP_WINDOW, type AiDifficulty } from "./constants.ts";
 import { fieldAggression, mood } from "./ai-aggression.ts";
-import { RaceSession } from "../match/session.ts";
-import { Track, blankProjection, projectPath } from "../world/track.ts";
+import { Track } from "../world/track.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { TRACKS } from "../world/tracks/index.ts";
-import { setGround } from "../world/ground.ts";
-import type { CarPose, Entrant } from "../match/types.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 
 const DT = 1 / 60;
 
-type Run = { session: RaceSession; onRoad: number; samples: number; mistakes: number };
-
-/**
- * Real cars on the real drive model (kinematic, as every car is until it crashes) on the course's
- * ground, no car-to-car contact: the AI alone has to keep them on the road and round the laps.
- */
-function race(track: Track, n: number, aggression: number, laps: number, limit: number, difficulty: AiDifficulty = AI_EVERY_SLICE, tap?: (id: number, out: DriveInput) => void): Run {
-  const scene = new THREE.Scene();
-  const ground = track.ground();
-  setGround(ground);
-  const cars = Array.from({ length: n }, (_, i) => new DeformableCar({ body: 0x808080, accent: 0x404040, name: `ai${i}` }, scene, null, fleetStyle(i)));
-  const entrants: Entrant[] = cars.map((_, i) => ({ id: i, name: `ai${i}`, kind: "ai", aggression }));
-  const session = new RaceSession(track, entrants, { laps, noReset: false });
-  const brain = new RaceBrain(track, n);
-  for (const [i, c] of cars.entries()) {
-    const g = track.gridSlot(i);
-    c.spawnFacing(g.x, g.z, g.yaw, 0);
-    brain.setAggression(i, aggression);
-    brain.setDifficulty(i, difficulty);
-  }
-  const snaps: AiCar[] = cars.map((_, i) => blankAiCar(i));
-  const poses: CarPose[] = cars.map(() => ({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true }));
-  const hold = { ...idleDrive(), brake: 1 };
-  const held = cars.map(() => idleDrive());
-  const scratch = idleDrive();
-  const p = blankProjection();
-  let onRoad = 0;
-  let samples = 0;
-  let step = 0;
-  while (session.phase !== "finished" && session.time < limit) {
-    for (const [i, c] of cars.entries()) snapshotAiCar(snaps[i]!, i, c, true);
-    for (const [i, c] of cars.entries()) {
-      const rec = session.cars[i]!;
-      const surf = SURFACES[ground.surfaceAt(c.group.position.x, c.group.position.z)];
-      let input = hold;
-      if (session.phase === "racing" && rec.status === "racing") {
-        if (brain.due(i, DT)) {
-          const out = brain.think(snaps[i]!, snaps, rec, brain.elapsed(i));
-          tap?.(i, out);
-          copyDrive(out, held[i]!);
-        }
-        input = brain.guard(snaps[i]!, snaps, held[i]!);
-      }
-      applyDrive(c, onSurface(input, surf, scratch), DT);
-      c.integrate(DT);
-    }
-    for (const [i, c] of cars.entries()) {
-      const pose = poses[i]!;
-      pose.x = c.group.position.x;
-      pose.z = c.group.position.z;
-      pose.yaw = c.yaw;
-      pose.vx = c.velocity.x;
-      pose.vz = c.velocity.z;
-    }
-    session.step(DT, poses);
-    session.events();
-    if (session.phase === "racing" && ++step % 6 === 0) {
-      for (const [i, c] of cars.entries()) {
-        if (session.cars[i]!.status !== "racing") continue;
-        samples++;
-        const x = c.group.position.x;
-        const z = c.group.position.z;
-        projectPath(track.path, x, z, -1, p);
-        if (Math.abs(p.lateral) <= track.path.half[p.k]! + 0.3) {
-          onRoad++;
-          continue;
-        }
-        for (const sc of track.shortcuts) {
-          projectPath(sc.path, x, z, -1, p);
-          if (Math.abs(p.lateral) <= sc.path.half[p.k]! + 0.3) {
-            onRoad++;
-            break;
-          }
-        }
-      }
-    }
-  }
-  setGround(null);
-  return { session, onRoad, samples, mistakes: brain.mistakes.reduce((a, b) => a + b, 0) };
-}
-
 const at = (id: number, x: number, z: number, vz: number): AiCar => ({ ...blankAiCar(id), x, z, vz });
-
-/** How much looser each tier's finish bound is than hard's: the owner asked for slower lower tiers, and a stuck or lost car still misses it by minutes. */
-const BOUND_SCALE: Record<AiDifficulty, number> = { easy: 1.2, medium: 1.1, hard: 1 };
-const COURSES = TRACKS.map((json) => new Track(json));
-type Summary = { winner: number; share: number; samples: number; finished: number; mistakes: number; lapTimes: number[]; time: number; limit: number; laps: string };
-
-/** 8 clean cars racing 3 laps of `track` at `difficulty`, in numbers. */
-function summarize(track: Track, difficulty: AiDifficulty): Summary {
-  // Half the drive model's top speed on average, plus the countdown and grid.
-  const limit = ((3 * track.length) / (DRIVE.maxFwd / 2) + 10) * BOUND_SCALE[difficulty];
-  const { session, onRoad, samples, mistakes } = race(track, 8, 0, 3, limit, difficulty);
-  return { winner: session.cars.find((c) => c.id === session.winnerId)?.finishTime ?? Infinity, share: onRoad / samples, samples, finished: session.cars.filter((c) => c.status === "finished").length, mistakes, lapTimes: session.cars.flatMap((c) => c.lapTimes), time: session.time, limit, laps: session.cars.map((c) => c.lap).join(",") };
-}
-
-const memo = new Map<string, Summary>();
-/** `summarize`, remembered: the per-course tests and the tier comparisons share each race. */
-function raced(track: Track, difficulty: AiDifficulty): Summary {
-  const key = `${track.id}/${difficulty}`;
-  if (!memo.has(key)) memo.set(key, summarize(track, difficulty));
-  return memo.get(key)!;
-}
-const total = (d: AiDifficulty, f: (r: Summary) => number): number => COURSES.reduce((a, t) => a + f(raced(t, d)), 0);
+const oval = new Track(TRACKS[0]);
 
 const f64 = new Float64Array(5);
 const bits = new Uint32Array(f64.buffer);
@@ -156,51 +47,57 @@ const HARD_MARKS: Record<string, string[]> = {
   stunt: ["cfe9223e", "7c29ef0c", "9c71538e", "c480fff", "9ecf007", "adae4797", "5e321814", "bc384445", "d370c5a0", "27ceee7f", "bf7e66de", "46a9ede0", "f72a6dae", "110e9fac", "17e6868", "53f5522a"],
 };
 
-for (const difficulty of AI_DIFFICULTIES) {
-  describe(`given 8 clean AI cars (aggression 0) at ${difficulty} difficulty on the grid of every course`, () => {
-    for (const json of TRACKS) {
-      const track = new Track(json);
-      it(`when they race 3 laps on ${track.id}, then all 8 finish, they stay on the road at least 95% of the time, and the winner finishes within the time bound`, (t) => {
-        const r = raced(track, difficulty);
-        t.diagnostic(`${track.id} ${difficulty}: winner ${r.winner.toFixed(1)} s, best lap ${Math.min(...r.lapTimes).toFixed(2)} s, slowest lap ${Math.max(...r.lapTimes).toFixed(2)} s, on road ${(100 * r.share).toFixed(1)}%, mistakes ${r.mistakes}`);
-        assert.equal(r.finished, 8, `finished ${r.finished}/8 by ${r.time.toFixed(0)} s (bound ${r.limit.toFixed(0)} s); laps ${r.laps}`);
-        assert.ok(r.share >= 0.95, `on the road ${(r.share * 100).toFixed(1)}% of ${r.samples} samples`);
-        assert.ok(r.winner < r.limit);
-      });
-    }
-  });
-}
+describe("given 8 clean AI cars (aggression 0) on the grid of the oval", () => {
+  for (const difficulty of AI_DIFFICULTIES) {
+    it(`when they race 3 laps at ${difficulty} difficulty, then all 8 finish, they stay on the road at least 95% of the time, and the winner finishes within the time bound`, (t) => {
+      const r = raced(oval, difficulty);
+      t.diagnostic(`${oval.id} ${difficulty}: winner ${r.winner.toFixed(1)} s, best lap ${Math.min(...r.lapTimes).toFixed(2)} s, slowest lap ${Math.max(...r.lapTimes).toFixed(2)} s, on road ${(100 * r.share).toFixed(1)}%, mistakes ${r.mistakes}`);
+      assert.equal(r.finished, 8, `finished ${r.finished}/8 by ${r.time.toFixed(0)} s (bound ${r.limit.toFixed(0)} s); laps ${r.laps}`);
+      assert.ok(r.share >= 0.95, `on the road ${(r.share * 100).toFixed(1)}% of ${r.samples} samples`);
+      assert.ok(r.winner < r.limit);
+    });
+  }
 
-describe("given 8 clean AI cars on every course at each difficulty, raced for 3 laps", () => {
-  it("when easy races hard, then easy's winner is slower on every course and at least 8% slower on average, and medium's is faster than easy's", () => {
-    let mean = 0;
-    for (const t of COURSES) {
-      const [e, m, h] = AI_DIFFICULTIES.map((d) => raced(t, d).winner);
-      assert.ok(e! > h! && m! < e!, `${t.id}: winner easy ${e!.toFixed(1)} s, medium ${m!.toFixed(1)} s, hard ${h!.toFixed(1)} s`);
-      mean += e! / h! / COURSES.length;
-    }
-    assert.ok(mean >= 1.08, `easy takes ${((mean - 1) * 100).toFixed(1)}% longer than hard on average`);
+  it("when easy races hard, then easy's winner is at least 8% slower, and medium's is faster than easy's", () => {
+    const [e, m, h] = AI_DIFFICULTIES.map((d) => raced(oval, d).winner);
+    assert.ok(e! > h! && m! < e!, `winner easy ${e!.toFixed(1)} s, medium ${m!.toFixed(1)} s, hard ${h!.toFixed(1)} s`);
+    assert.ok(e! / h! >= 1.08, `easy takes ${((e! / h! - 1) * 100).toFixed(1)}% longer than hard`);
   });
-});
 
-describe("given 8 clean AI cars on every course at each difficulty", () => {
-  it("when they race 3 laps, then easy makes mistakes on every course and more than medium does, and hard makes exactly none", () => {
-    for (const t of COURSES) {
-      assert.ok(raced(t, "easy").mistakes > 0, `${t.id}: easy made no mistake`);
-      assert.equal(raced(t, "hard").mistakes, 0, t.id);
-    }
-    const [e, m, h] = AI_DIFFICULTIES.map((d) => total(d, (r) => r.mistakes));
-    assert.ok(e! > m! && m! > 0 && h === 0, `mistakes: easy ${e}, medium ${m}, hard ${h}`);
+  it("when they race 3 laps, then easy makes mistakes and hard makes exactly none", () => {
+    assert.ok(raced(oval, "easy").mistakes > 0, "easy made no mistake");
+    assert.equal(raced(oval, "hard").mistakes, 0);
   });
 });
 
 describe("given the same 8 easy AI cars raced twice from the grid of the oval", () => {
   it("when both runs finish, then every car's lap times are identical, to the bit (slips and sway are seeded, not random)", () => {
-    const once = raced(new Track(TRACKS[0]), "easy");
-    const again = summarize(new Track(TRACKS[0]), "easy");
+    const once = raced(oval, "easy");
+    const again = summarize(oval, "easy");
     assert.ok(once.mistakes > 0, "a run with no mistakes proves nothing about their seeding");
     assertSameNumbers(again.lapTimes, once.lapTimes, "lap times, run twice");
     assert.equal(again.mistakes, once.mistakes);
+  });
+});
+
+describe("given a stale medium driver holding its last drive between thinks, with a stopped car 8 m ahead of it at 17 m/s", () => {
+  it("when the slice's contact guard reads the held drive, then it brakes where the held input drove on, and a hard (every-slice) brain's guard leaves the drive it was given", () => {
+    const me = at(0, pt.x, pt.z, 17);
+    const parked = at(1, pt.x, pt.z + 8, 0);
+    const far = at(1, pt.x, pt.z - 400, 0);
+    const clear = (difficulty: AiDifficulty) => {
+      const brain = new RaceBrain(oval, 2);
+      brain.setDifficulty(0, difficulty);
+      const held = idleDrive();
+      copyDrive(brain.think(me, [me, far], { next: 1, lap: 0 }, DT), held);
+      return { brain, held };
+    };
+    const medium = clear("medium");
+    assert.ok(medium.held.throttle > 0 && medium.held.brake === 0, `the held drive is clear road: throttle ${medium.held.throttle}, brake ${medium.held.brake}`);
+    const guarded = medium.brain.guard(me, [me, parked], medium.held);
+    assert.ok(guarded.brake > 0 && guarded.throttle === 0, `guard brakes for the stopped car: brake ${guarded.brake.toFixed(2)}, throttle ${guarded.throttle.toFixed(2)}`);
+    const hard = clear(AI_EVERY_SLICE);
+    assert.equal(hard.brain.guard(me, [me, parked], hard.held), hard.held, "a hard brain guarded inside think, so its guard hands the drive back");
   });
 });
 
@@ -214,7 +111,6 @@ describe("given a hard brain driving 8 cars from the grid of a course", () => {
   }
 });
 
-const oval = new Track(TRACKS[0]);
 const s0 = 40;
 const lane = (brain: RaceBrain, self: AiCar, others: AiCar[], steps: number) => {
   let steer = 0;

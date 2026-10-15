@@ -206,7 +206,7 @@ late), then for `SLIP_RECOVER` (4 s) it is shaken and holds back. Every tier's c
 slower because they err, never because they corner faster. In traffic (a car it follows, swerves for or is nudged by, and for medium any
 car within `calm` = 40 m) a rival drives as hard does: medium errs only on an open road, so a gentle medium field never touches (at 20 m a
 city pack still met at 18 m/s once the draft cone bunched it), while easy errs in packs too and may bump. On short busy courses medium
-therefore drives almost as hard does (0–1 mistakes a race on oval and city). The finish bounds in `race-ai.test.ts` scale by tier
+therefore drives almost as hard does (0–1 mistakes a race on oval and city). The finish bounds in `race-ai.test-util.ts` scale by tier
 (`BOUND_SCALE`: easy 1.2, medium 1.1).
 
 ## Campaign
@@ -503,13 +503,20 @@ without scrolling, so a long menu keeps its scroll offset; it never falls back t
 - `race-menu-options.test.ts`: a course pick through the `options` command changes only `trackId` (from watch / police / no reset /
   laps / AI count / aggression / difficulty, before a race and after one); the campaign pick (default order, tap order, unknown and
   repeated ids dropped, empty never starts, a two-round Watch campaign plays only those courses in that order).
-- `vehicle-classes.test.ts` (a draft's `topScale`), `race-ai.test.ts` (8 clean AI cars finish 3 laps on every course on
-  the road ≥ 95 % at every tier; easy is slower than hard on every course and ≥ 8 % on average, makes mistakes where hard makes none,
-  two easy runs agree to the bit, hard's `think` output is pinned bit for bit; ram / block / follow, boost, the aggression model), `traffic.test.ts`, `placements.test.ts`,
+- `vehicle-classes.test.ts` (a draft's `topScale`), `race-ai.test.ts` (8 clean AI cars finish 3 laps of the oval on
+  the road ≥ 95 % at every tier; easy is slower than hard by ≥ 8 %, makes mistakes where hard makes none,
+  two easy runs agree to the bit, hard's `think` output is pinned bit for bit; a stale medium driver's guard brakes for a car ahead; ram / block / follow, boost, the aggression model),
+  `race-ai.ai-long-run.ts` (the full-sanity sweep: the same 3-lap field on every course at every tier, easy slower than hard on every course, medium's mistakes), `race-contact.test.ts` (the contact classifier on eight real contacts), `race-contact.ai-long-run.ts` (aggression-0 fields of 4 and 7 rivals on every course at medium and hard start no contact), `traffic.test.ts`, `placements.test.ts`,
   `menu-nav.test.ts`, `checkpoint-sweep.test.ts`.
-- `race-finish.test.ts`, every course: 4 AI rivals plus the AI-driven player slot, 2 laps; results within the grid + 2 laps
+- `race-finish.ai-long-run.ts` (`npm run test:ai-long-run`), every course: 4 AI rivals plus the AI-driven player slot, 2 laps; results within the grid + 2 laps
   at 3 × the reference lap with ≥ 4 of 5 home or out. `RACE_FINISH_RUNS=5` runs 5 seeds at the default slider and 5 more
-  at 1. Also a Watch race and campaign, and the police chase (parked units show no sirens, chasing ones do; cycling reaches
-  a police car; no police car in the results; the lead-in falls in behind its target).
+  at 1. Also the city seed-1 race that once held the player car nose to nose with oncoming traffic, and the police lead-in pools
+  (heading converging over many seeds, no cop pair meeting, Dam Spine and Four-Count). `race-finish.test.ts`: a 1-lap oval race,
+  Watch races and campaign, the police chase on a 1-lap oval (parked units show no sirens, chasing ones do; cycling reaches
+  no police car; no police car in the results), one stakeout's lead-in falling in behind its target; `ai/traffic.test.ts` (a
+  traffic car facing a racer edges to its own kerb) and `ai/police-lead-in.test.ts` (a nose-to-nose stakeout pair's lead-ins do not touch).
+  `race-police-sight.ai-long-run.ts`, `race-start.ai-long-run.ts` and `spectate-cam.ai-long-run.ts` are the whole-race sweeps of
+  the police put-on / put-away rules, the first seconds of every grid and the Auto camera on every course; their rules are pinned in
+  `ai/cop-sight.test.ts`, `ai/police.test.ts`, `race-start.test.ts` and `present/spectate-cam.test.ts`.
 - `race-player.test.ts`: the PLAYER slot driven through the real seat on the oval, 2 laps, 3 AI, with a respawn press and
   detours; the HUD's lap and place equal a rules snapshot at every sample.

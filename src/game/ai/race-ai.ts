@@ -147,7 +147,7 @@ type RaceAiState = {
  *  L3 drive: pure pursuit to a point ahead on the line; speed from corner speed, grip and shortcut junctions ahead under a braking budget.
  *     Boost on a clear run while the plan at the boosted top wants more speed, from a meter that drains and refills like the player's seat (`BOOST`).
  *  L4 guard (`contact-guard.ts`): of every car it is closing on except the ones it means to hit (fight > 0), the soonest contact within
- *     1.5 s is steered clear of and braked for, so a clean driver (aggression 0) starts no contact (`race-contact.test.ts`).
+ *     1.5 s is steered clear of and braked for, so a clean driver (aggression 0) starts no contact (`race-contact.ai-long-run.ts`; `race-ai.test.ts` pins the held-drive guard).
  * Deterministic (no clock, no Math.random); no allocation per call.
  */
 export class RaceBrain {
