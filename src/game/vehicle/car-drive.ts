@@ -6,7 +6,7 @@ import { hypot2 } from "../deform/physics-util.ts";
 import { C_GRIP, HIT_SIZE } from "../world/surfaces.ts";
 import { assists, carClass, carDrivability, CLASSES, HANDLING, SELF_RIGHT_SLOWEST, type Assists, type Drivability } from "./vehicle-classes.ts";
 import { LOSS_SIZE, wheelLoss } from "./wheel-loss.ts";
-import { detSin, detCos } from "../kernel/physics-core.js";
+import { detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 import { FLIPPED_UP_Y, GRIP_YAW_CAP, SLIDE_SPEED } from "./constants.ts";
 
 /** Shared by derby AI and the player seat. */
@@ -287,7 +287,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const grip = k.grip * a.grip * 0.5 * (muF + muR);
   let yawRate =
     steer * k.turn * (1 + (DRIVE.ebrakeTurn - 1) * ebrake) * (0.35 + Math.min(1, v / 8) * 0.65) * (0.45 + 0.55 * muF);
-  const beta = Math.atan2(-lat0, Math.max(1, Math.abs(along)));
+  const beta = detAtan2(-lat0, Math.max(1, Math.abs(along)));
   const dir = beta > 0.02 ? 1 : beta < -0.02 ? -1 : Math.sign(steer);
   let target = 0;
   let handsOff = false; // a held slide with the wheel in the deadband: the body angle stays where it is

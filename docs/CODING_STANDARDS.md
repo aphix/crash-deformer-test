@@ -388,7 +388,9 @@ produces, not for how it runs. A literal duplicated across call sites is the sam
     call. Use the kernel's `hypot2` / `hypot3`, which also give every browser the same bits.
   - Measured in this repo: V8 and SpiderMonkey return different last bits for `Math.sin` and `Math.cos` (and `Math.hypot`), so a
     clip replayed in the other browser diverged. Code in the folders that feed the sim (boundaries rule C6) calls the
-    kernel's `detSin` / `detCos` (+ − × ÷ only, within 1 ulp of correctly rounded, the same bits in every engine).
+    kernel's `detSin` / `detCos` (+ − × ÷ only, within 1 ulp of correctly rounded, the same bits in every engine), and
+    `detAtan2` / `detAtan` / `detAsin` / `detAcos` (fdlibm's, + − × ÷ and sqrt only, within 1 ulp) for `Math.atan2` / `atan` / `asin` /
+    `acos`. They are not cheaper than the builtins (about 1.2–1.8× their time in V8 and Firefox); determinism is what they buy.
   - Measured in this repo: doubles passed to or returned from a call TurboFan didn't inline are boxed. A function past
     the inlining budget (roughly 900 bytes of bytecode) stops being inlined; keep hot helpers small.
   - General V8 knowledge, not measured here: `try/catch` — old V8 (Crankshaft) refused to optimize any function

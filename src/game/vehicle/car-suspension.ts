@@ -5,7 +5,7 @@ import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { C_H, HIT_SIZE, staticTop } from "../world/surfaces.ts";
 import { LoadTransfer } from "./car-load.ts";
-import { detSin, detCos } from "../kernel/physics-core.js";
+import { detSin, detCos, detAtan } from "../kernel/physics-core.js";
 
 /**
  * The tyre springs and dampers of a body on the road (`stepFree`): a spring and a damper per corner push the physics body up, per
@@ -305,7 +305,7 @@ export class Suspension {
   /** The body's pitch (rad, + nose up: front over rear). */
   get pitch(): number {
     const o = this.offset;
-    return Math.atan((o[0]! + o[1]! - o[2]! - o[3]!) / (4 * AXLE));
+    return detAtan((o[0]! + o[1]! - o[2]! - o[3]!) / (4 * AXLE));
   }
 
   /** The body's ride from the four offsets: heave, pitch (front over rear) and roll (+x side over −x), and `rise`. */
@@ -316,7 +316,7 @@ export class Suspension {
     this.posedLift = lift;
     body.position.y = lift + this.heave + this.rise;
     body.rotation.x = -this.pitch;
-    body.rotation.z = Math.atan((o[1]! + o[3]! - o[0]! - o[2]!) / (4 * TRACK));
+    body.rotation.z = detAtan((o[1]! + o[3]! - o[0]! - o[2]!) / (4 * TRACK));
   }
 
   /**
@@ -331,7 +331,7 @@ export class Suspension {
     if (uy < UPRIGHT_UP_Y) return 0;
     // The body group's turn (x then z, `pose`) and its place over the ground pose.
     const rx = -this.pitch;
-    const rz = Math.atan((o[1]! + o[3]! - o[0]! - o[2]!) / (4 * TRACK));
+    const rz = detAtan((o[1]! + o[3]! - o[0]! - o[2]!) / (4 * TRACK));
     const sx = detSin(rx);
     const cx = detCos(rx);
     const sz = detSin(rz);

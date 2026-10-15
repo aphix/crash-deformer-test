@@ -4,7 +4,7 @@
  * Reflecting Pool, and the monuments of bronze on marble.
  */
 import * as THREE from "three";
-import { hypot2 } from "../kernel/physics-core.js";
+import { detAtan2, detCos, detSin, hypot2 } from "../kernel/physics-core.js";
 import { BASIN, FOUNTAIN, LINCOLN, lincolnColumns, POOL, WHITE_HOUSE, type Slab } from "../world/catalog.ts";
 import { box, cyl, MARBLE_SHADE, type Piece, type PrefabMaterials, type PrefabPart, painted, squareFrustum } from "./prefab-pieces.ts";
 import { type Brick, CAPITOL, CAPITOL_POOL, FLAGPOLE, capitolBalustrades, capitolPool, capitolWestStair, domeRing, figure } from "../world/landmarks.ts";
@@ -298,7 +298,7 @@ function domeRibs(): Piece[] {
       // Out of the chord along its outward normal (dy, -dr) by half the rib's depth.
       const r = (lo.r + hi.r) / 2 + (dy / len) * (ribOut / 2);
       const y = (lo.y + hi.y) / 2 - (dr / len) * (ribOut / 2);
-      const slab = new THREE.BoxGeometry(rib, len, ribOut).rotateX(Math.atan2(dr, dy)).rotateY(a).translate(Math.sin(a) * r, y, Math.cos(a) * r);
+      const slab = new THREE.BoxGeometry(rib, len, ribOut).rotateX(detAtan2(dr, dy)).rotateY(a).translate(detSin(a) * r, y, detCos(a) * r);
       out.push([slab, MARBLE_SHADE.dome]);
     }
   }
@@ -325,10 +325,10 @@ export function capitol(): Piece[] {
   out.push([cyl(drum.r, drum.r, drum.y0, drum.y1, CAPITOL_SEGMENTS), MARBLE_SHADE.trim]);
   for (let i = 0; i < columns.count; i++) {
     const a = (i * 2 * Math.PI) / columns.count;
-    out.push([cyl(columns.r, columns.r, columns.y0, columns.y1, 8).translate(Math.sin(a) * columns.ring, 0, Math.cos(a) * columns.ring), MARBLE_SHADE.dome]);
+    out.push([cyl(columns.r, columns.r, columns.y0, columns.y1, 8).translate(detSin(a) * columns.ring, 0, detCos(a) * columns.ring), MARBLE_SHADE.dome]);
     // The drum's tall windows, one behind each gap of the colonnade.
     const b = a + Math.PI / columns.count;
-    out.push([box(1.4, 6, 0.1, 0, 0, 0).rotateY(b).translate(Math.sin(b) * drum.r, 42.5, Math.cos(b) * drum.r), CAPITOL_GLASS]);
+    out.push([box(1.4, 6, 0.1, 0, 0, 0).rotateY(b).translate(detSin(b) * drum.r, 42.5, detCos(b) * drum.r), CAPITOL_GLASS]);
   }
   out.push([cyl(entablature.r, entablature.r, entablature.y0, entablature.y1, CAPITOL_SEGMENTS), MARBLE_SHADE.wall]);
   // The sphere's own latitude rings are the ones `domeRing` names, so the colliders' steps meet the drawn dome on a ring.
@@ -338,7 +338,7 @@ export function capitol(): Piece[] {
   out.push([cyl(lantern.r, lantern.r, lantern.y0, lantern.y1, 16), MARBLE_SHADE.dome]);
   for (let i = 0; i < lantern.columns; i++) {
     const a = (i * 2 * Math.PI) / lantern.columns;
-    out.push([cyl(lantern.columnR, lantern.columnR, lantern.y0, lantern.y1, 8).translate(Math.sin(a) * lantern.ring, 0, Math.cos(a) * lantern.ring), MARBLE_SHADE.dome]);
+    out.push([cyl(lantern.columnR, lantern.columnR, lantern.y0, lantern.y1, 8).translate(detSin(a) * lantern.ring, 0, detCos(a) * lantern.ring), MARBLE_SHADE.dome]);
   }
   out.push([cyl(0.9, lantern.r, lantern.y1, lantern.spire, 16), MARBLE_SHADE.trim]);
   out.push(...monumentPieces(figure(0, 0, lantern.spire, freedom.scale)));

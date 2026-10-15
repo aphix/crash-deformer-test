@@ -5,7 +5,7 @@ import { applyGroundFriction, leftoverCrumple } from "../deform/physics-util.ts"
 import { C_PY, HIT_SIZE } from "../world/surfaces.ts";
 import { BARRIER_HALF, BARRIER_MASS, BARRIER_TOP, clipCarToBarrier } from "../contact/sat.ts";
 import { strikeCar, bodyHit, makeBox, type ContactBox } from "../contact/external-contact.ts";
-import { detSin, detCos, hypot2, hypot3 } from "../kernel/physics-core.js";
+import { detSin, detCos, detAtan2, hypot2, hypot3 } from "../kernel/physics-core.js";
 import { LAMP_POSTS, LAMP_RING_R } from "./fleet.ts";
 
 /** Fraction of a ramp ball's diameter left above the asphalt. */
@@ -135,7 +135,7 @@ export class JerseyBarrier {
     } else {
       const nx = a.x / len;
       const nz = a.z / len;
-      this.yaw = Math.atan2(-nz, nx);
+      this.yaw = detAtan2(-nz, nx);
     }
     if (endOn) this.yaw += Math.PI / 2;
     this.group.rotation.y = this.yaw;
@@ -250,7 +250,7 @@ export class JerseyBarrier {
     box.hx = BARRIER_HALF.z;
     box.hy = BARRIER_TOP / 2;
     box.hz = this.hx();
-    box.yaw = Math.atan2(this.faceN.x, this.faceN.z);
+    box.yaw = detAtan2(this.faceN.x, this.faceN.z);
     box.vx = this.vel.x;
     box.vz = this.vel.z;
     box.kg = this.kg;

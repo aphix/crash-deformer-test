@@ -1,4 +1,4 @@
-import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import type { ClassStats } from "../vehicle/vehicle-classes.ts";
 import type { AiCar } from "./derby-ai.ts";
@@ -266,7 +266,7 @@ export class PoliceBrain extends CopBrain {
     const s = sS + Math.max(LEAD_MIN, Math.min(speed * LEAD_AHEAD, far));
     const pt = this.track.pointAt(((s % L) + L) % L, this.pt);
     const blend = Math.min(1, (2 * (LEAD_IN - this.leadIn[u]!)) / LEAD_IN);
-    const alpha = blend * wrapPi(Math.atan2(pt.x - self.x, pt.z - self.z) - self.yaw);
+    const alpha = blend * wrapPi(detAtan2(pt.x - self.x, pt.z - self.z) - self.yaw);
     const reach = hypot2(pt.x - self.x, pt.z - self.z);
     // An aim behind its shoulder (the stakeout car facing the oncoming racers): full lock, half throttle.
     const behind = Math.abs(alpha) > BEHIND;
@@ -478,7 +478,7 @@ export class PoliceBrain extends CopBrain {
       this.spotAt.x = x;
       this.spotAt.y = pt.y;
       this.spotAt.z = z;
-      this.spotAt.yaw = Math.atan2(fx, fz);
+      this.spotAt.yaw = detAtan2(fx, fz);
       this.spotAt.s = ws;
       return true;
     }

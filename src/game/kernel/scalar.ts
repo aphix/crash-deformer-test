@@ -1,4 +1,4 @@
-import { detCos, detSin } from "./physics-core.js";
+import { detAtan2, detCos, detSin } from "./physics-core.js";
 
 /** Scalar helpers every context shares (kernel: imports only physics-core; `once` memoizes a constant, nothing here holds state). */
 
@@ -17,7 +17,7 @@ export function wrapPi(a: number): number {
 
 /** Angle wrapped into (-π, π] by atan2 (the camera and piston-orbit form). */
 export function wrapPiClosed(a: number): number {
-  return Math.atan2(detSin(a), detCos(a));
+  return detAtan2(detSin(a), detCos(a));
 }
 
 /** Deterministic 0..1 per (id, k): the shader-style sin hash the AIs roll their dice with. */

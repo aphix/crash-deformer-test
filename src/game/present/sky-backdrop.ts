@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { detCos, detSin } from "../kernel/physics-core.js";
 import type { TrackJson } from "../world/track-schema.ts";
 
 /**
@@ -30,7 +31,7 @@ export function backdropGeometry(bearing: number): THREE.BufferGeometry {
     const el = PANEL.foot + ((PANEL.top - PANEL.foot) * j) / GRID.up;
     for (let i = 0; i <= GRID.across; i++) {
       const az = b - PANEL.half + (2 * PANEL.half * i) / GRID.across;
-      pos.push(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
+      pos.push(detSin(az) * detCos(el), detSin(el), -detCos(az) * detCos(el));
       uv.push(i / GRID.across, j / GRID.up);
     }
   }
@@ -206,8 +207,8 @@ function paintMushroomCloud(ctx: CanvasRenderingContext2D): void {
   for (let i = 0; i < 560; i++) {
     const a = rand() * Math.PI * 2;
     const d = Math.sqrt(rand());
-    const x = Math.cos(a) * d * CAP.rx;
-    const el = CAP.el + Math.sin(a) * d * CAP.ry;
+    const x = detCos(a) * d * CAP.rx;
+    const el = CAP.el + detSin(a) * d * CAP.ry;
     billows.push({ x, el, r: between(0.016, 0.04) * (1.15 - d * 0.5), v: (el - (CAP.el - CAP.ry)) / (2 * CAP.ry) });
   }
   billows.sort((p, q) => p.v - q.v);

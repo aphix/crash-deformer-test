@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { Ground, STEP_UP } from "./ground.ts";
-import { hypot2 } from "../kernel/physics-core.js";
+import { detAtan2, hypot2 } from "../kernel/physics-core.js";
 import { clamp01, wrapPi } from "../kernel/scalar.ts";
 import { SURFACE_IDS, type SurfaceId } from "./catalog.ts";
 import { parseTrack, type SurvivalSpec, type TrackJson } from "./track-schema.ts";
@@ -240,7 +240,7 @@ function samplePath(pts: THREE.Vector3[], closed: boolean, attrs: NodeAttrs): { 
   for (let k = 0; k < n; k++) {
     const a = closed ? (k - 1 + n) % n : Math.max(0, k - 1);
     const b = closed ? (k + 1) % n : Math.min(n - 1, k + 1);
-    const dh = wrapPi(Math.atan2(path.tx[b]!, path.tz[b]!) - Math.atan2(path.tx[a]!, path.tz[a]!));
+    const dh = wrapPi(detAtan2(path.tx[b]!, path.tz[b]!) - detAtan2(path.tx[a]!, path.tz[a]!));
     path.curv[k] = b === a ? 0 : dh / (ds * (b > a ? b - a : b + n - a));
   }
   return { path, param };
@@ -576,7 +576,7 @@ export class Track {
     const s = this.length - g.back - row * g.spacing - (col * g.spacing) / g.perRow;
     const pt = this.pointAt(s, this.pt);
     const lat = g.perRow === 1 ? 0 : (0.5 - col / (g.perRow - 1)) * 2 * pt.half * 0.55;
-    return { x: pt.x + pt.tz * lat, y: pt.y, z: pt.z - pt.tx * lat, yaw: Math.atan2(pt.tx, pt.tz) };
+    return { x: pt.x + pt.tz * lat, y: pt.y, z: pt.z - pt.tx * lat, yaw: detAtan2(pt.tx, pt.tz) };
   }
 
   /** The baked ground (built on first use, ≈1 m heightfield over the track bounds). */

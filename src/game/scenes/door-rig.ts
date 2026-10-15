@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { hypot3 } from "../kernel/physics-core.js";
+import { detAtan2, hypot3 } from "../kernel/physics-core.js";
 import { strikeCar, makeBox, partContact } from "../contact/external-contact.ts";
 import { KPH_PER_MS } from "../kernel/constants.ts";
 
@@ -247,7 +247,7 @@ export class DoorRig {
     box.hx = lane.width * 0.5;
     box.hy = (lane.top - lane.bottom) * 0.5;
     box.hz = this.length * 0.5;
-    box.yaw = Math.atan2(f.x, f.z) + (lane.dir > 0 ? 0 : Math.PI);
+    box.yaw = detAtan2(f.x, f.z) + (lane.dir > 0 ? 0 : Math.PI);
     box.vx = car.velocity.x + f.x * lane.dir * this.u;
     box.vz = car.velocity.z + f.z * lane.dir * this.u;
     box.kg = this.kg;

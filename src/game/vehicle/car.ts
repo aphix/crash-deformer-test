@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { detAtan2 } from "../kernel/physics-core.js";
 import type { DeformNetState } from "../deform/streamed-deform.ts";
 import { applyGroundFriction, CRASH, FRICTION_G, hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, DOOR, WHEEL_POS } from "./car-mesh.ts";
@@ -125,7 +126,7 @@ export class DeformableCar extends CarParts {
     this.group.position.set(x, 0, z);
     this.group.lookAt(0, 0, 0);
     this.refreshBasis();
-    this.placeAt(x, z, Math.atan2(this.forward.x, this.forward.z), speed, this.forward);
+    this.placeAt(x, z, detAtan2(this.forward.x, this.forward.z), speed, this.forward);
   }
 
   /** `keepTorn`: the parts and wheels already off the car stay in the world where they lie (a held reset), not back on it (`resetVisual`). */

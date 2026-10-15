@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { detAtan2, hypot2 } from "../kernel/physics-core.js";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { clamp } from "../kernel/scalar.ts";
 import { OPEN_REACH, blankPoint, blankProjection, crossGate, inCorridor, pointOn, projectPath, type Projection, type Track, type TrackPath } from "../world/track.ts";
@@ -717,7 +717,7 @@ export class RaceSession {
       z = pt.z - pt.tx * lat;
       if (this.clear(i, x, z)) break;
     }
-    return { x, z, yaw: Math.atan2(pt.tx, pt.tz) };
+    return { x, z, yaw: detAtan2(pt.tx, pt.tz) };
   }
 
   private clear(i: number, x: number, z: number): boolean {

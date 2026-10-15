@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { hypot2 } from "../kernel/physics-core.js";
+import { detAtan2, detCos, detSin, hypot2 } from "../kernel/physics-core.js";
 import { NO_TARGET, SHOT_RING, type LawnGuard } from "../scenes/lawn-guard.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { Ground } from "../world/ground.ts";
@@ -113,7 +113,7 @@ function blankStance(): Stance {
 
 /** A walk's stance at stride phase `phase` (rad: a whole stride per 2π), `aiming` with the gun arm out level. */
 function walkStance(phase: number, aiming: boolean, out: Stance): Stance {
-  const s = Math.sin(phase);
+  const s = detSin(phase);
   out.thigh[0] = -LEG_SWING * s;
   out.thigh[1] = LEG_SWING * s;
   out.knee[0] = KNEE_BEND * Math.max(0, s);
@@ -336,8 +336,8 @@ export class GuardSquad {
     for (let i = 0; i < spec.count; i++) {
       const d = spec.doors[i % doors]!;
       const j = Math.floor(i / doors);
-      const fx = Math.sin(d.yaw);
-      const fz = Math.cos(d.yaw);
+      const fx = detSin(d.yaw);
+      const fz = detCos(d.yaw);
       const out = LINE_OUT + Math.floor(j / perRank) * RANK_GAP;
       const across = ((j % perRank) - (perRank - 1) / 2) * FILE_GAP;
       this.guards.push({
@@ -405,9 +405,9 @@ export class GuardSquad {
       g.x += (dx / left) * step;
       g.z += (dz / left) * step;
       g.phase += (step / GUARD_STRIDE) * 2 * Math.PI;
-      g.yaw = Math.atan2(dx, dz);
+      g.yaw = detAtan2(dx, dz);
     } else if (target) {
-      g.yaw = Math.atan2(target.group.position.x - g.x, target.group.position.z - g.z);
+      g.yaw = detAtan2(target.group.position.x - g.x, target.group.position.z - g.z);
     }
     walkStance(running ? g.phase : 0, called && !running && target !== undefined, this.stance);
     this.people.stand(GUARD_SLOT + i, g.x, this.ground.heightAt(g.x, g.z), g.z, g.yaw, this.stance, called);
@@ -509,7 +509,7 @@ export class VipEscort {
     if (left > 1e-3) {
       this.x += (dx / left) * step;
       this.z += (dz / left) * step;
-      this.yaw = Math.atan2(dx, dz);
+      this.yaw = detAtan2(dx, dz);
     }
     this.stride += (step / VIP_STRIDE) * 2 * Math.PI;
     walkStance(this.stride, false, this.stance);

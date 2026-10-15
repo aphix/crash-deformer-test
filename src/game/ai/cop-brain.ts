@@ -1,4 +1,4 @@
-import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 import { guardMates } from "./pack-guard.ts";
 import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { classStats, type ClassStats } from "../vehicle/vehicle-classes.ts";
@@ -189,7 +189,7 @@ export function attackTarget(self: AiCar, tg: AiCar, role: number, turn: number,
   const ax = tg.x + tg.vx * lead + tfx * fwd + tlx * lat;
   const az = tg.z + tg.vz * lead + tfz * fwd + tlz * lat;
   if (queue) want = tv + clamp(-(TAIL + ROW * row) - along, -tv, 8);
-  const alpha = wrapPi(Math.atan2(ax - self.x, az - self.z) - self.yaw);
+  const alpha = wrapPi(detAtan2(ax - self.x, az - self.z) - self.yaw);
   out.steer = straight ? 0 : pursuitSteer(alpha, hypot2(ax - self.x, az - self.z), speed, turn);
   if (brakeCheck) {
     out.brake = 1;

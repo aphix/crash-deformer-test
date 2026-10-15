@@ -1,4 +1,4 @@
-import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import { DERBY_RULES, type AiCar } from "./derby-ai.ts";
 import { clamp } from "../kernel/scalar.ts";
@@ -63,7 +63,7 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
   const speed = hypot2(sx, sz);
   // Under a nudge's speed it cannot start a hit, and a crawl is the plan's business (a creeping pair brawled on a wall).
   if (speed <= DERBY_RULES.hitSpeed) return;
-  const heading = Math.atan2(sx, sz);
+  const heading = detAtan2(sx, sz);
   const omega = out.steer * turn;
   const straight = Math.abs(omega) < STRAIGHT;
   const last = TIMES[STEPS - 1]!;

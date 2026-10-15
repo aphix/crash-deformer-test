@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { hypot2 } from "../kernel/physics-core.js";
+import { detAtan2, detCos, detSin, hypot2 } from "../kernel/physics-core.js";
 import { clamp } from "../kernel/scalar.ts";
 import { box, type Piece } from "./prefab-pieces.ts";
 import { TILE } from "./prefabs.ts";
@@ -159,7 +159,7 @@ export function pillarPieces(p: TrackPath, secs: readonly number[], ground: Trac
         legs.push({ x, z, top, foot });
       }
       if (legs.length !== lats.length) continue;
-      const yaw = Math.atan2(pt.tx, pt.tz);
+      const yaw = detAtan2(pt.tx, pt.tz);
       for (const g of legs) {
         out.push([new THREE.CylinderGeometry(PILLAR_R, PILLAR_R * 1.15, g.top - g.foot + 0.3, 8, 1, true).translate(g.x, (g.top + g.foot - 0.3) / 2, g.z), DECK_COL]);
       }
@@ -190,7 +190,7 @@ export function addTunnels(m: Mesher, lights: Mesher, p: TrackPath, secs: readon
     const arch: number[] = [];
     for (let i = 1; i < ARCH_STEPS; i++) {
       const t = (i / ARCH_STEPS) * Math.PI;
-      arch.push(c + ra * Math.cos(t), top + rise * Math.sin(t));
+      arch.push(c + ra * detCos(t), top + rise * detSin(t));
     }
     // Inner: counter-clockwise round the road (faces in); outer: clockwise (faces out).
     const inner = [WL, footL, WL, top, ...arch, -WR, top, -WR, footR];

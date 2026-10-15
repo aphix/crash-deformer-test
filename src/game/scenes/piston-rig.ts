@@ -3,7 +3,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { strikeCar, makeBox, partContact } from "../contact/external-contact.ts";
 import type { StreamedDeformation } from "../deform/streamed-deform.ts";
 import { GRAVITY, KPH_PER_MS } from "../kernel/constants.ts";
-import { CRASH } from "../kernel/physics-core.js";
+import { CRASH, detAtan2 } from "../kernel/physics-core.js";
 import { PISTON_SHOT } from "./constants.ts";
 import { MU_TYRE } from "../world/surfaces.ts";
 
@@ -449,7 +449,7 @@ export class PistonRig {
     box.hx = this.config.faceWidth * 0.5;
     box.hy = this.config.faceHeight * 0.5;
     box.hz = half;
-    box.yaw = Math.atan2(h.nx, h.nz);
+    box.yaw = detAtan2(h.nx, h.nz);
     box.vx = h.nx * uFace;
     box.vz = h.nz * uFace;
     box.kg = this.config.massKg;

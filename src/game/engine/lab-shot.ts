@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { detAtan2 } from "../kernel/physics-core.js";
 
 export const LAB_FOV = 60;
 
@@ -27,5 +28,5 @@ export const LAB_SHOT = {
  */
 export function aimLabShot(thrower: THREE.Vector3, setMiddle: THREE.Vector3, shot: { toFocus: number; lift: number; turn: number }, flat: boolean, look: THREE.Vector3): number {
   look.lerpVectors(thrower, setMiddle, shot.toFocus).setY(setMiddle.y + (flat ? 0 : shot.lift));
-  return Math.atan2(thrower.x - setMiddle.x, thrower.z - setMiddle.z) + shot.turn;
+  return detAtan2(thrower.x - setMiddle.x, thrower.z - setMiddle.z) + shot.turn;
 }

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { detAtan2 } from "../kernel/physics-core.js";
 import { applyMarkMap } from "./engine-marks.ts";
 import type { WorldStage } from "./engine-world.ts";
 import { SURFACE_IDS, type PrefabId, type SurfaceId } from "../world/catalog.ts";
@@ -138,7 +139,7 @@ export class TrackArt {
     const pt = track.pointAt(0, blankPoint());
     const p = track.path;
     const roadY = ground.heightAt(pt.x, pt.z, pt.y);
-    const frame = new THREE.Matrix4().makeRotationY(Math.atan2(pt.tx, pt.tz)).setPosition(pt.x, roadY, pt.z);
+    const frame = new THREE.Matrix4().makeRotationY(detAtan2(pt.tx, pt.tz)).setPosition(pt.x, roadY, pt.z);
     const latL = pt.half + p.runL[0]! + 1.2;
     const latR = -(pt.half + p.runR[0]! + 1.2);
     const pieces: Piece[] = [];

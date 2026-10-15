@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { detAtan2, hypot2 } from "../kernel/physics-core.js";
 import { clamp } from "../kernel/scalar.ts";
 import type { PropCollider } from "./placements.ts";
 import type { Track, TrackGround, TrackPath } from "./track.ts";
@@ -171,7 +171,7 @@ export function pathWallColliders(p: TrackPath, ground: TrackGround, height: num
           body: "solid",
           x: ax + dx * ((t0 + t1) / 2) + nx * hx,
           z: az + dz * ((t0 + t1) / 2) + nz * hx,
-          yaw: Math.atan2(dx, dz),
+          yaw: detAtan2(dx, dz),
           kind: "box",
           r: hypot2(hx, hz),
           hx,

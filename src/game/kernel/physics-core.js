@@ -336,6 +336,159 @@ function sinCosAt(v, i) {
   v[i + 1] = c;
 }
 
+/**
+ * Math.atan2 / atan / asin / acos differ in the last bit between V8 and SpiderMonkey as well. These four are fdlibm's
+ * s_atan.c, e_atan2.c, e_asin.c and e_acos.c written with + − × ÷ and sqrt only (all correctly rounded by IEEE 754, so the
+ * same bits in every engine): the argument folded into [-0.2, 0.2] around atan(0), atan(1/2), atan(1) or atan(3/2) (or
+ * [0, 0.5] for asin and acos, past that through sqrt) and one odd polynomial or rational kernel. The ±0, ±Infinity, NaN
+ * and sign-of-zero cases follow ECMAScript's Math.atan2. Measured against a 140-bit BigInt oracle (`trig.test.ts`).
+ */
+const ATAN_HI = [4.63647609000806093515e-1, 7.85398163397448278999e-1, 9.82793723247329054082e-1, 1.57079632679489655800e0];
+const ATAN_LO = [2.26987774529616870924e-17, 3.06161699786838301793e-17, 1.39033110312309984516e-17, 6.12323399573676603587e-17];
+const AT0 = 3.33333333333329318027e-1;
+const AT1 = -1.99999999998764832476e-1;
+const AT2 = 1.42857142725034663711e-1;
+const AT3 = -1.11111104054623557880e-1;
+const AT4 = 9.09088713343650656196e-2;
+const AT5 = -7.69187620504482999495e-2;
+const AT6 = 6.66107313738753120669e-2;
+const AT7 = -5.83357013379057348645e-2;
+const AT8 = 4.97687799461593236017e-2;
+const AT9 = -3.65315727442169155270e-2;
+const AT10 = 1.62858201153657823623e-2;
+// Past 2^66 atan(t) is π/2 to the last bit; under 2^-29 it is t (asin: under 2^-27); asin switches formula at fdlibm's 0.975.
+// atan2 past |y/x| = 2^60 is ±π/2 whatever the sign of x (π/2 + 2^-60 rounds to π/2).
+const ATAN2_VERTICAL = 2 ** 60;
+const ATAN_HUGE = 2 ** 66;
+const ATAN_TINY = 2 ** -29;
+const ASIN_TINY = 2 ** -27;
+const ASIN_NEAR_ONE = 0.974999904632568359375;
+const PI = 3.14159265358979311600e0;
+const PI_LO = 1.2246467991473532e-16;
+const PIO2_HI = 1.57079632679489655800e0;
+const PIO2_LO = 6.12323399573676603587e-17;
+const PIO4_HI = 7.85398163397448278999e-1;
+const AS_P0 = 1.66666666666666657415e-1;
+const AS_P1 = -3.25565818622400915405e-1;
+const AS_P2 = 2.01212532134862925881e-1;
+const AS_P3 = -4.00555345006794114027e-2;
+const AS_P4 = 7.91534994289814532176e-4;
+const AS_P5 = 3.47933107596021167570e-5;
+const AS_Q1 = -2.40339491173441421878e0;
+const AS_Q2 = 2.02094576023350569471e0;
+const AS_Q3 = -6.88283971605453293030e-1;
+const AS_Q4 = 7.70381505559019352791e-2;
+
+/** atan(t) for t ≥ 0, Infinity and NaN included (NaN in, NaN out). */
+function atanPositive(t) {
+  if (t > ATAN_HUGE) return PIO2_HI + PIO2_LO;
+  let id = -1;
+  let u = t;
+  if (t < 0.4375) {
+    if (t < ATAN_TINY) return t;
+  } else if (t < 1.1875) {
+    if (t < 0.6875) {
+      id = 0;
+      u = (2 * t - 1) / (2 + t);
+    } else {
+      id = 1;
+      u = (t - 1) / (t + 1);
+    }
+  } else if (t < 2.4375) {
+    id = 2;
+    u = (t - 1.5) / (1 + 1.5 * t);
+  } else {
+    id = 3;
+    u = -1 / t;
+  }
+  const z = u * u;
+  const w = z * z;
+  const s1 = z * (AT0 + w * (AT2 + w * (AT4 + w * (AT6 + w * (AT8 + w * AT10)))));
+  const s2 = w * (AT1 + w * (AT3 + w * (AT5 + w * (AT7 + w * AT9))));
+  if (id < 0) return u - u * (s1 + s2);
+  return ATAN_HI[id] - ((u * (s1 + s2) - ATAN_LO[id]) - u);
+}
+
+function detAtan(x) {
+  return x < 0 ? -atanPositive(-x) : atanPositive(x);
+}
+
+/** Math.atan2(y, x): the angle of the point (x, y) from the +x axis, in (-π, π]. */
+function detAtan2(y, x) {
+  const ay = Math.abs(y);
+  const ax = Math.abs(x);
+  let ratio = ay / ax;
+  if (ratio !== ratio) {
+    if (x !== x || y !== y) return NaN;
+    if (ax === 0) {
+      const angle = 1 / x < 0 ? PI : 0;
+      return 1 / y < 0 ? -angle : angle;
+    }
+    ratio = 1;
+  }
+  if (ratio > ATAN2_VERTICAL) return y < 0 ? -PIO2_HI : PIO2_HI;
+  let angle = atanPositive(ratio);
+  if (x < 0) angle = PI - (angle - PI_LO);
+  return y < 0 || (y === 0 && 1 / y < 0) ? -angle : angle;
+}
+
+/** fdlibm's rational kernel R(t) = p(t) / q(t) shared by asin and acos. */
+function asinRational(t) {
+  const p = t * (AS_P0 + t * (AS_P1 + t * (AS_P2 + t * (AS_P3 + t * (AS_P4 + t * AS_P5)))));
+  const q = 1 + t * (AS_Q1 + t * (AS_Q2 + t * (AS_Q3 + t * AS_Q4)));
+  return p / q;
+}
+
+/** `s` with the low 32 bits of its mantissa cleared (fdlibm's SET_LOW_WORD(s, 0)). */
+function clearLowWord(s) {
+  bitView.setFloat64(0, s);
+  bitView.setUint32(4, 0);
+  return bitView.getFloat64(0);
+}
+
+function detAsin(x) {
+  const ax = Math.abs(x);
+  if (ax >= 1) return ax === 1 ? x * PIO2_HI + x * PIO2_LO : NaN;
+  if (ax < 0.5) {
+    if (ax < ASIN_TINY) return x;
+    return x + x * asinRational(x * x);
+  }
+  const t = (1 - ax) * 0.5;
+  const s = Math.sqrt(t);
+  let angle;
+  if (ax >= ASIN_NEAR_ONE) {
+    angle = PIO2_HI - (2 * (s + s * asinRational(t)) - PIO2_LO);
+  } else {
+    const w = clearLowWord(s);
+    const c = (t - w * w) / (s + w);
+    const p = 2 * s * asinRational(t) - (PIO2_LO - 2 * c);
+    angle = PIO4_HI - (p - (PIO4_HI - 2 * w));
+  }
+  return x > 0 ? angle : -angle;
+}
+
+function detAcos(x) {
+  const ax = Math.abs(x);
+  if (ax >= 1) {
+    if (ax !== 1) return NaN;
+    return x > 0 ? 0 : PI + 2 * PIO2_LO;
+  }
+  if (ax < 0.5) {
+    if (ax <= 2 ** -57) return PIO2_HI + PIO2_LO;
+    return PIO2_HI - (x - (PIO2_LO - x * asinRational(x * x)));
+  }
+  if (x < 0) {
+    const z = (1 + x) * 0.5;
+    const s = Math.sqrt(z);
+    return PI - 2 * (s + (asinRational(z) * s - PIO2_LO));
+  }
+  const z = (1 - x) * 0.5;
+  const s = Math.sqrt(z);
+  const df = clearLowWord(s);
+  const c = (z - df * df) / (s + df);
+  return 2 * (df + (asinRational(z) * s + c));
+}
+
 export {
   CRASH,
   TRANSFER,
@@ -355,4 +508,8 @@ export {
   detSin,
   detCos,
   sinCosAt,
+  detAtan,
+  detAtan2,
+  detAsin,
+  detAcos,
 };

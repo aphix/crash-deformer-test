@@ -1,5 +1,5 @@
 import { Quaternion, type Euler, type Vector3 } from "three";
-import { detCos, detSin, sinCosAt } from "./physics-core.js";
+import { detAcos, detCos, detSin, sinCosAt } from "./physics-core.js";
 
 /** `setFromEuler`'s half angles in [x/2, _, y/2, _, z/2, _], their [sin, cos] pairs out (`sinCosAt`: no boxed argument or result). */
 const _half = new Float64Array(6);
@@ -85,7 +85,7 @@ function setFromAxisAngle(this: Quaternion, axis: Vector3, angle: number): Quate
   return this;
 }
 
-/** three's `slerp` with the sines from `detSin` (`Math.acos` and `Math.sqrt` agree across engines, measured). */
+/** three's `slerp` with the sines from `detSin` and the angle from `detAcos` (`Math.sqrt` agrees across engines, measured). */
 function slerp(this: Quaternion, qb: Quaternion, t: number): Quaternion {
   const q = this as unknown as { _x: number; _y: number; _z: number; _w: number; _onChangeCallback: () => void };
   const b = qb as unknown as { _x: number; _y: number; _z: number; _w: number };
@@ -103,7 +103,7 @@ function slerp(this: Quaternion, qb: Quaternion, t: number): Quaternion {
   }
   let s = 1 - t;
   if (dot < 0.9995) {
-    const theta = Math.acos(dot);
+    const theta = detAcos(dot);
     const sin = detSin(theta);
     s = detSin(s * theta) / sin;
     t = detSin(t * theta) / sin;

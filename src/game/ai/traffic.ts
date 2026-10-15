@@ -1,4 +1,4 @@
-import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 import { clearDrive, DRIVE, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import type { AiCar } from "./derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
@@ -170,7 +170,7 @@ export class TrafficBrain {
   private placeAt(id: number, s: number): TrafficSpawn {
     const slot = this.slotOf(id);
     const p = pointOn(slot.path, s, this.pt);
-    const heading = Math.atan2(p.tx, p.tz);
+    const heading = detAtan2(p.tx, p.tz);
     return {
       x: p.x + p.tz * slot.offset,
       y: p.y,
@@ -229,7 +229,7 @@ export class TrafficBrain {
     const p = pointOn(path, proj.s + slot.dir * ld, this.pt);
     const tx = p.x + p.tz * offset;
     const tz = p.z - p.tx * offset;
-    const alpha = wrapPi(Math.atan2(tx - self.x, tz - self.z) - self.yaw);
+    const alpha = wrapPi(detAtan2(tx - self.x, tz - self.z) - self.yaw);
     const surf = SURFACES[SURFACE_IDS[path.surface[proj.k]!]!];
     const turnMax = DRIVE.turn * (0.35 + 0.65 * Math.min(1, speed / 8)) * steerGrip(surf.grip);
     out.steer = clamp((2 * Math.max(speed, 3) * detSin(alpha)) / ld / Math.max(0.2, turnMax), -1, 1);

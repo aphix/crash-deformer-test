@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { detCos, detSin } from "../kernel/physics-core.js";
 import { makeAsphalt, makeJerseyBarrier, makeLamp } from "./engine-world.ts";
 import { tagSurface } from "./ultra/surface-tag.ts";
 import { FENCE, MARBLE, OBELISK, obeliskHalf, STAR_INNER, type PrefabId } from "../world/catalog.ts";
@@ -284,7 +285,7 @@ function rock(): Piece[] {
     const y = p.getY(i);
     const z = p.getZ(i);
     // Same hash for a shared corner, so the faceted shell stays closed.
-    const h = Math.abs(Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453) % 1;
+    const h = Math.abs(detSin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453) % 1;
     const k = 0.8 + 0.25 * h;
     p.setXYZ(i, x * k, y * k, z * k);
   }
@@ -331,7 +332,7 @@ function star(R: number, y0: number, y1: number): THREE.BufferGeometry {
   for (let i = 0; i < 10; i++) {
     const a = (i * Math.PI) / 5;
     const r = i % 2 ? R * STAR_INNER : R;
-    if (i) s.lineTo(Math.sin(a) * r, -Math.cos(a) * r);
+    if (i) s.lineTo(detSin(a) * r, -detCos(a) * r);
     else s.moveTo(0, -r);
   }
   // The extrusion runs along the shape's z; turned upright, the shape's y maps to −z.

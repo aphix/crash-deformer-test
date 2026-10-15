@@ -45,3 +45,8 @@ export function detSin(x: number): number;
 export function detCos(x: number): number;
 /** `detSin(v[i])` to `v[i]` and `detCos(v[i])` to `v[i + 1]`, bit-equal to the two calls, boxing nothing when not inlined. */
 export function sinCosAt(v: Float64Array, i: number): void;
+/** Math.atan, Math.atan2, Math.asin and Math.acos from + − × ÷ and sqrt only: fdlibm's, the same bits in every engine, under 1 ulp from correctly rounded. `detAsin` and `detAcos` return NaN outside [-1, 1]. */
+export function detAtan(x: number): number;
+export function detAtan2(y: number, x: number): number;
+export function detAsin(x: number): number;
+export function detAcos(x: number): number;

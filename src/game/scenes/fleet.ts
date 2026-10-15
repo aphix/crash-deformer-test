@@ -1,6 +1,6 @@
 /** Shared spawn layout so 1–N cars never start overlapping. */
 
-import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos, detAtan2, detAsin } from "../kernel/physics-core.js";
 import { FLEET_STYLE_IDS, type CarStyleId } from "../vehicle/car-variants.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { DERBY_ARENA } from "./constants.ts";
@@ -172,7 +172,7 @@ type Arc = { from: number; to: number };
 function blockedArcs(props: readonly SpawnProp[]): Arc[] {
   const raw: Arc[] = [];
   for (const p of props) {
-    const centre = Math.atan2(p.x, p.z);
+    const centre = detAtan2(p.x, p.z);
     let lo = Infinity;
     let hi = -Infinity;
     for (const sx of [-1, 1]) {
@@ -181,9 +181,9 @@ function blockedArcs(props: readonly SpawnProp[]): Arc[] {
         const lz = sz * p.hz;
         const cx = p.x + lx * detCos(p.yaw) + lz * detSin(p.yaw);
         const cz = p.z - lx * detSin(p.yaw) + lz * detCos(p.yaw);
-        const off = Math.atan2(cx, cz) - centre;
+        const off = detAtan2(cx, cz) - centre;
         const b = off - TAU * Math.round(off / TAU);
-        const w = Math.asin(Math.min(1, PROP_CLEAR / hypot2(cx, cz)));
+        const w = detAsin(Math.min(1, PROP_CLEAR / hypot2(cx, cz)));
         lo = Math.min(lo, b - w);
         hi = Math.max(hi, b + w);
       }
@@ -293,7 +293,7 @@ export function edgeAction(
  * centre, stepped round the ring until `FLEET_MIN_SEP` clear of every car in `others`.
  */
 export function respawnSlot(x: number, z: number, others: readonly { x: number; z: number }[]): DerbySlot {
-  let a = Math.atan2(x, z);
+  let a = detAtan2(x, z);
   for (let k = 0; k < 24; k++) {
     const sx = detSin(a) * RESPAWN_R;
     const sz = detCos(a) * RESPAWN_R;

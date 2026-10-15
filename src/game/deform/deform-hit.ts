@@ -3,7 +3,7 @@ import { clampSpeed, hypot2 } from "./physics-util.ts";
 import { resetCluster } from "./shape-match.ts";
 import { DeformRig, type DeformMode, type MassNode } from "./deform-rig.ts";
 import { FACES, FACE_AXIS } from "./load-crush.ts";
-import { detSin, detCos } from "../kernel/physics-core.js";
+import { detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 import { MIN_MASS_SUM, MIN_WEIGHT_SUM } from "./constants.ts";
 
 /** Most (m/s) a wheel freed by the plant may slide off the body's speed (`seatHubs`). Goes with the plant hand-over: Stage 4 item 6 (wreck split). */
@@ -359,7 +359,7 @@ export abstract class DeformHit extends DeformRig {
     this.bindKinematic(group, worldVel, worldOmega);
     for (const m of this.masses) m.dynamic = true;
     this.captureShapeRest();
-    this.prevYaw = Math.atan2(detSin(group.rotation.y), detCos(group.rotation.y));
+    this.prevYaw = detAtan2(detSin(group.rotation.y), detCos(group.rotation.y));
     this.leanAt = -Infinity;
     this.aloft = false;
     this.floorsFresh = false;
@@ -498,7 +498,7 @@ export abstract class DeformHit extends DeformRig {
       m.vel.copy(worldVel).add(_r.subVectors(m.world, o).crossVectors(worldOmega, _r));
       m.dynamic = true;
     }
-    this.prevYaw = Math.atan2(detSin(group.rotation.y), detCos(group.rotation.y));
+    this.prevYaw = detAtan2(detSin(group.rotation.y), detCos(group.rotation.y));
     this.leanAt = -Infinity;
     this.aloft = false;
     // The first read lays the frame on the ground under its wheels: read with none (as the step after did), a quiet wreck

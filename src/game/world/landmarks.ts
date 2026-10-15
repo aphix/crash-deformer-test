@@ -3,7 +3,7 @@
  * Capitol Reflecting Pool's wedge, the Grant Memorial, the Peace and Garfield Monuments, and the bronze figures and horsemen they
  * carry. `present/prefabs-mall.ts` draws them; `catalog.ts`'s `PREFABS` takes their colliders. Pure: no THREE.
  */
-import { detCos, detSin, hypot2 } from "../kernel/physics-core.js";
+import { detAtan2, detCos, detSin, hypot2 } from "../kernel/physics-core.js";
 
 /**
  * One solid of a prefab (metres at scale 1, +Z forward at yaw 0): a circle (`r`) or a box (`hx`, `hz`) about (`x`, `z`) (0 when
@@ -165,7 +165,7 @@ export function capitolPool(): { rim: Brick[]; water: [number, number][] } {
     const len = hypot2(bx - ax, bz - az);
     const ux = (bx - ax) / len;
     const uz = (bz - az) / len;
-    bricks.push({ hx: rim / 2, hz: len / 2 + rim / 2, x: (ax + bx) / 2 + uz * (rim / 2), z: (az + bz) / 2 - ux * (rim / 2), y0: 0, y1, yaw: Math.atan2(ux, uz) });
+    bricks.push({ hx: rim / 2, hz: len / 2 + rim / 2, x: (ax + bx) / 2 + uz * (rim / 2), z: (az + bz) / 2 - ux * (rim / 2), y0: 0, y1, yaw: detAtan2(ux, uz) });
   }
   return { rim: bricks, water: insetOutline(outline, rim) };
 }

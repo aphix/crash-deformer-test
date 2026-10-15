@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { computeNormalsFast } from "../deform/fast-normals.ts";
-import { hypot2, detSin, detCos, PART_FAMILY } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos, detAtan2, detAsin, PART_FAMILY } from "../kernel/physics-core.js";
 import { PRIMER_ATTRIBUTE } from "./constants.ts";
 import { ARCH_R, DOOR, WHEEL_POS } from "./car-mesh.ts";
 import type { BodyStyle } from "./car-variants.ts";
@@ -158,7 +158,7 @@ function region(name: PanelName, ids: number[], pos: Float32Array): PanelRegion 
       }
     } else {
       // Hinged at the top of the arch, free where it meets the rocker.
-      w[k] = Math.pow(Math.atan2(Math.abs(pos[g + 2]! - hub![2]), Math.max(pos[g + 1]! - hub![1], 0)) / (Math.PI / 2), 1.3);
+      w[k] = Math.pow(detAtan2(Math.abs(pos[g + 2]! - hub![2]), Math.max(pos[g + 1]! - hub![1], 0)) / (Math.PI / 2), 1.3);
       if (w[k]! < 0.05) {
         px += pos[g]!;
         py += pos[g + 1]!;
@@ -176,7 +176,7 @@ function region(name: PanelName, ids: number[], pos: Float32Array): PanelRegion 
     origin,
     pivot: kind === "quarter" ? [pn ? px / pn : side * 0.8, zMin] : [pn ? px / pn : side * 0.88, pn ? py / pn : yMax],
     reach,
-    peel: kind === "quarter" ? Math.asin(Math.min(1, STAND_MAX / reach)) : 0,
+    peel: kind === "quarter" ? detAsin(Math.min(1, STAND_MAX / reach)) : 0,
     span: [yMin, yMax],
     shell: new THREE.BufferAttribute(Uint16Array.from(shell), 1),
     tris: new THREE.BufferAttribute(Uint16Array.from(ids), 1),

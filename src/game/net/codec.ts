@@ -6,7 +6,7 @@ import type { RaceSnapshot } from "../match/types.ts";
 import type { DeformNetState } from "../deform/streamed-deform.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import { ROOM_MAX } from "../../lib/multiplayer/rooms.ts";
-import { detSin, detCos } from "../kernel/physics-core.js";
+import { detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 
 /**
  * Binary netplay messages (docs/MULTIPLAYER.md). Little-endian, quantized to i16 steps that keep
@@ -422,7 +422,7 @@ export function writeSnapshot(w: Writer, s: Snapshot, L: NetLayout): void {
     p[0] = f.x;
     p[1] = f.y;
     p[2] = f.z;
-    p[3] = Math.atan2(detSin(f.yaw), detCos(f.yaw));
+    p[3] = detAtan2(detSin(f.yaw), detCos(f.yaw));
     p[4] = f.pitch;
     p[5] = f.roll;
     p[6] = f.vx;

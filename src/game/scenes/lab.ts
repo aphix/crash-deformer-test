@@ -5,7 +5,7 @@ import { DeformableCar } from "../vehicle/car.ts";
 import { STOCK_PAINT } from "../vehicle/constants.ts";
 import { UNDERSIDE, underY } from "../vehicle/car-suspension.ts";
 import { sampleField } from "../contact/cage-outline.ts";
-import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos, detAsin } from "../kernel/physics-core.js";
 import { PREFABS, type PrefabId } from "../world/catalog.ts";
 import { PREFAB } from "../world/constants.ts";
 import { Ground, STEP_UP } from "../world/ground.ts";
@@ -226,7 +226,7 @@ function onRoofs(): { y: number; pitch: number } {
   const reach = planHalf(SEDAN.style).hz + CARDS_GAP / 2;
   const noseRise = endRise(1, reach);
   const tailRise = endRise(-1, reach);
-  return { y: (noseRise + tailRise) / 2, pitch: Math.asin((tailRise - noseRise) / (2 * KEEL_Z)) };
+  return { y: (noseRise + tailRise) / 2, pitch: detAsin((tailRise - noseRise) / (2 * KEEL_Z)) };
 }
 
 /** A throw lane's start: a sedan on the bench left of the targets, facing them (+x). */

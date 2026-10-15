@@ -1,4 +1,4 @@
-import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 import { DRIVE, type DriveInput } from "../vehicle/car-drive.ts";
 import type { AiCar } from "./derby-ai.ts";
 import { clamp, wrapPi } from "../kernel/scalar.ts";
@@ -340,7 +340,7 @@ export class HunterBrain extends CopBrain {
     const len = clamp(speed * 0.7 + 4, 6, 20);
     const clear = this.obstacles.run(self.x, self.z, self.yaw, len);
     if (clear >= len || clear >= dist - 3) return;
-    const h = this.openHeading(u, self, Math.atan2(tg.x - self.x, tg.z - self.z), speed, dist);
+    const h = this.openHeading(u, self, detAtan2(tg.x - self.x, tg.z - self.z), speed, dist);
     out.steer = pursuitSteer(wrapPi(h - self.yaw), clamp(speed * 0.8, 8, 24), speed, this.turn[self.id]!);
     if (speed > DODGE_SPEED && clear < speed * 0.35) out.throttle = Math.min(out.throttle, 0.3);
   }
@@ -351,7 +351,7 @@ export class HunterBrain extends CopBrain {
     const ax = tg.x + tg.vx * lead;
     const az = tg.z + tg.vz * lead;
     const aimDist = hypot2(ax - self.x, az - self.z);
-    const h = this.openHeading(u, self, Math.atan2(ax - self.x, az - self.z), speed, aimDist);
+    const h = this.openHeading(u, self, detAtan2(ax - self.x, az - self.z), speed, aimDist);
     const alpha = wrapPi(h - self.yaw);
     // Pure pursuit looks a speed-scaled way ahead, so a heading bent round a solid is followed as sharply as it was asked.
     out.steer = pursuitSteer(alpha, Math.min(aimDist, clamp(speed * 0.8, 8, 24)), speed, this.turn[self.id]!);
@@ -516,7 +516,7 @@ export class HunterBrain extends CopBrain {
         const sign = this.spotTx[i]! * -dx + this.spotTz[i]! * -dz >= 0 ? 1 : -1;
         this.at.x = this.spotX[i]!;
         this.at.z = this.spotZ[i]!;
-        this.at.yaw = Math.atan2(this.spotTx[i]! * sign, this.spotTz[i]! * sign);
+        this.at.yaw = detAtan2(this.spotTx[i]! * sign, this.spotTz[i]! * sign);
         return true;
       }
     }

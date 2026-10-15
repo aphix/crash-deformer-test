@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { detAtan2, detCos, detSin } from "../kernel/physics-core.js";
 import { applyMarkMap } from "./engine-marks.ts";
 import { groundMaterial, groundMesh } from "../scenes/ground-stack.ts";
 import { tagSurface } from "./ultra/surface-tag.ts";
@@ -215,7 +216,7 @@ const SUNSET: Day = {
  * `LOW_SUN` (rad): the shadow map's texels stretch 1 / sin(elevation) along the light, 4.8× at 12°.
  */
 const DEFAULT_SUN_OFFSET = new THREE.Vector3(-10, 22, 9);
-const SUN_BEARING = Math.atan2(DEFAULT_SUN_OFFSET.x, -DEFAULT_SUN_OFFSET.z);
+const SUN_BEARING = detAtan2(DEFAULT_SUN_OFFSET.x, -DEFAULT_SUN_OFFSET.z);
 const LOW_SUN = THREE.MathUtils.degToRad(12);
 /** The moon's light stays between these elevations (rad) whatever the picture has: lower stretches the shadows, higher flattens them. */
 const MOON_ELEVATION = { min: THREE.MathUtils.degToRad(20), max: THREE.MathUtils.degToRad(60) };
@@ -227,14 +228,14 @@ export function sunElevation(time: TimeOfDay | null): number {
   const look = time === null ? null : SKY_LOOKS[time];
   if (time === TIME_OF_DAY.sunset && look?.disc) return Math.max(LOW_SUN, rowElevation(look, look.disc.row));
   if (time === TIME_OF_DAY.night && look?.disc) return THREE.MathUtils.clamp(rowElevation(look, look.disc.row), MOON_ELEVATION.min, MOON_ELEVATION.max);
-  return Math.atan2(DEFAULT_SUN_OFFSET.y, Math.sqrt(DEFAULT_SUN_OFFSET.x ** 2 + DEFAULT_SUN_OFFSET.z ** 2));
+  return detAtan2(DEFAULT_SUN_OFFSET.y, Math.sqrt(DEFAULT_SUN_OFFSET.x ** 2 + DEFAULT_SUN_OFFSET.z ** 2));
 }
 
 /** `out` = the offset (m) from the shadow box's centre to the sun for `time`: on `SUN_BEARING`, at the default's height. */
 export function sunOffset(time: TimeOfDay | null, out: THREE.Vector3): THREE.Vector3 {
   const el = sunElevation(time);
   const flat = DEFAULT_SUN_OFFSET.y / Math.tan(el);
-  return out.set(Math.sin(SUN_BEARING) * flat, DEFAULT_SUN_OFFSET.y, -Math.cos(SUN_BEARING) * flat);
+  return out.set(detSin(SUN_BEARING) * flat, DEFAULT_SUN_OFFSET.y, -detCos(SUN_BEARING) * flat);
 }
 
 /** The palette a course lights with: its own daylight over the default's, and its own sky colour (`sky`, else the daylight's, else the studio's). */

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { DOOR, type DeformableCar } from "../vehicle/car.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
-import { detSin, detCos } from "../kernel/physics-core.js";
+import { detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 import { bodyContact, BODY_HARD, BODY_I, BODY_M, BODY_SIZE, BODY_VX, BODY_VZ, BODY_W, BODY_X, BODY_Z, CT_DEPTH, CT_E, CT_JMAX, CT_MU, CT_NX, CT_NZ, CT_SIZE, CT_X, CT_Z, OUT_EBS_A, OUT_PUSH_A, OUT_SIZE } from "./body-contact.ts";
 import { FACE_ROW } from "../deform/deform-contact.ts";
 import { ARM_CLOSING, SOLID_MU } from "./constants.ts";
@@ -60,7 +60,7 @@ export function solidFace(out: ContactBox, nx: number, nz: number, fx: number, f
   out.hx = halfWidth;
   out.hy = 0.48;
   out.hz = depth;
-  out.yaw = Math.atan2(nx, nz);
+  out.yaw = detAtan2(nx, nz);
   out.vx = 0;
   out.vz = 0;
   out.kg = Infinity;
@@ -491,7 +491,7 @@ function carBox(car: DeformableCar, out: ContactBox): ContactBox {
   out.hx = (plan[1]! - plan[0]!) / 2;
   out.hy = (high - low) / 2;
   out.hz = (plan[3]! - plan[2]!) / 2;
-  out.yaw = Math.atan2(car.fwdFlat.x, car.fwdFlat.z);
+  out.yaw = detAtan2(car.fwdFlat.x, car.fwdFlat.z);
   out.vx = car.velocity.x;
   out.vz = car.velocity.z;
   out.kg = car.deform.totalMass;

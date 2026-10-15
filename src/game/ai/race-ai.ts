@@ -1,4 +1,4 @@
-import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 import { chargeBoost, idleDrive, topUpBoost, type DriveInput } from "../vehicle/car-drive.ts";
 import { mood } from "./ai-aggression.ts";
 import { AI_EVERY_SLICE, AI_SKILL, GUARD_BRAKE_IDX, GUARD_COUNT, GUARD_LEAD_IDX, GUARD_TURN_IDX, REVERSE_THROTTLE, SKILL_SALT, SLIP_COOL, SLIP_CORNER, SLIP_RECOVER, SLIP_WINDOW, STRAIGHT_CURV, THINK_DUE_SLACK, THINK_HZ, THINK_SALT, TURN_ROUND_THROTTLE, WOBBLE_K, type AiDifficulty } from "./constants.ts";
@@ -250,15 +250,15 @@ export class RaceBrain {
       const e = sc.path.count - 1;
       return projectPath(track.path, sc.path.x[e]!, sc.path.z[e]!, -1, p).s;
     });
-    this.mouthYaw = track.shortcuts.map((sc) => Math.atan2(sc.path.x[1]! - sc.path.x[0]!, sc.path.z[1]! - sc.path.z[0]!));
+    this.mouthYaw = track.shortcuts.map((sc) => detAtan2(sc.path.x[1]! - sc.path.x[0]!, sc.path.z[1]! - sc.path.z[0]!));
     this.mouthTurn = track.shortcuts.map((_, k) => {
       const at = track.pointAt(this.mouthS[k]!, this.pt);
-      return Math.abs(wrapPi(this.mouthYaw[k]! - Math.atan2(at.tx, at.tz)));
+      return Math.abs(wrapPi(this.mouthYaw[k]! - detAtan2(at.tx, at.tz)));
     });
     this.exitTurn = track.shortcuts.map((sc, k) => {
       const e = sc.path.count - 1;
       const back = track.pointAt(this.exitS[k]!, this.pt);
-      return Math.abs(wrapPi(Math.atan2(back.tx, back.tz) - Math.atan2(sc.path.x[e]! - sc.path.x[e - 1]!, sc.path.z[e]! - sc.path.z[e - 1]!)));
+      return Math.abs(wrapPi(detAtan2(back.tx, back.tz) - detAtan2(sc.path.x[e]! - sc.path.x[e - 1]!, sc.path.z[e]! - sc.path.z[e - 1]!)));
     });
     this.reset();
   }
@@ -428,13 +428,13 @@ export class RaceBrain {
     this.entry = route;
     this.lead = early ? toMouth : 0;
     this.turnIn = route >= 0 && proj.s < LOOK ? Math.abs(wrapPi(this.mouthYaw[route]! - self.yaw)) : 0;
-    if (early) this.turnIn = Math.max(this.turnIn, Math.abs(wrapPi(this.mouthYaw[route]! - Math.atan2(path.x[0]! - self.x, path.z[0]! - self.z))));
+    if (early) this.turnIn = Math.max(this.turnIn, Math.abs(wrapPi(this.mouthYaw[route]! - detAtan2(path.x[0]! - self.x, path.z[0]! - self.z))));
     if (route < 0) this.upcoming(i, race);
     a[ARG_AHEAD_IDX] = early ? 2 : proj.s + ld;
     const pt = this.pointAhead(path, route);
     const tx = pt.x + pt.tz * lane;
     const tz = pt.z - pt.tx * lane;
-    const alpha = wrapPi(Math.atan2(tx - self.x, tz - self.z) - self.yaw);
+    const alpha = wrapPi(detAtan2(tx - self.x, tz - self.z) - self.yaw);
     const reach = early ? Math.max(4, hypot2(tx - self.x, tz - self.z)) : ld;
     const omega = (2 * Math.max(speed, 4) * detSin(alpha)) / reach;
     out.steer = clamp((omega * (clear ? this.steerK[i]! : 1)) / Math.max(0.2, turnMax), -1, 1);

@@ -1,4 +1,4 @@
-import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 import { chargeBoost, clearDrive, DRIVE, idleDrive, topUpBoost, type DriveInput } from "../vehicle/car-drive.ts";
 import { DERBY_RADIUS } from "../scenes/derby-arena.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
@@ -356,7 +356,7 @@ export class DerbyBrain {
     if (this.age[i]! < p.hold) {
       // At the horn some drivers stand on the brakes and line up; the field stops moving as one ring.
       out.brake = 1;
-      out.steer = clamp(wrapPi(Math.atan2(dx, dz) - self.yaw) * 2, -1, 1);
+      out.steer = clamp(wrapPi(detAtan2(dx, dz) - self.yaw) * 2, -1, 1);
       this.lastThrottle[i] = 0;
       this.tactic[i] = T_HOLD;
       return out;
@@ -409,7 +409,7 @@ export class DerbyBrain {
     const nose = Math.max(0, cosA);
     const rev = this.mode[i] !== MODE_FWD;
     const heading = rev ? self.yaw + Math.PI : self.yaw;
-    const turn = Math.abs(wrapPi(Math.atan2(dx, dz) - heading));
+    const turn = Math.abs(wrapPi(detAtan2(dx, dz) - heading));
     let c = (d / Math.max(speed, 7) + turn * 0.5) * 2.2;
     // A car running away at our speed is never caught; a parked one is a gift.
     const flee = (o.vx * dx + o.vz * dz) / d;
@@ -601,7 +601,7 @@ export class DerbyBrain {
       ax *= lim / ar;
       az *= lim / ar;
     }
-    const err = wrapPi(Math.atan2(ax - self.x, az - self.z) - self.yaw);
+    const err = wrapPi(detAtan2(ax - self.x, az - self.z) - self.yaw);
     const ae = Math.abs(err);
     out.steer = clamp(err * 2, -1, 1);
     out.throttle = ae < 0.3 ? p.cruise : ae < 0.8 ? 0.72 : ae < 1.5 ? 0.5 : 0.38;
@@ -651,7 +651,7 @@ export class DerbyBrain {
       ax *= lim / ar;
       az *= lim / ar;
     }
-    const err = wrapPi(Math.atan2(ax - self.x, az - self.z) - self.yaw - Math.PI);
+    const err = wrapPi(detAtan2(ax - self.x, az - self.z) - self.yaw - Math.PI);
     const ae = Math.abs(err);
     out.steer = clamp(err * 1.8, -1, 1);
     out.throttle = ae < 0.45 ? -1 : ae < 1.2 ? -0.75 : -0.5;
@@ -693,7 +693,7 @@ export class DerbyBrain {
       this.boards(self, p, speed);
       return;
     }
-    const away = Math.atan2(_aim.x, _aim.z);
+    const away = detAtan2(_aim.x, _aim.z);
     const err = wrapPi(away - self.yaw);
     if (Math.abs(err) < 2) {
       out.steer = clamp(err * 2, -1, 1);
@@ -717,7 +717,7 @@ export class DerbyBrain {
     const noseOut = fx * nx + fz * nz;
     if (r > this.radius - 3.4 && noseOut > 0.55 && speed < 4) {
       out.throttle = -0.8;
-      out.steer = Math.sign(wrapPi(Math.atan2(-nx, -nz) - self.yaw)) || p.side;
+      out.steer = Math.sign(wrapPi(detAtan2(-nx, -nz) - self.yaw)) || p.side;
       out.ebrake = false;
       return;
     }
@@ -731,7 +731,7 @@ export class DerbyBrain {
       tx = -tx;
       tz = -tz;
     }
-    const want = Math.atan2(tx - nx * 0.6, tz - nz * 0.6);
+    const want = detAtan2(tx - nx * 0.6, tz - nz * 0.6);
     out.steer = clamp(wrapPi(want - self.yaw) * 2, -1, 1);
     if (noseOut > 0.55 && speed > 7) out.ebrake = true;
   }
@@ -759,7 +759,7 @@ export class DerbyBrain {
   private beginRecovery(self: AiCar, others: readonly AiCar[], p: Personality): void {
     const i = self.id;
     this.openSpace(self, others, 7, hypot2(self.x, self.z) > 6 ? 1 : 0.3, _aim);
-    const err = wrapPi(Math.atan2(_aim.x, _aim.z) - self.yaw);
+    const err = wrapPi(detAtan2(_aim.x, _aim.z) - self.yaw);
     // Either gear swings the nose the same way in this drive model.
     this.recoverSteer[i] = Math.abs(err) < 0.15 ? p.side : Math.sign(err);
     // Opposite of the gear that got us here — unless the last escape just ended

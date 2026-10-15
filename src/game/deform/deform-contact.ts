@@ -9,7 +9,7 @@ import {
 } from "./physics-util.ts";
 import { DeformState, ENGINE_PACK_GAP, PLANT_QUIET, TYRE_R } from "./deform-state.ts";
 import { BodyFit } from "./body-fit.ts";
-import { detSin, detCos, sinCosAt } from "../kernel/physics-core.js";
+import { detSin, detCos, detAtan2, sinCosAt } from "../kernel/physics-core.js";
 import { MIN_IMPACT_ZONE, MIN_INERTIA, MIN_MASS_SUM, SQUASH_REACH } from "./constants.ts";
 
 /** Engine slack (m) a hit too slow to pack the nose still allows (mounts, not crush).
@@ -340,7 +340,7 @@ export abstract class DeformContact extends DeformState {
     const ease = (this.elapsed - this.leanAt) / LEVEL_TIME;
     this.leanAt = this.elapsed;
     this.lean += Math.max(-ease, Math.min(ease, (plant && this.quietTime() >= 0.35 ? 0 : 1) - this.lean));
-    const pitch = Math.max(-0.2, Math.min(0.22, Math.atan2(-fy, Math.max(yawLen, 0.15)))) * this.lean;
+    const pitch = Math.max(-0.2, Math.min(0.22, detAtan2(-fy, Math.max(yawLen, 0.15)))) * this.lean;
     const roll = Math.max(-0.5, Math.min(0.5, (engR.world.y - engL.world.y) * 0.55)) * this.lean;
     const tilt = Number.isFinite(pitch + roll);
     _sc[0] = tilt ? pitch : 0;
@@ -356,7 +356,7 @@ export abstract class DeformContact extends DeformState {
     const az = (engL.local.z + engR.local.z) * 0.5 - axle.local.z;
     const bx = ax * cr - ay * sr;
     const bz = (ax * sr + ay * cr) * sp + az * cp;
-    const yaw = yawLen > 0.15 && hypot2(bx, bz) > 0.15 ? Math.atan2(fx, fz) - Math.atan2(bx, bz) : this.prevYaw;
+    const yaw = yawLen > 0.15 && hypot2(bx, bz) > 0.15 ? detAtan2(fx, fz) - detAtan2(bx, bz) : this.prevYaw;
     // Anchor: a planted wreck on its hubs, a live one on its cell — each at the world point where the
     // last clamp held it in the body (`local`), under the rotation the masses are about to be clamped
     // in. Anchoring on rest, or under a yaw-only frame, jumped the group (and every pinned hub) by the
@@ -398,7 +398,7 @@ export abstract class DeformContact extends DeformState {
     if (Number.isFinite(yaw)) {
       _sc[4] = yaw;
       sinCosAt(_sc, 4);
-      p[1] = Math.atan2(_sc[4]!, _sc[5]!);
+      p[1] = detAtan2(_sc[4]!, _sc[5]!);
     } else p[1] = this.prevYaw;
     p[2] = roll;
     p[3] = wx;
