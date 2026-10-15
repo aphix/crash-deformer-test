@@ -127,9 +127,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * bumper torn off leaves in that pose, so a replayed crash's hanging and torn bumpers start above the road and fly differently.
  * 78: a police car is put on the road, and put away, only out of every racer's sight (100 m or more from each, 200 m or more ahead of it along the road, 40 m
  * or more behind it, each with 20 m to spare) and a cop put on the road stays 12 s unless it is knocked out, stuck or 300 m from every racer, so a replayed race's stakeouts, reinforcements and stand-downs happen elsewhere and later.
+ * 79: a police car put on the road already chasing (a reinforcement coming up behind its target) has its sirens on from its first frame, not a patrol beat (0.25 s) later,
+ * and the director resets a stalled AI racer `STALL_WINDOW` (8 s) after it last gained `STALL_GAIN` (25 m) of track, not at the end of a fixed grid window (8 to 16 s after a pin), so a replayed race's pinned racers respawn sooner.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 78;
+const REPLAY_VERSION = 79;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

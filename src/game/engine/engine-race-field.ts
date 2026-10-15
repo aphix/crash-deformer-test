@@ -233,7 +233,7 @@ export abstract class RaceField {
   protected readonly seg = new Int32Array(MAX_CARS).fill(-1);
   private readonly flipFor = new Float64Array(MAX_CARS);
   private readonly stillFor = new Float64Array(MAX_CARS);
-  /** Per AI racer: race time and track progress at the start of the current stall window. */
+  /** Per AI racer: race time and track progress where it last gained `STALL_GAIN` m (the start of its stall window). */
   private readonly markTime = new Float64Array(MAX_CARS);
   private readonly markProgress = new Float64Array(MAX_CARS);
   /** Per police car id: the race time (−1: not driving) and spot where it last gained `STALL_GAIN` m. */
@@ -718,12 +718,14 @@ export abstract class RaceField {
     return kind === "ai" || (kind === "player" && !this.seatDrives(i));
   }
 
-  /** Cars the race AI drives that made almost no track progress over the last window ask for a respawn (see `STALL_GAIN`); police cars out driving that stood still over it are put away (`copStalls`). */
+  /** Cars the race AI drives that gained under `STALL_GAIN` m of track in the `STALL_WINDOW` s since they last gained that much ask for a respawn (a pin is met `STALL_WINDOW` s after its start, not up to twice that, as a fixed grid of windows would meet it); police cars out driving that stood still over it are put away (`copStalls`). */
   protected stalls(s: RaceSession): void {
     for (let i = 0; i < this.entrants.length; i++) {
-      if (!this.aiDrives(i) || s.time - this.markTime[i]! < STALL_WINDOW) continue;
+      if (!this.aiDrives(i)) continue;
       const rec = s.cars[this.rowOf[i]!]!;
-      if (rec.status === "racing" && rec.progress - this.markProgress[i]! < STALL_GAIN) s.requestRespawn(i);
+      const gained = rec.progress - this.markProgress[i]! >= STALL_GAIN;
+      if (!gained && s.time - this.markTime[i]! < STALL_WINDOW) continue;
+      if (!gained && rec.status === "racing") s.requestRespawn(i);
       this.markTime[i] = s.time;
       this.markProgress[i] = rec.progress;
     }

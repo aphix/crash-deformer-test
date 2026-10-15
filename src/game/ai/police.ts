@@ -377,11 +377,12 @@ export class PoliceBrain extends CopBrain {
         const u = this.free();
         const side = this.roll() < 0.5 ? 1 : -1;
         if (u < 0) continue;
-        // Parked ahead where no racer sees it; else it comes up from behind, already chasing.
+        // Parked ahead where no racer sees it; else it comes up from behind, already chasing, its sirens on from the first frame it shows.
         if (this.spot(tg, this.parkAhead, side, 1, cars)) this.place(u, p, size, cars, world);
         else if (this.spot(tg, -this.comeUpBehind, side, 1, cars)) {
           this.place(u, p, size, cars, world);
           this.setState(u, "pursuit");
+          world.sirens(this.first + u, true);
         }
       }
     }

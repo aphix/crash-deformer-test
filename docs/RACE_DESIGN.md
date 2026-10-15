@@ -93,7 +93,8 @@ and demands no `missed`, no `wrongWay` and the laps done.
   damage kept** (the host captures its net state and writes it over the fresh placement, `placeKeeping`), at rest and
   upright; the parts and wheels already off it stay where they lie (`resetVisual(keepTorn)`), not thrown again. A hold works in a no-reset race too, and is refused in Survival, while spectating, in a menu, and for a car that
   is respawning, out or finished. A netplay client's hold rides the input packet's flags byte to the host. AI reset: a car
-  the race AI drives that gains < 25 m of track in 8 s takes the same tap reset.
+  the race AI drives that gains < 25 m of track in the 8 s since it last gained 25 m takes the same tap reset (a pin is met 8 s
+  after it starts, not up to 16 s as a fixed grid of 8 s windows met it).
 - Where a reset puts the car (`RaceSession.spot`): on the centreline of the path it is on, at its own spot if that is on the
   road between the last checkpoint it hit and the first it still owes, else at the last such spot (`CarRecord.safe`), else
   at the checkpoint it last hit. Never past the owed checkpoint (3 m short, `GATE_MARGIN`), never behind the last hit,
@@ -272,7 +273,7 @@ class); they are never entrants, so rules, standings and results never see them,
   beat that read its place and the frame the cop shows. On a course shorter than 2000 m (the Brickyard Oval and Harbour
   Streets are about 690 m: a few racers would otherwise cover the whole lap and nothing could ever be hidden) the three
   ranges are cut in proportion to its length, the 20 m margin kept. So on a long course a stakeout parks 230–290 m ahead,
-  a reinforcement 230 m ahead of its target or comes up from 140 m behind, and no cop is ever put away moving within 100 m
+  a reinforcement 230 m ahead of its target (parked) or coming up from 140 m behind (already chasing, its sirens on from its first frame), and no cop is ever put away moving within 100 m
   of a racer. A cop put on the road stays 12 s (`MIN_LIFE`) unless it is knocked out or 300 m from every racer; one on the
   road 75 s (`STALE_LIFE`) that is still seen goes as soon as no racer is within its near range plus the margin; a given-up
   cop that old brakes to a stop (a cop crawling on at the pack's pace had the racers queue behind it for ever, and one at
