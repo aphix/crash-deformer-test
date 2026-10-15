@@ -1,7 +1,8 @@
-import { describe, it } from "node:test";
+import { describe, it, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { setGround } from "../world/ground.ts";
-import { frame, makeWorld, type World } from "../world/race-world.test-util.ts";
+import { FRAME, frame, makeWorld, type World } from "../world/race-world.test-util.ts";
+import { SURVIVAL } from "../match/survival.ts";
 import { readRace, writeRace } from "./codec.ts";
 
 /** Host world with network peers seated on `seats` (car → name), its player named "Ann", a 3-car AI field, the oval, started. */
@@ -111,9 +112,23 @@ function survivalClientOf(host: World, self: number): World {
   return c;
 }
 
+/** The survival hold (s) these runs use, shortened from the owner's: the wire is under test, not the hold (`match/survival.test.ts` pins it). */
+const BUST_HOLD = 1.5;
+
+/** Race seconds after the green at which one human is wrecked: inside the shortened hold, so that car falls first and the other is busted after it. */
+const WRECK_AT = BUST_HOLD / 3;
+
+/** Run the test with the shortened bust hold; the owner's is back when the test ends. */
+function shortenBustHold(t: TestContext): void {
+  const owner = SURVIVAL.bustTime;
+  Reflect.set(SURVIVAL, "bustTime", BUST_HOLD);
+  t.after(() => Reflect.set(SURVIVAL, "bustTime", owner));
+}
+
 describe("given a hosted Survival run with the host and a peer Zed seated on car 1, both sitting still", () => {
   it("when the run ends and a client adopts the host's state as car 1, then the client reads the run's pack, its time, its team and its cause as the host does", (t) => {
     t.after(() => setGround(null));
+    shortenBustHold(t);
     const host = makeWorld();
     host.race.setSeats(new Map([[1, "Zed"]]));
     host.race.enter(true);
@@ -154,6 +169,7 @@ describe("given a hosted Survival run with the host and a peer Zed on car 1 wher
   ] as const) {
     it(`when car ${wrecks} is wrecked and the other held until busted and a client adopts the host's state as car 1, then the client's card reads the host's cause (${cause}), not its own car's (${own})`, (t) => {
       t.after(() => setGround(null));
+      shortenBustHold(t);
       const host = makeWorld();
       host.race.reseed(2);
       host.race.setSeats(new Map([[1, "Zed"]]));
@@ -169,7 +185,7 @@ describe("given a hosted Survival run with the host and a peer Zed on car 1 wher
         host.seat.intent.handbrake = true;
         host.race.setRemoteInput(1, sit);
         frame(host, state);
-        if (!wrecked && host.race.time > 3) {
+        if (!wrecked && host.race.time > WRECK_AT) {
           host.live()[wrecks]!.driverOut = "windshield";
           wrecked = true;
         }
@@ -180,7 +196,7 @@ describe("given a hosted Survival run with the host and a peer Zed on car 1 wher
       const peer = host.race.snapshot()!.cars.find((c) => c.id === 1)!;
       assert.equal(peer.bustedAt != null ? "busted" : "wrecked", own, "the peer's own car fell the other way");
       const client = survivalClientOf(host, 1);
-      assert.equal(client.race.hud().survival!.result!.cause, hostCause);
+      assert.equal(client.race.hud().survival!.result!.cause, hostCause, "the client's card carries the host's cause, not its own car's");
       host.race.exit();
       client.race.exit();
     });
@@ -228,7 +244,7 @@ describe("given a hosted campaign with the host and a peer seated", () => {
     assert.equal(client.race.hud().menu, null, "a client not yet at its results stays where it is");
     const over = { ...structuredClone(snap), phase: "finished" as const };
     client.race.applySnapshot(over, 1);
-    for (let n = 0; n < 200 && client.race.hud().menu !== "results"; n++) client.race.frame(1 / 60);
+    for (let n = 0; n < 200 && client.race.hud().menu !== "results"; n++) client.race.frame(FRAME);
     assert.equal(client.race.hud().menu, "results", "its own results come first");
     client.race.applySnapshot({ ...structuredClone(over), standings: true }, 1);
     assert.equal(client.race.hud().menu, "standings", "then it follows the host to the standings");
