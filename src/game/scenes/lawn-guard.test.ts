@@ -5,7 +5,8 @@ import { parseTrack } from "../world/track-schema.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import { TRACK_ID } from "../world/constants.ts";
 import { STRIKE_SPEED } from "./figure-strike.ts";
-import { GUARD_AT_POST, GUARD_DEPLOY_S, GUARD_DOWN, GUARD_IN, LawnGuard, NO_TARGET, SHOT_RING } from "./lawn-guard.ts";
+import { FIRE_EVERY, GUARD_AT_POST, GUARD_DEPLOY_S, GUARD_DOWN, GUARD_IN, KILL_HITS_MIN, KILL_HITS_SPREAD, LawnGuard, NO_TARGET, SHOT_RING } from "./lawn-guard.ts";
+import { KILL_WINDOW_S } from "./lawn-guard.test-util.ts";
 
 /** The National Mall's White House grounds (`TrackJson.guards`). */
 const spec = TRACKS.map((j) => parseTrack(j)).find((t) => t.id === TRACK_ID.nationalMall)!.guards!;
@@ -39,11 +40,11 @@ function run(at: { x: number; z: number }, seconds: number, standDown = false) {
 }
 
 describe("given the White House grounds' guard post (owner, 2026-10-14: drive onto the lawn and the guards come out and shoot the car)", () => {
-  it("when a car parks on the North Lawn, then the squad opens fire once it is out of the doors, and the car's engine dies at its 13th to 19th hit, keyed for the replay", () => {
+  it(`when a car parks on the North Lawn, then the squad opens fire once it is out of the doors, and the car's engine dies at a hit from ${KILL_HITS_MIN} to ${KILL_HITS_MIN + KILL_HITS_SPREAD - 1}, keyed for the replay`, () => {
     const { guard, car, firstShotAt, diedAt, hitsToKill } = run(NORTH_LAWN, 12);
-    assert.ok(firstShotAt >= GUARD_DEPLOY_S - STEP && firstShotAt < GUARD_DEPLOY_S + 0.1, `first shot at ${firstShotAt.toFixed(2)} s`);
-    assert.ok(diedAt > firstShotAt && diedAt < firstShotAt + 4, `the engine died at ${diedAt.toFixed(2)} s`);
-    assert.ok(hitsToKill >= 13 && hitsToKill <= 19, `${hitsToKill} hits killed it`);
+    assert.ok(firstShotAt >= GUARD_DEPLOY_S - STEP && firstShotAt < GUARD_DEPLOY_S + FIRE_EVERY, `first shot at ${firstShotAt.toFixed(2)} s`);
+    assert.ok(diedAt > firstShotAt && diedAt < firstShotAt + KILL_WINDOW_S, `the engine died at ${diedAt.toFixed(2)} s`);
+    assert.ok(hitsToKill >= KILL_HITS_MIN && hitsToKill < KILL_HITS_MIN + KILL_HITS_SPREAD, `${hitsToKill} hits killed it`);
     assert.equal(car.placements, 1, "the spawn only: the guards' kill is no placement");
     assert.equal(car.kills, 1, "the kill: the recorder keys the step the guards killed it in");
     assert.equal(guard.target, NO_TARGET, "a dead car is no target");

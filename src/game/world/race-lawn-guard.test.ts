@@ -1,7 +1,8 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { setGround } from "./ground.ts";
-import { GUARD_AT_POST, GUARD_DOWN, GUARD_IN } from "../scenes/lawn-guard.ts";
+import { GUARD_AT_POST, GUARD_DEPLOY_S, GUARD_DOWN, GUARD_IN } from "../scenes/lawn-guard.ts";
+import { KILL_WINDOW_S } from "../scenes/lawn-guard.test-util.ts";
 import { frame, makeWorld, type World } from "./race-world.test-util.ts";
 import { TRACK_ID } from "./constants.ts";
 import type { CarRecord } from "../match/types.ts";
@@ -53,7 +54,7 @@ describe("given a National Mall race, its player's car parked on the White House
       if (died < 0 && !car.deform.drivetrainAlive) died = r.time - t0;
       if (died >= 0 && rec(PLAYER).status === "racing" && car.deform.drivetrainAlive) back = r.time - t0;
     }
-    assert.ok(died > 2.5 && died < 7, `the engine died ${died.toFixed(2)} s after the car stopped on the lawn`);
+    assert.ok(died > GUARD_DEPLOY_S && died < GUARD_DEPLOY_S + KILL_WINDOW_S, `the engine died ${died.toFixed(2)} s after the car stopped on the lawn`);
     assert.ok(back > died, `reset ${(back - died).toFixed(2)} s after it died`);
     assert.ok(Math.hypot(car.group.position.x - NORTH_LAWN.x, car.group.position.z - NORTH_LAWN.z) > 150, "back on the course, off the grounds");
     assert.equal(rec(PLAYER).deaths, 1, "one wreck");

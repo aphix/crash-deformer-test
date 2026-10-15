@@ -9,12 +9,12 @@ import { blankStrike, fell, runsDown, type FigureStrike } from "./figure-strike.
 /** Seconds from the alarm until the guards are out of the doors and firing (guessed: a few strides out of the porticos). */
 export const GUARD_DEPLOY_S = 2.5;
 /** Seconds between the squad's shots with every guard up, every gun together (owner, 2026-10-14: the guards "rapidly" destroy the car; guessed); with fewer standing it grows in proportion. */
-const FIRE_EVERY = 0.12;
+export const FIRE_EVERY = 0.12;
 /** Share of the squad's shots that hit the car, at any range within `RANGE`. */
-const HIT_SHARE = 0.5;
-/** A car's engine dies at its 13th to 19th hit: the least, and how many counts past it. */
-const KILL_HITS_MIN = 13;
-const KILL_HITS_SPREAD = 7;
+export const HIT_SHARE = 0.5;
+/** A car's engine dies at a hit drawn from `KILL_HITS_MIN` up to `KILL_HITS_SPREAD - 1` past it. */
+export const KILL_HITS_MIN = 13;
+export const KILL_HITS_SPREAD = 7;
 /** The guns' reach (m) from the doors' middle (guessed: the grounds and the streets round them). */
 const RANGE = 160;
 /** Seconds the alarm stays up once no car is on the grounds (guessed: the squad waits a while before it goes back in). */
@@ -51,7 +51,7 @@ const NONE: readonly FigureStrike[] = [];
 /**
  * The guards of a house's grounds (`GuardSpec`): a car driving onto the lawn raises the alarm, and the squad runs out of the doors
  * to its posts, then once it is out (`GUARD_DEPLOY_S`) it fires on that car while it stays alive and within `RANGE`, a shot every
- * `FIRE_EVERY` s at full strength, `HIT_SHARE` of them hits; the 13th to 19th hit kills its engine (`DeformableCar.disable`, which
+ * `FIRE_EVERY` s at full strength, `HIT_SHARE` of them hits; the hit drawn from `KILL_HITS_MIN`/`KILL_HITS_SPREAD` kills its engine (`DeformableCar.disable`, which
  * the recorder keys, so a replay holds the kill). A car moving over `STRIKE_SPEED` that meets a guard on the grounds runs him down
  * (`runsDown`): he is out of the squad until the next race (`GUARD_DOWN`, never the shooter, his gun gone from the rate), and the
  * strike is queued for the ragdoll (`takeStrikes`); the car feels nothing. SIM state: `step` runs once per fixed step, after the
