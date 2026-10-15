@@ -16,10 +16,13 @@ interface BenchStep {
 }
 
 /**
- * The biggest of the eight race courses: `bench-loop.test.ts` measures every course's road (dam-spine 4531 m, then four-count
+ * The biggest of the nine race courses: `bench-loop.test.ts` measures every course's road (dam-spine 4531 m, then four-count
  * 4079 m; the city is 683 m), so a longer course added later fails there until this follows.
  */
 export const BIGGEST_COURSE = TRACK_ID.damSpine;
+
+/** The most complex course to draw (the National Mall: 2753 props, about 500k triangles a frame), the cycle's last step. */
+const MOST_PROPS_COURSE = TRACK_ID.nationalMall;
 
 const benchQuery = (kind: string): string => `${BENCH_QUERY}=${kind}`;
 
@@ -27,6 +30,7 @@ const CYCLE: readonly BenchStep[] = [
   { id: BENCH_KIND.strip, query: benchQuery(BENCH_KIND.strip) },
   { id: BENCH_KIND.city, query: benchQuery(BENCH_KIND.city) },
   { id: BIGGEST_COURSE, query: `${benchQuery(BENCH_KIND.city)}&${COURSE_QUERY}=${BIGGEST_COURSE}` },
+  { id: MOST_PROPS_COURSE, query: `${benchQuery(BENCH_KIND.city)}&${COURSE_QUERY}=${MOST_PROPS_COURSE}` },
 ];
 
 /** The Ultra tier exists in this build (`FX_TIERS`): the loop's Ultra arm (`loopultra=1`) exists only then. */
@@ -55,7 +59,7 @@ export interface BenchRun {
   ultraNext: boolean;
 }
 
-/** The benches of one cycle: always the same three steps; with `ultra` set and Ultra in the build, each page also runs its Ultra arm (no second pass for it). */
+/** The benches of one cycle: always the same four steps; with `ultra` set and Ultra in the build, each page also runs its Ultra arm (no second pass for it). */
 export function cycleOf(ultra: boolean): BenchStep[] {
   const arm = ultra && ULTRA_AVAILABLE;
   return CYCLE.map((s) => (arm ? { id: s.id, query: `${s.query}&${ULTRA_QUERY}=1` } : s));
