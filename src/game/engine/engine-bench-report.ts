@@ -163,6 +163,8 @@ export interface BenchResult {
   renderMs: Stat;
   /** Draw time on the GPU (timer query), null where the device has none. */
   gpuMs: Stat | null;
+  /** The WASM skin kernel skinned the cars (false: it failed to load and every car skinned in JS). */
+  skinKernel: boolean;
   stepsPerFrame: number;
   msPerStep: number;
   /** Wall ms of sim per race-clock second. */

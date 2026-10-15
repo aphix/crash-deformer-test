@@ -10,7 +10,7 @@ are in `docs/ARCHITECTURE.md` and enforced by `npm run check:boundaries`.
 
 ## Environment
 
-- Node 22.18 or newer (it runs TypeScript without a flag), Linux, WSL2 or macOS. Packages come from pnpm through corepack: `corepack pnpm install
+- Node 22.18 or newer (it runs TypeScript without a flag; `.nvmrc` picks 24 for `nvm use`), Linux, WSL2 or macOS. Packages come from pnpm through corepack: `corepack pnpm install
   --frozen-lockfile`. `docs/DEPLOY.md` states the build and deploy commands.
 - Start every Vite command through the npm scripts (`npm run dev`, `npm run build`, `npm run preview`), not `vite`
   directly: the scripts run it through `scripts/with-app-env.mjs`, the `NAME=value` env-arg runner.

@@ -1,4 +1,5 @@
 import type * as THREE from "three";
+import { skinKernel } from "../deform/skin-kernel.ts";
 import { DETAIL_LEVELS, type CarDetail } from "../present/car-detail.ts";
 import { gpuRenderer } from "../present/auto-fx.ts";
 import type { DetailGovernor } from "../present/detail-governor.ts";
@@ -337,6 +338,7 @@ export function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Win
     cpuMs: stat(s.cpu, n),
     simMs,
     renderMs: stat(s.draw, n),
+    skinKernel: skinKernel() !== null,
     stepsPerFrame: n ? stepSum / n : 0,
     msPerStep: stepSum ? simSum / stepSum : 0,
     simMsPerSimS: w.clockS ? simSum / w.clockS : 0,

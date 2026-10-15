@@ -6,6 +6,7 @@
   ],
   "type": "module",
   "packageManager": "pnpm@11.17.0",
+  "engines": { "node": ">=22.18" },
   "scripts": {
     "dev": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
     "dev_alt": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 5555",

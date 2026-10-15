@@ -28,6 +28,7 @@ const RESULT: BenchResult = {
   simMs: S(4.2),
   renderMs: S(2),
   gpuMs: null,
+  skinKernel: true,
   stepsPerFrame: 2.7,
   msPerStep: 1.56,
   simMsPerSimS: 212,
