@@ -64,11 +64,13 @@ describe("given the real engine in a derby match past its green light, nobody se
       const spot = screenSpot(index);
       if (spot === null) continue;
       engine["pickCar"](spot.x, spot.y);
-      assert.deepEqual([engine["seat"].mode, engine["seat"].carIndex], ["follow", index], `a click on car ${index} follows it`);
+      assert.equal(engine["seat"].mode, "follow", `a click on car ${index} follows it`);
+      assert.equal(engine["seat"].carIndex, index, `a click on car ${index} follows that car`);
       engine["keys"].add("KeyW");
       run(0.1);
       engine["keys"].clear();
-      assert.deepEqual([engine["seat"].mode, engine["seat"].carIndex], ["drive", index], `W takes the wheel of car ${index}`);
+      assert.equal(engine["seat"].mode, "drive", `W takes the wheel of car ${index}`);
+      assert.equal(engine["seat"].carIndex, index, `W drives car ${index}`);
       clicked++;
     }
     assert.ok(clicked >= 2, `at least two of the five cars were on screen to click (saw ${clicked})`);
