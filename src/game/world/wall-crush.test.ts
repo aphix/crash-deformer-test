@@ -54,7 +54,7 @@ const WALL = straightWall();
 type Hit = { travel: number; killed: boolean; thrown: boolean };
 
 /** A sedan launched at `speed` from the road's far edge (`phase` of one 1/80 s step of travel closer), gas held, stepped by a pacer on the 1/80 s floor or the 1/240 s one. */
-function hit(speed: number, coarse: boolean, phase: number): Hit {
+function play(speed: number, coarse: boolean, phase: number): Hit {
   const w = makeWorld();
   try {
     w.race.enter();
@@ -80,6 +80,17 @@ function hit(speed: number, coarse: boolean, phase: number): Hit {
     w.race.exit();
     setGround(null);
   }
+}
+
+const played = new Map<string, Hit>();
+/** `play`, once per distinct hit: the kill test of each floor and the floors' comparison read the same 32 runs. */
+function hit(speed: number, coarse: boolean, phase: number): Hit {
+  const key = `${speed} ${coarse} ${phase}`;
+  const known = played.get(key);
+  if (known) return known;
+  const fresh = play(speed, coarse, phase);
+  played.set(key, fresh);
+  return fresh;
 }
 
 const SPEEDS = [30, 40, 55, 66];
