@@ -3,7 +3,7 @@ import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
 import type { MassName } from "../kernel/rig-spec.ts";
 import { COMPACTOR, CompactorRig } from "./compactor.ts";
 import { strikeCar, bodyHit, type ContactBox } from "../contact/external-contact.ts";
-import { launch as launchAt, makeCar, makeWorld, tickWorld, type CrashWorld } from "../contact/crash-scenarios.test-util.ts";
+import { launch as launchAt, makeCar, makeWorld, pooledCar, tickWorld, type CrashWorld } from "../contact/crash-scenarios.test-util.ts";
 import { sliceSpeed } from "../contact/sat.ts";
 import { SimPacer } from "../engine/sim-pace.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
@@ -48,20 +48,8 @@ export type CarState = {
   tailMm: number;
 };
 
-/** Cars built once per (slot, squash) and stood up again by `spawnFacing` (the engine's own scene reset, `resetVisual`) for each run: building one costs about as much as a pass of the hit. A run's cars take distinct slots. */
-const slotCars = new Map<string, DeformableCar>();
-function carAt(slot: number, squash?: number): DeformableCar {
-  const key = `${slot}/${squash}`;
-  let car = slotCars.get(key);
-  if (!car) {
-    car = makeCar("shape", squash);
-    slotCars.set(key, car);
-  }
-  return car;
-}
-
 export function parkCar(squash?: number): DeformableCar {
-  const car = carAt(0, squash);
+  const car = pooledCar(0, "shape", squash);
   car.spawnFacing(0, 0, 0, 0);
   return car;
 }
@@ -225,7 +213,7 @@ export function carDoorPass(scenario: DoorScenario, kph: number, tyres = false, 
   const a = parkCar();
   if (lane.part === "panel") a.setPanelOpen(side, lane.open);
   else a.setDoorOpen(side, lane.open);
-  const b = carAt(1);
+  const b = pooledCar(1);
   const x = side * (lane.inner + cageHalf().x);
   // Leading face at the ram's start, so both runs cover the same ground.
   launch(b, x, -lane.dir * (RAM.start + cageHalf().z), lane.dir > 0 ? 0 : Math.PI, kph);
@@ -249,11 +237,11 @@ export function ramDoorPass(scenario: DoorScenario, kph: number, kg: number, car
 function reversingDoorPass(scenario: DoorScenario, kph: number, tyres = false, side: -1 | 1 = 1): CarState {
   const lane = DOOR_LANES[scenario];
   const u = kph / 3.6;
-  const a = carAt(0);
+  const a = pooledCar(0);
   launchAt(a, 0, lane.dir * (RAM.start + cageHalf().z), 0, 0, -lane.dir * u);
   if (lane.part === "panel") a.setPanelOpen(side, lane.open);
   else a.setDoorOpen(side, lane.open);
-  const b = carAt(1);
+  const b = pooledCar(1);
   b.spawnFacing(side * (lane.inner + cageHalf().x), 0, lane.dir > 0 ? 0 : Math.PI, 0);
   const w = makeWorld([a, b], false, false, null);
   runPass(w, tyres, kph, () => hasPassed(lane, a, b), () => readoutKey(a, side));
@@ -460,8 +448,8 @@ export type Sandwich = { a: CarState; b: CarState; c: CarState; keLostJ: number;
  */
 export function carSandwich(kph: number): Sandwich {
   const a = parkCar();
-  const b = carAt(1);
-  const c = carAt(2);
+  const b = pooledCar(1);
+  const c = pooledCar(2);
   const force: SandwichForce = { nose: { t: [], lost: [] }, tail: { t: [], lost: [] }, kg: b.deform.totalMass };
   launch(b, 0, STRIKE_GAP, Math.PI, kph);
   launch(c, 0, -STRIKE_GAP, 0, kph);
@@ -485,7 +473,7 @@ export type Strike = "front" | "rear" | "right";
 
 /** `carMoves`: the frame swap, the head stands still and the car drives into it at the head's speed. */
 export function pistonStrike(at: Strike, kph: number, kg: number, hardness: number, squash?: number, carMoves = false): CarState {
-  const a = carAt(0, squash);
+  const a = pooledCar(0, "shape", squash);
   const still = stillWatch(() => readoutKey(a));
   firePiston(a, at, { speedKph: kph, massKg: kg, hardness, after: 1.5, carMoves, onSlice: (_rig, head) => still(FRAME / 2) && head.contacted });
   return carState(a);
@@ -498,7 +486,7 @@ export function pistonStrike(at: Strike, kph: number, kg: number, hardness: numb
 export function carStrike(at: Strike, kph: number, squash?: number, carMoves = false): { a: CarState; b: CarState } {
   const a = parkCar(squash);
   a.parked = !carMoves;
-  const b = carAt(1, squash);
+  const b = pooledCar(1, "shape", squash);
   const [x, z, yaw] = at === "front" ? [0, STRIKE_GAP, Math.PI] : at === "rear" ? [0, -STRIKE_GAP, 0] : [CAR_HALF.x + CAR_HALF.z + 0.25, 0.08, -Math.PI / 2];
   if (carMoves) {
     const u = kph / 3.6;

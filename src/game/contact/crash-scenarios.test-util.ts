@@ -120,6 +120,22 @@ export function makeCar(mode: DeformMode = "shape", squash?: number, buckle?: nu
   return car;
 }
 
+/**
+ * `makeCar`'s car for `slot` of a run, built once per (slot, mode, squash, buckle) and stood up again by `spawnFacing` (the engine's own
+ * scene reset, `resetVisual`) at the next run: building one costs about as much as a pass of a hit. A run's cars take distinct slots and
+ * place each with `spawnFacing` or `launch` before use.
+ */
+const slotCars = new Map<string, DeformableCar>();
+export function pooledCar(slot: number, mode: DeformMode = "shape", squash?: number, buckle?: number): DeformableCar {
+  const key = `${slot}/${mode}/${squash}/${buckle}`;
+  let car = slotCars.get(key);
+  if (!car) {
+    car = makeCar(mode, squash, buckle);
+    slotCars.set(key, car);
+  }
+  return car;
+}
+
 /** Place `car` at (x, z) facing `yaw` and send it off at (vx, vz) m/s, the rig bound to it. */
 export function launch(car: DeformableCar, x: number, z: number, yaw: number, vx: number, vz: number): void {
   car.spawnFacing(x, z, yaw, 0);

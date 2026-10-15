@@ -5,7 +5,7 @@ import { DeformableCar } from "./car.ts";
 import { physicsSlice } from "../contact/sat.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import { mass, paint } from "./test-support.ts";
-import { makeCar, makeWorld, runWall, tickWorld } from "../contact/crash-scenarios.test-util.ts";
+import { makeCar, makeWorld, pooledCar, runWall, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { CLASSES, VEHICLE_CLASS_IDS } from "./vehicle-classes.ts";
 import { stepWorld } from "../engine/world-step.ts";
 import { DRAFT } from "../match/session.ts";
@@ -192,6 +192,9 @@ function noseThrough(struck: DeformableCar, bullet: DeformableCar): number {
   return deepest;
 }
 
+/** Frames (1/60 s) the closest approach must hold, the cars parted and moving away, before a hit is over; a run is 90 frames at most. */
+const HIT_OVER_FRAMES = 30;
+
 describe("given the top speed any driven car can reach (every class's top speed × its boost top × a race draft's top)", () => {
   it(`when a car hits the jersey slab at ${(DRIVEN_TOP * 3.6).toFixed(0)} km/h in shape or in lattice deform mode, then it stops on the slab instead of tunnelling through`, () => {
     for (const mode of ["shape", "lattice"] as const) {
@@ -208,8 +211,8 @@ describe("given the top speed any driven car can reach (every class's top speed 
         // right. b's start steps through one 1/240 s slice of its travel in 8 so contact lands at every phase.
         for (let k = 0; k < 8; k++) {
           const start = 6 + (k * v) / FINE_HZ / 8;
-          const a = makeCar();
-          const b = makeCar();
+          const a = pooledCar(0);
+          const b = pooledCar(1);
           a.spawnFacing(kind === "head-on" ? -6 : 0, 0, kind === "head-on" ? Math.PI / 2 : 0, 0);
           a.velocity.set(kind === "head-on" ? v : 0, 0, 0);
           a.speed = a.velocity.length();
@@ -218,9 +221,12 @@ describe("given the top speed any driven car can reach (every class's top speed 
           b.speed = v;
           const w = makeWorld([a, b], false, false, null);
           let worst = kind === "head-on" ? Infinity : -Infinity;
-          for (let f = 0; f < 90; f++) {
+          let held = 0;
+          for (let f = 0; f < 90 && held < HIT_OVER_FRAMES; f++) {
             tickWorld(w);
-            worst = kind === "head-on" ? Math.min(worst, b.group.position.x - a.group.position.x) : Math.max(worst, noseThrough(a, b));
+            const closest = kind === "head-on" ? Math.min(worst, b.group.position.x - a.group.position.x) : Math.max(worst, noseThrough(a, b));
+            held = closest === worst ? held + 1 : 0;
+            worst = closest;
           }
           if (kind === "head-on") assert.ok(worst > 0, `${v.toFixed(1)} m/s from x=${start.toFixed(3)}: b's origin crossed a's along the hit by ${(-worst).toFixed(2)} m`);
           else assert.ok(worst <= 0, `${v.toFixed(1)} m/s from x=${start.toFixed(3)}: b's nose came out ${worst.toFixed(2)} m past a's far side`);
