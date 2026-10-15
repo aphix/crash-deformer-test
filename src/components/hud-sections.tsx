@@ -218,7 +218,7 @@ function PlaybackSection({ state, engine }: HudProps) {
           Sky
           <ChangedDot on={ch("sky")} />
         </span>
-        <div className={cn(TRACK, "grid-cols-3")} role="group" aria-label="Sky picture">
+        <div className={cn(TRACK, "grid-cols-4")} role="group" aria-label="Sky picture">
           {SKY_MODES.map((mode) => (
             <Button
               key={mode}

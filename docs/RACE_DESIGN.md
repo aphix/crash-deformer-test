@@ -165,10 +165,11 @@ setup menu shows a change at once on the course behind it.
   strip: horizon row, disc (sun or moon) position, and the horizon, middle and zenith colours. The day strip is five gpt-image-1
   generations seam-matched row by row and cross-faded; sunset (the day strip regraded to golden hour) and night (procedural stars,
   Milky Way and moon) were made locally when the image API ran out of credit, and are due to be replaced by generated ones.
-- **Sky setting** (`Sky` in the settings, `sky=auto|on|off` in the `#` and as a `?sky=0|1|auto|on|off` page query for the bench).
+- **Sky setting** (`Sky` in the settings, `sky=auto|on|full|off` in the `#` and as a `?sky=0|1|auto|on|full|off` page query for the bench).
   How much sky is drawn is a function of the setting and the FX tier (`skyDetailFor`): `off` draws none (the flat sky colour,
   no dome, no texture fetched or decoded); `auto` (the default) draws the full strip on high and ultra, the half strip on low and
-  nothing on minimal and off; `on` is `auto` plus a plain horizon / middle / zenith gradient (no texture) on minimal and off.
+  nothing on minimal and off; `on` is `auto` plus a plain horizon / middle / zenith gradient (no texture) on minimal and off;
+  `full` draws the full strip on every tier (a textured sky against `off` at one tier: the bench's sky A/B).
   Only the picture in use is held: a change of detail or of time of day frees the old strip and fetches the new one.
 - **Light.** The sun keeps the day's bearing and its 22 m height over the shadow box at every time; its elevation follows the
   time: the day's 58.6° (unchanged), sunset's disc but no lower than 12° (the shadow texels stretch 1 / sin of it), night's moon

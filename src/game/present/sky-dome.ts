@@ -58,19 +58,20 @@ export function uAtNorth(look: SkyLook, discBearing: number): number {
   return u - Math.floor(u);
 }
 
-/** The player's Sky setting: `auto` draws the sky the FX tier affords (none on minimal and off), `on` always draws one (the plain gradient at least), `off` never does. */
-export const SKY_MODES = ["auto", "on", "off"] as const;
+/** The player's Sky setting: `auto` draws the sky the FX tier affords (none on minimal and off), `on` always draws one (the plain gradient at least), `full` always draws the full picture, `off` never draws any. */
+export const SKY_MODES = ["auto", "on", "full", "off"] as const;
 export type SkyMode = (typeof SKY_MODES)[number];
 
 /**
  * How much sky is drawn: the full 4096-wide strip (17 MB with its mips) on high and ultra, a 2048-wide one (4 MB) on low, and on
  * the canvas-only tiers (minimal, off) nothing, or with the Sky setting `on` a plain three-stop gradient with no texture at all.
+ * The Sky setting `full` draws the full strip on every tier.
  */
 export type SkyDetail = "off" | "gradient" | "half" | "full";
 
 export function skyDetailFor(mode: SkyMode, tier: FxTier): SkyDetail {
   if (mode === "off") return "off";
-  if (tier === "high" || tier === "ultra") return "full";
+  if (mode === "full" || tier === "high" || tier === "ultra") return "full";
   if (tier === "low") return "half";
   return mode === "on" ? "gradient" : "off";
 }
