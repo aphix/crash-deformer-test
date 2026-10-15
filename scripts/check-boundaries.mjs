@@ -88,7 +88,7 @@ const KNOB_CONTEXTS = new Set(["kernel", "world", "deform", "vehicle", "contact"
 const MAX_FILE_LINES = 800;
 const MAX_FUNCTION_LINES = 150;
 
-const isTest = (f) => /\.test(-util)?\.ts$|\/test-support\.ts$/.test(f);
+const isTest = (f) => /\.(test(-util)?|ai-long-run)\.ts$|\/test-support\.ts$/.test(f);
 const contextOf = (f) => CONTEXTS.find(([, , pats]) => pats.some((p) => (p.endsWith("/") ? f.startsWith(p) : f === p)));
 
 // Tracked and new (untracked, not ignored) files as they are on disk, so a lane's pre-commit gate sees its new files.
@@ -366,7 +366,7 @@ const isLiteral = (n) =>
   (ts.isObjectLiteralExpression(n) && n.properties.every((pr) => ts.isPropertyAssignment(pr) && isLiteral(pr.initializer)));
 const c9 = [];
 for (const [f, p] of parsed) {
-  if (!/\.test\.ts$/.test(f) || (f.startsWith("src/lib/") && !f.startsWith("src/lib/multiplayer/"))) continue;
+  if (!/\.(test|ai-long-run)\.ts$/.test(f) || (f.startsWith("src/lib/") && !f.startsWith("src/lib/multiplayer/"))) continue;
   const visit = (n) => {
     if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && DEEP.has(n.expression.name.text) && n.arguments.length >= 2 && !isLiteral(n.arguments[0]) && !isLiteral(n.arguments[1])) {
       c9.push(`${f}:${p.sf.getLineAndCharacterOfPosition(n.getStart()).line + 1} ${n.expression.name.text}(${n.arguments[0].getText().slice(0, 50)}, ${n.arguments[1].getText().slice(0, 50)})`);

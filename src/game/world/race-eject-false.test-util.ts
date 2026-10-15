@@ -11,8 +11,9 @@ import { DeformableCar } from "../vehicle/car.ts";
 /**
  * Owner, 2026-10-03: "drivers are now getting thrown out of their cars when going on that same slope [the stunt
  * course's CRUSH crest] and also on banked turns, far more than would be expected". The whole race stack headless,
- * every contact on every car logged: a driver thrown out, or an engine killed, must follow a real hit on that car.
- * The race-eject-false test files share these cases so each runs in a fraction of the whole sweep's time. Not a test file itself.
+ * every contact on every car logged: a driver thrown out, or an engine killed, must follow a real hit on that car. The mechanism of
+ * that report is pinned fast by `vehicle/ejection-slope.test.ts`; this sweep (`npm run test:ai-long-run`) watches whole AI races for any other cause.
+ * The race-eject-false `ai-long-run` files share these cases so each runs in a fraction of the whole sweep's time. Not a test file itself.
  */
 
 /** Contacts this recent (s) before a kill or a throw explain it: the watch's lookback is 0.35 s, and a frame is 1/60. */

@@ -28,6 +28,7 @@ are in `docs/ARCHITECTURE.md` and enforced by `npm run check:boundaries`.
 |---|---|
 | `npm run test:app` | the `src/game`, `src/lib/multiplayer`, `src/lib/submissions` and `src/lib/deploy` suites; the gate |
 | `npm run t -- <files or globs> [--concurrency=2]` | the same runner on just the files named (one process per file); `--concurrency=` also works after `test:app` |
+| `npm run test:ai-long-run` | the full-sanity suite, `src/game/**/*.ai-long-run.ts`: long AI-driven fuzz runs (whole fields watched for stuck cars, false ejections, seed sweeps). Not in the gate: run it before a release or after a change to AI, contact or course code. Linted, typechecked and boundary-checked like tests |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check:boundaries` | the structural rules, ratcheted against `scripts/boundary-caps.json` |
 | `npm run lint` | `oxlint` (`docs/TOOLCHAIN.md`) |

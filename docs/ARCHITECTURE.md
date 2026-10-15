@@ -123,7 +123,9 @@ Deploy (`deploy/`, `server/`, `scripts/` build helpers) sits outside `src/` and 
 
 Runner: `node --test` semantics with `--experimental-strip-types` (no test framework), through `scripts/run-tests.mjs`, which
 starts the slowest files first (`scripts/test-cost.json`; `--learn` refreshes it) and otherwise behaves like the CLI. `npm run test:app` runs the game and
-multiplayer suites, `npm run test:game` only `src/game`. Harnesses: `contact/crash-scenarios.test-util.ts` (headless crash
+multiplayer suites, `npm run test:game` only `src/game`. Each test stages the moment it claims (cars placed at the poses, speeds and states it needs; no full race,
+derby or Survival run, no seed sweep hoping the event happens). Long AI-driven runs that watch a whole field for anything going wrong (stuck cars, false ejections)
+are `*.ai-long-run.ts` files, run by `npm run test:ai-long-run` and never by the gate; each one that names a failure has a fast targeted test pinning its mechanism. Harnesses: `contact/crash-scenarios.test-util.ts` (headless crash
 scenarios at the engine's slices), `scenes/contact-parity.test-util.ts` (striker vs car), `world/race-world.test-util.ts`
 (the whole race stack headless), `vehicle/test-support.ts` (`forModes`, `DT`).
 

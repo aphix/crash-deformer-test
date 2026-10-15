@@ -129,6 +129,7 @@ run it through `scripts/with-app-env.mjs`. `npm run build` then `npm run preview
 |---|---|
 | `npm run test:app` | the `src/game`, `src/lib/multiplayer`, `src/lib/submissions` and `src/lib/deploy` suites plus `scripts/with-app-env.test.mjs` (`node --test`); **the gate** |
 | `npm test` | `src/game`, `src/lib/submissions`, `src/lib/deploy`, the multiplayer rate-limit test and every `scripts/**/*.test.mjs` |
+| `npm run test:ai-long-run` | the full-sanity suite (`src/game/**/*.ai-long-run.ts`): long AI-driven runs that watch whole fields for stuck cars and false ejections; not part of the gate |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run check:boundaries` | the structural rules of [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), ratcheted against `scripts/boundary-caps.json` |
 | `npm run check:programs` | plays every scene, FX tier and course in headless Chromium against a running server and fails if a GPU program links mid-play ([`docs/PERF_HITCH.md`](docs/PERF_HITCH.md)) |
