@@ -52,6 +52,7 @@ interface ThrowMessage {
   cop: boolean;
   rides: boolean;
   purse: boolean;
+  armsDown: boolean;
   lookSeed: number;
 }
 

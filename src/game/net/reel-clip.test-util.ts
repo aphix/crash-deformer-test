@@ -94,6 +94,10 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
       { step: 0, car: 0, body: 3, slice: 0, slices: 1500 },
       { step: 300, car: 1, body: 17, slice: 5, slices: 65535 },
     ],
+    strikes: [
+      { step: 120, s: { guard: 4, car: 0, x: 12.5, y: 0.25, z: -30.75, faceX: 0.5, faceZ: -0.875, vx: 9.5, vy: 1.5, vz: -4.25, wx: 0.75, wy: 0, wz: 2.125 } },
+      { step: 361, s: { guard: -1, car: 1, x: -3.5, y: 0.125, z: 8, faceX: 0, faceZ: 1, vx: -6, vy: 0.5, vz: 11.25, wx: -1.5, wy: 0, wz: 0.25 } },
+    ],
     peakKph: 96,
     hitKph: 48,
     deform: 1.25,
@@ -158,6 +162,12 @@ export function sameClip(got: HighlightClip, want: HighlightClip): void {
   assert.deepEqual(got.knocks, want.knocks, "knocked props");
   assert.deepEqual(got.stirs, want.stirs, "stirred wrecks");
   assert.deepEqual(got.partStirs, want.partStirs, "stirred parts");
+  assert.equal(got.strikes.length, want.strikes.length);
+  for (const [i, x] of got.strikes.entries()) {
+    const w = want.strikes[i]!;
+    assert.equal(x.step, w.step, `strike ${i} step`);
+    for (const k of ["guard", "car", "x", "y", "z", "faceX", "faceZ", "vx", "vy", "vz", "wx", "wy", "wz"] as const) assert.equal(x.s[k], w.s[k], `strike ${i} ${k}`);
+  }
   assert.equal(got.hits.length, want.hits.length);
   for (const [i, p] of got.hits.entries()) {
     const w = want.hits[i]!;

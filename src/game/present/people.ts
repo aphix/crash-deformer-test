@@ -1,6 +1,7 @@
 import * as THREE from "three";
-import { detAtan2, detCos, detSin, hypot2 } from "../kernel/physics-core.js";
-import { NO_TARGET, SHOT_RING, type LawnGuard } from "../scenes/lawn-guard.ts";
+import { detAtan2, detSin, hypot2 } from "../kernel/physics-core.js";
+import { blankStrike, fell, runsDown, type FigureStrike } from "../scenes/figure-strike.ts";
+import { GUARD_AT_POST, GUARD_DOWN, GUARD_IN, GUARD_RUNNING_IN, GUARD_RUNNING_OUT, NO_TARGET, SHOT_RING, type LawnGuard } from "../scenes/lawn-guard.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { Ground } from "../world/ground.ts";
 import { insidePolygon } from "../world/terrain.ts";
@@ -40,27 +41,23 @@ const SIT = { thigh: -Math.PI / 2, knee: Math.PI / 2, arm: -0.35, elbow: -0.9 };
 /** Aiming: the gun arm straight out level, the other hand up under it (rad). */
 const AIM = { arm: -Math.PI / 2, elbow: 0, support: -1.2, supportElbow: -0.5 };
 
-/** The guards: their run out and back (m/s, guessed: a sprint in kit) and the metres a whole stride covers at it. */
-const GUARD_RUN = 4.5;
+/** The metres a whole stride covers at the guards' run (`GUARD_RUN`). */
 const GUARD_STRIDE = 1.8;
-/** Their places off a door: the first rank this far out (m), the next ranks `RANK_GAP` further, `FILE_GAP` apart across a rank. */
-const LINE_OUT = 7;
-const RANK_GAP = 4;
-const FILE_GAP = 4.5;
-/** Seconds between one guard coming out of a door and the next; how far (m) inside the door he appears, under the portico. */
-const STAGGER_S = 0.18;
-const PORTICO_DEPTH = 3;
-/** A guard this close (m) to where he is going is there. */
-const ARRIVE = 0.3;
 /** A plain-clothes agent: a black suit, dark hair (the other half of the squad wears the uniformed division's navy, `cop`). */
 const AGENT: DriverLook = { woman: false, shirt: 0x16181d, pants: 0x16181d, hair: HAIRS[2]!, hat: null, mustache: false };
+
+/** Guard `guard`'s dress: the even ones in the uniformed division's navy (`cop`), the rest in black suits. */
+export function guardDress(guard: number): { cop: boolean; look: DriverLook } {
+  return { cop: guard % 2 === 0, look: AGENT };
+}
+
 /** A shot's aim (m over the car's origin), how far (m) a miss goes past it, and the sparks a hit throws (`RaceHost.hitFx`'s impulse). */
 const AIM_Y = 0.7;
 const MISS_WIDE = 2.5;
 const HIT_SPARKS = 4;
 
 /** The VIP: portly, in a navy-blue suit with a red tie, his golden-blond hair swept back. */
-const VIP_LOOK: DriverLook = { woman: false, shirt: 0x1f3463, pants: 0x1f3463, hair: 0xe8bf6c, hat: null, mustache: false, portly: true };
+export const VIP_LOOK: DriverLook = { woman: false, shirt: 0x1f3463, pants: 0x1f3463, hair: 0xe8bf6c, hat: null, mustache: false, portly: true };
 /** His walk to the car (m/s, a brisk walk) and the metres a whole stride covers. */
 const VIP_WALK = 2.2;
 const VIP_STRIDE = 1.5;
@@ -312,14 +309,14 @@ export class People {
 export const VIP_SLOT = 0;
 const GUARD_SLOT = 1;
 
-/** One guard: where he stands and faces, his stride, whether he is out, and his place in the ranks and inside his door. */
-type Guard = { x: number; z: number; yaw: number; phase: number; out: boolean; spotX: number; spotZ: number; homeX: number; homeZ: number };
+/** One guard as drawn: his stride, where he stood last frame (the stride follows the ground he covers) and whether he is in view. */
+type Guard = { phase: number; lastX: number; lastZ: number; shown: boolean };
 
 /**
- * The guards drawn (`LawnGuard` decides who fires and what hits): with the alarm up each runs out of his door, in turn, to his
- * place in the ranks before it, turns to the target and aims; each shot the sim fired flashes at its guard's muzzle and its tracer
- * runs to the car (a hit throws sparks off it) or past it. With the alarm down they run back in and are gone. Cosmetic only: the
- * walk is the frame's, not the sim's.
+ * The guards drawn (`LawnGuard` decides who is where, who fires, what hits and who a car ran down): each stands, runs and aims as the
+ * sim has him; each shot the sim fired flashes at its guard's muzzle and its tracer runs to the car (a hit throws sparks off it) or
+ * past it. A guard the sim has back inside or run down (his ragdoll is the dummies' world's) is not drawn. Cosmetic only: the stride is
+ * the frame's.
  */
 export class GuardSquad {
   private readonly guards: Guard[] = [];
@@ -331,23 +328,10 @@ export class GuardSquad {
   constructor(spec: GuardSpec, ground: Ground, people: People) {
     this.ground = ground;
     this.people = people;
-    const doors = spec.doors.length;
-    const perRank = Math.ceil(Math.ceil(spec.count / doors) / 2);
     for (let i = 0; i < spec.count; i++) {
-      const d = spec.doors[i % doors]!;
-      const j = Math.floor(i / doors);
-      const fx = detSin(d.yaw);
-      const fz = detCos(d.yaw);
-      const out = LINE_OUT + Math.floor(j / perRank) * RANK_GAP;
-      const across = ((j % perRank) - (perRank - 1) / 2) * FILE_GAP;
-      this.guards.push({
-        x: 0, z: 0, yaw: d.yaw, phase: 0, out: false,
-        spotX: d.x + fx * out + fz * across,
-        spotZ: d.z + fz * out - fx * across,
-        homeX: d.x - fx * PORTICO_DEPTH,
-        homeZ: d.z - fz * PORTICO_DEPTH,
-      });
-      people.dress(GUARD_SLOT + i, i % 2 === 0, AGENT);
+      this.guards.push({ phase: 0, lastX: 0, lastZ: 0, shown: false });
+      const dress = guardDress(i);
+      people.dress(GUARD_SLOT + i, dress.cop, dress.look);
     }
   }
 
@@ -355,21 +339,21 @@ export class GuardSquad {
   reset(): void {
     this.drawn = 0;
     for (let i = 0; i < this.guards.length; i++) {
-      this.guards[i]!.out = false;
+      this.guards[i]!.shown = false;
       this.people.hide(GUARD_SLOT + i);
     }
   }
 
-  /** One frame of `dt` s: the guards move and aim by the sim's alarm, and its new shots are drawn (`sparks` at a hit). */
-  frame(dt: number, guard: LawnGuard, cars: readonly DeformableCar[], sparks: (at: THREE.Vector3, normal: THREE.Vector3, impulse: number) => void): void {
+  /** One frame: the guards drawn where the sim has them, and its new shots drawn (`sparks` at a hit). */
+  frame(guard: LawnGuard, cars: readonly DeformableCar[], sparks: (at: THREE.Vector3, normal: THREE.Vector3, impulse: number) => void): void {
     if (guard.shots < this.drawn) this.drawn = 0;
-    for (let i = 0; i < this.guards.length; i++) this.move(i, dt, guard, cars);
+    for (let i = 0; i < this.guards.length; i++) this.draw(i, guard);
     for (; this.drawn < guard.shots; this.drawn++) {
       if (guard.shots - this.drawn > SHOT_RING) continue;
       const k = this.drawn % SHOT_RING;
       const g = guard.shotGuard[k]!;
       const car = cars[guard.shotCar[k]!];
-      if (!car || !this.guards[g]?.out) continue;
+      if (!car || !this.guards[g]?.shown || guard.mode[g] === GUARD_DOWN) continue;
       this.people.muzzle(GUARD_SLOT + g, _muzzle);
       _at.copy(car.group.position);
       _at.y += AIM_Y;
@@ -382,35 +366,27 @@ export class GuardSquad {
     }
   }
 
-  private move(i: number, dt: number, guard: LawnGuard, cars: readonly DeformableCar[]): void {
+  private draw(i: number, guard: LawnGuard): void {
     const g = this.guards[i]!;
-    const called = guard.alarm >= Math.floor(i / 2) * STAGGER_S;
-    if (called && !g.out) {
-      g.out = true;
-      g.x = g.homeX;
-      g.z = g.homeZ;
-    }
-    if (!g.out) return;
-    const dx = (called ? g.spotX : g.homeX) - g.x;
-    const dz = (called ? g.spotZ : g.homeZ) - g.z;
-    const left = hypot2(dx, dz);
-    if (!called && left < ARRIVE) {
-      g.out = false;
+    const mode = guard.mode[i]!;
+    if (mode === GUARD_IN || mode === GUARD_DOWN) {
+      if (!g.shown) return;
+      g.shown = false;
       return this.people.hide(GUARD_SLOT + i);
     }
-    const target = guard.target !== NO_TARGET ? cars[guard.target] : undefined;
-    const running = left >= ARRIVE;
-    if (running) {
-      const step = Math.min(left, GUARD_RUN * dt);
-      g.x += (dx / left) * step;
-      g.z += (dz / left) * step;
-      g.phase += (step / GUARD_STRIDE) * 2 * Math.PI;
-      g.yaw = detAtan2(dx, dz);
-    } else if (target) {
-      g.yaw = detAtan2(target.group.position.x - g.x, target.group.position.z - g.z);
+    const x = guard.guardX[i]!;
+    const z = guard.guardZ[i]!;
+    if (!g.shown) {
+      g.shown = true;
+      g.lastX = x;
+      g.lastZ = z;
     }
-    walkStance(running ? g.phase : 0, called && !running && target !== undefined, this.stance);
-    this.people.stand(GUARD_SLOT + i, g.x, this.ground.heightAt(g.x, g.z), g.z, g.yaw, this.stance, called);
+    g.phase += (hypot2(x - g.lastX, z - g.lastZ) / GUARD_STRIDE) * 2 * Math.PI;
+    g.lastX = x;
+    g.lastZ = z;
+    const running = mode === GUARD_RUNNING_OUT || mode === GUARD_RUNNING_IN;
+    walkStance(running ? g.phase : 0, mode === GUARD_AT_POST && guard.target !== NO_TARGET, this.stance);
+    this.people.stand(GUARD_SLOT + i, x, this.ground.heightAt(x, z), z, Math.atan2(guard.faceX[i]!, guard.faceZ[i]!), this.stance, mode !== GUARD_RUNNING_IN);
   }
 }
 
@@ -420,7 +396,8 @@ type Phase = "in" | "walking" | "riding" | "thrown";
  * The VIP, once the course's secret is out (the Konami code: the guards stay in). When the player drives onto the grounds he
  * walks out of the nearest door to the car's passenger door; once the car waits for him there he gets in and rides in the
  * passenger seat, until the driver is thrown out of the car (`DeformableCar.driverOut`): then he is thrown with him
- * (`throwPassenger`, the dummies' world) and the ride is over. Cosmetic only: the sim never knows he is there.
+ * (`throwPassenger`, the dummies' world) and the ride is over. Any car moving fast enough over him on his walk (`runsDown`) throws
+ * him too (`throwFigure`). Cosmetic only: the sim never knows he is there.
  */
 export class VipEscort {
   private phase: Phase = "in";
@@ -434,6 +411,7 @@ export class VipEscort {
   private readonly ground: Ground;
   private readonly people: People;
   private readonly slot: number;
+  private readonly struck = blankStrike();
 
   constructor(spec: GuardSpec, ground: Ground, people: People, slot: number) {
     this.spec = spec;
@@ -457,15 +435,15 @@ export class VipEscort {
 
   /**
    * One frame of `dt` s. `out`: the secret is out; `player`: the car this browser drives (-1 none); `throwPassenger` throws him out
-   * of car `car` with its driver.
+   * of car `car` with its driver; `throwFigure` throws him where a car ran him down.
    */
-  frame(dt: number, out: boolean, player: number, cars: readonly DeformableCar[], throwPassenger: (car: number, look: DriverLook) => void): void {
+  frame(dt: number, out: boolean, player: number, cars: readonly DeformableCar[], throwPassenger: (car: number, look: DriverLook) => void, throwFigure: (strike: FigureStrike) => void): void {
     const car = player >= 0 ? cars[player] : undefined;
     if (this.phase === "in") {
       if (!out || !car || !car.deform.drivetrainAlive || !insidePolygon(this.spec.lawn, car.group.position.x, car.group.position.z)) return;
       this.comeOut(player, car);
     }
-    if (this.phase === "walking") this.walk(dt, cars);
+    if (this.phase === "walking") this.walk(dt, cars, throwFigure);
     if (this.phase !== "riding") return;
     const ride = cars[this.car];
     if (!ride) return this.reset();
@@ -490,10 +468,11 @@ export class VipEscort {
     this.phase = "walking";
   }
 
-  /** A stride toward the car's passenger door; in when it waits for him there, back inside when it has left him. */
-  private walk(dt: number, cars: readonly DeformableCar[]): void {
+  /** A stride toward the car's passenger door; in when it waits for him there, back inside when it has left him, thrown when a car runs him down. */
+  private walk(dt: number, cars: readonly DeformableCar[], throwFigure: (strike: FigureStrike) => void): void {
     const car = cars[this.car];
     if (!car) return this.reset();
+    if (this.runOver(cars, throwFigure)) return;
     _door.set(DOOR_OUT, 0, 0).applyQuaternion(car.group.quaternion);
     car.glassWorld("doorR", _pane).add(_door);
     const dx = _pane.x - this.x;
@@ -514,6 +493,19 @@ export class VipEscort {
     this.stride += (step / VIP_STRIDE) * 2 * Math.PI;
     walkStance(this.stride, false, this.stance);
     this.people.stand(this.slot, this.x, this.ground.heightAt(this.x, this.z), this.z, this.yaw, this.stance, false);
+  }
+
+  /** A car moving fast enough over him (`runsDown`) throws him, out of the place he stood, and ends his walk; whether one did. */
+  private runOver(cars: readonly DeformableCar[], throwFigure: (strike: FigureStrike) => void): boolean {
+    const y = this.ground.heightAt(this.x, this.z);
+    for (let c = 0; c < cars.length; c++) {
+      if (!runsDown(cars[c]!, this.x, this.z, y)) continue;
+      throwFigure(fell(cars[c]!, c, -1, this.x, y, this.z, Math.sin(this.yaw), Math.cos(this.yaw), this.struck));
+      this.phase = "thrown";
+      this.people.hide(this.slot);
+      return true;
+    }
+    return false;
   }
 
   /** In the passenger seat: hips in from the right-hand window, facing the car's way (`HIP[3]`: the hips' height standing). */

@@ -4,6 +4,7 @@ import { DeformableCar } from "../vehicle/car.ts";
 import { RaceDirector } from "../engine/engine-race.ts";
 import { newWorld, settleStep, stepWorld, type World as StepWorld } from "../engine/world-step.ts";
 import { fleetClass, fleetStyle } from "../scenes/fleet.ts";
+import type { FigureStrike } from "../scenes/figure-strike.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { SimPacer } from "../engine/sim-pace.ts";
@@ -50,6 +51,8 @@ export type World = {
   watchCams: number;
   /** Every driver the sim threw out so far, in order (`CrashEngine.ejected` hands each to the recorder). */
   ejections: Ejection[];
+  /** Every figure a car ran down so far, in order (`RaceHost.throwFigure`: where the engine's dummies' world takes him). */
+  figures: FigureStrike[];
   /** Called for every prop knock the race hands the engine (`RaceHost.knockProp`): where the engine's dummies' world takes it. */
   onKnock: ((index: number, car: number, vx: number, vy: number, vz: number) => void) | null;
 };
@@ -128,11 +131,12 @@ export function makeWorld(survivalCourse?: unknown): World {
     },
     heardMeter: () => null,
     throwPassenger: () => {},
+    throwFigure: (strike) => void w.figures.push({ ...strike }),
   }, survivalCourse);
   const step = newWorld(liveBuf);
   step.ejection = new EjectionWatch();
   step.collide = (car, i, h) => race.collide(car, i, h);
-  const w: World = { cars, live, race, camera, leaves: 0, seat, onPairContact: null, step, dress, clears: 0, watchCams: 0, ejections: [], onKnock: null };
+  const w: World = { cars, live, race, camera, leaves: 0, seat, onPairContact: null, step, dress, clears: 0, watchCams: 0, ejections: [], figures: [], onKnock: null };
   step.pairHit = (a, b, hit) => {
     race.pairHit(a, b, hit);
     w.onPairContact?.(a, b);

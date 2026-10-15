@@ -22,6 +22,7 @@ import { loadBest, saveBest } from "./survival-store.ts";
 import { DORMANT, TrafficBrain } from "../ai/traffic.ts";
 import type { TrackArt } from "../present/track-art.ts";
 import type { DriverLook } from "../present/driver-look.ts";
+import type { FigureStrike } from "../scenes/figure-strike.ts";
 import { raceSight, sightLine, type Sight } from "../present/spectate-cam.ts";
 import { parseTrack, type TrackJson } from "../world/track-schema.ts";
 import { Track, blankProjection } from "../world/track.ts";
@@ -83,6 +84,8 @@ interface RaceHost {
   watchCam(): void;
   /** A passenger in `look` (the course's VIP) is thrown out of car `car` with its driver, just thrown (headless: nobody to throw). */
   throwPassenger(car: number, look: DriverLook): void;
+  /** A figure a car ran down (a lawn guard, the VIP on his walk) is thrown as a dummy where he stood (headless: nobody to throw). */
+  throwFigure(strike: FigureStrike): void;
   /** Car `i`'s boost meter as netplay heard it (a peer's own, from its input; on a client, the host's every car), null when nothing was heard. */
   heardMeter(i: number): number | null;
 }

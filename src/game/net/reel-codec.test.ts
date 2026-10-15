@@ -1,9 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { HighlightClip } from "../match/highlights.ts";
-import { NET_VERSION } from "./codec.ts";
+import { blankStrike } from "../scenes/figure-strike.ts";
+import { NET_VERSION, Reader, Writer } from "./codec.ts";
 import { carLayout } from "./car-pose.ts";
-import { decodeSaved, encodeSaved, packReel, savedPlayable, unpackReel } from "./reel-codec.ts";
+import { clipBytes, decodeSaved, encodeSaved, packReel, readClip, savedPlayable, unpackReel, writeClip } from "./reel-codec.ts";
 import { makeClip, sameClip } from "./reel-clip.test-util.ts";
 
 describe("given a recorded highlight clip and the codec that sends and saves it", () => {
@@ -62,4 +63,35 @@ describe("given a recorded highlight clip and the codec that sends and saves it"
     assert.equal(savedPlayable("%%%"), false, "not base64");
     assert.equal(savedPlayable(""), false);
   });
+});
+
+const refusedStrikes = [
+  { it: "when a strike names a car the clip does not carry", strikes: [{ step: 10, car: 2, x: 1 }], expectedMessage: "clip strike" },
+  { it: "when a strike's step is the clip's length", strikes: [{ step: 600, car: 0, x: 1 }], expectedMessage: "clip strike" },
+  { it: "when a strike comes before the one listed ahead of it", strikes: [{ step: 20, car: 0, x: 1 }, { step: 19, car: 1, x: 1 }], expectedMessage: "clip strike" },
+  { it: "when a strike's position is not finite", strikes: [{ step: 10, car: 0, x: Infinity }], expectedMessage: "non-finite value" },
+  { it: "when a clip lists one strike more than the cap", strikes: Array.from({ length: 17 }, (_, i) => ({ step: i, car: 0, x: 1 })), expectedMessage: "clip strikes" },
+] as const;
+
+describe("given a clip that lists the figures its cars ran down", () => {
+  it("when it is written and read back, then its size is the bytes written and every strike comes back bit for bit, the VIP's guard index included", () => {
+    const { clip, car } = makeClip();
+    const w = new Writer(clipBytes(clip));
+    writeClip(w, clip);
+    assert.equal(w.off, clipBytes(clip), "bytes written");
+    const got = readClip(new Reader().reset(w.done()), carLayout(car));
+    assert.equal(got.strikes.length, 2, "strikes decoded");
+    assert.equal(got.strikes[1]!.s.guard, -1, "the VIP's guard index");
+    sameClip(got, clip);
+  });
+
+  for (const testCase of refusedStrikes) {
+    it(`${testCase.it}, then the decoder refuses the clip`, () => {
+      const { clip, car } = makeClip();
+      const strikes = testCase.strikes.map((x) => ({ step: x.step, s: { ...blankStrike(), car: x.car, x: x.x } }));
+      const w = new Writer(clipBytes({ ...clip, strikes }));
+      writeClip(w, { ...clip, strikes });
+      assert.throws(() => readClip(new Reader().reset(w.done()), carLayout(car)), { name: "RangeError", message: testCase.expectedMessage });
+    });
+  }
 });

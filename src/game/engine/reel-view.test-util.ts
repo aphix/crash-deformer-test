@@ -190,6 +190,7 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
       ragdolls.launch(e, w.live(), ride);
       if (ride) ragdolls.follow();
     },
+    strike: (s) => ragdolls.throwFigure(s, w.live()),
     ride: (camera, dt, subject) => (rode = ragdolls.rideAlong && ragdolls.frameCamera(camera, dt, false, w.cars.indexOf(subject), false, LENS, () => sight(subject)) !== "none"),
   };
   const reel = new ReelDirector(host);

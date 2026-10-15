@@ -284,6 +284,7 @@ export class CrashEngine extends EngineGarage {
       watchCam: () => void (this.view.spec = "auto"),
       hitFx: this.hitFx,
       throwPassenger: (car, look) => this.ragdolls.throwPassenger(car, look),
+      throwFigure: (strike) => this.ragdolls.throwFigure(strike, this.live()),
       hit: (i, closing) => this.noteHit(i, closing),
       knockProp: (index, car, vx, vy, vz) => this.ragdolls.knockProp(index, car, vx, vy, vz),
       buildArt: (track, placed) => {
@@ -316,6 +317,7 @@ export class CrashEngine extends EngineGarage {
       hit: this.hitFx,
       fudge: (at, normal) => this.fudgeContact(at, normal),
       eject: (e, ride) => { this.ragdolls.launch(e, this.live(), ride); if (ride) this.ragdolls.follow(); },
+      strike: (s) => this.ragdolls.throwFigure(s, this.live()),
       ride: (camera, wallDt, subject) => this.ragdolls.rideAlong && this.ragdolls.frameCamera(camera, wallDt, false, this.cars.indexOf(subject), false, this.view.lens, () => this.sceneSight(subject, true)) !== "none",
     });
   }

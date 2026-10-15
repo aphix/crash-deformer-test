@@ -4,6 +4,7 @@ import { FLIGHT } from "../vehicle/car-flight.ts";
 import { LOOSE_BODIES, PART_STATE } from "../vehicle/part-state.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
+import type { FigureStrike } from "../scenes/figure-strike.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { CAGES } from "../kernel/rig-spec.ts";
 import type { ContactHit } from "../scenes/engine-props.ts";
@@ -23,10 +24,12 @@ import {
   type ClipHit,
   type ClipKnock,
   type ClipPartStir,
+  type ClipStrike,
   type ClipStir,
   type HighlightClip,
   type ReelCar,
   MAX_PART_STIRS,
+  MAX_STRIKES,
 } from "../match/highlights.ts";
 import { THROW_HOLD_SIM } from "../match/phase.ts";
 import { ensureFrames, makeSnapshot, readSnapshot, Reader, snapshotMaxBytes, writeSnapshot, Writer, type NetLayout, type Snapshot } from "../net/codec.ts";
@@ -50,6 +53,8 @@ const KEY_EVERY = 1;
 const KEY_SLOTS = 40;
 /** Ejections remembered for the clips (a race has a handful; the oldest drop out of a pathological one). */
 const MAX_EJECTED = 64;
+/** Figures run down remembered for the clips (a pathological run drops the oldest). */
+const MAX_STRUCK = 64;
 /** Numbers one more panel in a car's cage adds to its refit history (a police car's light bar over the civilian cars' hood, boot and two skinned panes: `CarCage.stateSize`), left in the keyframe's solver scratch. */
 const CAGE_PANEL_SLACK = 8;
 /** Most slices one clip part stir runs (its length is a u16: a clip of 8192 steps of 8 slices holds a run longer than that). */
@@ -191,6 +196,8 @@ export class CrashRecorder {
   private readonly near = new Float64Array(MAX_CARS);
   /** Every driver thrown out this race (`eject`): the step he left in, and the event; a clip takes those of its steps and cars. */
   private readonly ejected: { step: number; e: Ejection }[] = [];
+  /** Every figure a car ran down this race (`strike`): the step, and a copy of the record; a clip takes those of its steps and cars. */
+  private readonly struck: { step: number; s: FigureStrike }[] = [];
   /** Every prop knocked off its spot this race (`knock`): the step it went in, the prop and the car that knocked it; a clip takes those of its steps by cars it leaves out. */
   private readonly knocked: { step: number; prop: number; car: number }[] = [];
   /** Every sleeping wreck woken by a mover near it this race (`endStep`): the step, the car and the slice; a clip takes those of its steps and cars. Older than the ring, none is wanted again (`endStep` drops them). */
@@ -236,6 +243,7 @@ export class CrashRecorder {
     this.racers = racers;
     this.ledger.clear();
     this.ejected.length = 0;
+    this.struck.length = 0;
     this.knocked.length = 0;
     this.stirred.length = 0;
     this.bodyStirs.length = 0;
@@ -470,6 +478,13 @@ export class CrashRecorder {
     if (e.car >= this.racers && !this.ledger.joins(this.time, e.car, -1, x, z)) return;
     this.ledger.eject(this.time, e.car, x, z);
     this.throwing = true;
+  }
+
+  /** A car ran down a figure in the step under way (`FigureStrike`): kept to throw him again in a clip that carries the car. It is no moment: it never makes a clip or scores one. */
+  strike(s: FigureStrike): void {
+    if (!this.on) return;
+    if (this.struck.length >= MAX_STRUCK) this.struck.shift();
+    this.struck.push({ step: this.step, s: { ...s } });
   }
 
   /**
@@ -810,6 +825,12 @@ export class CrashRecorder {
       const j = slots.indexOf(x.e.car);
       if (j >= 0 && x.step >= start && x.step < this.step) ejections.push({ step: x.step - start, e: { ...x.e, car: j }, own: c.owns(x.e.car, this.at[x.step % RING]!) });
     }
+    // The figures the clip's cars ran down during its steps: thrown again at those steps (car = the clip's own index), the first `MAX_STRIKES`.
+    const strikes: ClipStrike[] = [];
+    for (const x of this.struck) {
+      const j = slots.indexOf(x.s.car);
+      if (j >= 0 && x.step >= start && x.step < this.step && strikes.length < MAX_STRIKES) strikes.push({ step: x.step - start, s: { ...x.s, car: j } });
+    }
     const hits: ClipHit[] = c.hits().map((p) => ({ t: p.t - t0, x: p.x, y: p.y, z: p.z, a: slots.indexOf(p.a), b: p.b < 0 ? -1 : slots.indexOf(p.b) }));
     // The props knocked off their spot during the clip's steps by cars it leaves out: the replay knocks them at those steps (the clip's own cars do their own).
     const knocks: ClipKnock[] = [];
@@ -832,6 +853,7 @@ export class CrashRecorder {
       knocks,
       stirs,
       partStirs,
+      strikes,
       peakKph: c.peak * 3.6,
       hitKph: c.hitMps * 3.6,
       deform,

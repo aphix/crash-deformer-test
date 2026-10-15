@@ -128,6 +128,7 @@ export class RagdollRemote {
       cop: t.cop,
       rides: t.rides,
       purse,
+      armsDown: t.armsDown ?? false,
       lookSeed,
     });
     return id;

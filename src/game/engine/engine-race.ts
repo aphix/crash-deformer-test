@@ -46,10 +46,11 @@ export class RaceDirector extends RaceHudLayer {
   /** The course's guarded grounds (`TrackJson.guards`): its squad's sim, made once per course (`armGuard`); none on a course without. */
   private guard: LawnGuard | null = null;
   private guardOn: Track | null = null;
-  /** What the grounds' people draw with: sparks at a hit, the VIP's throw. */
+  /** What the grounds' people draw with: sparks at a hit, the VIP's throw out of his car and where a car runs him down. */
   private readonly grounds: GroundsHost = {
     sparks: (at, normal, impulse) => this.host.hitFx(at, normal, impulse),
     throwPassenger: (car, look) => this.host.throwPassenger(car, look),
+    throwFigure: (strike) => this.host.throwFigure(strike),
   };
 
   protected override start(trackId: string, grid: readonly number[]): void {
@@ -627,7 +628,14 @@ export class RaceDirector extends RaceHudLayer {
       return;
     }
     const racing = s.phase === "racing";
-    if (!this.mirrored) this.guard?.step(cars, dt);
+    if (!this.mirrored && this.guard) {
+      this.guard.step(cars, dt);
+      const strikes = this.guard.takeStrikes();
+      for (let k = 0; k < strikes.length; k++) {
+        this.host.throwFigure(strikes[k]!);
+        this.recorder.strike(strikes[k]!);
+      }
+    }
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
       if (this.dormant[i]) continue;

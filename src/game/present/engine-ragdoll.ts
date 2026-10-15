@@ -31,7 +31,8 @@ import { ejectionVelocity, type Ejection } from "../vehicle/ejection.ts";
 import { disable, loadRapier, type Rapier } from "../kernel/rapier.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 import { type DriverLook, driverLook, pickedLook } from "./driver-look.ts";
-import { passengerThrow } from "./people.ts";
+import { guardDress, passengerThrow, VIP_LOOK } from "./people.ts";
+import type { FigureStrike } from "../scenes/figure-strike.ts";
 import type { PersonPick } from "../match/look-data.ts";
 import type { SprayBitmap } from "./spray.ts";
 import { Purses } from "./ragdoll-purse.ts";
@@ -88,8 +89,8 @@ const ITERATIONS = 4;
 /** Rapier's internal solver passes per iteration (default 1): at the first touch of a 29 m/s throw one pass rose energy 75–325 J in a frame at 1/120 and 26–30 J (1 of 5 runs) at 1/480 and 1/960; two at most 0.6 J over 60 runs (60/144/240 Hz). */
 const INTERNAL_PASSES = 2;
 
-/** A throw, placed: car (-1: none, `place`), torso point and orientation, linear and angular velocity (world), sim seconds waiting, a police driver, whether the ride-along may frame him, whether his purse flies too (unset: when his look is a woman's). */
-export type Throw = { car: number; p: THREE.Vector3; q: THREE.Quaternion; v: THREE.Vector3; w: THREE.Vector3; age: number; cop: boolean; rides: boolean; purse?: boolean };
+/** A throw, placed: car (-1: none, `place`; else the one he ignores for `GRACE` s), torso point and orientation, linear and angular velocity (world), sim seconds waiting, a police driver, whether the ride-along may frame him, whether his purse flies too (unset: when his look is a woman's), arms hanging (a figure thrown standing) instead of raised, and a look of his own (unset: his car's driver's). */
+export type Throw = { car: number; p: THREE.Vector3; q: THREE.Quaternion; v: THREE.Vector3; w: THREE.Vector3; age: number; cop: boolean; rides: boolean; purse?: boolean; armsDown?: boolean; look?: DriverLook };
 
 /** What a dummy sent to the worker looks like, applied (`mesh.dress`, `spray`, `Purses.paint`) once the worker says which slot he took. */
 type Dressing = { cop: boolean; look: DriverLook; spray: SprayBitmap | null; purse: boolean; car: number; seed: number };
@@ -170,6 +171,8 @@ export class RagdollSystem {
   /** Throws judged before Rapier was in (`PENDING_MAX`). */
   private readonly pending: Throw[] = [];
   private readonly next: Throw = { car: 0, p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false, rides: true };
+  /** The figure being thrown (`throwFigure`): its own record, so `next` stays the latest driver's (`throwPassenger`). */
+  private readonly figure: Throw = { car: 0, p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false, rides: false, purse: false, armsDown: true };
   /** Fixed colliders every dummy shares off a course (pad or disc with its ramps, corkscrew, poles), built at the run's first throw: Rapier's step allocates per collider (0.31 KB, RapierEval). */
   private readonly statics: Collider[] = [];
   private disposed = false;
@@ -664,7 +667,7 @@ export class RagdollSystem {
     this.pick();
     if (this.mode === "remote") this.launchRemote(t, cars);
     else if (this.world) this.spawn(t);
-    else this.pending.push({ car: t.car, p: t.p.clone(), q: t.q.clone(), v: t.v.clone(), w: t.w.clone(), age: 0, cop: t.cop, rides: t.rides });
+    else this.later(t);
   }
 
   /**
@@ -673,13 +676,49 @@ export class RagdollSystem {
    * The ride-along and the sandbox's follow hook hear of the throw at once, as an inline one's.
    */
   private launchRemote(t: Throw, cars: readonly DeformableCar[], dressed: DriverLook | null = null): void {
-    const own = t.cop ? null : this.lookOf(t.car);
-    const look = dressed ?? (own ? pickedLook(driverLook(this.lookSeed, t.car), own.person) : driverLook(this.lookSeed, t.car));
+    const { look, spray } = this.dressingOf(t, dressed);
     const purse = look.woman && !t.cop;
     const id = this.remote!.throwDummy(t, purse, this.lookSeed, cars);
-    this.dressing.set(id, { cop: t.cop, look, spray: own ? own.personSpray : null, purse, car: t.car, seed: this.lookSeed });
+    this.dressing.set(id, { cop: t.cop, look, spray, purse, car: t.car, seed: this.lookSeed });
     this.ride.exit(t.car, hypot2(t.v.x, t.v.z), t.p);
     if (this.sandbox && t.car >= 0) this.onThrow(t.car);
+  }
+
+  /**
+   * A figure a car ran down (`FigureStrike`: a lawn guard, or the VIP on his walk) is thrown where he stood, standing, in the dress he
+   * wore (`guardDress`, `VIP_LOOK`) with his arms hanging, at the strike's velocity and spin, ignoring the car that struck him for
+   * `GRACE` s: through the launch a driver's throw takes (the worker's world, this thread's, or waiting for Rapier up to `PENDING_MAX`).
+   */
+  throwFigure(s: FigureStrike, cars: readonly DeformableCar[]): void {
+    this.cars = cars;
+    const dress = s.guard >= 0 ? guardDress(s.guard) : { cop: false, look: VIP_LOOK };
+    const t = this.figure;
+    t.p.set(s.x, s.y + PARTS[0]!.c[1], s.z);
+    t.q.setFromAxisAngle(Y, Math.atan2(s.faceX, s.faceZ));
+    t.v.set(s.vx, s.vy, s.vz);
+    t.w.set(s.wx, s.wy, s.wz);
+    t.car = s.car;
+    t.age = 0;
+    t.cop = dress.cop;
+    t.look = dress.look;
+    this.pick();
+    if (this.mode === "remote") this.launchRemote(t, cars);
+    else if (this.world) this.spawn(t);
+    else this.later(t);
+  }
+
+  /** Throw `t` once Rapier is in (`stepWorld`): a copy of it, waiting. */
+  private later(t: Throw): void {
+    this.pending.push({ ...t, p: t.p.clone(), q: t.q.clone(), v: t.v.clone(), w: t.w.clone() });
+  }
+
+  /** How throw `t` is dressed: `dressed`, else the look of his own (`t.look`), else his car's driver's (the player's own pick, or a drawn one) and the player's spray when he is that driver. */
+  private dressingOf(t: Throw, dressed: DriverLook | null): { look: DriverLook; spray: SprayBitmap | null } {
+    const given = dressed ?? t.look ?? null;
+    if (given) return { look: given, spray: null };
+    const own = t.cop ? null : this.lookOf(t.car);
+    if (own) return { look: pickedLook(driverLook(this.lookSeed, t.car), own.person), spray: own.personSpray };
+    return { look: driverLook(this.lookSeed, t.car), spray: null };
   }
 
   /**
@@ -746,14 +785,14 @@ export class RagdollSystem {
       const b = d.bodies[k]!;
       const c = PARTS[k]!.c;
       // A raised arm is the hanging one turned over about its shoulder.
-      const y = ARM(k) ? 2 * SHOULDER_Y - c[1] : c[1];
+      const y = ARM(k) && !t.armsDown ? 2 * SHOULDER_Y - c[1] : c[1];
       _r.set(c[0] - t0[0], y - t0[1], c[2] - t0[2]).applyQuaternion(t.q);
       _v.x = t.p.x + _r.x;
       _v.y = t.p.y + _r.y;
       _v.z = t.p.z + _r.z;
       b.setTranslation(_v, false);
       _qx.copy(t.q);
-      if (ARM(k)) _qx.multiply(_arm);
+      if (ARM(k) && !t.armsDown) _qx.multiply(_arm);
       b.setRotation(_qx, false);
       // Rigid motion: v + ω × r.
       _s.copy(t.w).cross(_r);
@@ -810,10 +849,9 @@ export class RagdollSystem {
       d.prev[o + 5] = _qb.z;
       d.prev[o + 6] = _qb.w;
     }
-    const own = t.cop ? null : this.lookOf(t.car);
-    const look = dressed ?? (own ? pickedLook(driverLook(this.lookSeed, t.car), own.person) : driverLook(this.lookSeed, t.car));
+    const { look, spray } = this.dressingOf(t, dressed);
     this.mesh.dress(slot, t.cop, look);
-    this.mesh.spray(slot, own ? own.personSpray : null);
+    this.mesh.spray(slot, spray);
     if (t.purse ?? (look.woman && !t.cop)) this.purses?.launch(slot, t.car, t.p, t.v, this.lookSeed);
     this.wake();
     this.live++;

@@ -194,6 +194,10 @@ crash it recorded. What it takes, each found by the replay straying from the liv
   (`HighlightClip.partStirs`: step u32, car u8, body u8 (the car's parts by slot, then its wheels), slice u8, slices u16 = 9 bytes a run, after the stirs); the replay wakes the body at each slice of the run
   (`World.partStirs`). A stir by one of the clip's own cars is listed too (the replay makes it anyway): in that test the pair's own wrecks make 21 runs (189 bytes raw) and the passer 2 more (18 bytes, 130 slices).
   Exact with the runs, off from the passer's approach without them.
+- **Figures run down by the clip's cars** (87). A guard a car runs down on the National Mall's lawn is a thrown ragdoll (`FigureStrike`, `scenes/figure-strike.ts`: the guard's index, -1 for the VIP, the striking car, where he stood and faced, and his launch velocity and spin, all float32-exact).
+  `CrashRecorder.strike` keeps each with its step (a copy, the last `MAX_STRUCK` (64)); it is no moment, so a strike never makes a clip or scores one. A clip lists those of its steps by cars it carries, in step order, the car as the clip's own index
+  (`HighlightClip.strikes`: step u32, car u8, guard u8 (255: the VIP), then 11 float32 = 50 bytes each, at most `MAX_STRIKES` (16), after the part stirs). `ClipSim` hands them out as their steps ran (`takeStrikes()`, `car` the engine slot) and the reel
+  throws the figure from the recorded numbers (`ReelHost.strike`), so the replay throws the guard the live race threw. `engine-record-strike.test.ts` holds the recorder's side and the replay's hand-over; `reel-codec.test.ts` the wire.
 - **The world's step schedule** (23). A step runs 1 to 3 slices of 1 to 3 SAT passes, decided by every car in the world
   (`World.shape`), and a replay of a few cars cannot work them out: the clip carries it (`World.plan`).
 - **Masses touching** (23). A car that only pressed its masses or a door on a clip car is in the clip (`touch`, `partContactPair`).

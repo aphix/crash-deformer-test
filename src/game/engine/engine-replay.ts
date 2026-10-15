@@ -13,6 +13,7 @@ import { foldHeading } from "../present/shot-cam.ts";
 import type { PoseBlend } from "../present/pose-blend.ts";
 import { newWorld, settleStep, stepWorld, type World } from "./world-step.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
+import type { FigureStrike } from "../scenes/figure-strike.ts";
 import { hypot2 } from "../kernel/physics-core.js";
 
 /**
@@ -33,6 +34,7 @@ export type ReplayScene = {
 /** A throw the clip fires: the recorded ejection, `car` the engine slot, `own` whether the clip's scope owns it (`ClipEjection.own`). */
 type FiredEjection = Ejection & { own: boolean };
 const NO_EJECTIONS: readonly FiredEjection[] = [];
+const NO_STRIKES: readonly FigureStrike[] = [];
 
 /**
  * One highlight clip re-run through the real sim (docs/HIGHLIGHTS.md): its cars respawned from keyframe 0 (a wreck
@@ -92,6 +94,9 @@ export class ClipSim {
   /** Next of `clip.ejections` to fire, and the throws fired since `take`. */
   private ejectAt = 0;
   private fired: FiredEjection[] = [];
+  /** Next of `clip.strikes` to fire, and the figures run down since `takeStrikes`. */
+  private strikeAt = 0;
+  private struck: FigureStrike[] = [];
   /**
    * Clip time each car pair (a·n + b, a < b) and each car against the walls last touched: a contact marks the first hit
    * only after a quiet spell and hard enough, the recorder's own rule (`countsAsImpact`).
@@ -174,6 +179,14 @@ export class ClipSim {
     return out;
   }
 
+  /** The figures the clip's cars ran down since the last call: its `strikes` as their steps ran, `car` the engine slot of the clip's car (a shared empty array when none). The recording's own numbers, so every replay throws the same figures. */
+  takeStrikes(): readonly FigureStrike[] {
+    if (this.struck.length === 0) return NO_STRIKES;
+    const out = this.struck;
+    this.struck = [];
+    return out;
+  }
+
   /** The torn parts and popped wheels the record woke in step `s` (of `slices` slices) by a mover the clip leaves out (or its own): woken at the same slices (`World.partStirs`). */
   private stirBodies(s: number, slices: number): void {
     const out = this.world.partStirs;
@@ -192,13 +205,18 @@ export class ClipSim {
     this.sliceNow = end;
   }
 
-  /** Step `s` has run: the drivers the record threw out in it are out of their cars now. */
+  /** Step `s` has run: the drivers the record threw out in it are out of their cars now, and the figures it ran down are queued for `takeStrikes`. */
   private fire(s: number): void {
     const list = this.clip.ejections;
     for (; this.ejectAt < list.length && list[this.ejectAt]!.step <= s; this.ejectAt++) {
       const x = list[this.ejectAt]!;
       this.cars[x.e.car]!.driverOut = x.e.exit;
       this.fired.push({ ...x.e, car: this.clip.cars[x.e.car]!.slot, own: x.own });
+    }
+    const strikes = this.clip.strikes;
+    for (; this.strikeAt < strikes.length && strikes[this.strikeAt]!.step <= s; this.strikeAt++) {
+      const x = strikes[this.strikeAt]!;
+      this.struck.push({ ...x.s, car: this.clip.cars[x.s.car]!.slot });
     }
   }
 
@@ -216,12 +234,14 @@ export class ClipSim {
     this.step = 0;
     this.time = 0;
     this.ejectAt = 0;
+    this.strikeAt = 0;
     this.knockAt = 0;
     this.stirAt = 0;
     this.partStirAt = 0;
     this.partStirRuns.length = 0;
     this.sliceNow = 0;
     this.fired = [];
+    this.struck = [];
     this.stepAt = 0;
     // The cars go back on the sim's own poses before they are respawned (a drawn pose written back after it would undo the respawn).
     this.blend.restore();

@@ -1,6 +1,7 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { setGround } from "./ground.ts";
+import { GUARD_AT_POST, GUARD_DOWN, GUARD_IN } from "../scenes/lawn-guard.ts";
 import { frame, makeWorld, type World } from "./race-world.test-util.ts";
 import { TRACK_ID } from "./constants.ts";
 import type { CarRecord } from "../match/types.ts";
@@ -85,5 +86,30 @@ describe("given a National Mall race in which the Konami code was typed and the 
     for (let n = 0; n < 60 * 12 && w.cars[PLAYER]!.deform.drivetrainAlive; n++) tick(state);
     assert.ok(!w.cars[PLAYER]!.deform.drivetrainAlive, "the guards fire on the restarted race's lawn");
     assert.equal(r.revealSecret(overlay), true, "the code works again");
+  });
+});
+
+describe("given a National Mall race with the squad out at its posts round the player's car parked on the North Lawn", () => {
+  it("when the car is driven at 15 m/s through guard 0's post, then the race throws him as a dummy once and the squad has him down, and when the race restarts he is back inside", () => {
+    const r = w.race;
+    r.command({ type: "options", options: { trackId: TRACK_ID.nationalMall, laps: 3, aiCount: 1, noReset: false } });
+    r.reseed(3);
+    r.command({ type: "start" });
+    const state = { acc: 0 };
+    for (let n = 0; n < 60 * 12 && r.phase !== "racing"; n++) tick(state);
+    const car = w.cars[PLAYER]!;
+    car.spawnFacing(NORTH_LAWN.x, NORTH_LAWN.z, 0, 0);
+    for (let n = 0; n < 60 * 3; n++) tick(state);
+    const guard = r["guard"]!;
+    assert.equal(guard.mode[0], GUARD_AT_POST, "guard 0 at his post");
+    assert.equal(w.figures.length, 0, "nobody thrown while the car sat");
+    car.spawnFacing(guard.guardX[0]!, guard.guardZ[0]! - 8, 0, 15);
+    for (let n = 0; n < 60; n++) tick(state);
+    assert.equal(guard.mode[0], GUARD_DOWN, "the squad has him down");
+    const mine = w.figures.filter((f) => f.guard === 0);
+    assert.equal(mine.length, 1, "thrown once");
+    assert.equal(mine[0]!.car, PLAYER, "by the player's car");
+    r.command({ type: "start" });
+    for (let i = 0; i < guard.mode.length; i++) assert.equal(guard.mode[i], GUARD_IN, `guard ${i} back inside`);
   });
 });

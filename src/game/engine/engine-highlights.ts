@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
+import type { FigureStrike } from "../scenes/figure-strike.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import type { CarSurfaces } from "../vehicle/car-surfaces.ts";
 import { beginImpact, CONTACT_HOLD, easeTimeScale, FUDGE_GAP, impactScale, phaseClock, PRE_IMPACT_LEAD, SLOMO_HOLD, stepPhase, THROW_HOLD, type CrashPhase, type PhaseClock } from "../match/phase.ts";
@@ -263,6 +264,8 @@ export type ReelHost = {
   hit(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void;
   /** A driver in the clip was thrown out (`ClipSim.take`, `e.car` the engine slot): his dummy flies, from the recording's numbers; `ride`: he was thrown in the clip's own crash, so the camera follows his flight (only such a driver is ever framed by the ride). */
   eject(e: Ejection, ride: boolean): void;
+  /** A car in the clip ran down a figure (`ClipSim.takeStrikes`, `s.car` the engine slot): he is thrown again from the recording's numbers. */
+  strike(s: FigureStrike): void;
   /** The thrown drivers' ride-along places `camera` on them this frame (`subject`: the clip's focus car); false when no ride is on. */
   ride(camera: THREE.PerspectiveCamera, wallDt: number, subject: DeformableCar): boolean;
 };
@@ -651,6 +654,7 @@ export class ReelDirector {
    */
   private launch(p: Prepared): void {
     for (const e of p.sim.take()) this.host.eject(e, e.own);
+    for (const s of p.sim.takeStrikes()) this.host.strike(s);
   }
 
   private frameShot(p: Prepared, s: Shot): void {

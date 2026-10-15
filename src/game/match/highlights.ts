@@ -4,6 +4,7 @@ import { DRIVE } from "../vehicle/car-drive.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
+import type { FigureStrike } from "../scenes/figure-strike.ts";
 import { CLASSES, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 
 /**
@@ -535,6 +536,12 @@ export const MAX_PART_STIRS = 4096;
  */
 export type ClipPartStir = { step: number; car: number; body: number; slice: number; slices: number };
 
+/** Most figures a clip lists as run down by its cars (a clip is under 18 s; a decoder takes no more). */
+export const MAX_STRIKES = 16;
+
+/** A figure a clip's car ran down in the step `step` (counted from the clip's first step): the record, its `car` a clip car index. */
+export type ClipStrike = { step: number; s: FigureStrike };
+
 /** One highlight: initial conditions, every step's dt and drive outputs, and the steps a car was put on a spot. */
 export type HighlightClip = {
   trackId: string;
@@ -565,6 +572,8 @@ export type HighlightClip = {
    * is for wrecks (`World.partStirs`). A stir by one of the clip's own moving cars is listed too, which the replay would make anyway.
    */
   partStirs: ClipPartStir[];
+  /** Every figure (a lawn guard, the VIP) the clip's cars ran down, in step order, at most `MAX_STRIKES` (one a car the clip leaves out ran down is not listed): the replay throws him again at that step. */
+  strikes: ClipStrike[];
   /** Strongest closing speed (km/h) in the clip's scope: the flash a replayed hit throws. */
   peakKph: number;
   /** The main car's own speed (km/h) in its strongest impact (a wall hit's speed into the wall): the title's speed. */

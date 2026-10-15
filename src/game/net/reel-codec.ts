@@ -1,8 +1,9 @@
 import { FLIGHT } from "../vehicle/car-flight.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
 import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
-import { INPUT_BYTES, MAX_HITS, MAX_KNOCKS, MAX_PART_STIRS, MAX_STIRS, MEMORY, simFingerprint, type ClipEjection, type ClipHit, type ClipKnock, type ClipPartStir, type ClipStir, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
+import { INPUT_BYTES, MAX_HITS, MAX_KNOCKS, MAX_PART_STIRS, MAX_STIRS, MAX_STRIKES, MEMORY, simFingerprint, type ClipEjection, type ClipHit, type ClipKnock, type ClipPartStir, type ClipStir, type ClipStrike, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
 import { LOOSE_BODIES } from "../vehicle/part-state.ts";
+import { blankStrike } from "../scenes/figure-strike.ts";
 import { blankEjection } from "../vehicle/ejection.ts";
 import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapshot, Reader, writeEjection, Writer, type NetLayout } from "./codec.ts";
 
@@ -155,9 +156,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * differ in the last bit between Chromium and Firefox, so every heading the AI and the contact code read moves in the last bit and a replayed race drifts from a clip of 86 or before.
  * 88: the National Mall's course file gains a rim of 154 `building` blocks round its city (Survival's closed arena; the race meets them too), so a clip recorded on it at 87 has
  * a prop list (and keyframe knocked-prop bits) of another length and a replayed car meets blocks the record never had.
+ * 89: a clip lists the guards a car in it ran down (`ClipStrike`: the National Mall's White House lawn), and a replay throws each again as a ragdoll at that step: a guard a car ran
+ * down is a thrown figure, not a pose, so a replayed run past the lawn shows it. A saved clip's layout gains a count and the strikes after the part stirs, so a clip of 88 or before does not decode.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 88;
+const REPLAY_VERSION = 89;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -174,6 +177,8 @@ const KNOCK_BYTES = 4 + 2;
 const STIR_BYTES = 4 + 1 + 1;
 /** A clip's part stir: its step (u32), the car (u8), the body (u8), the slice (u8) and the slice count (u16). */
 const PART_STIR_BYTES = 4 + 1 + 1 + 1 + 2;
+/** A clip's strike: its step (u32), the car (u8), the guard (u8: 255 for the VIP, -1) and 11 x f32 (position, facing, velocity, spin). */
+const STRIKE_BYTES = 4 + 1 + 1 + 11 * 4;
 /** A clip's scope hit: its time (f64), position (3 x f32) and cars (2 x u8). */
 const HIT_BYTES = 8 + 4 + 4 + 4 + 2;
 
@@ -183,7 +188,7 @@ export function clipBytes(c: HighlightClip): number {
   let n = 1 + utf8(c.trackId) + 91 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
   n += 4 + c.h.length * (8 + nc * INPUT_BYTES) + 2;
   for (const k of c.keys) n += 12 + k.length;
-  return n + 1 + c.ejections.length * EJECTION_BYTES + 2 + c.knocks.length * KNOCK_BYTES + 2 + c.stirs.length * STIR_BYTES + 2 + c.partStirs.length * PART_STIR_BYTES + 1 + c.hits.length * HIT_BYTES;
+  return n + 1 + c.ejections.length * EJECTION_BYTES + 2 + c.knocks.length * KNOCK_BYTES + 2 + c.stirs.length * STIR_BYTES + 2 + c.partStirs.length * PART_STIR_BYTES + 1 + c.strikes.length * STRIKE_BYTES + 1 + c.hits.length * HIT_BYTES;
 }
 
 export function writeClip(w: Writer, c: HighlightClip): void {
@@ -256,6 +261,24 @@ export function writeClip(w: Writer, c: HighlightClip): void {
     w.u8(x.body);
     w.u8(x.slice);
     w.u16(x.slices);
+  }
+  w.u8(c.strikes.length);
+  for (const x of c.strikes) {
+    const s = x.s;
+    w.u32(x.step);
+    w.u8(s.car);
+    w.u8(s.guard < 0 ? 255 : s.guard);
+    w.f32(s.x);
+    w.f32(s.y);
+    w.f32(s.z);
+    w.f32(s.faceX);
+    w.f32(s.faceZ);
+    w.f32(s.vx);
+    w.f32(s.vy);
+    w.f32(s.vz);
+    w.f32(s.wx);
+    w.f32(s.wy);
+    w.f32(s.wz);
   }
   w.u8(c.hits.length);
   for (const x of c.hits) {
@@ -406,6 +429,29 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (step >= steps || car >= nc || body >= LOOSE_BODIES || slice >= 8 || slices === 0 || (k > 0 && step < partStirs[k - 1]!.step)) throw new RangeError("clip part stir");
     partStirs.push({ step, car, body, slice, slices });
   }
+  const nsk = r.u8();
+  if (nsk > MAX_STRIKES) throw new RangeError("clip strikes");
+  const strikes: ClipStrike[] = [];
+  for (let k = 0; k < nsk; k++) {
+    const step = r.u32();
+    const s = blankStrike();
+    s.car = r.u8();
+    const guard = r.u8();
+    s.guard = guard === 255 ? -1 : guard;
+    s.x = r.fin32();
+    s.y = r.fin32();
+    s.z = r.fin32();
+    s.faceX = r.fin32();
+    s.faceZ = r.fin32();
+    s.vx = r.fin32();
+    s.vy = r.fin32();
+    s.vz = r.fin32();
+    s.wx = r.fin32();
+    s.wy = r.fin32();
+    s.wz = r.fin32();
+    if (step >= steps || s.car >= nc || (k > 0 && step < strikes[k - 1]!.step)) throw new RangeError("clip strike");
+    strikes.push({ step, s });
+  }
   const nh = r.u8();
   if (nh > MAX_HITS) throw new RangeError("clip hits");
   const hits: ClipHit[] = [];
@@ -420,7 +466,7 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (!Number.isFinite(t) || a >= nc || b >= nc || (k > 0 && t < hits[k - 1]!.t)) throw new RangeError("clip hit");
     hits.push({ t, x: hx, y: hy, z: hz, a, b });
   }
-  return { trackId, score, impacts, kills, ejects, hit, ejections, knocks, stirs, partStirs, peakKph, hitKph, deform, hits, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, shape, inputs, keyStep, keyCars, keys };
+  return { trackId, score, impacts, kills, ejects, hit, ejections, knocks, stirs, partStirs, strikes, peakKph, hitKph, deform, hits, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, shape, inputs, keyStep, keyCars, keys };
 }
 
 /** A decoder never inflates past this (a hostile peer's or a corrupt store's deflate bomb). */
