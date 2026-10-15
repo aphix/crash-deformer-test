@@ -158,9 +158,10 @@ export class CrashEngine extends EngineGarage {
     this.renderer = makeRenderer(canvas);
 
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 180);
-    this.view = new ChaseCamera(this.camera, canvas, this.seat, this.pad.state, this.clock.reduceMotion, (x, y) =>
-      this.pickCar(x, y),
-    );
+    this.view = new ChaseCamera(this.camera, canvas, this.seat, this.pad.state, this.clock.reduceMotion, {
+      at: (x, y) => this.carAt(x, y),
+      choose: (car) => this.watchCar(car),
+    });
 
     this.scene.background = new THREE.Color(0x12141a);
     this.scene.fog = new THREE.FogExp2(0x12141a, 0.008);

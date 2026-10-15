@@ -1,3 +1,6 @@
+import type * as THREE from "three";
+import type { CrashEngine } from "./engine.ts";
+
 /**
  * What the real `CrashEngine` needs to run headless in node: its canvas, WebGL context, 2d contexts, `window` and `document` are
  * inert stand-ins (every call answers, nothing draws); the sim, the scene and the loop rules are the engine's own. `getParameter`
@@ -60,4 +63,31 @@ export function stubBrowser(): void {
     document: { createElement: element, addEventListener() {}, removeEventListener() {}, body: element(), documentElement: element() },
   });
   (globalThis as { window?: unknown }).window = globalThis;
+}
+
+/**
+ * The derby's opening shot (`ChaseCamera.frameReset`), pulled back (at most 4x) until every live car shows, matrices current: the picture a
+ * test aims its presses at. The stand-in canvas has no size, so the view offset is cleared and the aspect set to `w` : `h` by hand.
+ */
+export function frameField(engine: CrashEngine, w: number, h: number): void {
+  const camera = engine["camera"];
+  const look = engine["view"].look;
+  engine["view"].frameReset(false, engine["live"]());
+  camera.clearViewOffset();
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  const home = camera.position.clone();
+  const shows = (p: THREE.Vector3): boolean => {
+    const s = p.clone();
+    s.y += 0.5;
+    s.project(camera);
+    return s.z <= 1 && Math.abs(s.x) <= 0.95 && Math.abs(s.y) <= 0.95;
+  };
+  for (const scale of [1, 1.4, 2, 2.8, 4]) {
+    camera.position.copy(home).sub(look).multiplyScalar(scale).add(look);
+    camera.lookAt(look);
+    engine["scene"].updateMatrixWorld(true);
+    camera.updateMatrixWorld(true);
+    if (engine["live"]().every((c) => shows(c.group.position))) return;
+  }
 }

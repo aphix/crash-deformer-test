@@ -4,7 +4,7 @@ import "../kernel/rapier-node.test-util.ts";
 import { HudStore } from "../hud/hud-store.ts";
 import { setGround } from "../world/ground.ts";
 import { CrashEngine } from "./engine.ts";
-import { element, stubBrowser } from "./engine-headless.test-util.ts";
+import { element, frameField, stubBrowser } from "./engine-headless.test-util.ts";
 
 const FRAME = 1 / 60;
 const CANVAS_W = 800;
@@ -16,15 +16,8 @@ describe("given the real engine in a derby match past its green light, nobody se
   const run = (seconds: number): void => {
     for (let i = 0; i < seconds * 60; i++) engine.advance(FRAME, { frameDt: FRAME });
   };
-  /** The stand-in canvas has no size, so the camera's view offset is NaN: a plain frustum at the stand-in canvas's aspect, matrices current. */
-  const frameCamera = (): void => {
-    const camera = engine["camera"];
-    camera.clearViewOffset();
-    camera.aspect = CANVAS_W / CANVAS_H;
-    camera.updateProjectionMatrix();
-    engine["scene"].updateMatrixWorld(true);
-    camera.updateMatrixWorld(true);
-  };
+  /** The opening shot of the field, pulled back until every car shows (the stand-in canvas has no size, so no view offset). */
+  const frameCamera = (): void => frameField(engine, CANVAS_W, CANVAS_H);
   /** The canvas pixel a car's roof shows at, or null while the car is off the view. */
   const screenSpot = (index: number): { x: number; y: number } | null => {
     const camera = engine["camera"];
@@ -62,8 +55,9 @@ describe("given the real engine in a derby match past its green light, nobody se
       run(FRAME); // one frame with no key down: the seat's pedal edge starts fresh
       frameCamera();
       const spot = screenSpot(index);
-      if (spot === null) continue;
-      engine["pickCar"](spot.x, spot.y);
+      // A car drawn over another's centre is the one a press there picks: that car's turn, not this one's.
+      if (spot === null || engine["carAt"](spot.x, spot.y) !== index) continue;
+      engine["watchCar"](engine["carAt"](spot.x, spot.y));
       assert.equal(engine["seat"].mode, "follow", `a click on car ${index} follows it`);
       assert.equal(engine["seat"].carIndex, index, `a click on car ${index} follows that car`);
       engine["keys"].add("KeyW");

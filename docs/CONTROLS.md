@@ -44,7 +44,7 @@ A tap shorter than one frame still registers (the press is latched until the nex
 
 | Action | Keyboard | Controller | Touch |
 |---|---|---|---|
-| Follow a car | click it | | tap it |
+| Follow a car (the car under the press, as the view stood when the button went down, so a car that moves on during a slow click is still the one followed; a press that just misses a small far car's hull takes the car whose centre shows within 3% of the view's width of it) | click it | | tap it |
 | Previous / next car (starts following from the whole field) | Q / E | LB / RB (L1 / R1) | Prev / Next |
 | Take the wheel of the followed car | any drive key | RT, LT or the left stick | the stick |
 | Free the camera (whole field) | Esc | Back | Free |

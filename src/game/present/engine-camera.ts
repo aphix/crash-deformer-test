@@ -37,6 +37,12 @@ export const RIDE_PAUSE = 2.5;
 const CLICK_PX = 8;
 const CURSOR_GRAB = "grab";
 
+/** What a canvas press can pick: the car under a screen point (-1: none), and the follow itself. */
+export interface CarPicker {
+  at(clientX: number, clientY: number): number;
+  choose(car: number): void;
+}
+
 /** Mean position of the cars still on the disc (falling and vaporized ones skipped; zero for an empty fleet). */
 export function centroid(out: THREE.Vector3, cars: readonly DeformableCar[]): THREE.Vector3 {
   out.set(0, 0, 0);
@@ -69,7 +75,7 @@ const SOLO_SHOT: OrbitShot = { lookY: 0.55, radius: 9.4, pitch: 0.44 };
 
 /**
  * Orbit / chase / first-person rig over the shared PerspectiveCamera, plus canvas pointer input:
- * left-drag orbits (or looks round the driven or spectated car), wheel or a two-finger pinch zooms, a short tap picks via `onClick`.
+ * left-drag orbits (or looks round the driven or spectated car), wheel or a two-finger pinch zooms, a short tap follows the car the press landed on (`CarPicker`).
  * The right stick orbits too (looks round while driving or spectating).
  */
 export class ChaseCamera {
@@ -142,7 +148,9 @@ export class ChaseCamera {
   private readonly seat: DriverSeat;
   private readonly pad: PadState;
   private readonly reduceMotion: boolean;
-  private readonly onClick: (clientX: number, clientY: number) => void;
+  private readonly picker: CarPicker;
+  /** The car under the press that began the current drag (-1: none), read against the world as the player saw it then. */
+  private pressedCar = -1;
 
   constructor(
     camera: THREE.PerspectiveCamera,
@@ -150,7 +158,7 @@ export class ChaseCamera {
     seat: DriverSeat,
     pad: PadState,
     reduceMotion: boolean,
-    onClick: (clientX: number, clientY: number) => void,
+    picker: CarPicker,
   ) {
     this.camera = camera;
     this.canvas = canvas;
@@ -158,7 +166,7 @@ export class ChaseCamera {
     this.pad = pad;
     this.reduceMotion = reduceMotion;
     this.drive.reduceMotion = reduceMotion;
-    this.onClick = onClick;
+    this.picker = picker;
     camera.position.copy(this.pos);
     this.baseFov = camera.fov;
   }
@@ -546,6 +554,7 @@ export class ChaseCamera {
       return;
     }
     this.dragId = e.pointerId;
+    this.pressedCar = this.picker.at(e.clientX, e.clientY);
     this.pointerTravel = 0;
     this.lookDragging = this.rig === "chase";
     this.dragging = this.ride || this.seat.mode !== "drive";
@@ -631,7 +640,7 @@ export class ChaseCamera {
     if (this.taking) {
       this.taking = false;
       this.take?.up(e.clientX, e.clientY, e.timeStamp, e.type === "pointercancel");
-    } else if (click) this.onClick(e.clientX, e.clientY);
+    } else if (click && this.pressedCar >= 0) this.picker.choose(this.pressedCar);
   };
 
   private onWheel = (e: WheelEvent): void => {

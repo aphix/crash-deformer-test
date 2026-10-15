@@ -11,10 +11,11 @@ import { FLAT_GROUND, Ground, setGround } from "../world/ground.ts";
 import { Spring, Spring3 } from "./spring.ts";
 import { CHASE, DriveCam } from "./drive-cam.ts";
 import { LANDING } from "./landing.ts";
-import { ChaseCamera, RIDE_PAUSE, type SpecScene } from "./engine-camera.ts";
+import { type CarPicker, ChaseCamera, RIDE_PAUSE, type SpecScene } from "./engine-camera.ts";
 import { occluder, solid, type Sight } from "./spectate-cam.ts";
 
 const DT = 1 / 60;
+const NO_PICK: CarPicker = { at: () => -1, choose() {} };
 
 /** A canvas that is just an event target: the camera only listens and captures pointers. */
 function fakeCanvas(): HTMLCanvasElement {
@@ -33,7 +34,7 @@ function rig(mode: "drive" | "global" = "drive") {
   seat.mode = mode;
   const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
   camera.position.set(4, 2, 6);
-  const view = new ChaseCamera(camera, canvas, seat, { rx: 0, ry: 0 } as PadState, false, () => {});
+  const view = new ChaseCamera(camera, canvas, seat, { rx: 0, ry: 0 } as PadState, false, NO_PICK);
   view.attach();
   const look = new THREE.Vector3(0, 1, 0);
   return { canvas, camera, view, look };
@@ -106,7 +107,7 @@ describe("given the orbit camera around a ring of lamp posts", () => {
     const seat = new DriverSeat();
     seat.mode = "global";
     const pad = { rx: 0, ry: -1 } as PadState;
-    const view = new ChaseCamera(camera, fakeCanvas(), seat, pad, false, () => {});
+    const view = new ChaseCamera(camera, fakeCanvas(), seat, pad, false, NO_PICK);
     view.look.set(3, 0.7, 0);
     view.posts = posts;
     for (let f = 0; f < 120; f++) view.orbit(DT, 0, false);
@@ -169,7 +170,7 @@ describe("given the derby's orbit round a car 4 m from the bowl's 38 m wall", ()
       const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
       const seat = new DriverSeat();
       seat.mode = "global";
-      const view = new ChaseCamera(camera, fakeCanvas(), seat, { rx: 0, ry: 0 } as PadState, false, () => {});
+      const view = new ChaseCamera(camera, fakeCanvas(), seat, { rx: 0, ry: 0 } as PadState, false, NO_PICK);
       view.rim = rim;
       view.look.set(34, 0.7, 0);
       camera.position.set(30, 6, 0);
@@ -197,7 +198,7 @@ describe("given the chase eye drifting toward a wall along the course", () => {
       const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
       const seat = new DriverSeat();
       seat.mode = "follow";
-      const view = new ChaseCamera(camera, fakeCanvas(), seat, { rx: 0, ry: 0 } as PadState, false, () => {});
+      const view = new ChaseCamera(camera, fakeCanvas(), seat, { rx: 0, ry: 0 } as PadState, false, NO_PICK);
       const scene: SpecScene = { sight: () => wall, rivals: () => [], fixed: () => fixed, cut: (c) => c };
       const out: THREE.Vector3[] = [];
       for (let n = 0; n < 16 * hz; n++) {
@@ -241,7 +242,7 @@ describe("given a spectator camera taking a car up from another shot", () => {
     camera.lookAt(0, 1, 0);
     const seat = new DriverSeat();
     seat.mode = "drive";
-    const view = new ChaseCamera(camera, fakeCanvas(), seat, { rx: 0, ry: 0 } as PadState, false, () => {});
+    const view = new ChaseCamera(camera, fakeCanvas(), seat, { rx: 0, ry: 0 } as PadState, false, NO_PICK);
     const car = new DeformableCar({ body: 0x808080, accent: 0x404040, name: "car" }, new THREE.Scene());
     car.group.position.set(0, 0, carZ);
     car.fwdFlat.set(0, 0, 1);
@@ -461,7 +462,7 @@ describe("given the chase camera and a hit on the car it follows", () => {
     const seat = new DriverSeat();
     seat.mode = "drive";
     const camera = new THREE.PerspectiveCamera(56, 16 / 9, 0.1, 180);
-    const view = new ChaseCamera(camera, fakeCanvas(), seat, { rx: 0, ry: 0 } as PadState, reduceMotion, () => {});
+    const view = new ChaseCamera(camera, fakeCanvas(), seat, { rx: 0, ry: 0 } as PadState, reduceMotion, NO_PICK);
     return { seat, camera, view };
   };
   /** How far one frame of `trauma` moves the eye of a settled car in the seat's `view` (the clock held, so the shake's phase is the same in every call). */
@@ -578,7 +579,7 @@ describe("given the driven car's chase and far chase eye beside a course wall an
     seat.mode = "drive";
     seat.view = view;
     const camera = new THREE.PerspectiveCamera(56, 16 / 9, 0.1, 180);
-    const cam = new ChaseCamera(camera, fakeCanvas(), seat, { rx: 0, ry: 0 } as PadState, false, () => {});
+    const cam = new ChaseCamera(camera, fakeCanvas(), seat, { rx: 0, ry: 0 } as PadState, false, NO_PICK);
     const car = new DeformableCar(paint(), new THREE.Scene());
     assignClass(car, "sedan");
     car.spawnFacing(0, 0, 0, 0);
@@ -622,5 +623,45 @@ describe("given the driven car's chase and far chase eye beside a course wall an
     } finally {
       setGround(null);
     }
+  });
+});
+
+describe("given a canvas press and release (a click) over a world that moves while the button is down", () => {
+  /** One car at `at` (px); `at` is where the world has it now. */
+  const clickRig = () => {
+    const world = { at: 100 };
+    const chosen: number[] = [];
+    const picker: CarPicker = { at: (x) => (Math.abs(x - world.at) < 20 ? 7 : -1), choose: (car) => chosen.push(car) };
+    const canvas = fakeCanvas();
+    const seat = new DriverSeat();
+    seat.mode = "global";
+    const view = new ChaseCamera(new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180), canvas, seat, { rx: 0, ry: 0 } as PadState, false, picker);
+    view.attach();
+    return { world, chosen, canvas };
+  };
+
+  it("when the car is under the press and has moved on by the release, then the click still follows it", () => {
+    const { world, chosen, canvas } = clickRig();
+    pointer(canvas, "pointerdown", 100, 50);
+    world.at = 400;
+    pointer(canvas, "pointerup", 100, 50);
+    assert.deepEqual(chosen, [7]);
+  });
+
+  it("when the press missed every car and one slides under the pointer before the release, then nothing is followed", () => {
+    const { world, chosen, canvas } = clickRig();
+    world.at = 400;
+    pointer(canvas, "pointerdown", 100, 50);
+    world.at = 100;
+    pointer(canvas, "pointerup", 100, 50);
+    assert.deepEqual(chosen, []);
+  });
+
+  it("when the press on a car turns into a drag, then nothing is followed", () => {
+    const { chosen, canvas } = clickRig();
+    pointer(canvas, "pointerdown", 100, 50);
+    pointer(canvas, "pointermove", 140, 50);
+    pointer(canvas, "pointerup", 140, 50);
+    assert.deepEqual(chosen, []);
   });
 });

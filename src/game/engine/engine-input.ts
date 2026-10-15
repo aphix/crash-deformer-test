@@ -23,6 +23,9 @@ import { DETAIL_LEVELS } from "../present/car-detail.ts";
 import { EngineRigs } from "./engine-rigs.ts";
 import { SETTING_KEY } from "./constants.ts";
 
+/** A press that misses every hull still follows the car whose centre shows this near it (share of the canvas width): the derby's far, small cars. */
+const PICK_NEAR = 0.03;
+
 /**
  * Player input: keyboard, gamepad, pointer picks and the HUD's commands and settings.
  */
@@ -31,6 +34,7 @@ export abstract class EngineInput extends EngineRigs {
   /** The last FX pick is Ultra (a pick of another tier, or Auto, while it loads cancels the switch). */
   private ultraWanted = false;
   private ultraLoad: Promise<boolean> | null = null;
+  private readonly pickAt = new THREE.Vector3();
 
   /**
    * Fast-forward for probes: the exact per-frame path of `tick` on a synthetic clock, synchronously (so the rAF loop
@@ -780,26 +784,45 @@ export abstract class EngineInput extends EngineRigs {
     this.dressCar(car);
   }
 
-  protected pickCar(clientX: number, clientY: number): void {
+  /**
+   * The car a press at (`clientX`, `clientY`) lands on, -1 for none: the nearest hull the ray from the eye crosses, else (a small far car
+   * the pointer just missed) the car whose centre shows within `PICK_NEAR` of the canvas width of it. Read at the press, against the
+   * world the player was looking at: a car moves on while the button is down.
+   */
+  protected carAt(clientX: number, clientY: number): number {
     const rect = this.canvas.getBoundingClientRect();
-    if (rect.width < 2 || rect.height < 2) return;
+    if (rect.width < 2 || rect.height < 2) return -1;
     this.ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(this.ndc, this.camera);
-    const roots = this.live().map((c) => c.group);
-    const hits = this.raycaster.intersectObjects(roots, true);
+    const cars = this.live();
+    const hits = this.raycaster.intersectObjects(
+      cars.map((c) => c.group),
+      true,
+    );
     for (const hit of hits) {
       let obj: THREE.Object3D | null = hit.object;
       while (obj) {
         const idx = obj.userData.carIndex;
-        if (typeof idx === "number" && idx >= 0 && idx < this.carCount) {
-          if (this.race.active) this.race.watch(idx);
-          else this.seat.focus(idx);
-          this.emitHud();
-          return;
-        }
+        if (typeof idx === "number" && idx >= 0 && idx < this.carCount) return idx;
         obj = obj.parent;
       }
     }
+    let best = -1;
+    let bestSq = (PICK_NEAR * rect.width) ** 2;
+    for (const car of cars) {
+      const idx = car.group.userData.carIndex;
+      if (typeof idx !== "number" || idx < 0 || idx >= this.carCount) continue;
+      this.pickAt.copy(car.group.position).project(this.camera);
+      if (this.pickAt.z > 1) continue;
+      const dx = (this.pickAt.x - this.ndc.x) * 0.5 * rect.width;
+      const dy = (this.pickAt.y - this.ndc.y) * 0.5 * rect.height;
+      const sq = dx * dx + dy * dy;
+      if (sq < bestSq) {
+        bestSq = sq;
+        best = idx;
+      }
+    }
+    return best;
   }
 
   /** Follow car `index` (HUD board click). Leaves drive mode; a fresh pedal press takes the wheel again. */
