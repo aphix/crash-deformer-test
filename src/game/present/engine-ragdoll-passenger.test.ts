@@ -73,3 +73,21 @@ describe("given the dummies' world in the ragdoll worker (race courses) and a dr
     assert.equal(sent.length, 1, "only the driver's own throw");
   });
 });
+
+describe("given the dummies' world on this thread (the fallback, and every scene that is not a race course) and a driver thrown from his car", () => {
+  it("when his passenger is thrown with him, then two dummies are out in the one world, the second beside the first", async () => {
+    const { cars, ejections } = headOnEjections();
+    const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
+    await ragdolls.preload();
+    const e = ejections[0]!;
+    ragdolls.launch(e, cars);
+    ragdolls.throwPassenger(e.car, PASSENGER);
+    const dolls: { live: boolean; bodies: { translation(): THREE.Vector3Like }[] }[] = ragdolls["dolls"];
+    const out = dolls.filter((d) => d.live);
+    assert.equal(out.length, 2, "the driver and his passenger");
+    const a = out[0]!.bodies[0]!.translation();
+    const b = out[1]!.bodies[0]!.translation();
+    const apart = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+    assert.ok(apart > 0.5 && apart < 1, `the passenger starts ${apart.toFixed(2)} m from the driver`);
+  });
+});

@@ -152,6 +152,8 @@ export class People {
   private readonly flashAge: Float32Array;
   private readonly muzzles: Float32Array;
   private tracerNext = 0;
+  /** Whether a flash or a tracer is still showing: only then are their buffers aged and re-sent. */
+  private firing = false;
 
   constructor(slots: number) {
     this.mesh = new DummyMesh(slots);
@@ -169,6 +171,10 @@ export class People {
     this.tracers = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: TRACER_RGB, toneMapped: false, transparent: true, opacity: 0.85 }));
     this.tracers.frustumCulled = false;
     this.group.add(this.mesh, this.guns, this.flashes, this.tracers);
+    // Drawn only while someone is out or a shot shows (`update`); the warm-up draws everything hidden too, so its programs link there.
+    this.group.visible = false;
+    this.flashes.visible = false;
+    this.tracers.visible = false;
   }
 
   dress(slot: number, cop: boolean, look: DriverLook): void {
@@ -202,6 +208,7 @@ export class People {
 
   /** Slot `slot`'s gun fires at (x, y, z): its muzzle flashes and a tracer runs from the muzzle to the point. */
   fire(slot: number, x: number, y: number, z: number): void {
+    this.firing = true;
     this.flashAge[slot] = 0;
     const k = this.tracerNext;
     this.tracerNext = (k + 1) % TRACERS;
@@ -222,19 +229,31 @@ export class People {
     this.holster(slot);
   }
 
-  /** Once per frame after the poses: the flashes and tracers age `dt` s and go out. */
+  /** Once per frame after the poses: the flashes and tracers age `dt` s and go out; nothing is drawn while nobody is out and no shot shows. */
   update(dt: number): void {
+    if (this.firing) this.ageShots(dt);
+    this.group.visible = this.mesh.count > 0 || this.firing;
+  }
+
+  private ageShots(dt: number): void {
+    let flashing = false;
     for (let s = 0; s < this.flashAge.length; s++) {
       this.flashAge[s] = this.flashAge[s]! + dt;
       const on = this.flashAge[s]! <= FLASH_S;
+      flashing ||= on;
       this.flashes.setMatrixAt(s, on ? _m.makeTranslation(this.muzzles[s * 3]!, this.muzzles[s * 3 + 1]!, this.muzzles[s * 3 + 2]!) : HIDDEN);
     }
     this.flashes.instanceMatrix.needsUpdate = true;
+    let tracing = false;
     for (let k = 0; k < TRACERS; k++) {
       this.tracerAge[k] = this.tracerAge[k]! + dt;
       if (this.tracerAge[k]! > TRACER_S) this.tracerAt.fill(0, k * 6, k * 6 + 6);
+      else tracing = true;
     }
     this.tracers.geometry.getAttribute("position").needsUpdate = true;
+    this.flashes.visible = flashing;
+    this.tracers.visible = tracing;
+    this.firing = flashing || tracing;
   }
 
   dispose(): void {
@@ -286,6 +305,13 @@ export class People {
   }
 }
 
+/**
+ * The slots of `People` the course's figures take: the VIP first, then the guards. The draw ends after the highest slot out, so the
+ * VIP riding with the squad inside draws one figure, not all of them.
+ */
+export const VIP_SLOT = 0;
+const GUARD_SLOT = 1;
+
 /** One guard: where he stands and faces, his stride, whether he is out, and his place in the ranks and inside his door. */
 type Guard = { x: number; z: number; yaw: number; phase: number; out: boolean; spotX: number; spotZ: number; homeX: number; homeZ: number };
 
@@ -321,7 +347,7 @@ export class GuardSquad {
         homeX: d.x - fx * PORTICO_DEPTH,
         homeZ: d.z - fz * PORTICO_DEPTH,
       });
-      people.dress(i, i % 2 === 0, AGENT);
+      people.dress(GUARD_SLOT + i, i % 2 === 0, AGENT);
     }
   }
 
@@ -330,7 +356,7 @@ export class GuardSquad {
     this.drawn = 0;
     for (let i = 0; i < this.guards.length; i++) {
       this.guards[i]!.out = false;
-      this.people.hide(i);
+      this.people.hide(GUARD_SLOT + i);
     }
   }
 
@@ -344,14 +370,14 @@ export class GuardSquad {
       const g = guard.shotGuard[k]!;
       const car = cars[guard.shotCar[k]!];
       if (!car || !this.guards[g]?.out) continue;
-      this.people.muzzle(g, _muzzle);
+      this.people.muzzle(GUARD_SLOT + g, _muzzle);
       _at.copy(car.group.position);
       _at.y += AIM_Y;
       _n.copy(_muzzle).sub(_at).normalize();
       const hit = guard.shotHit[k];
       // A miss flies past the car, off to one side by the shot's number.
       if (!hit) _at.addScaledVector(_n, -MISS_WIDE).add(_muzzle.set(_n.z, 0, -_n.x).multiplyScalar(this.drawn % 2 ? MISS_WIDE : -MISS_WIDE));
-      this.people.fire(g, _at.x, _at.y, _at.z);
+      this.people.fire(GUARD_SLOT + g, _at.x, _at.y, _at.z);
       if (hit) sparks(_at, _n, HIT_SPARKS);
     }
   }
@@ -370,7 +396,7 @@ export class GuardSquad {
     const left = hypot2(dx, dz);
     if (!called && left < ARRIVE) {
       g.out = false;
-      return this.people.hide(i);
+      return this.people.hide(GUARD_SLOT + i);
     }
     const target = guard.target !== NO_TARGET ? cars[guard.target] : undefined;
     const running = left >= ARRIVE;
@@ -384,7 +410,7 @@ export class GuardSquad {
       g.yaw = Math.atan2(target.group.position.x - g.x, target.group.position.z - g.z);
     }
     walkStance(running ? g.phase : 0, called && !running && target !== undefined, this.stance);
-    this.people.stand(i, g.x, this.ground.heightAt(g.x, g.z), g.z, g.yaw, this.stance, called);
+    this.people.stand(GUARD_SLOT + i, g.x, this.ground.heightAt(g.x, g.z), g.z, g.yaw, this.stance, called);
   }
 }
 

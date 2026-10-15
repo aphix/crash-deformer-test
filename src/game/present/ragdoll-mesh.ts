@@ -108,6 +108,9 @@ const PIECES: readonly Piece[] = [
   ]),
 ];
 
+/** Each body part's pieces, as indices into `PIECES`: a pose walks only the part's own. */
+const PIECES_OF_PART = PARTS.map((_, k) => PIECES.flatMap((t, i) => (t.part === k ? [i] : [])));
+
 /** A block's foot across, against its top. */
 const TAPER = 0.78;
 /** The block's cross-section: a 1 m square with its corners cut, so it reads blocky, not round. */
@@ -232,9 +235,10 @@ export class DummyMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.M
     const woman = (this.women >> s) & 1;
     const whiskers = (this.whiskers >> s) & 1;
     const stout = (this.stout >> s) & 1;
-    for (let i = 0; i < PIECES.length; i++) {
+    const mine = PIECES_OF_PART[k]!;
+    for (let n = 0; n < mine.length; n++) {
+      const i = mine[n]!;
       const t = PIECES[i]!;
-      if (t.part !== k) continue;
       if ((t.sex !== BOTH && (t.sex === WOMAN) !== (woman === 1)) || (t.role === MUSTACHE && whiskers === 0) || (t.build === PORTLY && stout === 0)) {
         this.setMatrixAt(s * PIECES.length + i, HIDDEN);
         continue;
