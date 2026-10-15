@@ -16,9 +16,10 @@ const GREEN = -4.5;
 
 /**
  * The pack on a stub world for `humans` humans: cars 0 … humans − 1 are the player cars, on the start slots (`humanSlot`) or where `at` puts them; the units
- * follow, `huntUnits` of them. Every spot is hidden from the camera, so a drop-in is only ever refused by the pack's own rules.
+ * follow, `huntUnits` of them. A spot is hidden from the camera unless `hidden` says otherwise (default: every spot), so a drop-in is only ever refused by the
+ * pack's own rules; `down` holds the units that are knocked out (a park puts a unit back in one piece).
  */
-function rig(humans: number, at: (k: number) => { x: number; z: number } = (k) => humanSlot(spec.start, k)) {
+function rig(humans: number, at: (k: number) => { x: number; z: number } = (k) => humanSlot(spec.start, k), hidden: (x: number, z: number) => boolean = () => true) {
   const count = huntUnits(humans, MAX_CARS - humans);
   const cars: AiCar[] = Array.from({ length: humans + count }, (_, i) => {
     const slot = i < humans ? at(i) : { x: FAR, z: FAR };
@@ -26,16 +27,18 @@ function rig(humans: number, at: (k: number) => { x: number; z: number } = (k) =
   });
   const hunt = new Uint8Array(MAX_CARS);
   hunt.fill(1, 0, humans);
+  const down = new Set<number>();
   const drops: { t: number; id: number; x: number; z: number }[] = [];
   let now = GREEN;
   const world: HunterWorld = {
     park: (id, x, _y, z, yaw) => {
       Object.assign(cars[id]!, { x, z, yaw, vx: 0, vz: 0 });
+      down.delete(id);
       drops.push({ t: now, id, x, z });
     },
     store: (id) => Object.assign(cars[id]!, { x: FAR, z: FAR }),
-    hidden: () => true,
-    down: () => false,
+    hidden,
+    down: (id) => down.has(id),
     sirens: () => {},
   };
   const brain = new HunterBrain(track, [], humans, humans, count, 5);
@@ -48,7 +51,7 @@ function rig(humans: number, at: (k: number) => { x: number; z: number } = (k) =
     }
   };
   run(0);
-  return { brain, cars, hunt, drops, run, count };
+  return { brain, cars, hunt, drops, down, run, count, now: () => now };
 }
 
 describe("given the pack a Survival run builds for its humans", () => {
@@ -125,4 +128,34 @@ describe("given two humans far apart and a pack hunting them", () => {
       }
     }
   });
+});
+
+/** How near a parked human a spot is in the camera's view (m): inside it a wreck is seen and never put away; the drop-in spots (`HUNT.dropMin` from every human) are all outside it. */
+const VIEW = 60;
+
+describe("given a hosted Survival run with every cop that comes into view wrecked and the humans parked", () => {
+  for (const humans of [1, 2, 4]) {
+    it(`when ${humans} human${humans > 1 ? "s" : ""} wait out 150 s, then the pack never goes more than ${HUNT.gap} s without dropping a cop in, though every unit ends up a wreck in view`, () => {
+      const slots = Array.from({ length: humans }, (_, k) => humanSlot(spec.start, k));
+      const r = rig(humans, undefined, (x, z) => slots.every((s) => Math.hypot(s.x - x, s.z - z) >= VIEW));
+      // A cop that is on the road is wrecked beside the first human: in view, so it is never put away.
+      const wreckTheCops = (): void => {
+        for (let i = humans; i < r.cars.length; i++) {
+          if (r.cars[i]!.x === FAR || r.down.has(i)) continue;
+          Object.assign(r.cars[i]!, { x: slots[0]!.x, z: slots[0]!.z });
+          r.down.add(i);
+        }
+      };
+      const arrivals: number[] = [];
+      for (let t = BEAT; t <= 150; t += BEAT) {
+        const before = r.drops.length;
+        r.run(t);
+        for (const d of r.drops.slice(before)) arrivals.push(d.t);
+        wreckTheCops();
+      }
+      const wait = arrivals.reduce((worst, t, i) => Math.max(worst, t - (arrivals[i - 1] ?? 0)), 150 - (arrivals.at(-1) ?? 0));
+      assert.ok(arrivals.length > r.count, `${arrivals.length} cops dropped in from ${r.count} units: the units were never used up and used again`);
+      assert.ok(wait <= HUNT.gap + 1e-9, `${wait.toFixed(2)} s without a drop-in`);
+    });
+  }
 });
