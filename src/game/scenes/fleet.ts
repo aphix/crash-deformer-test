@@ -169,7 +169,7 @@ type Arc = { from: number; to: number };
  * The bearings whose straight line to the centre passes within `PROP_CLEAR` of a prop: each prop's arc is the widest the four
  * corners' discs of that radius subtend from the centre; overlapping arcs merge, ascending, the first possibly starting below 0.
  */
-function propShadows(props: readonly SpawnProp[]): Arc[] {
+function blockedArcs(props: readonly SpawnProp[]): Arc[] {
   const raw: Arc[] = [];
   for (const p of props) {
     const centre = Math.atan2(p.x, p.z);
@@ -208,19 +208,19 @@ function propShadows(props: readonly SpawnProp[]): Arc[] {
   return out;
 }
 
-/** The `s`-th radian along the open bearings (those outside every shadow, in order from the first shadow's end), wrapping. */
-function openBearing(s: number, shadows: readonly Arc[]): number {
-  if (shadows.length === 0) return s;
+/** The `s`-th radian along the open bearings (those outside every blocked arc, in order from the first one's end), wrapping. */
+function openBearing(s: number, blocked: readonly Arc[]): number {
+  if (blocked.length === 0) return s;
   let open = TAU;
-  for (const a of shadows) open -= a.to - a.from;
+  for (const a of blocked) open -= a.to - a.from;
   let rest = s % open;
-  for (let k = 0; k < shadows.length; k++) {
-    const start = shadows[k]!.to;
-    const end = k + 1 < shadows.length ? shadows[k + 1]!.from : shadows[0]!.from + TAU;
+  for (let k = 0; k < blocked.length; k++) {
+    const start = blocked[k]!.to;
+    const end = k + 1 < blocked.length ? blocked[k + 1]!.from : blocked[0]!.from + TAU;
     if (rest < end - start) return start + rest;
     rest -= end - start;
   }
-  return shadows[0]!.to;
+  return blocked[0]!.to;
 }
 
 /**
@@ -233,13 +233,13 @@ export function layoutDerby(count: number, radius: number, rng: () => number = M
   const n = Math.max(1, Math.min(MAX_CARS, Math.round(count) || 1));
   const slots: DerbySlot[] = [];
   const r = Math.max(5.5, radius - DERBY_ARENA.spawnInset);
-  const shadows = propShadows(props);
+  const blocked = blockedArcs(props);
   let open = TAU;
-  for (const a of shadows) open -= a.to - a.from;
+  for (const a of blocked) open -= a.to - a.from;
   const spin = rng() * TAU * (open / TAU);
   const step = Math.min(open / n, DERBY_ARENA.packPitch / r);
   for (let i = 0; i < n; i++) {
-    const a = openBearing(spin + i * step, shadows);
+    const a = openBearing(spin + i * step, blocked);
     slots.push({ x: detSin(a) * r, z: detCos(a) * r, yaw: a + Math.PI });
   }
   return slots;
