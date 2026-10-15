@@ -307,10 +307,10 @@ both are within 0.2 of the kill line (the slab kills a default sedan by 0.004 m 
 
 ## The physics step is 1/80 s (`REPLAY_VERSION` 90; 1/90 s at 81 to 89)
 
-A quiet step is 1/80 s, 80 a second (`SimPacer`'s coarse floor; it was 1/120 s to 80, 1/90 s from 81 to 88); a crush window open on
+A quiet step is 1/80 s, 80 a second (`SimPacer`'s coarse floor; it was 1/120 s to 80, 1/90 s from 81 to 89); a crush window open on
 some car, or the adaptive pacer on a device that keeps up, steps at the 1/240 s floor. A step in contact is solved in slices of that
 floor: a 1/80 s step is 3 slices of exactly 1/240 s (`stepWorld`: `ceil(dt / fine)`), a 1/120 s step was 2, a 1/90 s one 3 of 1/270 s.
-The rate is `QUIET_HZ` in `src/game/kernel/constants.ts`, derived from `FINE_HZ` and `SLICES_PER_STEP` (`SLICES_PER_STEP = 2` is the 1/120 s step).
+The rate is `QUIET_HZ` in `src/game/kernel/constants.ts`, derived from `FINE_HZ` and `SLICES_PER_STEP` (`SLICES_PER_STEP = 2` is the 1/120 s step). A rate switch changes every replayed step, so it also bumps `REPLAY_VERSION` (`src/game/net/reel-codec.ts`) with a history entry.
 The step divides into the floor on purpose: 1/90 s made every contact step 3 slices of 1/270 s, 270 slices a second on the 32-car
 city row (headless engine, seed 1) against the 240 of the 1/120 s step, and a quiet step over 12 ms (`dt > 0.012`) took two slices, so
 1/80 s kept at that threshold ran 162 slices a second on an empty road (90 at 1/90 s); the threshold is now derived, not timed: a step

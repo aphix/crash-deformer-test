@@ -508,10 +508,23 @@ for (const [f, p] of parsed) {
 }
 const strGroups = new Map();
 const numGroups = new Map();
+// A sim step or frame rate is written once, in a `constants.ts` (`FINE_HZ`, `SLICES_PER_STEP`, `FRAME_HZ`, or a named rate beside its knob);
+// every other site, tests and test-utils included, imports it and writes `1 / QUIET_HZ`. A bare `1 / 80`, `1 / 240`, `1 / 60`, `1 / 90`,
+// `1 / 120` or `1 / 270`, or one of their decimal forms (`0.0125`), outside a constants file is a second copy that goes stale when the rate moves.
+const TIMING_RATES = new Set(["60", "80", "90", "120", "240", "270"]);
+const TIMING_DECIMAL = /^0?\.(0125|016[67]\d{0,6}|0111\d{0,6}|0083\d{0,6}|0041[67]\d{0,6}|0037\d{0,6})$/;
+const rateLiterals = [];
 for (const [f, p] of parsed) {
-  if (!inMagicScope(f)) continue;
+  const magic = inMagicScope(f);
+  const ratesNamedHere = f.endsWith("/constants.ts");
   const where = (n) => `${f}:${p.sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}`;
   const visit = (n) => {
+    const bareRate = !ratesNamedHere && ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.SlashToken && ts.isNumericLiteral(n.left) && n.left.text === "1" && ts.isNumericLiteral(n.right) && TIMING_RATES.has(n.right.text);
+    if (bareRate || (!ratesNamedHere && ts.isNumericLiteral(n) && TIMING_DECIMAL.test(n.text))) rateLiterals.push(`${where(n)} ${n.getText()} (a step or frame rate: import it, write 1 / QUIET_HZ)`);
+    if (!magic) {
+      if (!bareRate) ts.forEachChild(n, visit);
+      return;
+    }
     if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
       const v = n.text;
       const st = enclosingStatement(n);
@@ -537,26 +550,9 @@ for (const [f, p] of parsed) {
 const c12 = [];
 for (const [v, at] of strGroups) if (at.length > 1) for (const w of at) c12.push(`${w} "${v}" ×${at.length}`);
 check("C12", "id-like string literals repeated in production code (one constant, imported)", c12);
-const c13 = [];
+const c13 = [...rateLiterals];
 for (const [key, g] of numGroups) if (new Set(g.map((o) => o.f)).size > 1) for (const o of g) c13.push(`${o.at} ${key} ×${g.length}`);
-check("C13", "named numeric knobs repeated across files (one constant, imported)", c13);
-
-// C14: a sim step or frame rate is written once, in a `constants.ts`, as `FINE_HZ` / `QUIET_HZ` / `FRAME_HZ` (or another named rate);
-// every other site imports it and writes `1 / QUIET_HZ`. A bare `1 / 80`, `1 / 240`, `1 / 60`, `1 / 90`, `1 / 120` or `1 / 270`, or one of
-// their decimal forms (`0.0125`), outside a constants file is a second copy that goes stale when the rate moves.
-const TIMING_RATES = new Set(["60", "80", "90", "120", "240", "270"]);
-const TIMING_DECIMAL = /^0?\.(0125|016[67]\d{0,6}|0111\d{0,6}|0083\d{0,6}|0041[67]\d{0,6}|0037\d{0,6})$/;
-const c14 = [];
-for (const [f, p] of parsed) {
-  if (f.endsWith("/constants.ts")) continue;
-  const visit = (n) => {
-    const bareRate = ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.SlashToken && ts.isNumericLiteral(n.left) && n.left.text === "1" && ts.isNumericLiteral(n.right) && TIMING_RATES.has(n.right.text);
-    if (bareRate || (ts.isNumericLiteral(n) && TIMING_DECIMAL.test(n.text))) c14.push(`${f}:${p.sf.getLineAndCharacterOfPosition(n.getStart()).line + 1} ${n.getText()}`);
-    if (!bareRate) ts.forEachChild(n, visit);
-  };
-  visit(p.sf);
-}
-check("C14", "timing-rate literals outside a constants file (import the rate, write 1 / QUIET_HZ)", c14);
+check("C13", "named numeric knobs repeated across files, and step/frame rate literals anywhere (one constant, imported)", c13);
 
 // Size caps (C8) are listed but never fail the ratchet: the owner treats splitting files as clean-up paperwork after
 // the lanes settle (10-05), not a merge blocker.
