@@ -6,7 +6,7 @@
 import * as THREE from "three";
 import { detAtan2, detCos, detSin, hypot2 } from "../kernel/physics-core.js";
 import { BASIN, FOUNTAIN, LINCOLN, lincolnColumns, POOL, WHITE_HOUSE, type Slab } from "../world/catalog.ts";
-import { box, cyl, MARBLE_SHADE, type Piece, type PrefabMaterials, type PrefabPart, painted, squareFrustum } from "./prefab-pieces.ts";
+import { box, circleOutline, cyl, MARBLE_SHADE, type Piece, type PrefabMaterials, type PrefabPart, painted, poolStone, squareFrustum } from "./prefab-pieces.ts";
 import { type Brick, CAPITOL, CAPITOL_POOL, FLAGPOLE, capitolBalustrades, capitolPool, capitolWestStair, domeRing, figure } from "../world/landmarks.ts";
 
 /** The White House's whitewashed sandstone, its trim, the grey roof, dark glass and door, and the flag's colours. */
@@ -83,12 +83,14 @@ export function whiteHouse(): Piece[] {
 
 /** Stone, water (a centimetre over the rim, so it shows) and spray. */
 const FOUNTAIN_SHADE = { stone: 0xe6e1d6, water: 0x6f9fb8, spray: 0xe8f4fa };
+/** Sides of a lawn fountain's round basin and its water. */
+const FOUNTAIN_SEGMENTS = 48;
 
 export function fountain(): Piece[] {
   const { basin, water, pedestal, jet, spray } = FOUNTAIN;
   return [
-    [cyl(basin.r, basin.r, 0, basin.y1, 48), FOUNTAIN_SHADE.stone],
-    [cyl(water.r, water.r, water.y0, basin.y1 + 0.01, 48), FOUNTAIN_SHADE.water],
+    ...poolStone(circleOutline(basin.r, FOUNTAIN_SEGMENTS), circleOutline(water.r, FOUNTAIN_SEGMENTS), water.y0, basin.y1, FOUNTAIN_SHADE.stone),
+    [cyl(water.r, water.r, water.y0, basin.y1 + POOL.brim, FOUNTAIN_SEGMENTS), FOUNTAIN_SHADE.water],
     [cyl(pedestal.r, pedestal.r, basin.y1, pedestal.y1, 24), FOUNTAIN_SHADE.stone],
     [cyl(jet.r, jet.r, pedestal.y1, jet.y1, 12), FOUNTAIN_SHADE.spray],
     [cyl(jet.r, spray.r, spray.y0, jet.y1, 24), FOUNTAIN_SHADE.spray],
@@ -105,8 +107,9 @@ const WATER_DEPTH = 0.1;
 export function pool(mats: PrefabMaterials): PrefabPart[] {
   const { half, rim, y1, brim } = POOL;
   const [hx, hz] = half;
+  const rectangle = (x: number, z: number): [number, number][] => [[-x, -z], [x, -z], [x, z], [-x, z]];
   return [
-    { geometry: painted([[box(hx * 2, y1, hz * 2, 0, y1 / 2, 0), POOL_SHADE.stone]]), material: mats.plain, shared: false },
+    { geometry: painted(poolStone(rectangle(hx, hz), rectangle(hx - rim, hz - rim), y1 - WATER_DEPTH, y1, POOL_SHADE.stone)), material: mats.plain, shared: false },
     { geometry: painted([[box((hx - rim) * 2, WATER_DEPTH + brim, (hz - rim) * 2, 0, y1 + (brim - WATER_DEPTH) / 2, 0), POOL_SHADE.water]]), material: mats.water, shared: false },
   ];
 }
@@ -114,7 +117,7 @@ export function pool(mats: PrefabMaterials): PrefabPart[] {
 export function basin(mats: PrefabMaterials): PrefabPart[] {
   const { r, rim, y1 } = BASIN;
   return [
-    { geometry: painted([[cyl(r, r, 0, y1, BASIN_SEGMENTS), POOL_SHADE.stone]]), material: mats.plain, shared: false },
+    { geometry: painted(poolStone(circleOutline(r, BASIN_SEGMENTS), circleOutline(r - rim, BASIN_SEGMENTS), y1 - WATER_DEPTH, y1, POOL_SHADE.stone)), material: mats.plain, shared: false },
     { geometry: painted([[cyl(r - rim, r - rim, y1 - WATER_DEPTH, y1 + POOL.brim, BASIN_SEGMENTS), POOL_SHADE.water]]), material: mats.water, shared: false },
   ];
 }

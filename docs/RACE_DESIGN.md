@@ -456,7 +456,7 @@ self-crossing with neither level a deck, less than 4.5 m between levels, and a c
 
 Prefabs: knock `cone, tyre-stack, hay-bale, crate`; solid `barrier-block, rock, tree, building, grandstand, billboard, lamp`;
 scenery `gantry`, plus the courses' own (Havana's stucco, palm, monument, wall, dumpster; the National Mall's obelisk, capitol,
-marble (a plain block a placement's `size` stretches to a whole museum without stretching any windows), white-house, fountain, fence, reflecting-pool and basin (the pools, their water on its own glossy material), lincoln, capitol-pool (the Capitol Reflecting Pool's wedge: a rim of turned bricks round a flat water sheet), and grant-memorial, peace-monument and garfield-monument (marble and bronze bricks, drawn and bounded alike: `world/landmarks.ts`), and flagpole (a pole flying the Stars and Stripes)). A prefab's front is its local +X;
+marble (a plain block a placement's `size` stretches to a whole museum without stretching any windows), white-house, fountain, fence, reflecting-pool and basin (the pools, their water on its own glossy material; a stone kerb round a floor 10 cm under the water, never stone filled up to the rim, whose top would lie a centimetre under the water's and flicker overhead: `poolStone`), lincoln, capitol-pool (the Capitol Reflecting Pool's wedge: a rim of turned bricks round a flat water sheet), and grant-memorial, peace-monument and garfield-monument (marble and bronze bricks, drawn and bounded alike: `world/landmarks.ts`), and flagpole (a pole flying the Stars and Stripes)). A prefab's front is its local +X;
 `along` copies face the road. The start gantry is built by `TrackArt` at s = 0.
 
 ## Engine integration
