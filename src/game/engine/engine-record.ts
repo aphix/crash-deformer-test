@@ -1,7 +1,7 @@
 import { hypot3 } from "../kernel/physics-core.js";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { FLIGHT } from "../vehicle/car-flight.ts";
-import { LOOSE_BODIES, PART_STATE } from "../vehicle/part-state.ts";
+import { LOOSE_BODIES, LOOSE_STATE_MAX, PART_STATE } from "../vehicle/part-state.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import type { FigureStrike } from "../scenes/figure-strike.ts";
@@ -36,6 +36,8 @@ import {
   CLIP_OUT_CAR,
   type ClipSquad,
   type ClipSquadEvent,
+  MAX_VIP_EVENTS,
+  type ClipVip,
 } from "../match/highlights.ts";
 import { THROW_HOLD_SIM } from "../match/phase.ts";
 import { ensureFrames, makeSnapshot, readSnapshot, Reader, snapshotMaxBytes, writeSnapshot, Writer, type NetLayout, type Snapshot } from "../net/codec.ts";
@@ -151,6 +153,9 @@ export class CrashRecorder {
   private simViews: Uint8Array[] = [];
   private readonly part = new Float64Array(PART_STATE);
   private readonly partBytes = new Uint8Array(this.part.buffer);
+  /** Scratch for one car's loose block (`CarParts.looseState`), and its bytes as far as a block of each length reads. */
+  private readonly loose = new Float64Array(LOOSE_STATE_MAX);
+  private readonly looseViews: Uint8Array[] = [];
   /** The course's memory (null: a race on a flat field), and the bytes of knock flags one keyframe holds for its props. */
   private readonly course: CourseMemory | null;
   private knockBytes = 0;
@@ -211,6 +216,10 @@ export class CrashRecorder {
   private keySquad = new Float32Array(0);
   /** Every decision the squad made in the last ring's worth of steps (`squadEvent`): the step, and the event. Older than the ring, none is wanted again (`endStep` drops them). */
   private readonly squadLog: { step: number; e: SquadEvent }[] = [];
+  /** The car the course's VIP rides in (`vipRides`: a race slot, -1 none), as of each kept keyframe, and every change to it in the last ring's worth of steps: the step it was told in, and the car after. Older than the ring, none is wanted again (`endStep` drops them). */
+  private vipCar = -1;
+  private readonly keyVip = new Int8Array(KEY_SLOTS).fill(-1);
+  private readonly vipLog: { step: number; car: number }[] = [];
   /** Every prop knocked off its spot this race (`knock`): the step it went in, the prop and the car that knocked it; a clip takes those of its steps by cars it leaves out. */
   private readonly knocked: { step: number; prop: number; car: number }[] = [];
   /** Every sleeping wreck woken by a mover near it this race (`endStep`): the step, the car and the slice; a clip takes those of its steps and cars. Older than the ring, none is wanted again (`endStep` drops them). */
@@ -258,6 +267,8 @@ export class CrashRecorder {
     this.ejected.length = 0;
     this.struck.length = 0;
     this.squadLog.length = 0;
+    this.vipCar = -1;
+    this.vipLog.length = 0;
     this.knocked.length = 0;
     this.stirred.length = 0;
     this.bodyStirs.length = 0;
@@ -342,6 +353,7 @@ export class CrashRecorder {
       this.squad.snapshot(this.squadNow);
       this.keySquad.set(this.squadNow, slot * this.squadNow.length);
     }
+    this.keyVip[slot] = this.vipCar;
     let wrecks = 0;
     for (let i = 0; i < n; i++) if (s.cars[i]!.wreck) wrecks |= 1 << i;
     this.keyWreck[slot] = wrecks >>> 0;
@@ -394,6 +406,7 @@ export class CrashRecorder {
     this.sliceCount += shape + 1;
     while (this.stirred.length > 0 && this.stirred[0]!.step <= this.step - RING) this.stirred.shift();
     while (this.squadLog.length > 0 && this.squadLog[0]!.step <= this.step - RING) this.squadLog.shift();
+    while (this.vipLog.length > 0 && this.vipLog[0]!.step <= this.step - RING) this.vipLog.shift();
     if (this.step % RING === 0) this.dropOldBodyStirs();
     if (this.throwing) {
       this.throwing = false;
@@ -522,6 +535,16 @@ export class CrashRecorder {
   }
 
   /**
+   * The course's VIP rides in car `car` (a race slot, -1: in none) from the step about to run: the grounds' escort (`VipEscort.ridingIn`), told once per drawn frame, only a change is kept for the clips.
+   * He is the player's passenger and the sim never knows him, so the recording is told rather than reading him off a car.
+   */
+  vipRides(car: number): void {
+    if (!this.on || car === this.vipCar) return;
+    this.vipCar = car;
+    this.vipLog.push({ step: this.step, car });
+  }
+
+  /**
    * Car `car` knocked placed prop `prop` off its spot in the step under way (`propContact`). The prop is gone for every
    * car, so a clip that leaves `car` out must knock it in the replay at this step (`HighlightClip.knocks`) or its cars find it standing.
    */
@@ -531,15 +554,16 @@ export class CrashRecorder {
     this.knocked.push({ step: this.step, prop, car });
   }
 
-  /** Most bytes a keyframe of `n` cars takes: the snapshot, the prop flags, then per car its flight block, course memory and solver state. */
+  /** Most bytes a keyframe of `n` cars takes: the snapshot, the prop flags, then per car its flight block, course memory, loose block and solver state. */
   private keyBytes(n: number): number {
-    return snapshotMaxBytes(n, this.layout!) + 2 + this.knockBytes + n * (FLIGHT * 8 + MEMORY * 8 + 2 + (this.sim.length + PART_STATE) * 8);
+    return snapshotMaxBytes(n, this.layout!) + 2 + this.knockBytes + n * (FLIGHT * 8 + MEMORY * 8 + 2 + (this.sim.length + PART_STATE + LOOSE_STATE_MAX) * 8);
   }
 
   /**
    * The step-start snapshot (`pre`) with each wreck's deform and parts read now, then the course's knocked props (a u16
    * byte count, one bit per prop), then per car its flight block (`FLIGHT` doubles, native like the sim's bytes), its
-   * course memory (`MEMORY` doubles) and its solver state (a u16 count, then that many doubles: `simState` for a wreck, none otherwise).
+   * course memory (`MEMORY` doubles) and a u16 count of the numbers that follow: its loose block (the bodies of its torn parts and popped wheels, `CarParts.looseState`),
+   * its solver state (`simState` for a wreck, none otherwise) and its parts' state.
    */
   private encodeKey(w: Writer): Writer {
     const s = this.pre;
@@ -572,10 +596,15 @@ export class CrashRecorder {
       w.bytes.set(this.memBytes, w.off);
       w.off += this.memBytes.length;
       // Every car's parts state; the solver state of a wreck in front of it (the deform's and its cage's refit history: `solverState`). A car with a torn part is a wreck here whether or not it is crashed: its net state alone would leave its hit frame zeroed (a zero `impactInward`, where the intact car has (0, 0, -1)).
+      // In front of both, where each torn part lies (the net state says only that it is off): a replay puts it back there, not thrown off the car afresh.
       const solver = s.cars[i]!.wreck;
       const own = solver ? car.solverSize() : 0;
       if (own > this.sim.length) throw new RangeError("a car's solver state outgrew the keyframe's scratch");
-      w.u16(own + PART_STATE);
+      const loose = car.looseState(this.loose, false);
+      w.u16(loose + own + PART_STATE);
+      const looseBytes = (this.looseViews[loose] ??= new Uint8Array(this.loose.buffer, 0, loose * 8));
+      w.bytes.set(looseBytes, w.off);
+      w.off += looseBytes.length;
       car.partState(this.part, false);
       if (solver) car.solverState(this.sim, false);
       // One native byte copy (little-endian like the codec, as every browser's Float64Array): `f64s`, a number at a
@@ -866,6 +895,7 @@ export class CrashRecorder {
       if (j >= 0 && x.step >= start && x.step < this.step && strikes.length < MAX_STRIKES) strikes.push({ step: x.step - start, s: { ...x.s, car: j } });
     }
     const squad = this.clipSquad(slot, slots, start);
+    const vip = this.clipVip(slot, slots, start);
     const hits: ClipHit[] = c.hits().map((p) => ({ t: p.t - t0, x: p.x, y: p.y, z: p.z, a: slots.indexOf(p.a), b: p.b < 0 ? -1 : slots.indexOf(p.b) }));
     // The props knocked off their spot during the clip's steps by cars it leaves out: the replay knocks them at those steps (the clip's own cars do their own).
     const knocks: ClipKnock[] = [];
@@ -890,6 +920,7 @@ export class CrashRecorder {
       partStirs,
       strikes,
       squad,
+      vip,
       peakKph: c.peak * 3.6,
       hitKph: c.hitMps * 3.6,
       deform,
@@ -954,5 +985,15 @@ export class CrashRecorder {
       events.push({ step: step - start, kind: e.kind, a: e.kind === SQUAD_TARGET ? code(e.a) : e.a, b: e.kind === SQUAD_SHOT ? car : e.b, c: e.c });
     }
     return { state, events };
+  }
+
+  /** The car the VIP rides in as a clip starting at keyframe `slot` (the global step `start`) has it, and every change to it in the clip's steps, the cars as the clip's indices (`CLIP_NO_CAR`: none, or one the clip leaves out, which it cannot draw him in). */
+  private clipVip(slot: number, slots: readonly number[], start: number): ClipVip {
+    const code = (car: number): number => (slots.includes(car) ? slots.indexOf(car) : CLIP_NO_CAR);
+    const events: ClipVip["events"] = [];
+    for (const { step, car } of this.vipLog) {
+      if (step >= start && step < this.step && events.length < MAX_VIP_EVENTS) events.push({ step: step - start, car: code(car) });
+    }
+    return { start: code(this.keyVip[slot]!), events };
   }
 }

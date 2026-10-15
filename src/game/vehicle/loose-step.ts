@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { applyGroundFriction } from "../deform/physics-util.ts";
+import { TYRE_R } from "../deform/deform-state.ts";
 import { GRAVITY } from "../kernel/constants.ts";
 import { detCos, detSin } from "../kernel/physics-core.js";
 import { NO_FLOOR } from "../world/ground.ts";
@@ -97,7 +98,7 @@ function growBox(o: THREE.Object3D, m: THREE.Matrix4): void {
  * inertia per unit mass of a solid box that size (a hood is a sheet: its spin about its own length is as easy as its tilt). Measured once
  * per part, when it first flies (`stepLoose`), and again when it has been put back on its car (`count` 0).
  */
-function boxShape(shape: LooseShape, object: THREE.Object3D): void {
+export function boxShape(shape: LooseShape, object: THREE.Object3D): void {
   _box.makeEmpty();
   growBox(object, new THREE.Matrix4());
   if (_box.isEmpty()) _box.set(_size.set(-MIN_HALF, -MIN_HALF, -MIN_HALF), _geoBox.max.set(MIN_HALF, MIN_HALF, MIN_HALF));
@@ -127,7 +128,7 @@ function boxShape(shape: LooseShape, object: THREE.Object3D): void {
 }
 
 /** `shape` as a wheel of `radius` and `width` (m), axle along its x: eight points round each rim; the inertia of a solid disk. */
-export function wheelShape(shape: LooseShape, radius: number, width: number): void {
+function wheelShape(shape: LooseShape, radius: number, width: number): void {
   shape.centre.set(0, 0, 0);
   for (let k = 0; k < 16; k++) {
     const a = ((k & 7) / 8) * 2 * Math.PI;
@@ -140,6 +141,14 @@ export function wheelShape(shape: LooseShape, radius: number, width: number): vo
   shape.reach = Math.sqrt(radius * radius + (width * width) / 4);
   shape.asleep = false;
   shape.airborne = false;
+}
+
+/** A tyre's width (m) at wheel scale 1: a popped wheel flies as a disk this wide. */
+const TYRE_WIDTH = 0.24;
+
+/** `wheel`'s shape as the disk it flies as (`wheelShape`) at its own scale: a popped wheel's, whether it left its hub in a step or a keyframe put it loose. */
+export function fitWheelShape(wheel: LooseBody): void {
+  wheelShape(wheel.shape, TYRE_R * wheel.object.scale.x, TYRE_WIDTH * wheel.object.scale.x);
 }
 
 /**

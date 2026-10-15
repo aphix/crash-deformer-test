@@ -8,6 +8,7 @@ import { phaseClock } from "../match/phase.ts";
 import type { ViewBox } from "../match/types.ts";
 import { CrashCam } from "../present/engine-cine.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
+import { VIP_LOOK } from "../present/people.ts";
 import { addCars, sightLine, withCars, type Sight } from "../present/spectate-cam.ts";
 import { coverLens, FLIGHT_S, ReelDirector, type ReelHost } from "./engine-highlights.ts";
 import { PoseBlend } from "../present/pose-blend.ts";
@@ -190,6 +191,7 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
       ragdolls.launch(e, w.live(), ride);
       if (ride) ragdolls.follow();
     },
+    passenger: (car) => ragdolls.throwPassenger(car, VIP_LOOK),
     strike: (s) => ragdolls.throwFigure(s, w.live()),
     ride: (camera, dt, subject) => (rode = ragdolls.rideAlong && ragdolls.frameCamera(camera, dt, false, w.cars.indexOf(subject), false, LENS, () => sight(subject)) !== "none"),
   };

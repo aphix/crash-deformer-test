@@ -9,7 +9,7 @@ import { MASS_SPECS, type MassName } from "../kernel/rig-spec.ts";
 import { flutterShell, makeShell, poseShell, recentre, setPrimer, shellBox } from "./car-panels.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { applyDents } from "./loose-dent.ts";
-import { stepLoose, wheelShape } from "./loose-step.ts";
+import { fitWheelShape, stepLoose } from "./loose-step.ts";
 import { CAR_CENTRE } from "./car-air-body.ts";
 import { wreckCentre } from "./car-air.ts";
 import { CarGlass } from "./car-glass-break.ts";
@@ -41,7 +41,7 @@ import {
   swingAccel,
   windWear,
 } from "./car-wear.ts";
-import { LOOSE_BODIES, partState, PART_SLOTS } from "./part-state.ts";
+import { LOOSE_BODIES, looseState, partState, PART_SLOTS } from "./part-state.ts";
 
 const _interior = new Float64Array(4);
 const DOOR_LEFT: GlassPart = "doorLeft";
@@ -89,8 +89,6 @@ const PANEL_TEAR_MPS = 50 / 3.6;
 const PANEL_OPEN = 0.03;
 /** At most `LIVE_SHELLS` of a car's torn shells are drawn: the oldest vanish (each is a draw). */
 const LIVE_SHELLS = 2;
-/** A tyre's width (m) at wheel scale 1: a popped wheel flies as a disk this wide (`wheelShape`). */
-const TYRE_WIDTH = 0.24;
 /** A bumper hung by one corner rolls about it this much at full hinge and full asymmetry (rad), and sags this far (m). */
 const BUMPER_ROLL = 0.6;
 const BUMPER_SAG = 0.06;
@@ -817,7 +815,7 @@ export abstract class CarParts extends CarGlass {
     // Rolls on about its axle (the car's x) at the hub's ground speed.
     _n.set(1, 0, 0).applyQuaternion(this.group.quaternion);
     w.angular.copy(_n).multiplyScalar(hypot2(w.velocity.x, w.velocity.z) / TYRE_R);
-    wheelShape(w.shape, TYRE_R * w.object.scale.x, TYRE_WIDTH * w.object.scale.x);
+    fitWheelShape(w);
   }
 
   /** Netplay: array sizes for a `PartNetState`; parts are `PART_SLOTS` on every style (one shared layout). */
@@ -861,6 +859,11 @@ export abstract class CarParts extends CarGlass {
   /** The parts' sim state as doubles (`part-state.ts`): the replay keyframe's. */
   partState(buf: Float64Array, write: boolean): void {
     partState(this, this.parts, buf, write);
+  }
+
+  /** The torn parts' and popped wheels' bodies as doubles (`part-state.ts`): the replay keyframe's. Returns the numbers used. */
+  looseState(buf: Float64Array, write: boolean): number {
+    return looseState(this.parts, this.looseWheels, buf, write);
   }
 
 }

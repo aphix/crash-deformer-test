@@ -64,13 +64,28 @@ describe("given the dummies' world in the ragdoll worker (race courses) and a dr
     assert.equal(ragdolls["dressing"].get(FIRST_WORKER_ID + 1)?.look.portly, true, "the worker's slot for him is dressed as the passenger");
   });
 
-  it("when a passenger is thrown with a car whose driver was not the latest thrown, then nothing is sent", () => {
+  it("when a passenger is thrown with a car whose driver was not thrown, then nothing is sent", () => {
     const { cars, ejections } = headOnEjections();
     const { ragdolls, sent } = systemWithWorker();
     const e = ejections[0]!;
     ragdolls.launch(e, cars);
     ragdolls.throwPassenger(1 - e.car, PASSENGER);
     assert.equal(sent.length, 1, "only the driver's own throw");
+  });
+
+  it("when the other car's driver is thrown after his in the same frame, then his passenger is still thrown with him, beside him", () => {
+    const { cars, ejections } = headOnEjections();
+    assert.ok(ejections.length >= 2, "both drivers are thrown in the head-on");
+    const { ragdolls, sent } = systemWithWorker();
+    for (const e of ejections) ragdolls.launch(e, cars);
+    const first = ejections[0]!;
+    ragdolls.throwPassenger(first.car, PASSENGER);
+    assert.equal(sent.length, ejections.length + 1, "every driver's throw and the passenger's reached the worker");
+    const driver = sent[0]!;
+    const passenger = sent[ejections.length]!;
+    const apart = driver.t.p.distanceTo(passenger.t.p);
+    assert.ok(apart > 0.5 && apart < 1, `the passenger starts ${apart.toFixed(2)} m from his own driver, not the later one`);
+    assert.ok(driver.t.v.distanceTo(passenger.t.v) < 1e-9, "he leaves at his driver's velocity");
   });
 });
 

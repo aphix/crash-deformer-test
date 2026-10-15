@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { beginFakeFall, type DeformableCar } from "../vehicle/car.ts";
 import { FLIGHT, FLIGHT_EULER, FLIGHT_POSITION, FLIGHT_VELOCITY } from "../vehicle/car-flight.ts";
-import { PART_STATE } from "../vehicle/part-state.ts";
+import { looseStateLength, PART_STATE } from "../vehicle/part-state.ts";
 import { EXIT_PANES } from "../vehicle/car-core.ts";
 import { applyDrive, BRAKE_STEPS, idleDrive, THROTTLE_STEPS, type DriveInput } from "../vehicle/car-drive.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
@@ -37,9 +37,11 @@ export type ReplayScene = {
   blend: PoseBlend;
 };
 
-/** A throw the clip fires: the recorded ejection, `car` the engine slot, `own` whether the clip's scope owns it (`ClipEjection.own`). */
-type FiredEjection = Ejection & { own: boolean };
+/** A throw the clip fires: the recorded ejection, `car` the engine slot, `own` whether the clip's scope owns it (`ClipEjection.own`), `vip` whether the course's VIP rode in the car and is thrown with its driver. */
+type FiredEjection = Ejection & { own: boolean; vip: boolean };
 const NO_EJECTIONS: readonly FiredEjection[] = [];
+/** `ClipSim.vipRide` while the VIP rides in no car. */
+export const NO_RIDE = -1;
 const NO_STRIKES: readonly FigureStrike[] = [];
 
 /**
@@ -89,6 +91,8 @@ export class ClipSim {
   private sliceNow = 0;
   private readonly knockBits: Uint8Array;
   private readonly sim: (Float64Array | null)[][] = [];
+  /** Per keyframe, per car: where its torn parts and popped wheels lie (`CarParts.looseState`). */
+  private readonly loose: (Float64Array | null)[][] = [];
   /** The replay's own world: `strongest` holds the last step's hardest contact. */
   readonly world: World;
   private readonly dress: (car: DeformableCar) => void;
@@ -114,6 +118,9 @@ export class ClipSim {
   private readonly squadEvent: SquadEvent = { kind: 0, a: 0, b: 0, c: 0 };
   /** The clip's cars by engine slot (a hole for every other car): what the squad aims at. */
   private readonly squadCars: DeformableCar[] = [];
+  /** The engine slot of the car the clip's VIP rides in as of the last step run (-1: none): `HighlightClip.vip` as its steps ran, ended by the throw of that car's driver. */
+  vipRide = NO_RIDE;
+  private vipAt = 0;
   /**
    * Clip time each car pair (a·n + b, a < b) and each car against the walls last touched: a contact marks the first hit
    * only after a quiet spell and hard enough, the recorder's own rule (`countsAsImpact`).
@@ -140,6 +147,7 @@ export class ClipSim {
       const fl = new Float64Array(cars.length * FLIGHT);
       const mem = new Float64Array(cars.length * MEMORY);
       const sims: (Float64Array | null)[] = cars.map(() => null);
+      const looses: (Float64Array | null)[] = cars.map(() => null);
       // The cars the keyframe carries (a later one only those put on a spot): the snapshot's q-th is the clip's q-th set bit of `keyCars`.
       for (let j = 0, q = 0; j < cars.length; j++) {
         if (!((clip.keyCars[k]! >>> j) & 1)) continue;
@@ -159,15 +167,20 @@ export class ClipSim {
         f.y = fl[base + FLIGHT_POSITION + 1]!;
         f.z = fl[base + FLIGHT_POSITION + 2]!;
         const n = r.u16();
-        if (n !== PART_STATE && n !== cars[j]!.solverSize() + PART_STATE) throw new RangeError("a keyframe's solver state is another build's");
         const words = new Uint32Array(2 * n);
         for (let i = 0; i < words.length; i++) words[i] = r.u32();
-        sims[j] = new Float64Array(words.buffer);
+        const doubles = new Float64Array(words.buffer);
+        const looseLength = looseStateLength(doubles[0]!);
+        const rest = n - looseLength;
+        if (looseLength < 0 || (rest !== PART_STATE && rest !== cars[j]!.solverSize() + PART_STATE)) throw new RangeError("a keyframe's solver state is another build's");
+        looses[j] = doubles.subarray(0, looseLength);
+        sims[j] = doubles.subarray(looseLength);
       }
       this.flight.push(fl);
       this.memory.push(mem);
       this.knocked.push(bits);
       this.sim.push(sims);
+      this.loose.push(looses);
       return snap;
     });
     this.knockBits = new Uint8Array(this.knocked[0]!.length);
@@ -239,19 +252,33 @@ export class ClipSim {
     this.sliceNow = end;
   }
 
-  /** Step `s` has run: the drivers the record threw out in it are out of their cars now, and the figures it ran down are queued for `takeStrikes`. */
+  /** Step `s` has run: the drivers the record threw out in it are out of their cars now (the VIP rides out with the one of his car), and the figures it ran down are queued for `takeStrikes`. */
   private fire(s: number): void {
     const list = this.clip.ejections;
     for (; this.ejectAt < list.length && list[this.ejectAt]!.step <= s; this.ejectAt++) {
       const x = list[this.ejectAt]!;
+      const slot = this.clip.cars[x.e.car]!.slot;
       this.cars[x.e.car]!.driverOut = x.e.exit;
-      this.fired.push({ ...x.e, car: this.clip.cars[x.e.car]!.slot, own: x.own });
+      const vip = this.vipRide === slot;
+      if (vip) this.vipRide = NO_RIDE;
+      this.fired.push({ ...x.e, car: slot, own: x.own, vip });
     }
     const strikes = this.clip.strikes;
     for (; this.strikeAt < strikes.length && strikes[this.strikeAt]!.step <= s; this.strikeAt++) {
       const x = strikes[this.strikeAt]!;
       this.struck.push({ ...x.s, car: this.clip.cars[x.s.car]!.slot });
     }
+  }
+
+  /** The engine slot a VIP car code of the clip names (`CLIP_NO_CAR`: none). */
+  private vipSlot(code: number): number {
+    return code === CLIP_NO_CAR ? NO_RIDE : this.clip.cars[code]!.slot;
+  }
+
+  /** Before step `s` runs: the car the VIP rides in is the one the record had him in by then. */
+  private rideVip(s: number): void {
+    const events = this.clip.vip.events;
+    for (; this.vipAt < events.length && events[this.vipAt]!.step <= s; this.vipAt++) this.vipRide = this.vipSlot(events[this.vipAt]!.car);
   }
 
   /** The engine slot a squad car code of the clip names (`CLIP_NO_CAR`: no car; a car the clip leaves out keeps its code, a slot no car has). */
@@ -298,6 +325,8 @@ export class ClipSim {
     this.struck = [];
     this.stepAt = 0;
     this.squadAt = 0;
+    this.vipAt = 0;
+    this.vipRide = this.vipSlot(this.clip.vip.start);
     if (this.squad) {
       this.squadState.set(this.clip.squad!.state);
       this.squadState[1] = this.squadSlot(this.squadState[1]!);
@@ -331,6 +360,7 @@ export class ClipSim {
     while (this.step < clip.h.length && this.time < until - 1e-9 && (this.step === s0 || performance.now() < deadline)) {
       const s = this.step;
       this.stepAt = this.time;
+      this.rideVip(s);
       this.blend.begin(cars);
       // The cars the record put on a spot in this step (a respawn, a wake, a put-away) go there: the one thing the replay cannot drive.
       while (this.key < clip.keyStep.length && clip.keyStep[this.key]! <= s) {
@@ -413,7 +443,7 @@ export class ClipSim {
     if (this.firstHit < 0 && this.time >= this.watchFrom) this.firstHit = this.time;
   }
 
-  /** Car `j` respawned as keyframe `k` has it: pose and motion, then a wreck's dents, parts, lamps, glass and solver state. */
+  /** Car `j` respawned as keyframe `k` has it: pose and motion, then a wreck's dents, parts (the torn ones where they lay), lamps, glass and solver state. */
   private spawn(j: number, k: number): void {
     const car = this.cars[j]!;
     const f = this.keys[k]!.cars[j]!;
@@ -432,6 +462,8 @@ export class ClipSim {
       const solver = sim.length - PART_STATE;
       if (solver > 0) car.solverState(sim.subarray(0, solver), true);
       car.partState(sim.subarray(solver), true);
+      // After the net state, which throws each torn part off the car afresh: back where the record had it, moving as it moved.
+      car.looseState(this.loose[k]![j]!, true);
     }
     // The net state of a car that is no wreck (one with a part torn off) carries no crumple settings: the recording's again.
     car.deform.squash = this.clip.squash;

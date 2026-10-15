@@ -6,6 +6,7 @@ import { NET_VERSION, Reader, Writer } from "./codec.ts";
 import { carLayout } from "./car-pose.ts";
 import { clipBytes, decodeSaved, encodeSaved, packReel, readClip, savedPlayable, unpackReel, writeClip } from "./reel-codec.ts";
 import { makeClip, sameClip } from "./reel-clip.test-util.ts";
+import type { ClipVip } from "../match/highlights.ts";
 
 describe("given a recorded highlight clip and the codec that sends and saves it", () => {
   it("when a reel of two clips is packed into a reel message and unpacked, then it comes back byte for byte with its seed and start time", async () => {
@@ -132,6 +133,36 @@ describe("given a clip that carries the guard squad", () => {
     it(`${testCase.it}, then the decoder refuses the clip`, () => {
       const { clip, car } = makeClip();
       const bad = { ...clip, squad: testCase.squad as HighlightClip["squad"] };
+      const w = new Writer(clipBytes(bad));
+      writeClip(w, bad);
+      assert.throws(() => readClip(new Reader().reset(w.done()), carLayout(car)), { name: "RangeError", message: testCase.expectedMessage });
+    });
+  }
+});
+
+const refusedVips: { it: string; vip: ClipVip; expectedMessage: string }[] = [
+  { it: "when the VIP starts in a car the clip does not carry", vip: { start: 2, events: [] }, expectedMessage: "clip vip" },
+  { it: "when a change names a car the clip does not carry", vip: { start: 255, events: [{ step: 10, car: 2 }] }, expectedMessage: "clip vip event" },
+  { it: "when a change comes after the clip's last step", vip: { start: 255, events: [{ step: 600, car: 1 }] }, expectedMessage: "clip vip event" },
+  { it: "when a change comes before the one listed ahead of it", vip: { start: 255, events: [{ step: 20, car: 1 }, { step: 19, car: 255 }] }, expectedMessage: "clip vip event" },
+  { it: "when the clip lists one change more than the cap", vip: { start: 255, events: Array.from({ length: 9 }, () => ({ step: 3, car: 1 })) }, expectedMessage: "clip vip events" },
+];
+
+describe("given a clip that lists the car the course's VIP rides in", () => {
+  it("when it is written and read back, then its size is the bytes written and the ride and its changes come back as they were", () => {
+    const { clip, car } = makeClip();
+    const w = new Writer(clipBytes(clip));
+    writeClip(w, clip);
+    assert.equal(w.off, clipBytes(clip), "bytes written");
+    const got = readClip(new Reader().reset(w.done()), carLayout(car));
+    assert.equal(got.vip.start, 255, "out of the car at the start");
+    assert.deepEqual(got.vip.events, [{ step: 90, car: 1 }, { step: 330, car: 255 }]);
+  });
+
+  for (const testCase of refusedVips) {
+    it(`${testCase.it}, then the decoder refuses the clip`, () => {
+      const { clip, car } = makeClip();
+      const bad = { ...clip, vip: testCase.vip };
       const w = new Writer(clipBytes(bad));
       writeClip(w, bad);
       assert.throws(() => readClip(new Reader().reset(w.done()), carLayout(car)), { name: "RangeError", message: testCase.expectedMessage });

@@ -173,7 +173,9 @@ export class RagdollSystem {
   /** Throws judged before Rapier was in (`PENDING_MAX`). */
   private readonly pending: Throw[] = [];
   private readonly next: Throw = { car: 0, p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false, rides: true };
-  /** The figure being thrown (`throwFigure`): its own record, so `next` stays the latest driver's (`throwPassenger`). */
+  /** Per car, the throw of the driver thrown out of it this run (`launch`) until his passenger is thrown with him (`throwPassenger`): later throws of other cars' drivers do not take it. */
+  private readonly driverThrows: (Throw | undefined)[] = [];
+  /** The figure being thrown (`throwFigure`): its own record, not the driver's (`next`). */
   private readonly figure: Throw = { car: 0, p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false, rides: false, purse: false, armsDown: true };
   /** Fixed colliders every dummy shares off a course (pad or disc with its ramps, corkscrew, poles), built at the run's first throw: Rapier's step allocates per collider (0.31 KB, RapierEval). */
   private readonly statics: Collider[] = [];
@@ -282,6 +284,7 @@ export class RagdollSystem {
   /** A new run: no dummies out, every car's driver back in, every knocked prop back on its spot. */
   reset(): void {
     this.pending.length = 0;
+    this.driverThrows.length = 0;
     this.struck.length = 0;
     this.frameNo = 0;
     this.proxies.clearStrikes();
@@ -665,6 +668,7 @@ export class RagdollSystem {
     t.age = 0;
     t.cop = e.cop;
     t.rides = rides;
+    this.driverThrows[e.car] = { ...t, p: t.p.clone(), q: t.q.clone(), v: t.v.clone(), w: t.w.clone() };
     this.onExit(_c, _cq, car.velocity);
     this.pick();
     if (this.mode === "remote") this.launchRemote(t, cars);
@@ -743,18 +747,19 @@ export class RagdollSystem {
   }
 
   /**
-   * A passenger (the course's VIP, in `look`) thrown with car `car`'s driver, who was the latest throw (`next` still holds it): beside
-   * him, toward the passenger side, with his motion, in this thread's world or the worker's. Nothing when that was not the latest
-   * throw, or when no world is up to take him.
+   * A passenger (the course's VIP, in `look`) thrown with car `car`'s driver, whose throw (`launch`) is kept for him: beside him, toward the
+   * passenger side, with his motion, in this thread's world or the worker's. Nothing when that car's driver has not been thrown (or his passenger has), or when no world is up to take him.
    */
   throwPassenger(car: number, look: DriverLook): void {
     const ride = this.cars[car];
-    if (!ride || this.next.car !== car || this.next.cop) return;
+    const t = this.driverThrows[car];
+    if (!ride || !t || t.cop) return;
     if (this.mode !== "remote" && !this.world) return;
-    passengerThrow(ride, this.next.p);
-    this.next.age = 0;
-    if (this.mode === "remote") this.launchRemote(this.next, this.cars, look);
-    else this.spawn(this.next, -1, LIFE, look);
+    this.driverThrows[car] = undefined;
+    passengerThrow(ride, t.p);
+    t.age = 0;
+    if (this.mode === "remote") this.launchRemote(t, this.cars, look);
+    else this.spawn(t, -1, LIFE, look);
   }
 
   /** Slot `s`'s torso centre after the last step into `p`, and its velocity (world) into `v` unless null; false while no dummy is out in it. */

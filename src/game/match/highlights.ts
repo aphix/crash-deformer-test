@@ -556,6 +556,15 @@ export type ClipSquadEvent = SquadEvent & { step: number };
 /** The White House squad as the clip draws it: `state` at the clip's start (`LawnGuard.snapshot`, its target a clip car code), then its decisions in step order. */
 export type ClipSquad = { state: Float32Array; events: ClipSquadEvent[] };
 
+/** Most changes a clip lists of the car the VIP rides in (he gets in once and is thrown out once: a clip is under 18 s); a decoder takes no more. */
+export const MAX_VIP_EVENTS = 8;
+
+/** The car the VIP rides in changed in the step `step` (counted from the clip's first step): `car` a clip car index, `CLIP_NO_CAR` for none. */
+type ClipVipEvent = { step: number; car: number };
+
+/** The course's VIP (the National Mall's Konami secret: he walks out to the player's car and rides in its passenger seat): the car he rides in at the clip's start and every change to it, in step order. */
+export type ClipVip = { start: number; events: ClipVipEvent[] };
+
 /** One highlight: initial conditions, every step's dt and drive outputs, and the steps a car was put on a spot. */
 export type HighlightClip = {
   trackId: string;
@@ -590,6 +599,8 @@ export type HighlightClip = {
   strikes: ClipStrike[];
   /** The course's guard squad (the National Mall's White House lawn) at the clip's start and every decision it made in the clip's steps (shots at a car the clip leaves out are not listed), null on a course without; the replay steps a squad from them, so the standing guards are drawn as they were. */
   squad: ClipSquad | null;
+  /** The car the course's VIP rides in at the clip's start and when that changed in its steps: the replay seats him in it, and throws him with its driver. `CLIP_NO_CAR` and no events on a course without a VIP or where he was out of the car. */
+  vip: ClipVip;
   /** Strongest closing speed (km/h) in the clip's scope: the flash a replayed hit throws. */
   peakKph: number;
   /** The main car's own speed (km/h) in its strongest impact (a wall hit's speed into the wall): the title's speed. */

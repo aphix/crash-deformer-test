@@ -110,6 +110,8 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
         { step: 300, kind: SQUAD_ALARM, a: 0, b: 0, c: 0 },
       ],
     },
+    // The VIP out of the car at the clip's start, in clip car 1's passenger seat from step 90 until its driver's throw.
+    vip: { start: CLIP_NO_CAR, events: [{ step: 90, car: 1 }, { step: 330, car: CLIP_NO_CAR }] },
     peakKph: 96,
     hitKph: 48,
     deform: 1.25,

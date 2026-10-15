@@ -18,7 +18,7 @@ import { cleanName, RACE_MODES, TIMES_OF_DAY, type Entrant, type RaceCommand, ty
 import type { Cand, Wreck } from "../match/auto-watch.ts";
 import { RaceHudLayer } from "./engine-race-hud.ts";
 import { LawnGuard } from "../scenes/lawn-guard.ts";
-import type { GroundsHost } from "../present/grounds-art.ts";
+import type { GroundsHost, ReelPeople } from "../present/grounds-art.ts";
 import type { Track } from "../world/track.ts";
 import type { GuardSpec } from "../world/track-schema.ts";
 
@@ -705,14 +705,16 @@ export class RaceDirector extends RaceHudLayer {
     }
   }
 
-  /** Once per rendered frame. `guard`: the squad the grounds draw (default the race's own, none on a netplay client); a reel plays its clip's (`ReelDirector.squad`), null for none. */
-  frame(wallDt: number, guard: LawnGuard | null = this.mirrored ? null : this.guard): void {
+  /** Once per rendered frame. `replay`: what a reel plays over the grounds (`ReelDirector.people`: its clip's squad and the car its clip's VIP rides in), else the race's own (the squad, none on a netplay client). */
+  frame(wallDt: number, replay?: ReelPeople): void {
     if (!this.active) return;
     const s = this.session;
     if (this.art) this.art.setLights(s ? s.lights : 0);
-    if (this.art?.grounds) {
+    const grounds = this.art?.grounds;
+    if (grounds) {
       const player = s && this.entrants[this.self]?.kind === "player" ? this.self : -1;
-      this.art.grounds.frame(wallDt, guard, this.secretOut, this.host.live(), player, this.grounds);
+      grounds.frame(wallDt, replay ? replay.squad : this.mirrored ? null : this.guard, this.secretOut, this.host.live(), player, this.grounds, replay);
+      if (!replay) this.recorder.vipRides(grounds.vipRide);
     }
     if (s && s.phase === "finished" && (this.menu == null || this.menu === "dead")) {
       this.overFor += wallDt;

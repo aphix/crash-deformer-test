@@ -470,6 +470,8 @@ export class VipEscort {
   private readonly stance = blankStance();
   private readonly spec: GuardSpec;
   private readonly ground: Ground;
+  /** Whether a replay has him sitting in a car (`replay`). */
+  private seated = false;
   private readonly people: People;
   private readonly slot: number;
   private readonly struck = blankStrike();
@@ -486,6 +488,23 @@ export class VipEscort {
   reset(): void {
     this.phase = "in";
     this.car = -1;
+    this.seated = false;
+    this.people.hide(this.slot);
+  }
+
+  /** A reel plays: he sits in the passenger seat of `cars[ride]` (-1: nobody's) as the clip has him, not where this browser's race has him walking or riding. */
+  replay(ride: number, cars: readonly DeformableCar[]): void {
+    if (this.phase !== "in") this.reset();
+    const car = cars[ride];
+    if (!car) return this.leaveSeat();
+    this.sit(car);
+    this.seated = true;
+  }
+
+  /** Out of the seat a replay put him in: the live race's escort takes over from nothing. */
+  private leaveSeat(): void {
+    if (!this.seated) return;
+    this.seated = false;
     this.people.hide(this.slot);
   }
 
@@ -499,6 +518,7 @@ export class VipEscort {
    * of car `car` with its driver; `throwFigure` throws him where a car ran him down.
    */
   frame(dt: number, out: boolean, player: number, cars: readonly DeformableCar[], throwPassenger: (car: number, look: DriverLook) => void, throwFigure: (strike: FigureStrike) => void): void {
+    this.leaveSeat();
     const car = player >= 0 ? cars[player] : undefined;
     if (this.phase === "in") {
       if (!out || !car || !car.deform.drivetrainAlive || !insidePolygon(this.spec.lawn, car.group.position.x, car.group.position.z)) return;

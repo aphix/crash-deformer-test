@@ -27,6 +27,7 @@ import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem } from "../p
 import { GameAudio } from "../present/game-audio.ts";
 import { FX_REACH } from "../present/witness.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
+import { VIP_LOOK } from "../present/people.ts";
 import { throwComing } from "../present/ragdoll-trigger.ts";
 import { ChaseCamera, centroid, SHAKE_DECAY_PER_S, type SpecScene } from "../present/engine-camera.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
@@ -327,7 +328,11 @@ export class CrashEngine extends EngineGarage {
       impact: (contact, normal, closing) => this.beginCinematic(contact, normal, closing, false),
       hit: this.hitFx,
       fudge: (at, normal) => this.fudgeContact(at, normal),
-      eject: (e, ride) => { this.ragdolls.launch(e, this.live(), ride); if (ride) this.ragdolls.follow(); },
+      eject: (e, ride) => {
+        this.ragdolls.launch(e, this.live(), ride);
+        if (ride) this.ragdolls.follow();
+      },
+      passenger: (car) => this.ragdolls.throwPassenger(car, VIP_LOOK),
       strike: (s) => this.ragdolls.throwFigure(s, this.live()),
       ride: (camera, wallDt, subject) => this.ragdolls.rideAlong && this.ragdolls.frameCamera(camera, wallDt, false, this.cars.indexOf(subject), false, this.view.lens, () => this.sceneSight(subject, true)) !== "none",
     });
@@ -510,7 +515,7 @@ export class CrashEngine extends EngineGarage {
     this.net.frame(wallDt);
     // The reel's replay presents its own steps through the same blend (`ClipSim.present`, before the skins above): the world's pace has no step to show.
     if (!this.highlights.playing) this.blend.present(this.live(), this.pace.alpha);
-    if (this.race.active) this.race.frame(this.playing && !held ? wallDt : 0, this.highlights.playing ? this.highlights.squad : undefined);
+    if (this.race.active) this.race.frame(this.playing && !held ? wallDt : 0, this.highlights.people);
     const focus = this.highlights.playing ? this.highlights.focus() : null;
     if (focus) this.race.followSun(focus);
     this.updateCamera(wallDt);

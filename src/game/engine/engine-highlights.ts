@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { FigureStrike } from "../scenes/figure-strike.ts";
-import type { LawnGuard } from "../scenes/lawn-guard.ts";
+import type { ReelPeople } from "../present/grounds-art.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import type { CarSurfaces } from "../vehicle/car-surfaces.ts";
 import { beginImpact, CONTACT_HOLD, easeTimeScale, FUDGE_GAP, impactScale, phaseClock, PRE_IMPACT_LEAD, SLOMO_HOLD, stepPhase, THROW_HOLD, type CrashPhase, type PhaseClock } from "../match/phase.ts";
@@ -12,7 +12,7 @@ import { AFTERS, OPENERS, pickShot, RUN_INS, ShotCam, type Shot as PickedShot, t
 import { CINE, withCars, type Sight } from "../present/spectate-cam.ts";
 import { crashCamEnd, CUTS, hitAim, laterHits, type CrashCam, type CrashHold } from "../present/engine-cine.ts";
 import { contextEye, contextPose, overheadPose } from "../present/highlight-cam.ts";
-import { ClipSim, type ReplayScene } from "./engine-replay.ts";
+import { ClipSim, NO_RIDE, type ReplayScene } from "./engine-replay.ts";
 import { SPARK_MIN_IMPULSE, TIMELINE_HZ } from "./constants.ts";
 
 /** Wall seconds of the far-overhead flight into each clip. */
@@ -265,6 +265,8 @@ export type ReelHost = {
   hit(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void;
   /** A driver in the clip was thrown out (`ClipSim.take`, `e.car` the engine slot): his dummy flies, from the recording's numbers; `ride`: he was thrown in the clip's own crash, so the camera follows his flight (only such a driver is ever framed by the ride). */
   eject(e: Ejection, ride: boolean): void;
+  /** The course's VIP rode in car `car` (the engine slot) and is thrown with its driver, who was just thrown (`eject`): beside him, as the live race threw him, after every driver of the step. */
+  passenger(car: number): void;
   /** A car in the clip ran down a figure (`ClipSim.takeStrikes`, `s.car` the engine slot): he is thrown again from the recording's numbers. */
   strike(s: FigureStrike): void;
   /** The thrown drivers' ride-along places `camera` on them this frame (`subject`: the clip's focus car); false when no ride is on. */
@@ -324,6 +326,8 @@ export class ReelDirector {
   private readonly hold: CrashHold = { target: new THREE.Vector3(), sight: () => this.host.sight(this.focus()!), hit: 0, later: laterHits(2 * MAX_HITS) };
   /** Every live car's visibility when the reel took them. */
   private shown: boolean[] | null = null;
+  /** What `people` hands out, written in place each frame. */
+  private readonly reelPeople: ReelPeople = { squad: null, vip: NO_RIDE };
 
   constructor(host: ReelHost) {
     this.host = host;
@@ -339,9 +343,12 @@ export class ReelDirector {
     return this.playing ? (this.cur?.clip.look ?? null) : null;
   }
 
-  /** The guard squad of the clip on screen (`ClipSim.squad`), null while no clip plays or the clip carries none: what the grounds draw while a reel plays, not the race's own squad. */
-  get squad(): LawnGuard | null {
-    return this.playing ? (this.cur?.sim.squad ?? null) : null;
+  /** What the grounds draw while a reel plays, undefined while none does: the guard squad of the clip on screen (`ClipSim.squad`, null while no clip is on or it carries none) and the car its VIP rides in (`ClipSim.vipRide`), not the race's own squad and VIP. */
+  get people(): ReelPeople | undefined {
+    if (!this.playing) return undefined;
+    this.reelPeople.squad = this.cur?.sim.squad ?? null;
+    this.reelPeople.vip = this.cur?.sim.vipRide ?? NO_RIDE;
+    return this.reelPeople;
   }
 
   /** The cars' tops of the clip on screen's replay world (`World.surfaces`), null while no clip plays. */
@@ -657,9 +664,12 @@ export class ReelDirector {
   /**
    * The dummies the clip's steps threw since the last look fly; a driver thrown in the clip's scope (`ClipEjection.own`) gets
    * the ride-along, the subject's or not, so his launch is on screen. One thrown in another crash of the clip's steps is not its own.
+   * The course's VIP is thrown with his driver after every driver of the look, as the live race throws him once its frame has run.
    */
   private launch(p: Prepared): void {
-    for (const e of p.sim.take()) this.host.eject(e, e.own);
+    const thrown = p.sim.take();
+    for (const e of thrown) this.host.eject(e, e.own);
+    for (const e of thrown) if (e.vip) this.host.passenger(e.car);
     for (const s of p.sim.takeStrikes()) this.host.strike(s);
   }
 

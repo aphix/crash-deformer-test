@@ -88,6 +88,7 @@ function hostOf(w: World): ReelHost {
     fudge: () => {},
     hit: () => {},
     eject: () => {},
+    passenger: () => {},
     strike: () => {},
     ride: () => false,
   };
