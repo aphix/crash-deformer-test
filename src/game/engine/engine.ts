@@ -734,7 +734,7 @@ export class CrashEngine extends EngineGarage {
   private readonly specScene: SpecScene = {
     sight: () => this.sceneSight(this.followedCar(), true),
     rivals: () => (this.race.active ? this.live().slice(0, this.race.racers.length) : this.live()),
-    fixed: () => (this.race.active ? this.race.courseSight() : null),
+    fixed: () => this.chaseSight(true),
     cut: (car) => {
       if (this.race.auto) this.race.autoStep(this.view.auto.cuts, true);
       return this.followedCar() ?? car;
@@ -751,7 +751,7 @@ export class CrashEngine extends EngineGarage {
     this.ragdolls.fadeRide(this.camera, wallDt, !this.highlights.playing);
     if (this.highlights.playing) return;
     const back = this.view.rear ? this.followedCar() : null;
-    if (back?.group.visible) this.view.lookBack(back);
+    if (back?.group.visible) this.view.lookBack(back, this.chaseSight(true), wallDt);
   }
 
   private aimRigs(wallDt: number): void {
@@ -825,6 +825,6 @@ export class CrashEngine extends EngineGarage {
     if (this.autoRotate && this.playing && this.seat.mode !== "drive" && !this.showLab && !(this.showGarage && this.garage?.tool.on)) {
       spinRate = this.showPistons ? PISTON_ORBIT_RATE : this.clock.phase === "approach" ? 0.12 : 0.32;
     }
-    this.view.orbit(wallDt, spinRate, this.playing);
+    this.view.orbit(wallDt, spinRate, this.playing, this.rigScene || this.showLab || this.showGarage ? null : this.chaseSight(followed !== null && followed.group.visible));
   }
 }

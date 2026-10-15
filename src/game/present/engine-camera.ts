@@ -6,13 +6,18 @@ import { DISC_RADIUS } from "../world/ground.ts";
 import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import { AutoCam, type AutoScene } from "./auto-cam.ts";
 import { CHASE, DriveCam, easeFov } from "./drive-cam.ts";
-import { CineCam, DutchCam, EyePull, type Sight } from "./spectate-cam.ts";
+import { CineCam, DutchCam, type Occluder, type Sight } from "./spectate-cam.ts";
+import { EyeClear } from "./eye-clear.ts";
 
 /** A followed (not driven) car's camera, cycled by View: the drive chase views, the trackside cinematic, the wheel-well dutch, the free orbit and Auto (`AutoCam` run live). A race opens on the chase, everything else on the orbit. */
 export type SpecView = SeatView | "cine" | "dutch" | "orbit" | "auto";
 const SPEC_VIEWS: readonly SpecView[] = ["third", "far", "first", "cine", "dutch", "orbit", "auto"];
 
-/** What the spectator cams read from the scene: `rivals` and `sight` when they pick a shot, `fixed` per frame (the course's own cached solids, no cars; null off a race) for the chase views' push-out, the driver's too. */
+/**
+ * What the spectator cams read from the scene: `rivals` and `sight` when they pick a shot, `fixed` per frame for the chase views and
+ * the orbit to keep their line of sight clear (`EyeClear`): the scene's solids (the course's, the derby bowl's, the sandbox's) and the other
+ * cars' tight boxes in `cars`. Null: nothing to keep clear of.
+ */
 export type SpecScene = AutoScene & { rivals(): readonly DeformableCar[]; fixed(): Sight | null };
 
 /** A lamp post the orbit keeps clear of: it stands from its base up `POST_TOP` m and is thin, so the eye's distance to its axis is what counts. */
@@ -23,6 +28,7 @@ const POST_TOP = 5.3;
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+const NO_BOXES: readonly Occluder[] = [];
 /** `watchFall`: the eye stands this far (m) inside the fleet disc's rim, at shoulder height (m) over the disc. */
 const FALL_EYE_IN = 1.5;
 const FALL_EYE_Y = 1.5;
@@ -125,8 +131,11 @@ export class ChaseCamera {
   private readonly approachSide = new THREE.Vector3(1, 0, 0);
   /** `lookBack` parks the rigs' own shot here and `unflip` puts it back, so the rigs never see the rear view. */
   private flipped = false;
-  /** The chase eye's pull-in past the course's solids (`pushOut`). */
-  private readonly pull = new EyePull();
+  /** The orbit's eye kept clear of the scene's solids (`orbit`'s `solids`), and how far that moved it from the orbit's own smoothed eye. */
+  private readonly orbitClear = new EyeClear();
+  /** The rear view's eye kept clear of the scene's solids (`lookBack`). */
+  private readonly rearClear = new EyeClear();
+  private readonly orbitShift = new THREE.Vector3();
   private readonly rigPos = new THREE.Vector3();
   private readonly rigQuat = new THREE.Quaternion();
   /** Canvas pointers: the drag's id, and a second finger that pinch-zooms (`pinchDist` px from the first). */
@@ -281,11 +290,12 @@ export class ChaseCamera {
   }
 
   /** Ease toward the orbit around `look`; `spinRate` rad/s auto-rotates unless dragging or reduced motion. */
-  orbit(wallDt: number, spinRate: number, shake: boolean): void {
+  orbit(wallDt: number, spinRate: number, shake: boolean, solids: Sight | null = null): void {
     this.fallWatch = false;
     // Leaving the driver's seat or a fixed spectator cam: keep orbiting from where the camera was (from the wheel
     // cam's 2 m, at a normal orbit's distance and height).
     const fixed = this.rig === "fixed";
+    if (this.rig !== "orbit") this.orbitShift.set(0, 0, 0);
     if (this.drive.release() || fixed) this.adoptPose();
     if (fixed) {
       this.radius = Math.max(this.radius, 9);
@@ -313,7 +323,12 @@ export class ChaseCamera {
     this.keepInRim();
 
     const k = 1 - Math.exp((this.dragging || this.locked || padTurn ? -18 : -5.5) * wallDt);
-    this.camera.position.lerp(this.pos, k);
+    // The smoothing runs on the orbit's own eye: last frame's clearing is taken off first and put on again below.
+    this.camera.position.sub(this.orbitShift).lerp(this.pos, k);
+    this.orbitShift.copy(this.camera.position);
+    if (solids) this.orbitClear.apply(solids, solids.cars ?? NO_BOXES, this.look, this.camera.position, wallDt);
+    else this.orbitClear.reset();
+    this.orbitShift.subVectors(this.camera.position, this.orbitShift);
     this.camera.lookAt(this.look);
     if (shake) this.shake(1);
     easeFov(this.camera, this.lens, wallDt);
@@ -356,15 +371,15 @@ export class ChaseCamera {
   }
 
   /**
-   * Chase, far chase or hood-cam view of the driven car; mouse drag / right stick look round it. `fixed`: the course's
-   * solids (null off a race), which the chase views keep out of (`keepClear`).
+   * Chase, far chase or hood-cam view of the driven car; mouse drag / right stick look round it. `fixed`: the scene's solids and
+   * the other cars (null: none), which the chase views keep their line of sight clear of (`EyeClear`).
    */
   frameDrive(car: DeformableCar, fixed: Sight | null, wallDt: number, shake: boolean): void {
     this.fallWatch = false;
     this.rig = "chase";
     const view = this.seat.view;
-    this.drive.update(this.camera, car, view, wallDt, this.pad.rx, this.pad.ry);
-    this.keepClear(car, view, fixed, wallDt);
+    this.drive.update(this.camera, car, view, wallDt, this.pad.rx, this.pad.ry, false, fixed);
+    if (view !== "first") this.drive.keepAbove(this.camera, car);
     if (shake) this.shake(view === "first" ? CHASE.shakeHood : 1);
   }
 
@@ -378,7 +393,6 @@ export class ChaseCamera {
     this.spec = SPEC_VIEWS[(SPEC_VIEWS.indexOf(this.specView(chase)) + 1) % SPEC_VIEWS.length]!;
     this.cine.reset();
     this.auto.reset();
-    this.pull.reset();
   }
 
   /**
@@ -403,34 +417,17 @@ export class ChaseCamera {
     }
     const chase = view === "cine" ? "third" : view;
     this.rig = "chase";
-    this.drive.update(this.camera, car, chase, wallDt, this.pad.rx, this.pad.ry, true);
-    this.keepClear(car, chase, scene.fixed(), wallDt);
+    this.drive.update(this.camera, car, chase, wallDt, this.pad.rx, this.pad.ry, true, scene.fixed());
+    if (chase !== "first") this.drive.keepAbove(this.camera, car);
     if (shake) this.shake(chase === "first" ? CHASE.shakeHood : 1);
     return true;
   }
 
   /**
-   * A chase eye inside a course solid (a street corner, a wall, a tunnel's rock) is pulled in along the view (`EyePull`): at
-   * once as the solid closes on it, eased back out once the way is clear. One solid test per frame while it is clear and
-   * nothing is being eased out. Then it is lifted to `CHASE.floor` over the ground under it, so a ramp or a landing's dip
-   * never takes it under the road. The rig's own spring is untouched. The orbit and the hood cam are not pushed. `s` null
-   * (off a race): no course solids, the floor only.
+   * Rear view: the chase offset mirrored ahead of `car`, looking back past it, snapped (no spring), its line to the car kept clear of
+   * `solids` like the chase's (`EyeClear`; null: none). The rigs' shot is parked for `unflip`, so a release shows it again on the next frame.
    */
-  private keepClear(car: DeformableCar, view: SeatView, s: Sight | null, dt: number): void {
-    if (view === "first") {
-      this.pull.reset();
-      return;
-    }
-    if (s) this.pull.apply(s, this.camera.position, this.camera.getWorldDirection(_v), dt);
-    else this.pull.reset();
-    this.drive.keepAbove(this.camera, car);
-  }
-
-  /**
-   * Rear view: the chase offset mirrored ahead of `car`, looking back past it, snapped (no spring). The rigs'
-   * shot is parked for `unflip`, so a release shows it again on the next frame.
-   */
-  lookBack(car: DeformableCar): void {
+  lookBack(car: DeformableCar, solids: Sight | null, wallDt: number): void {
     this.rigPos.copy(this.camera.position);
     this.rigQuat.copy(this.camera.quaternion);
     this.flipped = true;
@@ -438,11 +435,13 @@ export class ChaseCamera {
     const f = car.fwdFlat;
     const c = this.seat.view === "far" ? CHASE.far : CHASE.third;
     this.camera.position.set(p.x + f.x * c.dist, p.y + c.height, p.z + f.z * c.dist);
+    if (solids) this.rearClear.apply(solids, solids.cars ?? NO_BOXES, _w.set(p.x, p.y + c.aimUp, p.z), this.camera.position, wallDt);
     this.camera.lookAt(p.x - f.x * c.dist, p.y + c.aimUp, p.z - f.z * c.dist);
   }
 
   /** Undo last frame's `lookBack`; call before the rigs run. */
   unflip(): void {
+    if (!this.rear) this.rearClear.reset();
     if (!this.flipped) return;
     this.flipped = false;
     this.camera.position.copy(this.rigPos);

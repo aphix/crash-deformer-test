@@ -24,7 +24,8 @@ import { WorldStage, makeLamp } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
 import { loadHdrEnv, STUDIO_ENV_URL } from "../present/look-env.ts";
 import { CarDetail } from "../present/car-detail.ts";
-import { addCars, occluder, withCars, type Occluder, type Sight } from "../present/spectate-cam.ts";
+import { addCars, withCars, type Occluder, type Sight } from "../present/spectate-cam.ts";
+import { ChaseSolids, OccluderPool } from "../present/chase-solids.ts";
 import { activeGround } from "../world/ground.ts";
 import { BARRIER_HALF } from "../contact/sat.ts";
 import type { AutoFx } from "../present/auto-fx.ts";
@@ -653,25 +654,41 @@ export abstract class EngineCore {
     const occ: Occluder[] = course ? [...course.occ] : [];
     if (cars) addCars(occ, this.live(), followed);
     if (course) return { ...course, occ };
+    const sandbox = new OccluderPool();
+    sandbox.begin();
+    this.addSandboxSolids(sandbox);
+    sandbox.end();
+    for (const o of sandbox.list) occ.push(o);
+    return { ground: activeGround(), path: null, wallTop: 0, rim: this.derbyMode ? DERBY_RADIUS : Infinity, occ };
+  }
+
+  /** The sandbox's own solids (lamp poles, the barrier, the balls, the Lab's wall) into `pool`. */
+  private addSandboxSolids(pool: OccluderPool): void {
     for (const pole of this.poles) {
-      if (pole.intact && pole.group.visible) occ.push(occluder(pole.group.position.x, pole.group.position.z, 0, 0.45, 0.45, true, 0, 5.3));
+      if (pole.intact && pole.group.visible) pool.add(pole.group.position.x, pole.group.position.z, 1, 0, 0.45, 0.45, true, 0, 5.3);
     }
     if (this.barrierUp) {
       const b = this.barrier.group.position;
-      occ.push(occluder(b.x, b.z, this.barrier.yaw, BARRIER_HALF.x, BARRIER_HALF.z, false, 0, 0.9));
+      pool.add(b.x, b.z, detCos(this.barrier.yaw), detSin(this.barrier.yaw), BARRIER_HALF.x, BARRIER_HALF.z, false, 0, 0.9);
     }
     if (this.ballsUp) {
       for (const ball of this.balls) {
         const b = ball.mesh.position;
-        if (ball.mesh.visible) occ.push(occluder(b.x, b.z, 0, ball.radius, ball.radius, true, b.y - ball.radius, b.y + ball.radius));
+        if (ball.mesh.visible) pool.add(b.x, b.z, 1, 0, ball.radius, ball.radius, true, b.y - ball.radius, b.y + ball.radius);
       }
     }
     if (this.showLab) {
       // The wall the pegboard hangs on (the Lab's last collider): the crash cam never stands behind the board.
       const w = this.lab.colliders.at(-1)!;
-      occ.push(occluder(w.x, w.z, w.yaw, w.hx, w.hz, false, FLOOR, w.top));
+      pool.add(w.x, w.z, detCos(w.yaw), detSin(w.yaw), w.hx, w.hz, false, FLOOR, w.top);
     }
-    return { ground: activeGround(), path: null, wallTop: 0, rim: this.derbyMode ? DERBY_RADIUS : Infinity, occ };
+  }
+
+  private readonly chase = new ChaseSolids((pool) => this.addSandboxSolids(pool));
+
+  /** The solids a chase, rear or orbit eye keeps its line of sight clear of (`EyeClear`), with every other car when `cars`. One shared Sight, valid until the next call. */
+  protected chaseSight(cars: boolean): Sight {
+    return this.chase.frame(this.race.active ? this.race.courseSight() : null, this.derbyMode, cars ? this.live() : null, this.followedCar());
   }
 
   /** The scene's solids and the live cars' tight boxes as they stand now: what a crash cam's eye is picked against (`carsBlock`: no eye inside a car, none with a car on its line to the hit). */

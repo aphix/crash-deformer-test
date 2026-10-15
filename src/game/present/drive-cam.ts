@@ -6,12 +6,16 @@ import { hypot2 } from "../kernel/physics-core.js";
 import { wrapPiClosed } from "../kernel/scalar.ts";
 import { LANDING, LandingWatch } from "./landing.ts";
 import { Spring, Spring3, type Axes } from "./spring.ts";
+import { EyeClear } from "./eye-clear.ts";
+import type { Occluder, Sight } from "./spectate-cam.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _e = new THREE.Vector3();
 const _zeta: Axes = { lon: 1, lat: 1, up: 1 };
+const _subject = new THREE.Vector3();
+const NO_BOXES: readonly Occluder[] = [];
 
 export const CHASE = {
   third: { dist: 6.2, height: 2.0, aimUp: 1.0 },
@@ -201,6 +205,8 @@ export class DriveCam {
   /** The look offset came from a drag (not the stick), so a spectator's `keep` holds it. */
   private dragged = false;
   private car: DeformableCar | null = null;
+  /** The line of sight to the car kept clear of the scene's solids and the other cars (`update`'s `solids`). */
+  private readonly clear = new EyeClear();
   private readonly lastCarPos = new THREE.Vector3();
 
   /** Look offset from behind the car (rad, + = looking left). */
@@ -221,6 +227,7 @@ export class DriveCam {
   release(): boolean {
     const was = this.car !== null;
     this.car = null;
+    this.clear.reset();
     return was;
   }
 
@@ -230,8 +237,11 @@ export class DriveCam {
     if (camera.position.y < f) camera.position.y = f;
   }
 
-  /** `rx`/`ry`: right stick after deadzone, DOM signs (+x right, +y down). `keep`: a dragged look offset stays put (spectating). */
-  update(camera: THREE.PerspectiveCamera, car: DeformableCar, view: SeatView, dt: number, rx: number, ry: number, keep = false): void {
+  /**
+   * `rx`/`ry`: right stick after deadzone, DOM signs (+x right, +y down). `keep`: a dragged look offset stays put (spectating).
+   * `solids`: the scene's solids and the other cars' boxes (`Sight.cars`) the chase views keep their line of sight to the car clear of (`EyeClear`).
+   */
+  update(camera: THREE.PerspectiveCamera, car: DeformableCar, view: SeatView, dt: number, rx: number, ry: number, keep = false, solids: Sight | null = null): void {
     const p = car.group.position;
     const fwd = car.fwdFlat;
     const vel = car.velocity;
@@ -253,6 +263,7 @@ export class DriveCam {
     if (cut) {
       this.land.reset();
       this.landS = 0;
+      this.clear.reset();
     }
     const fall = this.land.step(car, dt);
     if (fall > 0) {
@@ -335,6 +346,8 @@ export class DriveCam {
       }
     }
     camera.position.copy(this.pos.x);
+    if (view === "first" || !solids) this.clear.reset();
+    else this.clear.apply(solids, solids.cars ?? NO_BOXES, _subject.set(p.x, p.y + (view === "far" ? CHASE.far : CHASE.third).aimUp, p.z), camera.position, dt);
     camera.lookAt(this.aim.x);
 
     this.rideStep(camera, car, view, dt);

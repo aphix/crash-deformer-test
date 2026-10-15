@@ -169,8 +169,8 @@ export function solid(s: Sight, x: number, y: number, z: number, pad: number, oc
   return false;
 }
 
-/** (x, y, z) is within `pad` of occluder `o`. */
-function inside(o: Occluder, x: number, y: number, z: number, pad: number): boolean {
+/** (x, y, z) is within `pad` of occluder `o`; an occluder parked at `y0` = Infinity is never. */
+export function inside(o: Occluder, x: number, y: number, z: number, pad: number): boolean {
   if (y < o.y0 - pad || y > o.y1 + pad) return false;
   const ex = x - o.x;
   const ez = z - o.z;
@@ -208,7 +208,7 @@ function pullIn(s: Sight, eye: Vec3, dir: Vec3): number {
 }
 
 /**
- * The one pull-in of both chase rigs, `ChaseCamera` (the spectator's chase) and `ShotCam` (the Auto and reel chase): an eye
+ * The pull-in of `ShotCam` (the Auto and reel chase; the driven and followed chase use `EyeClear`): an eye
  * inside a solid moves in along its view to stand clear (`pullIn`) at once, and eases back out (`PULL_OMEGA`) once the way is
  * clear unless the eased eye would stand in a solid, so it never shows inside one and never pops by whole metres.
  */
@@ -236,7 +236,7 @@ export class EyePull {
 }
 
 /** `_near` = the occluders whose footprint, grown by `pad`, can reach the flat box around a→b. */
-function gather(s: Sight, ax: number, az: number, bx: number, bz: number, pad: number): Occluder[] {
+export function gather(s: Sight, ax: number, az: number, bx: number, bz: number, pad: number): Occluder[] {
   _near.length = 0;
   const x0 = Math.min(ax, bx);
   const x1 = Math.max(ax, bx);
