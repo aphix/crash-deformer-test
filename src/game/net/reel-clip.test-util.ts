@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { DeformableCar, FLIGHT } from "../vehicle/car.ts";
+import { DeformableCar } from "../vehicle/car.ts";
+import { FLIGHT } from "../vehicle/car-flight.ts";
 import { assertSameDigest, assertSameNumbers } from "../vehicle/test-support.ts";
 import { INPUT_BYTES, MEMORY, type HighlightClip } from "../match/highlights.ts";
 import { makeCarFrame, makeSnapshot, snapshotMaxBytes, writeSnapshot, Writer } from "./codec.ts";

@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { beginFakeFall, FLIGHT, FLIGHT_EULER, FLIGHT_POSITION, FLIGHT_VELOCITY, type DeformableCar } from "../vehicle/car.ts";
+import { beginFakeFall, type DeformableCar } from "../vehicle/car.ts";
+import { FLIGHT, FLIGHT_EULER, FLIGHT_POSITION, FLIGHT_VELOCITY } from "../vehicle/car-flight.ts";
 import { PART_STATE } from "../vehicle/part-state.ts";
 import { EXIT_PANES } from "../vehicle/car-core.ts";
 import { applyDrive, BRAKE_STEPS, idleDrive, THROTTLE_STEPS, type DriveInput } from "../vehicle/car-drive.ts";

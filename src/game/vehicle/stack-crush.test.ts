@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { DeformableCar, FLIGHT } from "./car.ts";
+import { DeformableCar } from "./car.ts";
+import { FLIGHT } from "./car-flight.ts";
 import { paint } from "./test-support.ts";
 import { makeWorld, tickWorld, type CrashWorld } from "../contact/crash-scenarios.test-util.ts";
 import { FACE_LEFT, FACE_NOSE, FACE_RIGHT, FACE_TAIL, FACE_TOP, faceMax, faceStrength } from "../deform/load-crush.ts";

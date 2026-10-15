@@ -1,4 +1,4 @@
-import { FLIGHT } from "../vehicle/car.ts";
+import { FLIGHT } from "../vehicle/car-flight.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
 import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
 import { INPUT_BYTES, MAX_HITS, MAX_KNOCKS, MAX_PART_STIRS, MAX_STIRS, MEMORY, simFingerprint, type ClipEjection, type ClipHit, type ClipKnock, type ClipPartStir, type ClipStir, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
@@ -145,9 +145,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 84: a clip lists the sleeping torn parts and popped wheels woken by something that moves coming near them (`ClipPartStir`: runs of slices), and a replay wakes each at those slices:
  * a part beside the road that a racer the clip leaves out drove past stepped and settled in the record and lay still in the replay, so its pose differed after it. A saved clip's
  * layout gains a count and the part stirs after the stirs, so a clip of 83 or before does not decode.
+ * 85: a keyframe's flight block carries whether the car's engine runs, and a car whose engine a guard's gunfire killed (the National Mall's
+ * White House lawn, `LawnGuard`) is keyed in that step, so a replayed car shot dead stops where it did; and a side street's straight run
+ * is stamped into the ground as one segment, so road-edge cells of the National Mall's ground and 16 of Havana's take the other street's surface.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 84;
+const REPLAY_VERSION = 85;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

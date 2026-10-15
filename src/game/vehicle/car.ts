@@ -6,6 +6,7 @@ import { activeGround } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S } from "./car-core.ts";
 import { COM_Y, REST_SPEED } from "./car-air-body.ts";
+import { FLIGHT_BORNE, FLIGHT_CONTACT, FLIGHT_DOWN, FLIGHT_DRIFT, FLIGHT_END_AGO, FLIGHT_END_REACH, FLIGHT_END_SQUEEZE, FLIGHT_ENGINE, FLIGHT_EULER, FLIGHT_INV_YAW, FLIGHT_POSITION, FLIGHT_QUATERNION, FLIGHT_RAMPS, FLIGHT_REST, FLIGHT_STALL, FLIGHT_VELOCITY } from "./car-flight.ts";
 import { readContact } from "./car-air-points.ts";
 import { stepFree, wreckCentre, wreckInvI } from "./car-air.ts";
 import { bodyLift, Suspension, UPRIGHT_UP_Y } from "./car-suspension.ts";
@@ -28,23 +29,7 @@ const _v = new THREE.Vector3();
 const _in = new THREE.Vector3();
 const _zero = new THREE.Vector3();
 const _wantQuaternion = new THREE.Quaternion();
-/** Where a `DeformableCar.flight` block holds each part: spin (3), pitch, yaw, roll (3), orientation quaternion (4), velocity (3), position (3), contact-end clocks (2), reach, squeeze flag, drift, the seconds the engine stays cut (`stalledS`), the weight borne on it by cars that stepped after it (6: `CarSurfaces.borneState`), what its wheels touch (`FLIGHT_CONTACT`: each wheel's contact, the wheels down, airborne, hard touch, yielding), a wreck's hub rise (`hubRise`, 5), its yaw inverse inertia (`invYaw`) and its rest timer (`restS`: at `WRECK_REST_S` it sleeps), the handbrake's grip and whether the boost was on (`drive.ebrakeK`, `drive.boostK`). */
-export const FLIGHT_EULER = 3;
-const FLIGHT_QUATERNION = 6;
-export const FLIGHT_VELOCITY = 10;
-export const FLIGHT_POSITION = 13;
-const FLIGHT_END_AGO = 16;
-const FLIGHT_END_REACH = 18;
-const FLIGHT_END_SQUEEZE = 19;
-const FLIGHT_DRIFT = 20;
-const FLIGHT_STALL = 21;
-const FLIGHT_BORNE = 22;
-const FLIGHT_CONTACT = 28;
-const FLIGHT_DOWN = FLIGHT_CONTACT + 4 * HIT_SIZE;
-const FLIGHT_INV_YAW = FLIGHT_DOWN + 4;
-const FLIGHT_REST = FLIGHT_INV_YAW + 1;
-const FLIGHT_RAMPS = FLIGHT_REST + 1;
-export const FLIGHT = FLIGHT_RAMPS + 2;
+
 /** A wreck rests this long (s) before it sleeps: a toppling pile pauses on the way over, and a monster settling on a bank creeps to its pose for most of a second after it first slows under `REST_SPEED`. */
 const WRECK_REST_S = 1;
 /** Each wheel's contact standing on level road, as built and at a spawn (`resetContact`): no lift, the normal up, full grip, the world's. */
@@ -147,6 +132,15 @@ export class DeformableCar extends CarParts {
   spawnFacing(x: number, z: number, yaw: number, speed: number, keepTorn = false): void {
     this.resetVisual(keepTorn);
     this.placeAt(x, z, yaw, speed, this.fwdFlat);
+  }
+
+  /**
+   * The engine dies from outside the crash sim (a guard's gunfire, `LawnGuard`): no hit the replay re-runs killed it, so the step
+   * counts as one the car was put on a spot in (`placements`), and the recorder keys it with the flight block's dead engine.
+   */
+  disable(): void {
+    this.deform.drivetrainAlive = false;
+    this.placements++;
   }
 
   /** Upright at (x, z) facing `yaw`, moving at `speed` along `dir` (`forward` or `fwdFlat`, read after the basis refresh). */
@@ -330,6 +324,7 @@ export class DeformableCar extends CarParts {
       this.restoreContact();
       this.contact(buf, o, true);
       this.invYaw = buf[o + FLIGHT_INV_YAW]!;
+      this.deform.drivetrainAlive = buf[o + FLIGHT_ENGINE] !== 0;
       this.restS = buf[o + FLIGHT_REST]!;
       if (this.restS >= WRECK_REST_S) {
         this.asleep = true;
@@ -357,6 +352,7 @@ export class DeformableCar extends CarParts {
     buf[o + FLIGHT_REST] = this.restS;
     buf[o + FLIGHT_RAMPS] = this.drive.ebrakeK;
     buf[o + FLIGHT_RAMPS + 1] = this.drive.boostK;
+    buf[o + FLIGHT_ENGINE] = this.deform.drivetrainAlive ? 1 : 0;
   }
 
   /**

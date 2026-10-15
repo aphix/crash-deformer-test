@@ -1,5 +1,6 @@
 import { hypot3 } from "../kernel/physics-core.js";
-import { FLIGHT, type DeformableCar } from "../vehicle/car.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
+import { FLIGHT } from "../vehicle/car-flight.ts";
 import { LOOSE_BODIES, PART_STATE } from "../vehicle/part-state.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import type { Ejection } from "../vehicle/ejection.ts";

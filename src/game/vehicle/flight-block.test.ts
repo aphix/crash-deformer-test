@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { applyDrive, idleDrive, type DriveInput } from "./car-drive.ts";
-import { FLIGHT, type DeformableCar } from "./car.ts";
+import type { DeformableCar } from "./car.ts";
+import { FLIGHT } from "./car-flight.ts";
 import { makeCar } from "./ground-probe.test-util.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 
