@@ -59,3 +59,31 @@ describe("given a National Mall race, its player's car parked on the White House
     assert.equal(rec(PLAYER).deaths, 1, "one wreck");
   });
 });
+
+/** What the owner typed the Konami code into: nothing here draws the flash, so nothing is touched. */
+const overlay = { appendChild: <T extends Node>(node: T): T => node };
+
+describe("given a National Mall race in which the Konami code was typed and the player's car sits on the White House's North Lawn", () => {
+  it("when the race is restarted, then the guards are back on duty (the car's engine dies on the lawn again) and the secret can be brought out again", () => {
+    const r = w.race;
+    r.command({ type: "options", options: { trackId: TRACK_ID.nationalMall, laps: 3, aiCount: 1, noReset: false } });
+    r.reseed(3);
+    r.command({ type: "start" });
+    const state = { acc: 0 };
+    const toLawn = (): void => {
+      for (let n = 0; n < 60 * 12 && r.phase !== "racing"; n++) tick(state);
+      w.cars[PLAYER]!.spawnFacing(NORTH_LAWN.x, NORTH_LAWN.z, 0, 0);
+    };
+    toLawn();
+    assert.equal(r.revealSecret(overlay), true, "the code brings the secret out");
+    assert.equal(r.revealSecret(overlay), false, "once");
+    for (let n = 0; n < 60 * 12; n++) tick(state);
+    assert.ok(w.cars[PLAYER]!.deform.drivetrainAlive, "the guards stand down: the car sits on the lawn untouched");
+
+    r.command({ type: "retry" });
+    toLawn();
+    for (let n = 0; n < 60 * 12 && w.cars[PLAYER]!.deform.drivetrainAlive; n++) tick(state);
+    assert.ok(!w.cars[PLAYER]!.deform.drivetrainAlive, "the guards fire on the restarted race's lawn");
+    assert.equal(r.revealSecret(overlay), true, "the code works again");
+  });
+});

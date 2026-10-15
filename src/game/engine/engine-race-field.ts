@@ -187,6 +187,8 @@ export abstract class RaceField {
   private readonly tracks = new Map<string, Track>();
   protected track: Track | null = null;
   protected art: TrackArt | null = null;
+  /** The Konami code has been typed on this course (`RaceDirector.revealSecret`): its secret sky is out, its VIP walks, its guards stand down. */
+  protected secretOut = false;
   private placed: Placed[] = [];
   protected colliders: PropCollider[] = [];
   /** The course's walls, piece by piece (`wallColliders`), and its walls and props as one surface of prisms (`solidsOf`): what a car meets. */
@@ -500,12 +502,8 @@ export abstract class RaceField {
     return tr;
   }
 
-  /** The course's secret sky picture comes out (`TrackArt.reveal`, the Konami code): false when it has none, or it is out already. */
-  revealSecret(over: HTMLElement): boolean {
-    return this.art?.reveal(over) ?? false;
-  }
-
   protected unload(): void {
+    this.secretOut = false;
     this.host.setTimeOfDay(null);
     if (this.art) {
       this.host.scene.remove(this.art.group);

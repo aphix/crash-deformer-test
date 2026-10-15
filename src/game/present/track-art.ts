@@ -51,8 +51,10 @@ export class TrackArt {
   private readonly stage: Pick<WorldStage, "look">;
   /** The picture on the course's sky (`environment.backdrop`), if it has one. */
   private readonly backdrop: THREE.Mesh | null;
-  /** The course's secret is out (`reveal`): its VIP comes out instead of its guards. */
-  secretOut = false;
+  /** The running secret flash's stop (`reveal`), null when none runs. */
+  private cancelFlash: (() => void) | null = null;
+  /** The course's sky picture is a secret (`environment.backdrop.secret`): hidden until `reveal`. */
+  private readonly secretSky: boolean;
   /** A guarded course's guards and VIP (`TrackJson.guards`), none on a course without. */
   readonly grounds: GroundsArt | null;
 
@@ -63,9 +65,9 @@ export class TrackArt {
     stage.look(track.json.environment.light ?? null, track.json.environment.sky);
     const sky = track.json.environment.backdrop;
     this.backdrop = sky ? backdropMesh(sky) : null;
+    this.secretSky = sky?.secret ?? false;
     if (this.backdrop) {
-      // A secret picture waits for `reveal`.
-      this.backdrop.visible = !sky!.secret;
+      this.backdrop.visible = !this.secretSky;
       this.group.add(this.backdrop);
     }
     const ground = track.ground();
@@ -183,13 +185,18 @@ export class TrackArt {
     );
   }
 
-  /** The course's secret sky picture, if it has one still hidden: a slow flash over `over`, and at its height the picture stands. False: nothing to reveal. */
-  reveal(over: HTMLElement): boolean {
+  /** The Konami code on a course with a secret sky picture: a slow flash over `over`, and at its height the picture stands. */
+  reveal(over: Pick<HTMLElement, "appendChild">): void {
     const b = this.backdrop;
-    if (!b || b.visible) return false;
-    this.secretOut = true;
-    nukeFlash(over, () => void (b.visible = true));
-    return true;
+    if (!b) return;
+    this.cancelFlash = nukeFlash(over, () => void (b.visible = true));
+  }
+
+  /** The secret sky picture back out of sight (and any flash still running gone), as before the code. */
+  resetSecret(): void {
+    this.cancelFlash?.();
+    this.cancelFlash = null;
+    if (this.backdrop) this.backdrop.visible = !this.secretSky;
   }
 
   /** Start gantry: 0 off, 1 red, 2 yellow, 3 green. Cheap to call every frame (no-op when unchanged). */
@@ -206,6 +213,7 @@ export class TrackArt {
   }
 
   dispose(): void {
+    this.cancelFlash?.();
     this.stage.look(null);
     this.grounds?.dispose();
     if (this.backdrop) {

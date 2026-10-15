@@ -9,7 +9,7 @@ import { TRACKS } from "../world/tracks/index.ts";
 import { TRACK_ID } from "../world/constants.ts";
 import type { DriverLook } from "./driver-look.ts";
 import { GroundsArt } from "./grounds-art.ts";
-import { GuardSquad, People, VipEscort } from "./people.ts";
+import { GuardSquad, People, VipEscort, nukeFlash } from "./people.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 
 /** Once the Konami code is in, a man in a suit walks out of the White House to the car, rides with the player and is thrown out with the driver when it crashes. */
@@ -115,5 +115,33 @@ describe("given the VIP riding with the squad inside", () => {
     const drawn = art["people"].group.children.find((c): c is DummyMesh => c instanceof DummyMesh)!;
     const slots = spec.count + 1;
     assert.equal(drawn.count, drawn.instanceMatrix.count / slots, "the draw ends after slot 0");
+  });
+
+  it("when the next race starts (`GroundsArt.reset`), then he is back inside: no figure is drawn and, the secret in again, he does not come out", () => {
+    const art = new GroundsArt(spec, ground, new THREE.Group());
+    const car = makeCar();
+    launch(car, NORTH_LAWN.x, NORTH_LAWN.z, 0, 0, 0);
+    const host = { sparks: () => {}, throwPassenger: () => {} };
+    for (let t = 0; t < 40; t += FRAME) art.frame(FRAME, null, true, [car], 0, host);
+    const drawn = art["people"].group.children.find((c): c is DummyMesh => c instanceof DummyMesh)!;
+    assert.equal(drawn.count, drawn.instanceMatrix.count / (spec.count + 1), "riding: his one figure is drawn");
+    art.reset();
+    for (let t = 0; t < 40; t += FRAME) art.frame(FRAME, null, false, [car], 0, host);
+    assert.equal(drawn.count, 0, "nobody drawn");
+  });
+});
+
+describe("given the secret's flash over a view", () => {
+  it("when it is stopped before its peak, then the glare is gone at once and the sky picture never comes out", (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    const glare = { style: { cssText: "" }, removed: false, cancelled: false, remove: () => void (glare.removed = true), animate: () => ({ cancel: () => void (glare.cancelled = true) }) };
+    Object.defineProperty(globalThis, "document", { value: { createElement: () => glare }, configurable: true });
+    t.after(() => void Reflect.deleteProperty(globalThis, "document"));
+    let peaked = false;
+    const stop = nukeFlash({ appendChild: (node) => node }, () => void (peaked = true));
+    stop();
+    t.mock.timers.tick(10_000);
+    assert.equal(peaked, false, "the picture's moment never comes");
+    assert.ok(glare.removed && glare.cancelled, "the glare is taken down");
   });
 });

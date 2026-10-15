@@ -535,9 +535,9 @@ export function passengerThrow(car: DeformableCar, at: THREE.Vector3): void {
 /**
  * The secret's flash (`TrackArt.reveal`): a white-gold glare over the whole view that swells slowly, holds, and fades out over a few
  * seconds, `atPeak` running at its height (where the mushroom cloud appears). A DOM layer over the canvas, so it lights the HUD too
- * and needs no pass of the renderer's.
+ * and needs no pass of the renderer's. Returns its stop: the glare gone at once and `atPeak` never run if it has not yet.
  */
-export function nukeFlash(over: HTMLElement, atPeak: () => void): void {
+export function nukeFlash(over: Pick<HTMLElement, "appendChild">, atPeak: () => void): () => void {
   const glare = document.createElement("div");
   glare.style.cssText =
     "position:absolute;inset:0;pointer-events:none;z-index:50;opacity:0;" +
@@ -554,6 +554,11 @@ export function nukeFlash(over: HTMLElement, atPeak: () => void): void {
     ],
     { duration: total, fill: "forwards" },
   );
-  setTimeout(atPeak, rise);
+  const peak = setTimeout(atPeak, rise);
   run.onfinish = () => glare.remove();
+  return () => {
+    clearTimeout(peak);
+    run.cancel();
+    glare.remove();
+  };
 }

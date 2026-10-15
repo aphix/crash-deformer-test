@@ -65,7 +65,7 @@ export class RaceDirector extends RaceHudLayer {
     }
   }
 
-  /** A run starts: the course's guards (made once per course) back inside on a fresh seed, standing down while its secret is out. */
+  /** A run starts: the course's guards (made once per course) back inside on a fresh seed, and its secret back in. */
   private armGuard(): void {
     const tr = this.track;
     if (tr !== this.guardOn) {
@@ -73,14 +73,23 @@ export class RaceDirector extends RaceHudLayer {
       this.guard = tr?.json.guards ? new LawnGuard(tr.json.guards, MAX_CARS) : null;
     }
     this.guard?.reset(this.seed);
-    if (this.guard) this.guard.standDown = this.art?.secretOut ?? false;
+    this.stowSecret();
+  }
+
+  /** The course's secret goes back in: no flash, no sky picture, no VIP out, the guards on duty again. */
+  private stowSecret(): void {
+    this.secretOut = false;
+    if (this.guard) this.guard.standDown = false;
+    this.art?.resetSecret();
     this.art?.grounds?.reset();
   }
 
-  /** The course's secret comes out (`RaceField.revealSecret`): its guards stand down, its VIP comes out for the player instead. */
-  override revealSecret(over: HTMLElement): boolean {
-    if (!super.revealSecret(over)) return false;
+  /** The Konami code: a course with a secret sky picture brings it out (a slow flash, then the picture): its guards stand down, its VIP comes out for the player instead. False: no secret, or it is out already. */
+  revealSecret(over: Pick<HTMLElement, "appendChild">): boolean {
+    if (this.secretOut || !this.track?.json.environment.backdrop?.secret) return false;
+    this.secretOut = true;
     if (this.guard) this.guard.standDown = true;
+    this.art?.reveal(over);
     return true;
   }
 
@@ -437,6 +446,7 @@ export class RaceDirector extends RaceHudLayer {
     // A Survival run the host has just ended: the same result card the host reads.
     if (this.survival && snap.phase === "finished" && prev?.phase !== "finished") this.settle(this.session);
     if (!fresh) return;
+    this.stowSecret();
     this.menu = null;
     this.overFor = 0;
     this.spectating = !seated;
@@ -666,7 +676,7 @@ export class RaceDirector extends RaceHudLayer {
     if (this.art) this.art.setLights(s ? s.lights : 0);
     if (this.art?.grounds) {
       const player = s && this.entrants[this.self]?.kind === "player" ? this.self : -1;
-      this.art.grounds.frame(wallDt, this.mirrored ? null : this.guard, this.art.secretOut, this.host.live(), player, this.grounds);
+      this.art.grounds.frame(wallDt, this.mirrored ? null : this.guard, this.secretOut, this.host.live(), player, this.grounds);
     }
     if (s && s.phase === "finished" && (this.menu == null || this.menu === "dead")) {
       this.overFor += wallDt;
