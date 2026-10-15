@@ -6,6 +6,16 @@ import { assertSameDigest } from "../vehicle/test-support.ts";
 // docs/CONTACT_PARITY.md: one hit, two deliveries (scene rig vs other cars), same outcome.
 const CAR_KG = 858;
 
+/** `run` called once per distinct arguments: a case compares one deterministic run against several others and reads it each time. */
+function cached<A extends (string | number | boolean)[], T>(run: (...args: A) => T): (...args: A) => T {
+  const seen = new Map<string, T>();
+  return (...args) => {
+    const key = args.join("/");
+    if (!seen.has(key)) seen.set(key, run(...args));
+    return seen.get(key)!;
+  };
+}
+
 function sameParts(x: CarState, y: CarState, what: string): void {
   assertSameDigest(x.detached, y.detached, `${what}: parts off car [${x.detached}] vs rig [${y.detached}]`);
   assert.ok(Math.abs(x.doorDeg - y.doorDeg) <= 3, `${what}: door ${x.doorDeg.toFixed(1)}° vs ${y.doorDeg.toFixed(1)}°`);
@@ -147,14 +157,15 @@ describe("given every door scene (mirror, overOpen, shut, panelPush, panelPull) 
           const forms = kg === CAR_KG ? DOOR_FORMS : DOOR_FORMS.slice(0, 2);
           const todo = scenario === "shut" && kph === 12 && kg === CAR_KG ? "after the plan: find why the car as the ram folds the shut door's mirror 0.6 deg with no tyre grip (bound 0.5 deg) and 0.8 deg with grip (bound tyre term 0.0 + 0.5 deg) at 12 km/h, left and right; the carStrikes and reversingCar forms only" : false;
           it(`when the ${scenario} hit runs on the ${side < 0 ? "left" : "right"} side at ${kph} km/h with a ${kg} kg striker (${forms.length} forms), then every form breaks off the same parts and leaves the door, latch, mirror, drivetrain and crush as the ram-moves form does, to ${TIGHT.crushMm} mm and ${TIGHT.doorDeg}° with no tyre grip and to that plus the tyres' own effect with grip`, { todo }, (t) => {
-            const reference = doorHit("ramMoves", scenario, kph, kg, true, side);
-            const referenceFree = doorHit("ramMoves", scenario, kph, kg, false, side);
-            const tyre = doorGap(doorHit("carMoves", scenario, kph, kg, false, side), doorHit("carMoves", scenario, kph, kg, true, side));
+            const hit = cached((form: (typeof DOOR_FORMS)[number], grip: boolean) => doorHit(form, scenario, kph, kg, grip, side));
+            const reference = hit("ramMoves", true);
+            const referenceFree = hit("ramMoves", false);
+            const tyre = doorGap(hit("carMoves", false), hit("carMoves", true));
             const failures: string[] = [];
             const rows = [`tyre term (car-moves form, grip vs none): ${gapLine(tyre)}`];
             for (const form of forms.slice(1)) {
-              const free = doorGap(referenceFree, doorHit(form, scenario, kph, kg, false, side));
-              const gripped = doorGap(reference, doorHit(form, scenario, kph, kg, true, side));
+              const free = doorGap(referenceFree, hit(form, false));
+              const gripped = doorGap(reference, hit(form, true));
               rows.push(`${form}: no grip ${gapLine(free)} | grip ${gapLine(gripped)}`);
               if (!free.parts) failures.push(`${form} without grip: parts, latch or drivetrain differ`);
               if (!gripped.parts) failures.push(`${form} with grip: parts, latch or drivetrain differ`);
@@ -187,10 +198,10 @@ describe("given the same hit on the nose, tail and right side of a parked car de
     for (const kph of [10, 30]) {
       it(`when a ${CAR_KG} kg striker hits the ${at} at ${kph} km/h, then the struck car's parts and crush are the same whichever of the four runs it is, to ${TIGHT.crushMm} mm with no tyre grip and to that plus the tyres' own effect with grip`, { todo: SWAPPED_TODO[`${at} ${kph}`] }, (t) => {
         const runs = {
-          pistonMoves: (grip: boolean) => onGround(grip, () => pistonStrike(at, kph, CAR_KG, 0.5)),
-          carMovesIntoPiston: (grip: boolean) => onGround(grip, () => pistonStrike(at, kph, CAR_KG, 0.5, undefined, true)),
-          strikerCarMoves: (grip: boolean) => onGround(grip, () => carStrike(at, kph).a),
-          struckCarMoves: (grip: boolean) => onGround(grip, () => carStrike(at, kph, undefined, true).a),
+          pistonMoves: cached((grip: boolean) => onGround(grip, () => pistonStrike(at, kph, CAR_KG, 0.5))),
+          carMovesIntoPiston: cached((grip: boolean) => onGround(grip, () => pistonStrike(at, kph, CAR_KG, 0.5, undefined, true))),
+          strikerCarMoves: cached((grip: boolean) => onGround(grip, () => carStrike(at, kph).a)),
+          struckCarMoves: cached((grip: boolean) => onGround(grip, () => carStrike(at, kph, undefined, true).a)),
         };
         const reference = runs.pistonMoves(true);
         const tyre = doorGap(reference, runs.pistonMoves(false));

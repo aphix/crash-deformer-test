@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
 import { paint } from "../vehicle/test-support.ts";
-import { makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
-import { placeDrop, StackRig, stackLoads } from "./stack-rig.ts";
+import { makeWorld } from "../contact/crash-scenarios.test-util.ts";
+import { LEAD_S, StackRig, stackLoads } from "./stack-rig.ts";
+import { runStack } from "./stack-run.test-util.ts";
 
 /**
  * The bottom roof's reading with a car more is higher by more than the 4-stack's own spread across frame rates: docs/LOAD_CRUSH.md reads the same
@@ -25,19 +26,15 @@ describe("given the stack scene dropping cars one at a time at its defaults", ()
     const w = makeWorld(cars, false, false);
     const bottom: number[] = [];
     const load: number[] = [];
-    let done = false;
-    for (let f = 0; f < 60 * 60 && !done; f++) {
-      const act = rig.step(f / 60);
-      if (act === "loop") done = true;
-      else if (act === "drop") {
+    const loopAt = LEAD_S + (rig.config.cars - 1) * rig.config.gap;
+    runStack(cars, rig, w, loopAt, {
+      before: () => {
         const r = stackLoads(cars, rig.dropped - 1);
         bottom.push(r.crushMm[0]!);
         load.push(r.loadKn[0]!);
-        placeDrop(cars, rig.dropped - 1, rig.config.drop);
-      }
-      tickWorld(w, 1 / 60);
-    }
-    assert.ok(done, "the finished stack never settled into its loop restart");
+      },
+    });
+    assert.equal(rig.step(loopAt), "loop", "the finished stack never settled into its loop restart");
     const end = stackLoads(cars, rig.dropped);
     bottom.push(end.crushMm[0]!);
     load.push(end.loadKn[0]!);

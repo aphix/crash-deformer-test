@@ -32,7 +32,7 @@ export const STACK_RANGES = {
 } as const;
 
 /** Seconds from the scene's start to the first drop: the empty base car shows first. */
-const LEAD_S = 1;
+export const LEAD_S = 1;
 const G = 9.81;
 /** The stock keel's height (m) over the origin, for the camera's framing of a tower. */
 const STOCK_KEEL_Y = 0.13;

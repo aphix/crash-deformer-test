@@ -9,15 +9,13 @@ import { fleetClass, fleetStyle, slotType, type CarType } from "./fleet.ts";
 import { armKill, assignClass, carClass, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { placeDrop, StackRig, stackLoads, type StackConfig } from "./stack-rig.ts";
+import { runStack } from "./stack-run.test-util.ts";
 
 /** Which cars the column is made of: one sedan body, the fleet's slot order (police base) with or without its monster truck. */
 type Bodies = "sedans" | "fleet" | "fleet without the monster" | { selected: CarType };
 
-/**
- * The Stack scene's column, headless: the cars `buildCar` + `dressCar` make, dropped one at a time through `StackRig` and
- * `placeDrop` in the engine's own world step, `seconds` of sim time; `each` after every frame.
- */
-function column(config: StackConfig, bodies: Bodies, seconds: number, each?: (cars: DeformableCar[]) => void): { cars: DeformableCar[]; rig: StackRig } {
+/** The Stack scene's cars (`buildCar` + `dressCar`), the base car on the pad and the rest parked off it until the rig drops them, and its rig at `config`. */
+function makeColumn(config: StackConfig, bodies: Bodies): { cars: DeformableCar[]; rig: StackRig } {
   HANDLING.realism = 0.25;
   const scene = new THREE.Scene();
   const cars = Array.from({ length: config.cars }, (_, i) => {
@@ -38,12 +36,13 @@ function column(config: StackConfig, bodies: Bodies, seconds: number, each?: (ca
   });
   const rig = new StackRig();
   rig.config = { ...config };
-  const w = makeWorld(cars, false, false);
-  for (let f = 0; f < seconds * 60; f++) {
-    if (rig.step(f / 60) === "drop") placeDrop(cars, rig.dropped - 1, rig.config.drop);
-    tickWorld(w, 1 / 60);
-    each?.(cars);
-  }
+  return { cars, rig };
+}
+
+/** The column, headless: `makeColumn`'s cars dropped one at a time through `StackRig` and `placeDrop` in the engine's own world step, `seconds` of sim time; `each` after every frame. */
+function column(config: StackConfig, bodies: Bodies, seconds: number, each?: (cars: DeformableCar[]) => void): { cars: DeformableCar[]; rig: StackRig } {
+  const { cars, rig } = makeColumn(config, bodies);
+  runStack(cars, rig, makeWorld(cars, false, false), seconds, { each: () => each?.(cars) });
   return { cars, rig };
 }
 
@@ -92,10 +91,11 @@ describe("given the owner's drops (11 cars, 0.15 m, one a second), run for 8 s a
       : "after the plan: find why the fleet column without the monster collapses; a car leaves it by 5.69 m (bar 0.1 m): cars 0-7 end on the ground, car 1 5.69 m and car 0 4.43 m off the axis by 19 s. Mechanism (11 cars, police base): car 1 lands at 1.7 m/s on the drawn lightbar, rolls 9° and its tilted sill (4-9 cm under its pan) overlaps the base's shoulder by 0.07 m, over `VERTICAL_CLEAR` (0.05 m), so the plan SAT reads a level side hit (closing 0.36 m/s) and wakes car 0's masses, which read the ground alone (`sampleGround`), so car 1 falls through it. Tried and withdrawn: a wider clear (0.25 m, the store's reach `SKIN`) for a pair whose upper belly is within `SKIN` of the lower top holds the column to 0.49 m, but it also drops the plan hit of a car sliding off a roof it was thrown onto (engine-lab 'thrown at its top car at 10 m/s': 1.8 m/s relative) and of a car landing on a roof at 1.3-1.5 m/s (the mixed fleet's -12 m/s read); a relative-speed gate cannot separate them (the column's own landing is 1.0-1.2 m/s). The one law needed: a car standing on a roof is the surface store's, and a landing or a slide is the plan's, decided by what holds the car, not by a speed";
     it(`when the column is made of ${bodies}, then no car leaves it by 0.1 m or more, it ends within 5 cm of its axis leaning under 3°, every car reads a load, and the roof sink never grows toward the top, from over 300 mm at the bottom to under 5 mm at the top`, { todo }, () => {
       let worst = 0;
+      // The first frame a car is 0.1 m off the column ends the run: nothing later can bring it back under the bar.
       const { cars, rig } = column(OWNER, bodies, OWNER_S, (cs) => {
         worst = Math.max(worst, spread(cs).off);
+        assert.ok(worst < 0.1, `a car left the column by ${worst.toFixed(2)} m on the way`);
       });
-      assert.ok(worst < 0.1, `a car left the column by ${worst.toFixed(2)} m on the way`);
       const { off, lean } = spread(cars);
       assert.ok(off < 0.05 && lean < 3, `the column ends ${off.toFixed(2)} m off its axis, leaning ${lean.toFixed(1)}°`);
       // Read the way the Stack panel reads it: every car still carries its load, the roof sink grows toward the bottom.
@@ -161,7 +161,9 @@ describe("given the owner's drops (11 cars, 0.15 m, one a second) of the mixed f
 describe("given the player picked a car type in the settings", () => {
   for (const type of DRIVER_CARS) {
     it(`when the 4-car stack has dropped every car and the pick is ${type.label}, then every car in the stack is a ${type.label}`, () => {
-      const { cars, rig } = column({ cars: 4, drop: 0.02, gap: 1 }, { selected: type }, 1 + 3 + 1);
+      // Which car each drop is does not depend on the physics: the rig's clock is stepped through its four drops with nothing simulated.
+      const { cars, rig } = makeColumn({ cars: 4, drop: 0.02, gap: 1 }, { selected: type });
+      for (let f = 0; f < (1 + 3 + 1) * 60; f++) if (rig.step(f / 60) === "drop") placeDrop(cars, rig.dropped - 1, rig.config.drop);
       assert.equal(rig.dropped, 4, "every car has dropped");
       for (const [i, c] of cars.entries()) {
         assert.equal(c.style.id, type.style, `car ${i} body`);
