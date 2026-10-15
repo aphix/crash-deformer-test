@@ -8,12 +8,13 @@ import { newWorld, stepWorld } from "../engine/world-step.ts";
 
 /**
  * Every field of a deform as plain data, nested and typed arrays included; −0, NaN and ±Infinity kept apart. The G / P
- * debug views (`helper`, `particleHelper`) are scene objects the view owns, not the deform's state.
+ * debug views (`helper`, `particleHelper`) are scene objects the view owns, and `kernelIn` / `kernelSet` are the WASM skin's
+ * scratch and its style's placed tables (both built on the first skin, the scratch rewritten by each), not the deform's state.
  */
 function fields(d: object): unknown {
   const num = (x: unknown) => (typeof x === "number" && (Object.is(x, -0) || !Number.isFinite(x)) ? String(Object.is(x, -0) ? "-0" : x) : x);
   const plain = (k: string, v: unknown) =>
-    k === "helper" || k === "particleHelper" ? undefined : ArrayBuffer.isView(v) ? Array.from(v as Float64Array, num) : v instanceof Map ? [...v] : num(v);
+    k === "helper" || k === "particleHelper" || k === "kernelIn" || k === "kernelSet" ? undefined : ArrayBuffer.isView(v) ? Array.from(v as Float64Array, num) : v instanceof Map ? [...v] : num(v);
   return JSON.parse(JSON.stringify(d, plain));
 }
 
