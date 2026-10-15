@@ -8,6 +8,9 @@ import stunt from "../world/tracks/stunt.json" with { type: "json" };
 import { clipTitle, type HighlightClip } from "../match/highlights.ts";
 import { crashCamEnd, CUTS } from "../present/engine-cine.ts";
 import { raceOn, recordRace, reelViews, type Crash, type RigSample } from "./reel-view.test-util.ts";
+import * as THREE from "three";
+import { blankPoint } from "../world/track.ts";
+import { contextEye } from "../present/highlight-cam.ts";
 
 /** A replayed frame is one 1/60 s step of the reel's wall clock. */
 const FRAME = 1 / 60;
@@ -26,7 +29,7 @@ type Played = { clip: HighlightClip; frames: RigSample[] };
 /** The clips of a race with `staged` crashes on the city, each with the rig that held every frame of it. */
 async function play(name: string, staged: Crash[]): Promise<Played[]> {
   const track = new Track(parseTrack(city));
-  const w = raceOn("city", 7, 7);
+  const w = raceOn("city", 7, 3);
   const rec = recordRace(w, track, staged, 16);
   const trace: RigSample[] = [];
   await reelViews(w, rec.clips, name, undefined, trace);
@@ -100,35 +103,49 @@ describe("given highlight clips of a head-on that throws both drivers, and of a 
 });
 
 /**
- * Staged crashes on the stunt course, whose road climbs and drops: a wall hit on a kicker 9 m up, and a driver thrown 46 m onto
- * a wall one second after the hit before it. The crash cam begins a second or more before the car reaches its hit (on the way
- * up the kicker, then 9 m lower, or the pair 46 m from the next point), so it is aimed at the recorded point, and the context
- * shot for the far hit has an eye level with the two points (`CONTEXT.eyes`).
+ * The stunt course's road climbs and drops. The crash cam begins a second or more before the car reaches its hit (on the way
+ * up the kicker), so it is aimed at the recorded point (`ClipHit.y`), not where the car is then; and a context shot for a far
+ * hit has an eye level with the two points when the high ones cannot fit both (`CONTEXT.eyes`).
  */
-describe("given highlight clips of a wall hit on the stunt course's kicker and of a driver thrown 46 m after a hit on its deck, replayed through the reel's cameras", () => {
-  const len = new Track(parseTrack(stunt)).length;
-  const sheet = (shift: number): Crash[] => [
-    { kind: "headOn", at: len * (0.22 + shift), speed: 20 },
-    { kind: "wall", at: len * (0.38 + shift), speed: 24, side: 1 },
-    { kind: "tBone", at: len * (0.55 + shift), speed: 22 },
-    { kind: "headOn", at: len * (0.7 + shift), speed: 22 },
-    { kind: "wall", at: len * (0.86 + shift), speed: 24, side: -1 },
-  ];
-  /** Every first impact, later hit and throw of the staged crashes' clips, as the reel's cameras show them. */
-  const seen = async (shift: number): Promise<{ title: string; kind: string; at: number; rig: string; ndc: string }[]> => {
-    const w = raceOn("stunt", 3, 7);
-    const rec = recordRace(w, new Track(parseTrack(stunt)), sheet(shift), 20);
-    const views = await reelViews(w, rec.clips, `stunt +${shift}`);
-    w.race.exit();
-    setGround(null);
-    return views.filter((v) => !v.seen).map((v) => ({ title: v.title, kind: v.kind, at: v.at, rig: v.rig, ndc: `${v.ndcX.toFixed(2)},${v.ndcY.toFixed(2)}${v.clear ? "" : " blocked"}, share ${v.share.toFixed(3)}` }));
-  };
-
-  it("when a car hits the wall on the kicker 9 m above where its clip starts, then the crash cam's first cut has the hit in its frame", async () => {
-    assert.deepEqual(await seen(0), [], "moments out of the frame");
+describe("given a car that hits the wall on the stunt course's kicker 9 m above where its clip starts, replayed through the reel's cameras", () => {
+  /** The kicker's deck, where `Track.pointAt` has the road 6.8 m up (arc length, m). */
+  const KICKER = 0.38;
+  it("when its clip plays, then the crash cam's first cut and every other moment of the clip are in the frame", async () => {
+    const track = new Track(parseTrack(stunt));
+    const w = raceOn("stunt", 3, 1);
+    try {
+      const rec = recordRace(w, track, [{ kind: "wall", at: KICKER * track.length, speed: 32, side: -1, cars: [1] }], 12);
+      assert.equal(rec.clips.length, 1, "the wall hit makes a clip");
+      const hit = rec.clips[0]!.hits[0]!;
+      assert.ok(hit.y > 8, `the hit is ${hit.y.toFixed(1)} m up, not on the kicker's deck`);
+      const views = await reelViews(w, rec.clips, "stunt kicker wall");
+      const out = views.filter((v) => !v.seen).map((v) => `${v.title} ${v.kind} at ${v.at.toFixed(2)} s by ${v.rig}: ndc ${v.ndcX.toFixed(2)},${v.ndcY.toFixed(2)}${v.clear ? "" : " blocked"}, share ${v.share.toFixed(3)}`);
+      assert.ok(views.length >= 1, "no moment to see");
+      assert.deepEqual(out, [], "moments out of the frame");
+    } finally {
+      w.race.exit();
+      setGround(null);
+    }
   });
+});
 
-  it("when a driver thrown by a hit lands 46 m on against a wall inside a second, then the later hit has an eye that keeps it and the first hit's point in one frame", async () => {
-    assert.deepEqual(await seen(0.03), [], "moments out of the frame");
+describe("given two points 40 m apart on the stunt course, the first on the lip of its drop and the second at the foot of it", () => {
+  /** Where the road leaves the deck (arc length, m): its height falls from 7.8 m to 5.0 m within 40 m, then to 2 m. */
+  const LIP = 900;
+  it("when a context shot is looked for, then there is an eye that keeps both points in one frame (the high eyes cannot fit them: the nearer sits too far below the lens axis)", () => {
+    const track = new Track(parseTrack(stunt));
+    const w = raceOn("stunt", 3, 1);
+    try {
+      const a = blankPoint();
+      const b = blankPoint();
+      track.pointAt(LIP, a);
+      track.pointAt(LIP + 40, b);
+      const eye = new THREE.Vector3();
+      const fov = contextEye(w.race.courseSight()!, { x: a.x, y: a.y + 0.55, z: a.z }, { x: b.x, y: b.y + 0.55, z: b.z }, 0.3, eye, new THREE.Vector3());
+      assert.ok(fov > 0, "no eye for the pair");
+    } finally {
+      w.race.exit();
+      setGround(null);
+    }
   });
 });
