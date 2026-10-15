@@ -24,7 +24,7 @@ const LAND_BOUNCE = 0.28;
 const SPIN_KEPT_PER_S = 0.72;
 /** A box's corners, the first of its points: a box flying free asks them alone until one touches. */
 const BOX_CORNERS = 8;
-/** The speed (m/s, rad/s) under which a part on three points or more is at rest: twice the pull of gravity over the pacer's coarsest slice (1/120 s), the most a slice's gravity leaves it. A slice's own `dt` here put a slide's stop at 0.16 m/s in a 1/120 s slice and 0.053 in a 1/360 s one, so the distance a part slid depended on how the world cut the step. */
+/** The speed (m/s, rad/s) under which a part on three points or more is at rest: twice the pull of gravity over 1/120 s, the number it was tuned at, which is still 1.5 times what the pacer's coarsest slice (1/90 s) lets gravity add (`GRAVITY / 90`). A slice's own `dt` here put a slide's stop at 0.16 m/s in a 1/120 s slice and 0.053 in a 1/360 s one, so the distance a part slid depended on how the world cut the step. */
 const REST_SPEED = (2 * GRAVITY) / 120;
 
 /**
