@@ -11,11 +11,14 @@ export function tyresStep(cars: readonly DeformableCar[], dt: number): void {
   for (const car of cars) if (car.deform.drivetrainAlive) applyDrive(car, NEUTRAL, dt);
 }
 
-/** Fire one shot on a parked car and run it out at 60 Hz the way the engine does (`tyres`: the car in neutral, its tyres on). */
+/**
+ * Fire one shot on a parked car and run it out at 60 Hz the way the engine does (`tyres`: the car in neutral, its tyres on).
+ * `stillWhen`: called once per step; once it says so and the ram has passed (its settle hold has begun) the shot ends there.
+ */
 export function fireRam(
   car: DeformableCar,
   scenario: DoorScenario,
-  opts: { kph: number; kg: number; side?: -1 | 1; length?: number; shape?: DoorRig["shape"]; carMoves?: boolean; tyres?: boolean },
+  opts: { kph: number; kg: number; side?: -1 | 1; length?: number; shape?: DoorRig["shape"]; carMoves?: boolean; tyres?: boolean; stillWhen?: (dt: number) => boolean },
 ): RamShot {
   const rig = new DoorRig();
   rig.attach(car);
@@ -30,6 +33,8 @@ export function fireRam(
     rig.step(dt);
     car.stepBreakage(dt);
     car.updateSkin();
+    const readoutHeld = opts.stillWhen?.(dt) ?? false;
+    if (readoutHeld && rig.phase === "settle") break;
   }
   return rig.result();
 }

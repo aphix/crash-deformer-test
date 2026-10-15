@@ -34,7 +34,7 @@ describe("given the Doors ram lane's three scenes (mirror: the striker grazes a 
   for (const scenario of ["mirror", "overOpen", "shut"] as const) {
     for (const kph of [12, 30]) {
       it(`when a ${CAR_KG} kg car at ${kph} km/h runs the ${scenario} scene instead of the ${CAR_KG} kg ram, then the same parts come off and the door, latch, mirror fold, drivetrain and crush match the ram's`, () => {
-        const car = carDoorPass(scenario, kph).a;
+        const car = carDoorPass(scenario, kph);
         // Same striker geometry: a ram head shaped like the car body on the same lane (the scene's
         // 0.5 m head on the C lane runs under the mirror, a car body does not).
         const ram = ramDoorPass(scenario, kph, CAR_KG, true);

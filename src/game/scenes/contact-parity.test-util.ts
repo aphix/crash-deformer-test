@@ -48,8 +48,20 @@ export type CarState = {
   tailMm: number;
 };
 
+/** Cars built once per (slot, squash) and stood up again by `spawnFacing` (the engine's own scene reset, `resetVisual`) for each run: building one costs about as much as a pass of the hit. A run's cars take distinct slots. */
+const slotCars = new Map<string, DeformableCar>();
+function carAt(slot: number, squash?: number): DeformableCar {
+  const key = `${slot}/${squash}`;
+  let car = slotCars.get(key);
+  if (!car) {
+    car = makeCar("shape", squash);
+    slotCars.set(key, car);
+  }
+  return car;
+}
+
 export function parkCar(squash?: number): DeformableCar {
-  const car = makeCar("shape", squash);
+  const car = carAt(0, squash);
   car.spawnFacing(0, 0, 0, 0);
   return car;
 }
@@ -115,6 +127,35 @@ export function carState(car: DeformableCar, side: -1 | 1 = 1): CarState {
   };
 }
 
+/** The sim's readout of one car as text, so two reads are equal exactly when parts, door, latch, mirror, crush and cabin read the same to the test's own precision. */
+function readoutKey(car: DeformableCar, side: -1 | 1 = 1): string {
+  const s = carState(car, side);
+  return [s.detached.join(), s.doorDeg.toFixed(2), s.latched, s.mirrorFoldDeg.toFixed(2), s.bodyMm, s.cabinMm, s.shortenMm, s.drivetrainAlive, ...Object.values(s.planMm)].join("|");
+}
+
+/** Sampling interval (s) of `stillWatch`, and how long (s) a readout must hold before a hit counts as played out. */
+const STILL_SAMPLE_S = 0.1;
+const STILL_HOLD_S = 0.5;
+
+/** A per-step watch: `true` once `read()` has given the same text for `STILL_HOLD_S` s. A hit is run until its readout has stopped changing, not for a fixed settle. */
+export function stillWatch(read: () => string): (dt: number) => boolean {
+  let clock = 0;
+  let sampledAt = 0;
+  let changedAt = 0;
+  let last = "";
+  return (dt) => {
+    clock += dt;
+    if (clock - sampledAt < STILL_SAMPLE_S - 1e-9) return false;
+    sampledAt = clock;
+    const now = read();
+    if (now !== last) {
+      last = now;
+      changedAt = clock;
+    }
+    return clock - changedAt >= STILL_HOLD_S;
+  };
+}
+
 function speedOf(car: DeformableCar): number {
   return Math.hypot(car.velocity.x, car.velocity.z);
 }
@@ -134,6 +175,17 @@ function runOut(cars: DeformableCar[], cap: number, settle = 1.5, watch?: (w: Cr
   return t;
 }
 
+/** Run a world until some car has crashed and every car's readout has held for `STILL_HOLD_S` (or `cap` s): the damage a hit leaves, not how far the wrecks slide on. */
+function runUntilReadoutHeld(cars: DeformableCar[], cap: number): void {
+  const w = makeWorld(cars, false, false, null);
+  const still = stillWatch(() => cars.map((c) => readoutKey(c)).join("/"));
+  for (let t = 0; t < cap; t += FRAME) {
+    tickWorld(w, FRAME);
+    const readoutHeld = still(FRAME);
+    if (readoutHeld && cars.some((c) => c.crashed)) return;
+  }
+}
+
 // ── Doors: a car sideswipes the parked car on the Doors ram lane ─────────────────────────────
 
 let cageHalfMemo: { x: number; z: number } | null = null;
@@ -146,34 +198,47 @@ function cageHalf(): { x: number; z: number } {
   return cageHalfMemo;
 }
 
+/** The striker `b` has driven its whole length and `PASSED_MARGIN_M` more along the lane past the struck car `a`: it cannot touch it again. */
+const PASSED_MARGIN_M = 0.5;
+function hasPassed(lane: (typeof DOOR_LANES)[DoorScenario], a: DeformableCar, b: DeformableCar): boolean {
+  return lane.dir * (b.group.position.z - a.group.position.z) > 2 * cageHalf().z + PASSED_MARGIN_M;
+}
+
+/** Run `w` until the striker has passed, its pass took at most the ram's whole travel at `kph`, and `read`'s outcome has held for `STILL_HOLD_S`; the ram's own travel and settle bound it. */
+function runPass(w: CrashWorld, tyres: boolean, kph: number, passed: () => boolean, read: () => string): void {
+  const still = stillWatch(read);
+  const seconds = (RAM.start + RAM.end + 2 * cageHalf().z) / (kph / 3.6) + RAM.settle;
+  for (let t = 0; t < seconds; t += FRAME) {
+    if (tyres) tyresStep(w.cars, FRAME);
+    tickWorld(w, FRAME);
+    const readoutHeld = still(FRAME);
+    if (readoutHeld && passed()) return;
+  }
+}
+
 /**
  * A second car (its side face on the lane's inner edge, the lane's travel and speed) drives past
  * the parked car's `side`, its door set as the scenario sets it (`tyres`: both cars in neutral).
  */
-export function carDoorPass(scenario: DoorScenario, kph: number, tyres = false, side: -1 | 1 = 1): { a: CarState; b: DeformableCar; seconds: number } {
+export function carDoorPass(scenario: DoorScenario, kph: number, tyres = false, side: -1 | 1 = 1): CarState {
   const lane = DOOR_LANES[scenario];
   const a = parkCar();
   if (lane.part === "panel") a.setPanelOpen(side, lane.open);
   else a.setDoorOpen(side, lane.open);
-  const b = makeCar();
+  const b = carAt(1);
   const x = side * (lane.inner + cageHalf().x);
   // Leading face at the ram's start, so both runs cover the same ground.
   launch(b, x, -lane.dir * (RAM.start + cageHalf().z), lane.dir > 0 ? 0 : Math.PI, kph);
   const w = makeWorld([a, b], false, false, null);
-  const travel = RAM.start + RAM.end + 2 * cageHalf().z;
-  const seconds = travel / (kph / 3.6) + RAM.settle;
-  for (let t = 0; t < seconds; t += FRAME) {
-    if (tyres) tyresStep(w.cars, FRAME);
-    tickWorld(w, FRAME);
-  }
-  return { a: carState(a, side), b, seconds };
+  runPass(w, tyres, kph, () => hasPassed(lane, a, b), () => readoutKey(a, side));
+  return carState(a, side);
 }
 
 /** The Doors ram; `carShaped`: a head with a car body's length, height and width on the same lane. */
 export function ramDoorPass(scenario: DoorScenario, kph: number, kg: number, carShaped = false): CarState {
   const a = parkCar();
   const shape = carShaped ? { bottom: 0, top: 2 * CAR_HALF.y, width: 2 * cageHalf().x } : undefined;
-  fireRam(a, scenario, { kph, kg, side: 1, length: carShaped ? 2 * cageHalf().z : RAM.length, shape });
+  fireRam(a, scenario, { kph, kg, side: 1, length: carShaped ? 2 * cageHalf().z : RAM.length, shape, stillWhen: stillWatch(() => readoutKey(a)) });
   return carState(a);
 }
 
@@ -184,18 +249,14 @@ export function ramDoorPass(scenario: DoorScenario, kph: number, kg: number, car
 function reversingDoorPass(scenario: DoorScenario, kph: number, tyres = false, side: -1 | 1 = 1): CarState {
   const lane = DOOR_LANES[scenario];
   const u = kph / 3.6;
-  const a = makeCar();
+  const a = carAt(0);
   launchAt(a, 0, lane.dir * (RAM.start + cageHalf().z), 0, 0, -lane.dir * u);
   if (lane.part === "panel") a.setPanelOpen(side, lane.open);
   else a.setDoorOpen(side, lane.open);
-  const b = makeCar();
+  const b = carAt(1);
   b.spawnFacing(side * (lane.inner + cageHalf().x), 0, lane.dir > 0 ? 0 : Math.PI, 0);
   const w = makeWorld([a, b], false, false, null);
-  const seconds = (RAM.start + RAM.end + 2 * cageHalf().z) / u + RAM.settle;
-  for (let t = 0; t < seconds; t += FRAME) {
-    if (tyres) tyresStep(w.cars, FRAME);
-    tickWorld(w, FRAME);
-  }
+  runPass(w, tyres, kph, () => hasPassed(lane, a, b), () => readoutKey(a, side));
   return carState(a, side);
 }
 
@@ -211,12 +272,12 @@ export const DOOR_FORMS: readonly DoorForm[] = ["ramMoves", "carMoves", "carStri
  */
 export function doorHit(form: DoorForm, scenario: DoorScenario, kph: number, kg: number, grip: boolean, side: -1 | 1 = 1): CarState {
   return onGround(grip, () => {
-    if (form === "carStrikes") return carDoorPass(scenario, kph, grip, side).a;
+    if (form === "carStrikes") return carDoorPass(scenario, kph, grip, side);
     if (form === "reversingCar") return reversingDoorPass(scenario, kph, grip, side);
     const a = parkCar();
     const carShaped = Math.abs(kg - a.deform.totalMass) < 1;
     const shape = carShaped ? { bottom: 0, top: 2 * CAR_HALF.y, width: 2 * cageHalf().x } : undefined;
-    fireRam(a, scenario, { kph, kg, side, length: carShaped ? 2 * cageHalf().z : RAM.length, shape, carMoves: form === "carMoves", tyres: grip });
+    fireRam(a, scenario, { kph, kg, side, length: carShaped ? 2 * cageHalf().z : RAM.length, shape, carMoves: form === "carMoves", tyres: grip, stillWhen: stillWatch(() => readoutKey(a, side)) });
     return carState(a, side);
   });
 }
@@ -399,8 +460,8 @@ export type Sandwich = { a: CarState; b: CarState; c: CarState; keLostJ: number;
  */
 export function carSandwich(kph: number): Sandwich {
   const a = parkCar();
-  const b = makeCar();
-  const c = makeCar();
+  const b = carAt(1);
+  const c = carAt(2);
   const force: SandwichForce = { nose: { t: [], lost: [] }, tail: { t: [], lost: [] }, kg: b.deform.totalMass };
   launch(b, 0, STRIKE_GAP, Math.PI, kph);
   launch(c, 0, -STRIKE_GAP, 0, kph);
@@ -424,8 +485,9 @@ export type Strike = "front" | "rear" | "right";
 
 /** `carMoves`: the frame swap, the head stands still and the car drives into it at the head's speed. */
 export function pistonStrike(at: Strike, kph: number, kg: number, hardness: number, squash?: number, carMoves = false): CarState {
-  const a = makeCar("shape", squash);
-  firePiston(a, at, { speedKph: kph, massKg: kg, hardness, after: 1.5, carMoves });
+  const a = carAt(0, squash);
+  const still = stillWatch(() => readoutKey(a));
+  firePiston(a, at, { speedKph: kph, massKg: kg, hardness, after: 1.5, carMoves, onSlice: (_rig, head) => still(FRAME / 2) && head.contacted });
   return carState(a);
 }
 
@@ -436,14 +498,14 @@ export function pistonStrike(at: Strike, kph: number, kg: number, hardness: numb
 export function carStrike(at: Strike, kph: number, squash?: number, carMoves = false): { a: CarState; b: CarState } {
   const a = parkCar(squash);
   a.parked = !carMoves;
-  const b = makeCar("shape", squash);
+  const b = carAt(1, squash);
   const [x, z, yaw] = at === "front" ? [0, STRIKE_GAP, Math.PI] : at === "rear" ? [0, -STRIKE_GAP, 0] : [CAR_HALF.x + CAR_HALF.z + 0.25, 0.08, -Math.PI / 2];
   if (carMoves) {
     const u = kph / 3.6;
     b.spawnFacing(x, z, yaw, 0);
     launchAt(a, 0, 0, 0, -Math.sin(yaw) * u, -Math.cos(yaw) * u);
   } else launch(b, x, z, yaw, kph);
-  runOut([a, b], 8);
+  runUntilReadoutHeld([a, b], 8);
   return { a: carState(a), b: carState(b) };
 }
 
@@ -523,13 +585,16 @@ function skinOverlap(striker: DeformableCar, struck: DeformableCar, side: Map<nu
   return deepest;
 }
 
+/** The police sedan, built once like the pooled cars. */
+let policeCar: DeformableCar | null = null;
+
 /**
  * A police sedan at `mps` m/s nose-first into the right side of a parked sedan, run at the pacer's pinned slice (`SimPacer.pin`:
  * false 1/240 s, true 1/80 s) until both have stopped. The overlap is read once per frame, on the skin that frame draws.
  */
 export function copIntoSide(mps: number, coarse: boolean): SideHit {
   const struck = parkCar();
-  const cop = makeClassCar("police");
+  const cop = (policeCar ??= makeClassCar("police"));
   launch(cop, CAR_HALF.x + CAR_HALF.z + 0.25, 0.08, -Math.PI / 2, mps * 3.6);
   const w = newWorld([struck, cop], null);
   const pacer = new SimPacer();
