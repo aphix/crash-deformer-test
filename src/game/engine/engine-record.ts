@@ -550,22 +550,38 @@ export class CrashRecorder {
   }
 
   /**
+   * The step (at or after the clip's keyframe `slot`) from which `car` is where `scopeFirst`'s crash finds it: the last step
+   * it was put on a spot (a respawn, a wake) at or before that impact, else the clip's start. Before it the car stood elsewhere.
+   */
+  private arrivedAt(car: number, scopeFirst: number, slot: number): number {
+    let arrived = this.keyStep[slot]!;
+    const filled = Math.min(this.keyCount, KEY_SLOTS);
+    for (let k = 0; k < filled; k++) {
+      const step = this.keyStep[k]!;
+      if (step > arrived && ((this.keyPlaced[k]! >>> car) & 1) === 1 && this.at[step % RING]! <= scopeFirst) arrived = step;
+    }
+    return arrived;
+  }
+
+  /**
    * `mask` (cluster `c`'s cars and their touchers) with the bystanders added: the cars within `BYSTANDER_R` of the hit
-   * (`c`'s first impact, mean point or cars) at any keyframe from the clip's keyframe `slot` to its end, nearest first,
-   * each with the cars that touched it, while the clip's estimated size stays within `CLIP_SHARE`. A bystander too big
-   * for what is left is skipped; a smaller one further out may still fit. A car's estimate is its inputs plus its solver
-   * state if it is a wreck in the clip's first keyframe. Never taken: a car that did not exist for the whole clip (it has
-   * no state in the clip's first keyframe).
+   * (`c`'s first impact, mean point, or its cars from the step each arrived there: `arrivedAt`) at any keyframe from the clip's
+   * keyframe `slot` to its end, nearest first, each with the cars that touched it, while the clip's estimated size stays
+   * within `CLIP_SHARE`. A bystander too big for what is left is skipped; a smaller one further out may still fit. A car's
+   * estimate is its inputs plus its solver state if it is a wreck in the clip's first keyframe. Never taken: a car that did
+   * not exist for the whole clip (it has no state in the clip's first keyframe).
    */
   private bystanders(c: CrashCluster, mask: number, slot: number, n: number, t0: number): number {
     const start = this.keyStep[slot]!;
     const d = this.near.fill(Infinity);
+    const arrived = Array.from({ length: n }, (_, a) => (((c.cars >>> a) & 1) === 1 ? this.arrivedAt(a, c.scopeFirst, slot) : 0));
     let all = n;
     const filled = Math.min(this.keyCount, KEY_SLOTS);
     // Every keyframe from the clip's start, then the current step's start: the clip's last moment.
     for (let k = 0; k <= filled; k++) {
       const last = k === filled;
       if (!last && this.keyStep[k]! < start) continue;
+      const keyStep = last ? this.step : this.keyStep[k]!;
       const pos = last ? this.lastPos : this.keyPos;
       const o = last ? 0 : k * MAX_CARS * 2;
       const cnt = last ? n : this.keyN[k]!;
@@ -574,7 +590,7 @@ export class CrashRecorder {
         const x = pos[o + 2 * i]!;
         const z = pos[o + 2 * i + 1]!;
         let m = Math.min((x - c.x0) ** 2 + (z - c.z0) ** 2, (x - c.x) ** 2 + (z - c.z) ** 2);
-        for (let a = 0; a < cnt; a++) if ((c.cars >>> a) & 1) m = Math.min(m, (x - pos[o + 2 * a]!) ** 2 + (z - pos[o + 2 * a + 1]!) ** 2);
+        for (let a = 0; a < cnt; a++) if (((c.cars >>> a) & 1) === 1 && keyStep >= arrived[a]!) m = Math.min(m, (x - pos[o + 2 * a]!) ** 2 + (z - pos[o + 2 * a + 1]!) ** 2);
         d[i] = Math.min(d[i]!, m);
       }
     }

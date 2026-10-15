@@ -263,3 +263,69 @@ describe("given a flat-field head-on recorded as a highlight while 300 m away a 
     assert.deepEqual([...worst.values()].filter((d) => d !== 0), [], "every car of the clip is where the sim had it at every step");
   });
 });
+
+/** The slots of the arrival scene after the head-on pair: three parked cars 30 to 45 m from the hit, then a pile of six wrecks. */
+const PARKED = [2, 3, 4];
+const PILE = [5, 6, 7, 8, 9, 10];
+/** Where `A` meets `B` (about 4.2 s in: `B` from x = 120 under throttle is at x = 43 when `A` is put on the road at x = 0, 3 s in), and the pile `A` stands in until then: 300 m out. */
+const ARRIVE_X = 10;
+const PILE_Z = 300;
+const ARRIVE_STEP = 3 * 240;
+
+/** The head-on of `record`, but `A` waits in a wreck pile 300 m out and is put on the road a second before the impact (a respawn into a crash). */
+function recordArrival(): Recorded {
+  const { dress } = makeWorld();
+  const scene = new THREE.Scene();
+  const cars = Array.from({ length: 11 }, (_, i) => {
+    const car = new DeformableCar({ body: 0x808080, accent: 0, name: `c${i}` }, scene, null, fleetStyle(i));
+    assignClass(car, fleetClass(i));
+    dress(car);
+    return car;
+  });
+  cars[A]!.spawnFacing(ARRIVE_X, PILE_Z, Math.PI / 2, 0);
+  cars[B]!.spawnFacing(120, 0, -Math.PI / 2, 15);
+  for (const [k, i] of PARKED.entries()) cars[i]!.spawnFacing(ARRIVE_X, (k % 2 === 0 ? 30 : -30) + (k >> 1) * 15, Math.PI / 2, 0);
+  for (const [k, i] of PILE.entries()) {
+    const car = cars[i]!;
+    car.spawnFacing(ARRIVE_X + 6 * (k & 1), PILE_Z + 5 + 4 * (k >> 1), Math.PI / 2, 12);
+    car.applyImpact(new THREE.Vector3(car.group.position.x + 2.2, 0.5, car.group.position.z), new THREE.Vector3(-1, 0, 0), 16, 12);
+    assert.ok(car.crashed, `car ${i} is a wreck`);
+  }
+  const rec = new CrashRecorder({ recall: (_i, out) => out.set([-1]), knocks: () => new Uint8Array(16) });
+  rec.begin("flat", HANDLING.realism, false, cars.length, (i) => `c${i}`, 1);
+  const world = newWorld(cars);
+  world.pairHit = (a, b, hit) => rec.pairHit(a, b, hit);
+  const trace: Float64Array[] = [];
+  const input: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
+  for (let s = 0; s < STEPS; s++) {
+    if (s === ARRIVE_STEP) cars[A]!.spawnFacing(0, 0, Math.PI / 2, 15);
+    rec.startStep(cars);
+    for (const [i, car] of cars.entries()) {
+      input.throttle = i === B || (i === A && s >= ARRIVE_STEP) ? 1 : 0;
+      applyDrive(car, input, H);
+    }
+    stepWorld(world, H);
+    rec.endStep(cars, H, world.shape);
+    settleStep(cars, H, false);
+    trace.push(Float64Array.from(cars.flatMap((c) => c.group.position.toArray())));
+  }
+  rec.end();
+  assert.ok(rec.ledger.kept.length >= 1, "the head-on crash did not rank as a highlight");
+  const kept = rec.ledger.kept[0]!;
+  const w = new Writer(clipBytes(kept));
+  writeClip(w, kept);
+  return { clip: readClip(new Reader().reset(w.done()), carLayout(cars[0]!)), cars, trace, dress };
+}
+
+describe("given a head-on whose car A was put on the road a second before the impact, out of a pile of six wrecks 300 m away that it stood in for the clip's first two seconds", () => {
+  it("when the clip is read back and replayed, then the cars parked near the hit are in it, the pile 300 m from the hit is not, and every car is where the sim had it at every step", (t) => {
+    const run = recordArrival();
+    const slots = run.clip.cars.map((c) => c.slot);
+    t.diagnostic(`clip cars: ${slots.join(",")} (${(clipBytes(run.clip) / 1024).toFixed(0)} KB)`);
+    assert.ok(PARKED.every((i) => slots.includes(i)), "the cars parked 30 to 45 m from the hit are in the clip");
+    assert.deepEqual(PILE.filter((i) => slots.includes(i)), [], "no wreck of the pile A left is in the clip");
+    const worst = replayWorst(run);
+    t.diagnostic([...worst].map(([slot, d]) => `car ${slot}: ${d} m off`).join("\n"));
+    assert.deepEqual([...worst.values()].filter((d) => d !== 0), [], "every car of the clip is where the sim had it at every step");
+  });
+});
