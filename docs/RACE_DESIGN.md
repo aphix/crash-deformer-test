@@ -179,6 +179,7 @@ setup menu shows a change at once on the course behind it.
   The settings' night toggle during a race switches between nighttime and daytime; leaving the race restores the sandbox's own
   night setting.
 - **Once, never per frame.** A time of day (or the night toggle) is applied when it is chosen: `WorldStage.setTime` / `apply` write the sky and fog colours, the lights, the dome's haze and the sun's shadow-camera axes (`sunRight`, `sunUp`) then, and a race's frames write none of them (`engine-time-of-day.test.ts` counts the writes over 120 frames on the Mall and the city at each time). The frame only moves the sun's shadow box onto the followed car (`RaceDirector.followSun`). A see-through double-sided material takes three's two-pass draw, which bumps its version twice a frame and re-resolves its program: such materials set `forceSinglePass` (the same test scans the scene).
+- **Leaving a race.** The sandbox's background and fog are kept whole while a race runs (the race installs its own before its art relights the scene) and given back as they were, so a fleet, corkscrew or derby after a race at any time of day, or with Night toggled in the settings, has the sky of a fresh load (`engine-scene-sky.test.ts`).
 - A course's own `backdrop` (the National Mall's secret mushroom cloud, once out) stands in front of every time's sky.
 
 ## AI difficulty (`ai/constants.ts`, `RaceBrain.due`)

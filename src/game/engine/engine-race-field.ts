@@ -482,15 +482,15 @@ export abstract class RaceField {
     this.solids = solidsOf(this.walls, this.colliders);
     armSolids(this.solids);
     this.knocked = new Uint8Array(this.placed.length);
-    this.art = this.host.buildArt(tr, this.placed);
-    if (this.art) this.host.scene.add(this.art.group);
+    // The race's own sky and fog stand before its art lights the scene (`WorldStage.look` recolours them, so they must not be the sandbox's, kept whole for `exit`); the time of day recolours them after.
     const env = tr.json.environment;
     const sky = new THREE.Color(env.sky);
     this.host.scene.background = sky;
     this.host.scene.fog = new THREE.FogExp2(sky.getHex(), env.fog);
+    this.art = this.host.buildArt(tr, this.placed);
+    if (this.art) this.host.scene.add(this.art.group);
     this.host.camera.far = env.far;
     this.host.camera.updateProjectionMatrix();
-    // After the course's sky and fog: the time of day recolours them.
     this.host.setTimeOfDay(this.rules.timeOfDay);
     setGround(tr.ground());
     // Tyre marks cover the course instead of the sandbox disc.
