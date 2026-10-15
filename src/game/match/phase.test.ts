@@ -2,14 +2,15 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { beginImpact, easeTimeScale, holdForThrow, impactScale, pairEta, phaseClock, PRE_IMPACT_LEAD, preImpact, stepPhase, type PhaseClock } from "./phase.ts";
 import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * The automatic slow-mo before a predicted hit (`preImpact`), stepped frame by frame the way the engine does: the prediction
  * is the sim seconds to contact; the sim clock moves at the clock's time scale.
  */
 
-const FRAME = 1 / 60;
-const STEP = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
+const STEP = 1 / FRAME_HZ;
 const LEAD = Math.max(PRE_IMPACT_LEAD, FRAME + STEP);
 /** Canary: the time scale as the cars meet, in multiples of the slow-mo's scale (the ease is meant to have arrived: the exact rate lands within 1.2× at a whole lead; the first frame's share of it is lost to the frame). */
 const REACHED_CANARY = 2.5;

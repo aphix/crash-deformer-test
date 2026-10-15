@@ -1,9 +1,10 @@
 import { RaceSession } from "./session.ts";
 import { Track, blankProjection, blankPoint, pointOn } from "../world/track.ts";
 import type { CarPose, CarRecord } from "./types.ts";
+import { QUIET_HZ } from "../kernel/constants.ts";
 
 /** Seconds per rules step (the engine steps its rules at the sim's 1/80 s or 1/240 s). */
-const DT = 1 / 80;
+const DT = 1 / QUIET_HZ;
 /** Metres of main road driven before the line, and the longest bridge (m) between the main road and a shortcut's road: a smooth turn. */
 const PRE = 12;
 const BRIDGE = 40;

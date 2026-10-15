@@ -1,9 +1,10 @@
 import { blankPoint, blankProjection, pointOn, type Track, type TrackPath } from "../world/track.ts";
 import type { RaceSession } from "./session.ts";
 import type { CarPose, Entrant, RaceEvent } from "./types.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** The rules' step in these tests (s). */
-export const DT = 1 / 60;
+export const DT = 1 / FRAME_HZ;
 
 export function field(n: number): Entrant[] {
   return Array.from({ length: n }, (_, i) => ({ id: i, name: `Car ${i}`, kind: i === 0 ? "player" : "ai", aggression: 0 }));

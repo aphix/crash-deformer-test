@@ -5,10 +5,11 @@ import { HAVANA } from "../world/tracks/havana.ts";
 import { BUST, RaceSession } from "./session.ts";
 import { SURVIVAL, settleRun } from "./survival.ts";
 import type { CarPose, Entrant } from "./types.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 const track = new Track(HAVANA);
 const you: Entrant = { id: 0, name: "You", kind: "player", aggression: 0 };
-const DT = 1 / 60;
+const DT = 1 / FRAME_HZ;
 /** The owner's "like 10-15 seconds", as one number. */
 const HOLD = 12;
 
