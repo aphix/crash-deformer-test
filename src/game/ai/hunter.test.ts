@@ -14,6 +14,7 @@ import { setGround } from "../world/ground.ts";
 import type { PropCollider } from "../world/placements.ts";
 import { blankProjection, projectPath, Track } from "../world/track.ts";
 import { HAVANA } from "../world/tracks/havana.ts";
+import { FINE_HZ, FRAME_HZ } from "../kernel/constants.ts";
 
 const track = new Track(HAVANA);
 const spec = track.survival!;
@@ -87,7 +88,7 @@ describe("given the Survival hunter pack (the cops that chase the player) on a s
       assert.ok(Math.abs(slots[k]!.x - f.x) < 1e-9 && Math.abs(slots[k]!.z - f.z) < 1e-9 && slots[k]!.id === 1 + k, `slot ${k}`);
     }
     assert.equal(r.drops.length, spec.formation.length, "nothing dropped in before the green");
-    const out = r.brain.think(r.cars[1]!, r.cars, 1 / 60);
+    const out = r.brain.think(r.cars[1]!, r.cars, 1 / FRAME_HZ);
     assert.deepEqual([out.throttle, out.brake], [0, 1], "held on the brake until the green");
   });
 
@@ -244,16 +245,16 @@ describe("given one cop at the origin facing +z, driven by the hunter brain, wit
     const tg = r.cars[0]!;
     Object.assign(cop, { x: 0, z: 0, yaw: 0, vx: 0, vz: 12 });
     Object.assign(tg, { x: 0, z: dist, yaw: 0, vx: 0, vz: 0 });
-    return { r, cop, tg, out: () => r.brain.think(cop, r.cars, 1 / 60) };
+    return { r, cop, tg, out: () => r.brain.think(cop, r.cars, 1 / FRAME_HZ) };
   }
 
   it("when the heat is before the green and then the green comes, then the cop is held on the brake until the green and drives once it comes", () => {
     const r = rig();
     Object.assign(r.cars[1]!, { x: 0, z: 0, yaw: 0, vx: 0, vz: 10 });
     Object.assign(r.cars[0]!, { x: 0, z: 100 });
-    assert.equal(r.brain.think(r.cars[1]!, r.cars, 1 / 60).brake, 1);
+    assert.equal(r.brain.think(r.cars[1]!, r.cars, 1 / FRAME_HZ).brake, 1);
     r.run(0.25);
-    const out = r.brain.think(r.cars[1]!, r.cars, 1 / 60);
+    const out = r.brain.think(r.cars[1]!, r.cars, 1 / FRAME_HZ);
     assert.deepEqual([out.brake, out.throttle], [0, 1]);
   });
 
@@ -371,8 +372,8 @@ describe("given a hunter at 35 m/s heading at a stopped player car 40 m away, dr
       const dist = Math.hypot(r.cars[0]!.x - cop.x, r.cars[0]!.z - cop.z);
       if (at === null && dist < SETTLE) at = Math.hypot(cop.vx, cop.vz);
       const p = car.group.position;
-      applyDrive(car, onSurface(r.brain.think(cop, r.cars, 1 / 60), SURFACES[ground.surfaceAt(p.x, p.z, p.y)], scratch), 1 / 60);
-      car.integrate(1 / 60);
+      applyDrive(car, onSurface(r.brain.think(cop, r.cars, 1 / FRAME_HZ), SURFACES[ground.surfaceAt(p.x, p.z, p.y)], scratch), 1 / FRAME_HZ);
+      car.integrate(1 / FRAME_HZ);
     }
     setGround(null);
     return at ?? Math.hypot(cop.vx, cop.vz);
@@ -424,7 +425,7 @@ function approach(speed: number): { seed: number; judged: number; near: number }
     const drop = r.drops[spec.formation.length];
     if (!drop) continue;
     let near = Infinity;
-    for (let t = 0; t <= SHOW_LAG + 1e-9; t += 1 / 240) near = Math.min(near, Math.hypot(drop.x - (px + s.ux * speed * t), drop.z - (pz + s.uz * speed * t)));
+    for (let t = 0; t <= SHOW_LAG + 1e-9; t += 1 / FINE_HZ) near = Math.min(near, Math.hypot(drop.x - (px + s.ux * speed * t), drop.z - (pz + s.uz * speed * t)));
     out.push({ seed, judged: Math.hypot(drop.x - px, drop.z - pz), near });
   }
   return out;

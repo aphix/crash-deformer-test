@@ -12,8 +12,9 @@ import { onSurface } from "./race-ai.ts";
 import { Track, blankProjection, projectPath } from "../world/track.ts";
 import { SPAWN_FAR, SPAWN_NEAR, TrafficBrain } from "./traffic.ts";
 import city from "../world/tracks/city.json" with { type: "json" };
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const DT = 1 / 60;
+const DT = 1 / FRAME_HZ;
 const track = new Track(city);
 
 function cars(n: number, scene: THREE.Scene): DeformableCar[] {

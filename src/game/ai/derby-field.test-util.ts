@@ -12,6 +12,7 @@ import { stepWorld } from "../engine/world-step.ts";
 import { armKill, assignClass, carClass, CLASSES, HANDLING, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { aggressive, ScootWatch, type ScootShare } from "./derby-scoot.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 export type Field = {
   seed: number;
@@ -148,7 +149,7 @@ function runFieldHeat(n: number, seed: number, playerClass?: VehicleClassId, on?
   while (t < end && state === "running") {
     let vmax = 8;
     for (const c of cars) vmax = Math.max(vmax, c.speed);
-    const h = physicsSlice(1 / 60, vmax);
+    const h = physicsSlice(1 / FRAME_HZ, vmax);
     const before = cars.map((c) => (c.deform.massActive ? centroid(c) : null));
     const speed0 = cars.map((c) => Math.hypot(c.velocity.x, c.velocity.z));
     const shove = new Array<number>(n).fill(0);

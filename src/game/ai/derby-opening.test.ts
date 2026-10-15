@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DerbyBrain } from "./derby-ai.ts";
 import { aiCar } from "../vehicle/test-support.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * Opening caution (owner 10-04): until 8 s into a heat or a car's own first hit, a driver does not drive its nose into a
@@ -16,7 +17,7 @@ function charge(age: number, foeVz = -20, z = 18): { brain: DerbyBrain; out: { t
   const all = [self, aiCar(1, { z, vz: foeVz })];
   brain.think(self, all, age);
   brain.meter[0] = 1;
-  const out = brain.think(self, all, 1 / 60);
+  const out = brain.think(self, all, 1 / FRAME_HZ);
   return { brain, out: { throttle: out.throttle, brake: out.brake, boost: out.boost } };
 }
 
@@ -43,9 +44,9 @@ describe("given a fully aggressive driver doing 20 m/s that has not yet landed a
     const all = [self, aiCar(1, { z: 18, vz: -20 })];
     brain.think(self, all, 2);
     self.idle = 0; // it just landed a hit (the hit clock restarts)
-    brain.think(self, all, 1 / 60);
+    brain.think(self, all, 1 / FRAME_HZ);
     self.idle = 0.5;
-    const out = brain.think(self, all, 1 / 60);
+    const out = brain.think(self, all, 1 / FRAME_HZ);
     assert.ok(out.throttle > 0 && out.brake === 0, JSON.stringify({ ...out }));
   });
 
@@ -62,7 +63,7 @@ describe("given a fully aggressive driver doing 20 m/s that has not yet landed a
     const all = [self, aiCar(1, { x: 3, z: 4, vz: 0 })];
     brain.think(self, all, 2);
     brain.meter[0] = 1;
-    const out = brain.think(self, all, 1 / 60);
+    const out = brain.think(self, all, 1 / FRAME_HZ);
     assert.ok(out.throttle <= 0 && out.brake > 0.5 && !out.boost, JSON.stringify({ ...out }));
   });
 });
