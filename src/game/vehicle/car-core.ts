@@ -290,7 +290,7 @@ export abstract class CarCore {
   spawnSpeed = 0;
   /** Times this car was put on a spot (`placeAt`: a respawn, a wake, a start): the recorder keys a step the count moved in. */
   placements = 0;
-  /** Last slice's drive (applyDrive writes it). spin / lock / slide: 0–1 wheel slip for tyre FX (launch wheelspin, brake lock-up, sideways slide); `drift`: the drift assist's state; `hold`: sideways grip (m/s) left this step, spent by a face the car is pressed on (`wallBounce`); `ebrakeK` / `boostK`: 0–1 handbrake grip and boost thrust actually applied, the booleans `ebrake` / `boost` ramped in and out over time (`DRIVE.ebrakeIn`, `BOOST.ramp`).
+  /** Last slice's drive (applyDrive writes it). spin / lock / slide: 0–1 wheel slip for tyre FX (launch wheelspin, brake lock-up, sideways slide); `drift`: the drift assist's state; `hold`: sideways grip (m/s) left this step, spent by a face the car is pressed on (`wallBounce`); `ebrakeK`: the handbrake grip actually applied, 0–1, ramped in and out over `DRIVE.ebrakeIn` / `ebrakeOut`; `boostK`: the boost thrust applied, 0 or 1.
    *  `-0`: doubles from construction; each field's first fractional write mid-race deoptimised applyDrive for seconds. */
   readonly drive = { throttle: -0, steer: -0, brake: -0, ebrake: false, boost: false, neutral: false, spin: -0, lock: -0, slide: -0, drift: -0, hold: -0, ebrakeK: -0, boostK: -0 };
   /** A wreck at rest: `integrateWreck` skips its rigid step until something moves it (`wake`). */

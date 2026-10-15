@@ -62,7 +62,6 @@ describe("given the engine load", () => {
     { name: "no pedal and no acceleration", throttle: 0, boost: 0, accel: 0, expected: 0 },
     { name: "full reverse", throttle: -1, boost: 0, accel: 0, expected: 1 },
     { name: "full boost thrust with a lifted pedal", throttle: 0, boost: 1, accel: 0, expected: 1 },
-    { name: "boost thrust half ramped in with a lifted pedal (the load rises with it, not at once)", throttle: 0, boost: 0.5, accel: 0, expected: 0.5 },
     { name: "half the pedal", throttle: 0.5, boost: 0, accel: 0.2, expected: 0.5 },
     { name: "no pedal but 4 m/s gained in 1 s (a netplay client's car)", throttle: 0, boost: 0, accel: accelLoad(4, 0, 1), expected: 1 },
     { name: "no pedal but 2 m/s gained in 1 s", throttle: 0, boost: 0, accel: accelLoad(2, 0, 1), expected: 0.5 },

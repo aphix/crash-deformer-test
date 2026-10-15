@@ -7,7 +7,7 @@ const SOFT = 0.6;
 
 /**
  * How bright a boost meter glows, 0..1: it grows with the meter's fill up to `SOFT` (a burst of more than a quarter second in it),
- * and the boost's thrust (0..1, ramped by the car) lifts it from there to 1; the element's CSS transition eases it further.
+ * and the boost's thrust (0 or 1) lifts it from there to 1; the element's CSS transition eases the step.
  */
 function nitroGlowLevel(boost: number, boosting: number): number {
   const idle = SOFT * Math.min(1, boost / NITRO_USABLE);
