@@ -17,6 +17,7 @@ import type { DeformMode } from "../deform/deform-rig.ts";
 import { MAX_CARS, slotType, type CarType } from "../scenes/fleet.ts";
 import { fleetProp, type SceneId } from "../scenes/scene-id.ts";
 import { SceneFade } from "../present/scene-fade.ts";
+import { ParkingScene } from "../present/parking-scene.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { armKill, assignClass, carClass, HANDLING, killClass, STYLE_CLASS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { DRIVER_CARS, type DriverCar } from "../match/types.ts";
@@ -173,7 +174,7 @@ export abstract class EngineCore {
   /** A black full-screen div above the HUD (CrashLab's); its opacity is the transition's `black`. */
   protected veil!: HTMLElement;
   protected renderer!: THREE.WebGLRenderer;
-  protected scene = new THREE.Scene();
+  protected scene = new ParkingScene();
   protected camera!: THREE.PerspectiveCamera;
   protected cars: DeformableCar[] = [];
   private liveBuf: DeformableCar[] = [];

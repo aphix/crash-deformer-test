@@ -33,6 +33,9 @@ no hitching ([`DESIGN_PILLARS.md`](DESIGN_PILLARS.md)).
   `start()` but only simulates and draws after `ready`.
 - New scene content warms where it appears: a race course's art (`buildArt`) and new cars (`buildCar`) queue the same
   warm-up, so it runs in the setup menu or the countdown.
+- Hidden direct children of the scene (a rig, the arena, a pooled car) are parked out of its graph while no warm-up runs
+  (`ParkingScene.sync`, once a frame before the draw): the matrix pass and traversals skip them. Every warm-up starts by
+  putting them all back (`unparkAll`), so a hidden mode's programs link with the rest.
 - Post render targets and the mark map are allocated once and resized with the canvas, so a tier switch allocates nothing.
 - One material per draw kind: track art gives each draw kind its own copy of a material (`TrackArt.forDraw`) and
   instanced casters their own depth material, so three never re-selects a program between plain and instanced draws.

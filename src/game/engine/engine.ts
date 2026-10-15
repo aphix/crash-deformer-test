@@ -520,7 +520,10 @@ export class CrashEngine extends EngineGarage {
     this.lampLights.update(this.live(), this.camera, this.followedCar(), performance.now() / 1000, this.highlights.playing ? this.highlights.cars() : undefined, wallDt);
     if (this.audioOn) this.audio.frame(wallDt, this.highlights.playing ? this.highlights.cars() : this.live(), this.highlights.playing ? this.highlights.focus() : this.followedCar(), this.clock.timeScale * this.cine.timeWarp, this.playing && !held);
     if (this.stage.night) this.stage.syncPools(this.poles);
-    if (!this.skipDraw) this.cine.render(this.scene, this.camera, wallDt);
+    if (!this.skipDraw) {
+      this.scene.sync(this.warmsInFlight === 0);
+      this.cine.render(this.scene, this.camera, wallDt);
+    }
     this.blend.restore();
     this.hudAcc += wallDt;
     if (this.hudAcc > (this.clock.timeScale < 0.5 ? 0.05 : 0.12)) {

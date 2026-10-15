@@ -70,6 +70,7 @@ export abstract class EngineWarm extends EngineCore {
    */
   private async warmScene(): Promise<void> {
     const programs = this.renderer.info.programs?.length ?? 0;
+    this.scene.unparkAll();
     await this.cine.post.warm(this.scene, this.camera, [[this.cine.marks.scene, this.cine.marks.camera]]);
     if (this.disposed) return;
     // After boot every known program has drawn; the draws below cost the GPU process ~0.5–1 s for a whole
