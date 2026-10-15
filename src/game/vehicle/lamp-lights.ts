@@ -280,7 +280,8 @@ export class LampLights {
     // The engine makes `pools` a ground decal (`groundMaterial`, `levelOrder`): that layer is above this one.
     this.pools = new THREE.InstancedMesh(
       poolQuad(),
-      new THREE.MeshBasicMaterial({ map: poolSprite(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+      // A flat quad shows one face to a pixel: three's back-then-front two-pass draw (the default for a see-through double-sided material) only re-resolved the program twice a frame.
+      new THREE.MeshBasicMaterial({ map: poolSprite(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true }),
       maxLamps,
     );
     this.pools.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

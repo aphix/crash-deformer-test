@@ -42,6 +42,8 @@ interface RaceHost {
   readonly sun: THREE.DirectionalLight;
   /** The offset (m) from the sun's shadow box centre to the sun for the time of day (`WorldStage.sunOffset`). */
   readonly sunOffset: THREE.Vector3;
+  readonly sunRight: THREE.Vector3;
+  readonly sunUp: THREE.Vector3;
   /** Light the race's time of day (its sky, sun and night), or none: the race is over (headless: nothing to light). */
   setTimeOfDay(time: TimeOfDay | null): void;
   readonly seat: DriverSeat;

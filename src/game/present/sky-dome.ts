@@ -171,11 +171,11 @@ export class SkyDome {
     this.mesh.raycast = () => {};
     this.mesh.renderOrder = 2e9;
     this.mesh.visible = false;
-    // The haze follows the fog every frame: day and night mix it, and a course load replaces the fog.
-    this.mesh.onBeforeRender = (_renderer, scene) => {
-      const fog = scene.fog?.color ?? (scene.background instanceof THREE.Color ? scene.background : null);
-      if (fog) (this.mat.uniforms.haze!.value as THREE.Color).copy(fog);
-    };
+  }
+
+  /** The haze the dome fades into at its horizon: the scene's fog colour, which `WorldStage.apply` hands over whenever it recolours the fog. */
+  setHaze(color: THREE.Color): void {
+    (this.mat.uniforms.haze!.value as THREE.Color).copy(color);
   }
 
   /** Show `time`'s sky with its disc on `discBearing` (rad), or none (null). */

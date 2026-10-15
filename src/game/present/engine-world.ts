@@ -296,6 +296,9 @@ export class WorldStage {
   private nightOutside = false;
   /** The offset (m) from the shadow box's centre to the sun for the time of day (the race director keeps the box on the followed car). */
   readonly sunOffset = DEFAULT_SUN_OFFSET.clone();
+  /** The sun's shadow-camera axes (unit; three's lookAt with world up): right = up x offset, up = offset x right. They change with the sun's direction (`setTime`), never per frame. */
+  readonly sunRight = new THREE.Vector3();
+  readonly sunUp = new THREE.Vector3();
   /** The race's sky (`present/sky-dome.ts`). */
   readonly sky = new SkyDome();
   /** The player's Sky setting (`setSky`); the FX tier (`setSkyTier`) picks how much sky is drawn under it. */
@@ -335,6 +338,7 @@ export class WorldStage {
     this.ground.receiveShadow = true;
     scene.add(this.ground);
     scene.add(this.sky.mesh);
+    this.aimSun();
     this.apply();
   }
 
@@ -386,6 +390,7 @@ export class WorldStage {
     this.time = time;
     this.night = time === null ? this.nightOutside : time === TIME_OF_DAY.night;
     sunOffset(time, this.sunOffset);
+    this.aimSun();
     const cam = this.sun.shadow.camera;
     cam.far = this.sunOffset.length() + SHADOW_REACH;
     cam.updateProjectionMatrix();
@@ -424,6 +429,11 @@ export class WorldStage {
     }
   }
 
+  private aimSun(): void {
+    this.sunRight.set(0, 1, 0).cross(this.sunOffset).normalize();
+    this.sunUp.copy(this.sunOffset).cross(this.sunRight).normalize();
+  }
+
   private apply(): void {
     const k = this.depth;
     if (!(this.scene.background instanceof THREE.Color)) this.scene.background = new THREE.Color();
@@ -433,6 +443,7 @@ export class WorldStage {
     if (this.time === TIME_OF_DAY.night) sky.set(SKY_LOOKS[TIME_OF_DAY.night].horizon);
     else mixHex(sky, day.sky, NIGHT.sky, k);
     this.scene.fog?.color.copy(sky);
+    this.sky.setHaze(sky);
     mixHex(this.hemi.color, day.hemi[0], NIGHT.hemi[0], k);
     this.hemi.intensity = THREE.MathUtils.lerp(day.hemi[1], NIGHT.hemi[1], k);
     mixHex(this.sun.color, day.sun[0], NIGHT.sun[0], k);

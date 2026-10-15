@@ -93,6 +93,8 @@ export function makeWorld(survivalCourse?: unknown): World {
     camera,
     sun: new THREE.DirectionalLight(),
     sunOffset: new THREE.Vector3(),
+    sunRight: new THREE.Vector3(),
+    sunUp: new THREE.Vector3(),
     setTimeOfDay: () => {},
     seat,
     live,
