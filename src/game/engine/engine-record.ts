@@ -194,7 +194,7 @@ export class CrashRecorder {
    * Every spell of slices in which a sleeping torn part or popped wheel was woken by something moving near it this race (`endStep`), by when it began: a run, not a slice each, so a
    * car parked by a part costs one entry. `from`: the race's slice count at its first slice; `last`: the step it was last stirred in. Older than the ring, none is wanted again (`endStep` drops them).
    */
-  private bodyStirs: BodyStir[] = [];
+  private readonly bodyStirs: BodyStir[] = [];
   /** The open run of each body (car × `LOOSE_BODIES` + body): the one `endStep` extends if the body is stirred in the slice after its end. */
   private readonly bodyRuns: (BodyStir | null)[] = Array.from({ length: MAX_CARS * LOOSE_BODIES }, () => null);
   /** The race's slices so far (each step runs `shape + 1`), and the count at each ring step's start. */
@@ -357,7 +357,7 @@ export class CrashRecorder {
     this.step++;
     this.sliceCount += shape + 1;
     while (this.stirred.length > 0 && this.stirred[0]!.step <= this.step - RING) this.stirred.shift();
-    if (this.step % RING === 0) this.bodyStirs = this.bodyStirs.filter((x) => x.last > this.step - RING);
+    if (this.step % RING === 0) this.dropOldBodyStirs();
     if (this.throwing) {
       this.throwing = false;
       this.owed = this.time + THROW_HOLD_SIM;
@@ -384,6 +384,14 @@ export class CrashRecorder {
         this.bodyRuns[i * LOOSE_BODIES + body] = run;
       }
     }
+  }
+
+  /** Forgets the runs that ended before the ring's oldest step, in place (steady state allocates nothing). */
+  private dropOldBodyStirs(): void {
+    const runs = this.bodyStirs;
+    let kept = 0;
+    for (let k = 0; k < runs.length; k++) if (runs[k]!.last > this.step - RING) runs[kept++] = runs[k]!;
+    runs.length = kept;
   }
 
   /** Car `i` drives this step at the race draft's top speed (`DRAFT.top`): the replay must too. */
