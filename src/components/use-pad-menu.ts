@@ -33,6 +33,21 @@ const WAKE: Record<string, true> = {
 };
 const bit = (button: number): number => 1 << button;
 
+function navItems(menu: HTMLElement): HTMLElement[] {
+  return Array.from(menu.querySelectorAll<HTMLElement>("[data-nav]")).filter((el) => !el.matches(":disabled") && el.getClientRects().length > 0);
+}
+
+/** Click the focused `[data-nav]` item inside `menu`; with none focused, focus the first. */
+export function activateIn(menu: HTMLElement): void {
+  const active = document.activeElement;
+  const cur = active instanceof HTMLElement && menu.contains(active) ? active.closest<HTMLElement>("[data-nav]") : null;
+  if (cur) return cur.click();
+  const first = navItems(menu)[0];
+  if (!first) return;
+  first.focus({ preventScroll: true });
+  first.scrollIntoView({ block: "nearest" });
+}
+
 /**
  * Drives one open menu rooted at `root`: focuses its first `[data-nav]` item whenever `id`
  * changes, and the item nearest the old one's spot (no scrolling, so a long list keeps its place) when focus leaves the
@@ -53,7 +68,7 @@ export function usePadMenu(root: RefObject<HTMLElement | null>, id: string, acti
   useEffect(() => {
     const menu = root.current;
     if (!menu) return;
-    const items = (): HTMLElement[] => Array.from(menu.querySelectorAll<HTMLElement>("[data-nav]")).filter((el) => !el.matches(":disabled") && el.getClientRects().length > 0);
+    const items = (): HTMLElement[] => navItems(menu);
     const current = (): HTMLElement | null => {
       const active = document.activeElement;
       return active instanceof HTMLElement && menu.contains(active) ? active.closest<HTMLElement>("[data-nav]") : null;
@@ -79,11 +94,7 @@ export function usePadMenu(root: RefObject<HTMLElement | null>, id: string, acti
       );
       if (to !== from) focus(list[to]);
     };
-    const activate = (): void => {
-      const cur = current();
-      if (cur) cur.click();
-      else focus(items()[0]);
-    };
+    const activate = (): void => activateIn(menu);
 
     // Where the focused item sits on the page, kept as it is focused and as the menu scrolls: its unmounting (the item
     // is gone before the next frame) leaves this as the only record of where focus was.

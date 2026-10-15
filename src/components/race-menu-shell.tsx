@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button, type ButtonProps } from "@/components/ui/button";
-import { usePadMenu } from "@/components/use-pad-menu";
+import { activateIn, usePadMenu } from "@/components/use-pad-menu";
 import { useReelCover } from "@/components/use-reel-cover";
 import { FOCUS } from "@/components/race-menu-styles";
 import type { RaceCommand } from "@/game/match/types";
@@ -60,6 +60,9 @@ export function MenuShell({
   useReelCover(ref, "sheet", sheet && !hidden && settled ? sheet : null);
   const chip = "rounded bg-surface-2 px-1.5 py-0.5 font-display text-xs text-fg shadow-[var(--shadow-border)]";
   const glyph = "inline-flex size-5 items-center justify-center rounded-full bg-surface-2 font-display text-xs font-semibold text-fg shadow-[var(--shadow-border)]";
+  const hint = cn("flex cursor-pointer items-center gap-1.5 hover:text-fg", FOCUS);
+  const keep = (e: { preventDefault(): void }) => e.preventDefault();
+  const select = () => ref.current && activateIn(ref.current);
   return (
     <div className={cn("absolute inset-0 z-30 flex", sheet ? "pointer-events-none items-end p-2 sm:items-start sm:justify-end sm:p-4" : "pointer-events-auto items-center justify-center bg-bg/60 p-3 sm:p-6")}>
       <div
@@ -100,40 +103,40 @@ export function MenuShell({
             <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
               {pad ? (
                 <>
-                  <span className="flex items-center gap-1.5">
+                  <button type="button" aria-label="Select" onMouseDown={keep} onClick={select} className={hint}>
                     <span className={glyph}>A</span>Select
-                  </span>
+                  </button>
                   {onBack ? (
-                    <span className="flex items-center gap-1.5">
+                    <button type="button" aria-label="Back" onMouseDown={keep} onClick={onBack} className={hint}>
                       <span className={glyph}>B</span>Back
-                    </span>
+                    </button>
                   ) : null}
                   {onStart ? (
-                    <span className="flex items-center gap-1.5">
+                    <button type="button" aria-label="Resume" onMouseDown={keep} onClick={onStart} className={hint}>
                       <span className={chip}>Start</span>Resume
-                    </span>
+                    </button>
                   ) : null}
-                  {sheet ? (
-                    <span className="flex items-center gap-1.5">
+                  {toggle ? (
+                    <button type="button" aria-label="Hide menu" onMouseDown={keep} onClick={toggle} className={hint}>
                       <span className={glyph}>Y</span>Hide
-                    </span>
+                    </button>
                   ) : null}
                   <span>D-pad / stick move{adjust ? " · ←/→ adjust" : ""}</span>
                 </>
               ) : (
                 <>
-                  <span className="flex items-center gap-1.5">
+                  <button type="button" aria-label="Select" onMouseDown={keep} onClick={select} className={hint}>
                     <kbd className={chip}>Enter</kbd>Select
-                  </span>
+                  </button>
                   {onBack ? (
-                    <span className="flex items-center gap-1.5">
+                    <button type="button" aria-label="Back" onMouseDown={keep} onClick={onBack} className={hint}>
                       <kbd className={chip}>Esc</kbd>Back
-                    </span>
+                    </button>
                   ) : null}
-                  {sheet ? (
-                    <span className="flex items-center gap-1.5">
+                  {toggle ? (
+                    <button type="button" aria-label="Hide menu" onMouseDown={keep} onClick={toggle} className={hint}>
                       <kbd className={chip}>Backspace</kbd>Hide
-                    </span>
+                    </button>
                   ) : null}
                   <span>Arrows move{adjust ? " · ←/→ adjust" : ""}</span>
                 </>
