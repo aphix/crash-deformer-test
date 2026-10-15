@@ -8,6 +8,7 @@ import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import { bodyPoints } from "../vehicle/body-points.test-util.ts";
 import { makeCar } from "../vehicle/ground-probe.test-util.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { FINE_HZ, FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * A course wall is a row of boxes, one per drawn piece, and a car meets two of them at once where it hits a joint. On a bend the
@@ -15,7 +16,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
  * through the gap. The wall below is two 8 m pieces whose road faces meet at a point (the joint), 0.6 m deep behind it.
  */
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const PIECE = { len: 8, thick: 0.6 };
 /** Most (m) any point of the body may end up past the far face of a piece it is beside, and the most it may stand in the wall. */
 const PAST = 0.02;
@@ -111,7 +112,7 @@ describe("given a wall of two pieces bending at a joint, and a sedan aimed at th
       const back = 8;
       car.spawnFacing(n.x * side * back, n.z * side * back, Math.atan2(-n.x * side, -n.z * side), testCase.speed);
       const world = newWorld([car]);
-      world.fine = 1 / 240;
+      world.fine = 1 / FINE_HZ;
       let hardest = 0;
       const hits: PropHits = { ...NO_HITS, wall: (_k, _i, closing) => (hardest = Math.max(hardest, closing)) };
       world.collide = (c, i, h) => propContact(c, i, prisms, knocked, hits, h);

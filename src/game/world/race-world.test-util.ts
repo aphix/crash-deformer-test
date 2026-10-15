@@ -18,6 +18,7 @@ import { Track, blankPoint, blankProjection } from "./track.ts";
 import { TRACKS } from "./tracks/index.ts";
 import { AI_EVERY_SLICE, type AiDifficulty } from "../ai/constants.ts";
 import { DEFAULT_RACE_OPTIONS, type CarRecord, type RaceResultRow, type RaceSnapshot } from "../match/types.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * The whole race stack headless, as the browser runs it minus the renderer: `RaceDirector` (rules
@@ -30,7 +31,7 @@ import { DEFAULT_RACE_OPTIONS, type CarRecord, type RaceResultRow, type RaceSnap
 /** Every course on the race menu, in menu order: what a per-course sweep iterates, so a new course is in it. */
 export const COURSE_IDS: readonly string[] = TRACKS.map((j) => parseTrack(j).id);
 
-export const FRAME = 1 / 60;
+export const FRAME = 1 / FRAME_HZ;
 export type World = {
   cars: DeformableCar[];
   live: () => DeformableCar[];

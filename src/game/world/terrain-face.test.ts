@@ -13,6 +13,7 @@ import { C_H, C_NY, HIT_SIZE, pointContact, PQ_SIZE, PQ_X, PQ_Y, PQ_Z } from "./
 import { blankPoint, Track } from "./track.ts";
 import { parseTrack } from "./track-schema.ts";
 import { OFF_MENU, TRACKS } from "./tracks/index.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * Owner, 2026-10-08: "a driver should be able to drive on a box prop, a jersey barrier, a ramp, or a roof, all the same". The
@@ -94,7 +95,7 @@ function driveAt(ny: number): { past: number; climb: number; top: number; met: b
   let rose = -Infinity;
   for (let frame = 0; frame < 180; frame++) {
     const fastest = sliceSpeed(world.cars);
-    accumulated = Math.min(0.05, accumulated + 1 / 60);
+    accumulated = Math.min(0.05, accumulated + 1 / FRAME_HZ);
     for (let steps = 0; accumulated > 1e-5 && steps < 8; steps++) {
       const h = Math.fround(physicsSlice(accumulated, fastest));
       stepWorld(world, h);

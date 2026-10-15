@@ -10,6 +10,7 @@ import { DeformableCar, DOOR } from "../vehicle/car.ts";
 import { DOOR_OPEN_MAX, type DetachPart } from "../vehicle/car-core.ts";
 import { assertSameDigest, paint } from "../vehicle/test-support.ts";
 import { assignClass, CLASSES } from "../vehicle/vehicle-classes.ts";
+import { FINE_HZ, FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * A door a crash left open sticks out past the car's tyres, where the wall's footprint test never looks. Owner clip "Wall hit,
@@ -19,7 +20,7 @@ import { assignClass, CLASSES } from "../vehicle/vehicle-classes.ts";
  * tip (1.4 m).
  */
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** One physics slice of travel at the fastest case (9 m/s over 1/240 s) plus the door skin's thickness: how far into the wall the door may be at the end of a slice. */
 const DOOR_IN = 0.05;
 const NO_HITS: PropHits = { knock: () => {}, fx: () => {}, wall: () => {} };
@@ -101,7 +102,7 @@ function driveBy(jam: number, speed: number, shape: PropCollider, solids: Solids
   car.setDoorOpen(-1, DOOR_OPEN_MAX);
   car.door(-1).hingeT = jam;
   const world = newWorld([car]);
-  world.fine = 1 / 240;
+  world.fine = 1 / FINE_HZ;
   world.collide = (c, i, h) => propContact(c, i, prisms, new Uint8Array(0), NO_HITS, h);
   let acc = 0;
   let deepest = 0;

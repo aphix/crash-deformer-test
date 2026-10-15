@@ -8,6 +8,7 @@ import { makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { armSolids, armTops, C_H, C_OWNER, HIT_SIZE, PQ_SIZE, PQ_X, PQ_Y, PQ_Z, pointContact, Surface, wheelContact } from "./surfaces.ts";
 import { SKIN } from "../vehicle/car-surfaces.ts";
 import { Ground, setGround } from "./ground.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * A tyre's footprint asks the surfaces from its hub's height: a face lower than the hub is the ground it sits in, a taller one is a wall
@@ -15,7 +16,7 @@ import { Ground, setGround } from "./ground.ts";
  * 11.6), a car's front tyre met a flattened wreck's top 0.12 m over its hub, read it as ground 0.5 m above its tread and was lifted 0.1 m
  * past its spring stop in one 5 ms slice (a first-contact hop of 0.102 m against the bar 3·v·h + 2 cm = 0.093 m).
  */
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** How far over the hub the sedan's roof stands in the wall case: inside the roof's skin (`SKIN`), above the hub. */
 const OVER = 0.12;
 const out = new Float64Array(HIT_SIZE);

@@ -6,6 +6,7 @@ import { CLASSES } from "../vehicle/vehicle-classes.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { ENTRY_WINDOW, SOLID_AT_REST } from "./constants.ts";
 import { FF_NX, FF_NZ, FF_PEN, FF_SIZE, FOOT_FX, FOOT_FZ, FOOT_HL, FOOT_HW, FOOT_RX, FOOT_RZ, FOOT_SIZE, FOOT_X, FOOT_Z, footFace } from "./prism.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /** A surface of the given prisms, armed as the scene's solids for the test that asks. */
 function solids(...specs: Parameters<Surface["addPrism"]>[0][]): Surface {
@@ -207,7 +208,7 @@ describe("given a car's footprint over a circle prism at its flank", () => {
     foot[FOOT_FZ] = 1;
     foot[FOOT_HW] = HW;
     foot[FOOT_HL] = HL;
-    assert.ok(footFace(s.p, 0, foot, 0, speed, 1 / 240, hit), "they overlap");
+    assert.ok(footFace(s.p, 0, foot, 0, speed, 1 / FINE_HZ, hit), "they overlap");
     return { pen: hit[FF_PEN]!, nx: hit[FF_NX]!, nz: hit[FF_NZ]! };
   }
 
