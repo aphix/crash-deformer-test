@@ -1,23 +1,42 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { setGround } from "../world/ground.ts";
-import { makeWorld } from "../world/race-world.test-util.ts";
+import { blankPoint, Track } from "../world/track.ts";
+import city from "../world/tracks/city.json" with { type: "json" };
+import { FRAME_HZ } from "../kernel/constants.ts";
+import { COUNTDOWN, GRID_TIME } from "../match/session.ts";
+import { makeWorld, type World } from "../world/race-world.test-util.ts";
 import { recordField } from "./replay-fidelity.test-util.ts";
 
 /**
  * The car's cage is a function of the sim's state alone, scheduled by the sim alone (docs/HIGHLIGHTS.md): drawing a car (`updateSkin`,
  * once per rendered frame in the engine, and only for the cars the camera sees) must not change what any car does, however often or
- * rarely it draws. A seeded ramming race is run twice; the second also draws every car before every step. Every car's pose, velocity and
+ * rarely it draws. A staged head-on is run twice; the second also draws every car before every step. Every car's pose, velocity and
  * crush, and the fields of its cage, must be the same numbers at every step, to the bit.
  */
 
-const FIELD = { trackId: "city", laps: 1, aiCount: 11, noReset: false, aggression: 1 };
-const SEED = 1;
-/** The first lap's crashes; the player's car drives flat out into the first wall it meets if no clip was kept by then (as `sweepSeeds` scripts it). */
-const RACE_S = 75;
-const SCRIPTED_AT = 12;
+/** The city course with the head-on's two cars (2 and 3) and the player's and car 1: no field around them to crash into. */
+const FIELD = { trackId: "city", laps: 1, aiCount: 3, noReset: false, aggression: 1 };
+const SEED = 5;
+/** Cars 2 and 3 meet head-on 8 m apart on the city road at these speeds (m/s): a hard hit, so the cars crush and the cages refit. */
+const HEAD_ON_MPS = { a: 30, b: 10 };
+/** Race time the hit is staged at: the clock runs from minus the grid and the countdown, where the cars are held. */
+const STAGED_AT_S = 1;
+const START_S = GRID_TIME + COUNTDOWN;
+/** Race time the run goes on for after the hit is staged: the impact, the crush settling and the cage refits. */
+const AFTER_STAGED_S = 3;
 /** Numbers per car: x, y, z, vx, vy, vz, total crush, wreck flag, the cage's refits and a sum of its top field. */
 const STATE = 10;
+
+/** Cars 2 and 3 put head-on 8 m apart on the city road, intact, at `HEAD_ON_MPS`. */
+function stageHeadOn(w: World): void {
+  const track = new Track(city);
+  const pt = blankPoint();
+  track.pointAt(150, pt);
+  w.cars[2]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz), HEAD_ON_MPS.a);
+  track.pointAt(158, pt);
+  w.cars[3]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz) + Math.PI, HEAD_ON_MPS.b);
+}
 
 /** Every car's state at the start of every recorder step of a race, with `draw` run on every car ahead of it. */
 function run(draw: boolean): Float64Array[] {
@@ -25,6 +44,7 @@ function run(draw: boolean): Float64Array[] {
   w.race.enter();
   try {
     const trace: Float64Array[] = [];
+    let staged = -1;
     recordField(w, {
       options: FIELD,
       seed: SEED,
@@ -56,14 +76,13 @@ function run(draw: boolean): Float64Array[] {
             inner(cars);
           };
         }
-        if (w.race.recorder.now >= SCRIPTED_AT && w.race.recorder.ledger.kept.length === 0 && w.seat.mode !== "drive") {
-          w.seat.mode = "drive";
-          w.seat.carIndex = 0;
-          w.seat.intent.gas = 1;
+        if (staged < 0 && w.race.time >= STAGED_AT_S) {
+          stageHeadOn(w);
+          staged = w.race.time;
         }
       },
-      done: () => w.race.recorder.ledger.kept.length >= 3,
-      maxFrames: RACE_S * 60,
+      done: () => staged >= 0 && w.race.time - staged >= AFTER_STAGED_S,
+      maxFrames: (START_S + STAGED_AT_S + AFTER_STAGED_S + 1) * FRAME_HZ,
     });
     return trace;
   } finally {
@@ -72,7 +91,7 @@ function run(draw: boolean): Float64Array[] {
   }
 }
 
-describe("given a seeded ramming race run twice, the second drawing every car before every step", () => {
+describe("given a staged head-on between two cars run twice, the second drawing every car before every step", () => {
   it("when both are done, then every car's pose, velocity, crush and cage fields are the same numbers at every step", () => {
     const plain = run(false);
     const drawn = run(true);
