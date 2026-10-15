@@ -21,8 +21,9 @@ import { StreamedDeformation } from "./streamed-deform.ts";
 import { makeCar, runWall, type CrashResult } from "../contact/crash-scenarios.test-util.ts";
 import { CAGES, MASS_SPECS, SHAPE_CLUSTERS } from "../kernel/rig-spec.ts";
 import { stepWreck } from "./physics-util.test-util.ts";
+import { FINE_HZ, FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 
 /** `applyPlasticity` of one cluster for a slice of `dt` s at the given squash and buckle. */
 function flow(c: ShapeCluster, P: ShapeParticle[], dt: number, squash: number, buckle = 0.45): void {
@@ -328,7 +329,7 @@ describe("given a cluster of particles that can yield plastically (keep a perman
     }
     for (let i = 0; i < 120; i++) {
       matchCluster(c, P, 0.2);
-      flow(c, P, 1 / 240, 0.4, 0.45);
+      flow(c, P, 1 / FINE_HZ, 0.4, 0.45);
     }
     assert.ok(m3FrobeniusI(c.Sp) > 0.05, `Sp never yielded ${m3FrobeniusI(c.Sp)}`);
     const Sp = c.Sp;
@@ -436,7 +437,7 @@ describe("given a skin fit to a cluster by the per-cell (local) skin fit", () =>
     for (const p of P) if (p.z > 0.5) p.z -= 0.45;
     for (let k = 0; k < 200; k++) {
       matchCluster(c, P, 0.2);
-      flow(c, P, 1 / 60, 0.9, 0.9);
+      flow(c, P, 1 / FRAME_HZ, 0.9, 0.9);
     }
     // …then let go: the particles settle on their goals, so what they keep is the plastic dent.
     for (let k = 0; k < 200; k++) {
@@ -518,15 +519,15 @@ describe("given a car's crash deformation (StreamedDeformation, the object that 
     const z0 = fl.local.z;
     const rig = { d, group, vel, omega: new THREE.Vector3() };
     for (let i = 0; i < 24; i++) {
-      stepWreck(rig, 1 / 60, () => {
+      stepWreck(rig, 1 / FRAME_HZ, () => {
         d.notifyContact();
-        d.feedOverlap(fl.world, new THREE.Vector3(0, 0, -1), 0.1, 16, 1 / 60);
+        d.feedOverlap(fl.world, new THREE.Vector3(0, 0, -1), 0.1, 16, 1 / FRAME_HZ);
       });
-      d.stepCrush(1 / 60);
+      d.stepCrush(1 / FRAME_HZ);
       d.update(geom);
     }
     assert.ok(z0 - fl.local.z > 0.05, `shape mode did not crush ${z0} → ${fl.local.z}`);
-    d.stepCrush(1 / 60);
+    d.stepCrush(1 / FRAME_HZ);
     d.update(geom);
     const attr = geom.getAttribute("position") as THREE.BufferAttribute;
     let max = 0;
@@ -646,7 +647,7 @@ describe("given a car's crash deformation (StreamedDeformation, the object that 
   });
 
   it("when the same contact is fed with the structure step sliced into 1, 4 and 8 sub-steps, then the side rail's travel differs by at most 30% between slicings", () => {
-    const H = 1 / 240;
+    const H = 1 / FINE_HZ;
     const railTravel = (sub: number) => {
       const r = crashRig(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 14);
       for (let f = 0; f < 48; f++) {

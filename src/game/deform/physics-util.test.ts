@@ -20,6 +20,7 @@ import {
   hypot3,
 } from "./physics-util.ts";
 import { leftoverPass, separateSphereFromBounds } from "./physics-util.test-util.ts";
+import { FINE_HZ, FRAME_HZ } from "../kernel/constants.ts";
 
 describe("given the CRASH constants (the tuned crash-physics numbers, researched for a sedan and from NCAP crash tests)", () => {
   it("when the pulse length, crush distance and tyre friction values are read, then they sit in the published bands (pulse 0.09–0.16 s, crush 0.45–0.75 m, friction 0.9 at peak, 0.75 sliding, 0.4 scuffing)", () => {
@@ -132,7 +133,7 @@ describe("given applyGroundFriction (slows the ground-plane part of a velocity b
 
   it("when a car moving 8 m/s up and 6 m/s along the ground slides for 1/60 s with sliding friction, then only its ground speed drops (to between 5.8 and 6 m/s) and its vertical speed stays 8", () => {
     const v = new THREE.Vector3(0, 8, 6);
-    applyGroundFriction(v, 1 / 60, CRASH.muSlide, true);
+    applyGroundFriction(v, 1 / FRAME_HZ, CRASH.muSlide, true);
     assert.equal(v.y, 8);
     assert.ok(v.z < 6 && v.z > 5.8);
   });
@@ -221,9 +222,9 @@ describe("given a sedan's crash zones (soft bumper and rails over a rigid high-s
     assert.ok(crushGate(5, regionSoftness("bumperFL")) > 0);
   });
 
-  it("when the closing speed is 20 m/s instead of 5 m/s, then the energy scale is more than 8 times larger and a 1/240 s step gets under 30 % of the impulse scale of a 1/60 s step", () => {
+  it("when the closing speed is 20 m/s instead of 5 m/s, then the energy scale is more than 8 times larger and a fine step gets under 30 % of the impulse scale of a frame step", () => {
     assert.ok(closingKeScale(20) > closingKeScale(5) * 8);
-    assert.ok(dtImpulseScale(1 / 240) < dtImpulseScale(1 / 60) * 0.3);
+    assert.ok(dtImpulseScale(1 / FINE_HZ) < dtImpulseScale(1 / FRAME_HZ) * 0.3);
   });
 });
 
@@ -279,7 +280,7 @@ describe("given leftoverPass (the share of the closing speed that a crushed regi
 });
 
 describe("given satPushCap (the cap on one step's push), where slow motion must not rocket the cars", () => {
-  it("when the step is 1/240 s instead of 1/60 s, then the push cap is under 35 % of the 1/60 s step's", () => {
-    assert.ok(satPushCap(1 / 240) < satPushCap(1 / 60) * 0.35);
+  it("when the step is a fine slice instead of a frame, then the push cap is under 35 % of the frame step's", () => {
+    assert.ok(satPushCap(1 / FINE_HZ) < satPushCap(1 / FRAME_HZ) * 0.35);
   });
 });

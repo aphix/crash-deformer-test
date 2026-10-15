@@ -4,8 +4,9 @@ import * as THREE from "three";
 import { CAGES, type BodyPartName } from "../kernel/rig-spec.ts";
 import { DeformableCar } from "../vehicle/car.ts";
 import { paint } from "../vehicle/test-support.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
-const DT = 1 / 240;
+const DT = 1 / FINE_HZ;
 const NAMES = CAGES.map((c) => c.name);
 
 /** A car whose nose took a 40 m/s hit 2 m ahead, then 50 steps on: cages moved, sensors compressed. */

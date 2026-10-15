@@ -8,6 +8,7 @@ import { assignClass, CLASSES } from "../vehicle/vehicle-classes.ts";
 import { dummyGeom, paint } from "../vehicle/test-support.ts";
 import { physicsSlice } from "../contact/sat.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * `seatHubs` frees the wheels of a wreck that is about to plant at no more than HUB_SLIP m/s off the body. The body a
@@ -178,7 +179,7 @@ describe("given two still sedan wrecks side by side with their near wheels 0.3 m
     for (const wreck of wrecks) wreck.deform.notifyContact();
     let elapsed = 0;
     while (elapsed < UNTOUCHED_BEFORE_MEASURING) {
-      const slice = physicsSlice(1 / 60, 8);
+      const slice = physicsSlice(1 / FRAME_HZ, 8);
       stepWorld(world, slice);
       elapsed += slice;
     }
@@ -188,7 +189,7 @@ describe("given two still sedan wrecks side by side with their near wheels 0.3 m
     let crossedPlant = false;
     elapsed = 0;
     while (elapsed < MEASURED_SECONDS) {
-      const slice = physicsSlice(1 / 60, 8);
+      const slice = physicsSlice(1 / FRAME_HZ, 8);
       const plantedThisSlice = wrecks.every((wreck) => wreck.deform.quietTime() + slice >= PLANT_QUIET);
       const wheelsBefore = wrecks.map(wheelWorldPoints);
       const skinBefore = wrecks.map(skinWorldPoints);
@@ -245,7 +246,7 @@ function strikeStillWreck(extraDistance: number, speed: number, nose: number, se
     if (firstContactAt < 0) firstContactAt = elapsed;
   };
   while (elapsed < seconds) {
-    const slice = physicsSlice(1 / 60, speed);
+    const slice = physicsSlice(1 / FRAME_HZ, speed);
     stepWorld(world, slice);
     elapsed += slice;
   }

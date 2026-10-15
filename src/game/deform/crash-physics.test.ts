@@ -10,6 +10,7 @@ import { runPair } from "../contact/crash-scenarios.test-util.ts";
 import { holdOnFace } from "../contact/external-contact.ts";
 import { warmCrashPath } from "../engine/world-step.ts";
 import { stepWreck, type WreckRig } from "./physics-util.test-util.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /** ~50 km/h NCAP-style rigid barrier. */
 const FRONTAL_MPS = 14;
@@ -1043,14 +1044,14 @@ forModes("given a car driving into a rigid wall at a chosen speed", (spawn, mode
 });
 
 forModes("given a car crashing into a rigid wall at 14 to 16 m/s", (spawn, mode) => {
-  it("when one car is fed eight wall contacts in 1/240 s slow-motion steps and an identical car in 1/60 s steps, then the slow-motion bumper moves less than 8 m/s faster than the normal one and under 40 m/s, so slow motion does not rocket the bumper", () => {
+  it("when one car is fed eight wall contacts in fine slow-motion steps and an identical car in frame steps, then the slow-motion bumper moves less than 8 m/s faster than the normal one and under 40 m/s, so slow motion does not rocket the bumper", () => {
     const slow = spawn(0, 16);
     const fast = spawn(0, 16);
     const n = new THREE.Vector3(0, 0, -1);
     for (let i = 0; i < 8; i++) {
-      stepWreck(slow, 1 / 240, () => {
+      stepWreck(slow, 1 / FINE_HZ, () => {
         slow.d.notifyContact();
-        slow.d.feedOverlap(new THREE.Vector3(0, 0.38, 2), n, 0.1, 16, 1 / 240);
+        slow.d.feedOverlap(new THREE.Vector3(0, 0.38, 2), n, 0.1, 16, 1 / FINE_HZ);
       });
     }
     for (let i = 0; i < 8; i++) {
