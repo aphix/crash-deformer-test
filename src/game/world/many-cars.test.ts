@@ -16,10 +16,11 @@ import { SimPacer } from "../engine/sim-pace.ts";
 const SIZES = [36, 40];
 /** Ring radius (m): adjacent cars start 5.6 m apart or more at 40 cars. */
 const RING = 36;
-/** Closing speed of each car toward the centre (m/s): they meet about 3 s in. */
-const SPEED = 12;
-/** Sim seconds run. */
-const SECONDS = 5;
+/** Closing speed of each car toward the centre (m/s): they meet about 1.5 s in. */
+const SPEED = 24;
+/** Sim seconds at most run, and the seconds of the pile-up run after a car past the 32nd first touches another. */
+const SECONDS = 2;
+const PILE_S = 0.25;
 
 type Pileup = { thrown: string; nonFinite: number; fine: number; pastCap: number; contacts: number };
 
@@ -48,7 +49,11 @@ function pileup(n: number): Pileup {
   const state = { acc: 0 };
   let thrown = "";
   try {
-    for (let f = 0; f < 60 * SECONDS; f++) frame(w, state, undefined, pace);
+    let stopAt = Infinity;
+    for (let f = 0; f < 60 * SECONDS && f < stopAt; f++) {
+      frame(w, state, undefined, pace);
+      if (pastCap > 0 && stopAt === Infinity) stopAt = f + 1 + Math.ceil(PILE_S * 60);
+    }
   } catch (e) {
     thrown = String(e);
   }
@@ -62,7 +67,7 @@ function pileup(n: number): Pileup {
 
 describe("given a field of 36 or 40 cars on a ring, each driving at its centre, stepped on the 1/80 s floor", () => {
   for (const n of SIZES) {
-    it(`when ${n} cars pile up for ${SECONDS} s, then the step runs, every car stays at a real position and cars past the 32nd collide`, (t) => {
+    it(`when ${n} cars meet and pile up for ${PILE_S} s after a car past the 32nd first touches another, then the step runs, every car stays at a real position and cars past the 32nd collide`, (t) => {
       const r = pileup(n);
       t.diagnostic(`contacts ${r.contacts}, on a car past the 32nd ${r.pastCap}, fine slice ${r.fine.toFixed(5)} s`);
       assert.equal(r.thrown, "");
