@@ -142,18 +142,47 @@ export function hash01(i: number, salt: number): number {
   return (x >>> 0) / 4294967296;
 }
 
-/** Low-frequency colour mottling: hash on the 8 m block lattice, bilinear between. */
-export function mottle(x: number, z: number): number {
-  const u = x / BLOCK;
-  const v = z / BLOCK;
-  const i = Math.floor(u);
-  const j = Math.floor(v);
-  const fu = u - i;
-  const fv = v - j;
-  const h = (a: number, b: number) => hash01(a * 7919 + b, 3);
-  const a = h(i, j) + (h(i + 1, j) - h(i, j)) * fu;
-  const b = h(i, j + 1) + (h(i + 1, j + 1) - h(i, j + 1)) * fu;
-  return 0.9 + 0.2 * (a + (b - a) * fv);
+const MOTTLE_SALT = 3;
+
+/** `hash01`'s integer hash on the block lattice, and the colour factor (0.9 to 1.1) it makes: noise on `BLOCK`-metre lattice points, bilinear between. */
+const MOTTLE_GLSL = /* glsl */ `
+float mottleHash(int a, int b) {
+  uint x = uint(a * 7919 + b) ^ ${Math.imul(MOTTLE_SALT + 1, 0x9e3779b9) >>> 0}u;
+  x *= 0x85ebca6bu;
+  x ^= x >> 13u;
+  x *= 0xc2b2ae35u;
+  x ^= x >> 16u;
+  return float(x) / 4294967296.0;
+}
+float mottle(vec2 xz) {
+  vec2 g = xz / ${BLOCK}.0;
+  vec2 c = floor(g);
+  vec2 f = g - c;
+  int i = int(c.x);
+  int j = int(c.y);
+  float a = mix(mottleHash(i, j), mottleHash(i + 1, j), f.x);
+  float b = mix(mottleHash(i, j + 1), mottleHash(i + 1, j + 1), f.x);
+  return 0.9 + 0.2 * mix(a, b, f.y);
+}`;
+
+/**
+ * Low-frequency colour mottling of a terrain material, drawn per pixel from the mesh's own xz (a lattice vertex per 8 m was
+ * what held a flat stretch of ground to a quad per block): its mesh carries none.
+ */
+export function applyMottle(material: THREE.MeshStandardMaterial): void {
+  const prev = material.onBeforeCompile;
+  const prevKey = material.customProgramCacheKey;
+  material.onBeforeCompile = (shader, renderer) => {
+    prev.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec2 vMottleXZ;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvMottleXZ = transformed.xz;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `#include <common>\nvarying vec2 vMottleXZ;${MOTTLE_GLSL}`)
+      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= mottle(vMottleXZ);");
+  };
+  material.customProgramCacheKey = () => `${prevKey.call(material)}|mottle`;
+  material.needsUpdate = true;
 }
 
 /** Sample index at arc length s (wrapped on a loop, clamped on an open path). */

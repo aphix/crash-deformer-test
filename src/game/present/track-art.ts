@@ -10,7 +10,7 @@ import { makePrefabMaterials, makeRaceTextures, prefabParts, type RaceTextures }
 import { blankPoint, type Track } from "../world/track.ts";
 import { sections } from "../world/track-sections.ts";
 import {
-  BLACK, DEPTH_INSTANCED, DEPTH_INSTANCED_COLOR, type DrawKind, GANTRY_BEAM, hash01, LIGHT_OFF, LIGHT_ON,
+  applyMottle, BLACK, DEPTH_INSTANCED, DEPTH_INSTANCED_COLOR, type DrawKind, GANTRY_BEAM, hash01, LIGHT_OFF, LIGHT_ON,
   LIGHT_RGB, Mesher, RED, RoadIndex, texClass,
 } from "./track-mesh.ts";
 import { buildGroundLayers, TerrainBatch } from "./track-ground.ts";
@@ -101,6 +101,7 @@ export class TrackArt {
         continue;
       }
       const mat = textured(SURFACE_IDS.indexOf(layer.surface));
+      if (layer.chunks) applyMottle(mat);
       const mesh = layer.chunks ? new TerrainBatch(layer.m, layer.chunks, groundMaterial(mat, layer.level)) : groundMesh(layer.m.geometry(layer.smooth), mat, layer.level);
       // The chunked terrain is a batch, not a plain mesh: its place in the stack is set here.
       mesh.renderOrder = levelOrder(layer.level);

@@ -7,16 +7,17 @@ import { type Mesher, RoadIndex } from "./track-mesh.ts";
 import { sections } from "../world/track-sections.ts";
 import { buildGroundLayers, TerrainBatch } from "./track-ground.ts";
 
-/** A course's terrain as `TrackArt` draws it: the near mesh (chunk after chunk, then the far skirt) and the chunks. */
-type Terrain = { near: Mesher; chunks: { coarse: Mesher; box: Float32Array; fineAt: Int32Array; coarseAt: Int32Array } };
+/** A course's terrain as `TrackArt` draws it: the near mesh (chunk after chunk, then the far skirt), the chunks and the road index. */
+type Terrain = { near: Mesher; chunks: { coarse: Mesher; box: Float32Array; fineAt: Int32Array; coarseAt: Int32Array }; roads: RoadIndex };
 
 function terrainOf(course: string): Terrain {
   const track = TRACKS.map((raw) => new Track(raw)).find((t) => t.id === course)!;
   const paths = track.paths();
-  const terrain = buildGroundLayers(track, track.ground(), new RoadIndex(paths), paths, paths.map((p) => sections(p, 0)))[0]!;
+  const roads = new RoadIndex(paths);
+  const terrain = buildGroundLayers(track, track.ground(), roads, paths, paths.map((p) => sections(p, 0)))[0]!;
   assert.equal(terrain.kind, "terrain");
   assert.ok(terrain.chunks, "the terrain is cut into chunks");
-  return { near: terrain.m, chunks: terrain.chunks };
+  return { near: terrain.m, chunks: terrain.chunks, roads };
 }
 
 /** Sample offsets inside each 2 m grid cell: 1 mm past each grid line, and the middle. */
@@ -72,6 +73,11 @@ function sampleGround(t: Terrain, far: (chunk: number) => boolean): Sampled {
   return { y, nx, nz };
 }
 
+/** World (x, z) of the corner of the 2 m cell holding sample `s` of a `sampleGround` grid whose first chunk starts at (x0, z0). */
+function sampleCellCorner(g: Sampled, s: number, x0: number, z0: number): [number, number] {
+  return [x0 + Math.floor((s % g.nx) / OFFSETS.length) * CELL, z0 + Math.floor(Math.floor(s / g.nx) / OFFSETS.length) * CELL];
+}
+
 /** The largest height step (m) across a 2 m grid line, between the samples 1 mm either side of it. */
 function largestStep(g: Sampled): number {
   let worst = 0;
@@ -91,11 +97,15 @@ function largestStep(g: Sampled): number {
   return worst;
 }
 
+/** The near and far meshes may differ in what they cover only in a cell under a ribbon: its corner lies this far (m) inside a road's or runoff's edge. */
+const ROAD_INSET = 0.5;
+
 const courseCases = [
   { it: "the hilliest course", course: "dam-spine", fewerFarTrianglesPct: 20 },
   { it: "the second hilliest course", course: "four-count", fewerFarTrianglesPct: 30 },
   { it: "a course of cliff shelves", course: "razor-shelf", fewerFarTrianglesPct: 30 },
-  { it: "a course with paved yards painted on its ground", course: "breaker-yard", fewerFarTrianglesPct: 45 },
+  { it: "a course with paved yards painted on its ground", course: "breaker-yard", fewerFarTrianglesPct: 25 },
+  { it: "the National Mall, flat lawns and streets over concrete", course: "national-mall", fewerFarTrianglesPct: 30 },
 ] as const;
 
 describe("given a course's terrain drawn in chunks, each with a near mesh and a coarser far mesh", () => {
@@ -116,18 +126,19 @@ describe("given a course's terrain drawn in chunks, each with a near mesh and a 
         }
       });
 
-      it(`when every chunk is drawn far, then the ground covers exactly the near ground, stays within 0.2 m of it, and has at least ${testCase.fewerFarTrianglesPct} % fewer triangles`, () => {
+      it(`when every chunk is drawn far, then the ground covers what the near ground does but under a road, stays within 0.2 m of it, and has at least ${testCase.fewerFarTrianglesPct} % fewer triangles`, () => {
         const far = sampleGround(t, () => true);
-        let uncovered = 0;
-        let added = 0;
+        let uncoveredAwayFromRoads = 0;
+        let addedAwayFromRoads = 0;
         let worst = 0;
         let compared = 0;
         for (let s = 0; s < near.y.length; s++) {
           const a = near.y[s]!;
           const b = far.y[s]!;
           if (Number.isNaN(a) !== Number.isNaN(b)) {
-            if (Number.isNaN(b)) uncovered++;
-            else added++;
+            if (t.roads.coveredBy(...sampleCellCorner(far, s, box[0]!, box[1]!), ROAD_INSET) >= 0) continue;
+            if (Number.isNaN(b)) uncoveredAwayFromRoads++;
+            else addedAwayFromRoads++;
             continue;
           }
           if (Number.isNaN(a)) continue;
@@ -135,8 +146,8 @@ describe("given a course's terrain drawn in chunks, each with a near mesh and a 
           worst = Math.max(worst, Math.abs(a - b));
         }
         assert.ok(compared > 0, "ground was sampled");
-        assert.equal(uncovered, 0, "far ground left a hole");
-        assert.equal(added, 0, "far ground covers a hole the near ground leaves");
+        assert.equal(uncoveredAwayFromRoads, 0, "far ground left a hole away from a road");
+        assert.equal(addedAwayFromRoads, 0, "far ground covers a hole the near ground leaves away from a road");
         assert.ok(worst <= 0.2 + 1e-4, `${worst} m from the near ground`);
         const nearTriangles = t.chunks.fineAt[chunks * 2 + 1]! / 3;
         const farTriangles = t.chunks.coarseAt[chunks * 2 + 1]! / 3;
@@ -144,6 +155,20 @@ describe("given a course's terrain drawn in chunks, each with a near mesh and a 
       });
     });
   }
+});
+
+describe("given the National Mall's terrain, its lawns painted over a flat concrete ground", () => {
+  const t = terrainOf("national-mall");
+  const nearTriangles = t.chunks.fineAt[(t.chunks.box.length / 4) * 2 + 1]! / 3;
+  const farTriangles = t.chunks.coarseAt[(t.chunks.box.length / 4) * 2 + 1]! / 3;
+
+  it("when the chunks are built, then flat lawn and road verge are merged into large quads: the near mesh stays under 120 000 triangles", () => {
+    assert.ok(nearTriangles < 120_000, `${nearTriangles} near triangles`);
+  });
+
+  it("when the chunks are built, then the far mesh stays under 80 000 triangles", () => {
+    assert.ok(farTriangles < 80_000, `${farTriangles} far triangles`);
+  });
 });
 
 describe("given a course's terrain batch (four-count)", () => {

@@ -6,7 +6,7 @@ import { type Track, type TrackGround, type TrackPath } from "../world/track.ts"
 import { sampleStep, surfY } from "../world/track-sections.ts";
 import type { GroundLevel } from "../scenes/ground-stack.ts";
 import {
-  BLACK, BLOCK, CELL, CHEQUER, FLAT_TOL, KERB_CURV, KERB_FILL, KERB_LIFT, KERB_WIDTH, MARK_LIFT, Mesher, mottle, PAVED,
+  BLACK, BLOCK, CELL, CHEQUER, FLAT_TOL, KERB_CURV, KERB_FILL, KERB_LIFT, KERB_WIDTH, MARK_LIFT, Mesher, PAVED,
   RED, ROAD_LIFT, RoadIndex, sampleAt, SKIRT_RADIUS, surfaceHex, texClass, WHITE,
 } from "./track-mesh.ts";
 
@@ -37,6 +37,11 @@ const FAR_RING = 240;
 const FAR_HOLD = 16;
 /** A far-mesh block's two triangles stay this close (m) to every cell height they cover: about a pixel at FAR_RING on a phone. */
 const FAR_TOL = 0.2;
+
+/** A merged rectangle is one plane: its vertices stay within this (m) of its height, well under the lift of a road laid over it. */
+const MERGE_TOL = 0.002;
+/** Most blocks a side of a merged rectangle: bounds a quad's size (32 m) so a camera on the ground never stands under a 100 m triangle. */
+const MERGE_BLOCKS = 4;
 
 /** The terrain cut into square chunks of CHUNK blocks: each one's xz box and where it starts in the near and far meshes. */
 type TerrainChunks = {
@@ -121,9 +126,9 @@ function dropped(g: TerrainGrid, i: number, j: number): boolean {
   return a >= 0 && g.cov[c + 1] === a && g.cov[c + g.nx] === a && g.cov[c + g.nx + 1] === a;
 }
 
-/** Block kind: 0 hidden, 1 one quad, 2 split into cells. */
+/** Block kind: 0 hidden, 1 one quad (flat, one colour all over: bare terrain or a painted lawn), 2 split into cells. */
 function blockKinds(g: TerrainGrid): Uint8Array {
-  const { bx, bz, per, nx, terrain, h, col } = g;
+  const { bx, bz, per, nx, terrain, h, col, cov } = g;
   const kind = new Uint8Array(bx * bz);
   for (let bj = 0; bj < bz; bj++) {
     for (let bi = 0; bi < bx; bi++) {
@@ -133,6 +138,8 @@ function blockKinds(g: TerrainGrid): Uint8Array {
       for (let v = 0; v < per; v++) for (let u = 0; u < per; u++) if (dropped(g, i0 + u, j0 + v)) drops++;
       if (drops === per * per) continue;
       const h00 = h[j0 * nx + i0]!;
+      const blockColour = col[j0 * nx + i0];
+      const painted = blockColour !== terrain;
       const h10 = h[j0 * nx + i0 + per]!;
       const h01 = h[(j0 + per) * nx + i0]!;
       const h11 = h[(j0 + per) * nx + i0 + per]!;
@@ -142,13 +149,75 @@ function blockKinds(g: TerrainGrid): Uint8Array {
           const c = (j0 + v) * nx + i0 + u;
           const a = h00 + (h10 - h00) * (u / per);
           const e = h01 + (h11 - h01) * (u / per);
-          simple = col[c] === terrain && Math.abs(h[c]! - (a + (e - a) * (v / per))) <= FLAT_TOL;
+          simple = col[c] === blockColour && !(painted && cov[c]! >= 0) && Math.abs(h[c]! - (a + (e - a) * (v / per))) <= FLAT_TOL;
         }
       }
       kind[bj * bx + bi] = simple ? 1 : 2;
     }
   }
   return kind;
+}
+
+/** Whether block (bi, bj) is on the rim of its chunk: it keeps its kind in the near and far meshes alike, so a near and a far chunk meet in the same edge. */
+function isChunkEdge(bi: number, bj: number): boolean {
+  return bi % CHUNK === 0 || bj % CHUNK === 0 || bi % CHUNK === CHUNK - 1 || bj % CHUNK === CHUNK - 1;
+}
+
+/** Whether every vertex of block (bi, bj) is within MERGE_TOL of its first corner's height. */
+function isLevel(g: TerrainGrid, bi: number, bj: number): boolean {
+  const { per, nx, h } = g;
+  const first = bj * per * nx + bi * per;
+  for (let v = 0; v <= per; v++) {
+    for (let u = 0; u <= per; u++) if (Math.abs(h[first + v * nx + u]! - h[first]!) > MERGE_TOL) return false;
+  }
+  return true;
+}
+
+/** Rectangles of cells drawn as one quad: `width` / `depth` (cells) set at a rectangle's first cell, `covered` on the others (indexed like the grid's vertices). */
+type MergedCells = { width: Uint8Array; depth: Uint8Array; covered: Uint8Array };
+
+/**
+ * Level cells in one vertex colour (`colours`), inside one chunk, merged greedily into rectangles: a flat lawn or road verge
+ * is a few quads, and only the cells on a colour's edge stay cells. Only level blocks of kind 1 or 2 (`kinds`) take
+ * part; a rectangle is flat to MERGE_TOL, so the blocks beside it as `kinds` draws them meet it without a crack.
+ */
+function mergeFlatCells(g: TerrainGrid, kinds: Uint8Array, colours: Uint8Array): MergedCells {
+  const { bx, bz, per, nx, h } = g;
+  const cellsX = bx * per;
+  const cellsZ = bz * per;
+  const width = new Uint8Array(nx * (cellsZ + 1));
+  const depth = new Uint8Array(nx * (cellsZ + 1));
+  const covered = new Uint8Array(nx * (cellsZ + 1));
+  const joinable = new Uint8Array(bx * bz);
+  for (let bj = 0; bj < bz; bj++) {
+    for (let bi = 0; bi < bx; bi++) joinable[bj * bx + bi] = (kinds[bj * bx + bi] === 1 || kinds[bj * bx + bi] === 2) && isLevel(g, bi, bj) ? 1 : 0;
+  }
+  const free = (i: number, j: number) => i < cellsX && j < cellsZ && joinable[Math.floor(j / per) * bx + Math.floor(i / per)] === 1 && covered[j * nx + i] === 0;
+  const alike = (i: number, j: number, colour: number, level: number) => colours[j * nx + i] === colour && Math.abs(h[j * nx + i]! - level) <= MERGE_TOL;
+  const chunkCells = CHUNK * per;
+  for (let j = 0; j < cellsZ; j++) {
+    for (let i = 0; i < cellsX; i++) {
+      const colour = colours[j * nx + i]!;
+      const level = h[j * nx + i]!;
+      if (!free(i, j) || !alike(i, j, colour, level) || !alike(i + 1, j, colour, level) || !alike(i, j + 1, colour, level) || !alike(i + 1, j + 1, colour, level)) continue;
+      const widthLimit = Math.min(MERGE_BLOCKS * per, (Math.floor(i / chunkCells) + 1) * chunkCells - i);
+      const depthLimit = Math.min(MERGE_BLOCKS * per, (Math.floor(j / chunkCells) + 1) * chunkCells - j);
+      let w = 1;
+      while (w < widthLimit && free(i + w, j) && alike(i + w + 1, j, colour, level) && alike(i + w + 1, j + 1, colour, level)) w++;
+      let d = 1;
+      for (; d < depthLimit; d++) {
+        let row = true;
+        for (let u = 0; u < w && row; u++) row = free(i + u, j + d) && alike(i + u, j + d + 1, colour, level);
+        if (row) row = alike(i + w, j + d + 1, colour, level);
+        if (!row) break;
+      }
+      if (w * d === 1) continue;
+      width[j * nx + i] = w;
+      depth[j * nx + i] = d;
+      for (let v = 0; v < d; v++) for (let u = 0; u < w; u++) if (u + v > 0) covered[(j + v) * nx + i + u] = 1;
+    }
+  }
+  return { width, depth, covered };
 }
 
 function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): { m: Mesher; chunks: TerrainChunks } {
@@ -214,33 +283,34 @@ function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): { m:
   const farKind = kind.slice();
   for (let bj = 0; bj < bz; bj++) {
     for (let bi = 0; bi < bx; bi++) {
-      const edge = bi % CHUNK === 0 || bj % CHUNK === 0 || bi % CHUNK === CHUNK - 1 || bj % CHUNK === CHUNK - 1;
-      if (edge || kind[bj * bx + bi] !== 2 || !clear(bi, bj)) continue;
+      if (isChunkEdge(bi, bj) || kind[bj * bx + bi] !== 2 || !clear(bi, bj)) continue;
       farKind[bj * bx + bi] = fits(farKind, bi, bj, per) ? 1 : 3;
     }
   }
   for (let b = 0; b < bx * bz; b++) {
     if (farKind[b] === 3 && !fits(farKind, b % bx, Math.floor(b / bx), 2)) farKind[b] = 2;
   }
+  /** The far mesh's vertex colours: under a ribbon the bare terrain's, since the ribbon covers it, so a block beside a road is one colour. */
+  const farCol = col.map((c, k) => (g.cov[k]! >= 0 ? terrain : c));
   const n = new THREE.Vector3();
-  const vert = (out: Mesher, i: number, j: number, y: number) => {
+  const vert = (out: Mesher, colours: Uint8Array, i: number, j: number, y: number) => {
     const x = x0 + i * CELL;
     const z = z0 + j * CELL;
-    const id = out.v(x, y, z, surfaceHex(col[j * nx + i]!), x / tile, z / tile, mottle(x, z));
+    const id = out.v(x, y, z, surfaceHex(colours[j * nx + i]!), x / tile, z / tile);
     ground.normalAt(x, z, n, -Infinity);
     out.normal(id, n.x, n.y, n.z);
     return id;
   };
   const ids = new Int32Array((per + 1) * (per + 1));
   /** Block (bi, bj) into `out` as `kinds` has it: hidden, or quads STEP cells wide (a split block leaves out its dropped cells). */
-  const addBlock = (out: Mesher, kinds: Uint8Array, bi: number, bj: number) => {
+  const addBlock = (out: Mesher, colours: Uint8Array, kinds: Uint8Array, bi: number, bj: number) => {
     const s = STEP[kinds[bj * bx + bi]!]!;
     if (s === 0) return;
     const i0 = bi * per;
     const j0 = bj * per;
     const row = per / s + 1;
     for (let v = 0; v <= per; v += s) {
-      for (let u = 0; u <= per; u += s) ids[(v / s) * row + u / s] = vert(out, i0 + u, j0 + v, vertexY(kinds, bi, bj, u, v));
+      for (let u = 0; u <= per; u += s) ids[(v / s) * row + u / s] = vert(out, colours, i0 + u, j0 + v, vertexY(kinds, bi, bj, u, v));
     }
     for (let v = 0; v < per; v += s) {
       for (let u = 0; u < per; u += s) {
@@ -252,6 +322,42 @@ function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): { m:
     }
   };
   const coarse = new Mesher();
+  const nearMerged = mergeFlatCells(g, kind, col);
+  const farMerged = mergeFlatCells(g, farKind, farCol);
+  /** Block (bi, bj) into `out` as `kinds` has it, but each rectangle `merged` starts in it as one quad and the cells one covers left out. */
+  const addMergedBlock = (out: Mesher, colours: Uint8Array, kinds: Uint8Array, merged: MergedCells, bi: number, bj: number) => {
+    const i0 = bi * per;
+    const j0 = bj * per;
+    let touched = false;
+    for (let v = 0; v < per && !touched; v++) {
+      for (let u = 0; u < per; u++) touched ||= merged.width[(j0 + v) * nx + i0 + u]! > 0 || merged.covered[(j0 + v) * nx + i0 + u] === 1;
+    }
+    if (!touched) {
+      addBlock(out, colours, kinds, bi, bj);
+      return;
+    }
+    ids.fill(-1);
+    const vertexAt = (u: number, v: number) => {
+      const k = v * (per + 1) + u;
+      if (ids[k]! < 0) ids[k] = vert(out, colours, i0 + u, j0 + v, vertexY(kinds, bi, bj, u, v));
+      return ids[k]!;
+    };
+    for (let v = 0; v < per; v++) {
+      for (let u = 0; u < per; u++) {
+        const c = (j0 + v) * nx + i0 + u;
+        if (merged.covered[c]) continue;
+        const w = merged.width[c]!;
+        if (w > 0) {
+          const i1 = i0 + u + w;
+          const j1 = j0 + v + merged.depth[c]!;
+          const y = h[c]!;
+          out.quad(vert(out, colours, i0 + u, j0 + v, y), vert(out, colours, i1, j0 + v, y), vert(out, colours, i0 + u, j1, y), vert(out, colours, i1, j1, y));
+        } else if (!dropped(g, i0 + u, j0 + v)) {
+          out.quad(vertexAt(u, v), vertexAt(u + 1, v), vertexAt(u, v + 1), vertexAt(u + 1, v + 1));
+        }
+      }
+    }
+  };
   const cx = Math.ceil(bx / CHUNK);
   const cz = Math.ceil(bz / CHUNK);
   const box = new Float32Array(cx * cz * 4);
@@ -272,8 +378,8 @@ function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): { m:
     box.set([x0 + ci * CHUNK * BLOCK, z0 + cj * CHUNK * BLOCK, x0 + bi1 * BLOCK, z0 + bj1 * BLOCK], c * 4);
     for (let bj = cj * CHUNK; bj < bj1; bj++) {
       for (let bi = ci * CHUNK; bi < bi1; bi++) {
-        addBlock(m, kind, bi, bj);
-        addBlock(coarse, farKind, bi, bj);
+        addMergedBlock(m, col, kind, nearMerged, bi, bj);
+        addMergedBlock(coarse, farCol, farKind, farMerged, bi, bj);
       }
     }
   }
@@ -296,7 +402,7 @@ function addSkirt(m: Mesher, ground: TrackGround, x0: number, z0: number, bx: nu
       const a = (s / seg) * Math.PI * 2;
       const x = cx + Math.sin(a) * rad;
       const z = cz + Math.cos(a) * rad;
-      m.v(x, ground.base(x, z) - 0.25, z, hex, x / tile, z / tile, mottle(x, z));
+      m.v(x, ground.base(x, z) - 0.25, z, hex, x / tile, z / tile);
     }
   }
   for (let r = 0; r < rings; r++) {
