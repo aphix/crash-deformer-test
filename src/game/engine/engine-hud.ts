@@ -115,6 +115,7 @@ export abstract class EngineHud extends EngineWarm {
       celLook: this.celLook,
       night: this.stage.night,
       wet: this.stage.wet,
+      sky: this.stage.skyMode,
       deformMode: this.deformMode,
       phase: this.clock.phase,
       timeScale: this.clock.timeScale,

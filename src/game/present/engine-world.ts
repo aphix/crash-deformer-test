@@ -3,7 +3,8 @@ import { applyMarkMap } from "./engine-marks.ts";
 import { groundMaterial, groundMesh } from "../scenes/ground-stack.ts";
 import { tagSurface } from "./ultra/surface-tag.ts";
 import { LAMP_POOL } from "./constants.ts";
-import { rowElevation, SKY_LOOKS, SkyDome } from "./sky-dome.ts";
+import { rowElevation, SKY_LOOKS, SkyDome, skyDetailFor, type SkyMode } from "./sky-dome.ts";
+import type { FxTier } from "./engine-post.ts";
 import { TIME_OF_DAY, type TimeOfDay } from "../match/types.ts";
 
 /** The sandbox's asphalt disc: its UVs span this many metres (its texture repeats 18 times across). */
@@ -296,6 +297,9 @@ export class WorldStage {
   readonly sunOffset = DEFAULT_SUN_OFFSET.clone();
   /** The race's sky (`present/sky-dome.ts`). */
   readonly sky = new SkyDome();
+  /** The player's Sky setting (`setSky`); the FX tier (`setSkyTier`) picks how much sky is drawn under it. */
+  skyMode: SkyMode = "auto";
+  private skyTier: FxTier = "minimal";
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -386,6 +390,22 @@ export class WorldStage {
     cam.updateProjectionMatrix();
     this.sky.show(time, SUN_BEARING);
     this.apply();
+  }
+
+  /** The Sky setting: the time of day's picture auto (by FX tier), always or never. */
+  setSky(mode: SkyMode): void {
+    this.skyMode = mode;
+    this.syncSky();
+  }
+
+  /** The FX tier now in force, every frame: it sets the sky's detail (`skyDetailFor`). */
+  setSkyTier(tier: FxTier): void {
+    this.skyTier = tier;
+    this.syncSky();
+  }
+
+  private syncSky(): void {
+    this.sky.setDetail(skyDetailFor(this.skyMode, this.skyTier));
   }
 
   setWet(on: boolean): void {

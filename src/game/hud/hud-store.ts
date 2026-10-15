@@ -1,4 +1,5 @@
 import type { FxTier } from "../present/engine-post.ts";
+import type { SkyMode } from "../present/sky-dome.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
 import type { StackConfig } from "../scenes/stack-rig.ts";
 import type { LabPresetId } from "../scenes/lab.ts";
@@ -120,6 +121,8 @@ export type CrashHudState = {
   /** Night lighting (H) and wet asphalt (X). */
   night: boolean;
   wet: boolean;
+  /** The race's sky picture: auto (by FX tier: none on minimal and off), on or off. */
+  sky: SkyMode;
   deformMode: "shape" | "lattice";
   phase: CrashPhase;
   timeScale: number;
@@ -245,6 +248,7 @@ export const INITIAL_HUD: CrashHudState = {
   celLook: null,
   night: false,
   wet: false,
+  sky: "auto",
   deformMode: "shape",
   phase: "approach",
   timeScale: 1,

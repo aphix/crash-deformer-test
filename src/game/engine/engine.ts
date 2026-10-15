@@ -18,6 +18,7 @@ import { damageStage } from "../vehicle/vehicle-classes.ts";
 import { makeJerseyBarrier, makePoolTexture } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
+import { SKY_MODES } from "../present/sky-dome.ts";
 import { AutoFx, gpuRenderer, hardwareDesktop } from "../present/auto-fx.ts";
 import { PHONE_LEVEL } from "../present/car-detail.ts";
 import { DetailGovernor } from "../present/detail-governor.ts";
@@ -198,6 +199,9 @@ export class CrashEngine extends EngineGarage {
     // `?fx=off|minimal|low|high|ultra` picks the tier for the session (bench A/B); the auto tier otherwise. Ultra loads after boot (below).
     const fxParam = FX_TIERS.find((t) => t === new URLSearchParams(window.location.search).get(SETTING_KEY.fx));
     this.cine.setTier(fxParam === "ultra" ? "high" : (fxParam ?? INITIAL_HUD.fxTier));
+    // `?sky=0|1|auto|on|off` pins the Sky setting for the session (bench A/B).
+    const skyParam = new URLSearchParams(window.location.search).get(SETTING_KEY.sky);
+    this.stage.setSky(skyParam === "0" ? "off" : skyParam === "1" ? "on" : (SKY_MODES.find((m) => m === skyParam) ?? INITIAL_HUD.sky));
     if (new URLSearchParams(window.location.search).get("stats") === "1") this.toggleStats();
     const gl = this.renderer.getContext();
     const desktop = hardwareDesktop(gpuRenderer(gl), window.matchMedia("(pointer: fine)").matches);

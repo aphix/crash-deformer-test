@@ -62,6 +62,7 @@ describe("given the settings menu, where each setting is a group of HUD fields w
       audioOn: true,
       night: true,
       wet: true,
+      sky: "off",
       fxAuto: false,
       celLook: 0.4,
       userTimeScale: 0.5,

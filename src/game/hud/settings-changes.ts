@@ -30,6 +30,7 @@ const BASE_SETTINGS = {
   engines: { section: "playback", label: "Engine volume", defaults: { engineVolume: D.engineVolume } },
   night: { section: "playback", label: "Night", defaults: { night: D.night } },
   wet: { section: "playback", label: "Wet", defaults: { wet: D.wet } },
+  sky: { section: "playback", label: "Sky", defaults: { sky: D.sky } },
   fx: { section: "playback", label: "FX", defaults: { fxAuto: true } },
   cel: { section: "playback", label: "Cel look", defaults: { celLook: D.celLook } },
   ts: { section: "playback", label: "Time scale", defaults: { userTimeScale: D.userTimeScale } },

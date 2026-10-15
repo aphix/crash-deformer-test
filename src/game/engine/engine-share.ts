@@ -42,6 +42,7 @@ export abstract class EngineShare extends EngineReel {
       smax: this.speedMax,
       night: this.stage.night,
       wet: this.stage.wet,
+      sky: this.stage.skyMode,
       real: HANDLING.realism,
       rumble: this.rumble,
       // Automatic: the machine chose the tier (`AutoFx`), so the URL does not pin it.
@@ -120,6 +121,7 @@ export abstract class EngineShare extends EngineReel {
       if (differs("smin", "smax")) this.setSpeedRange(t.smin, t.smax);
       if (differs("night")) this.setNight(t.night);
       if (differs("wet")) this.setWet(t.wet);
+      if (differs("sky")) this.setSky(t.sky);
       if (differs("real")) this.setRealism(t.real);
       if (differs("rumble")) this.setRumble(t.rumble);
       if (differs("fxd")) this.setFxDensity(t.fxd);

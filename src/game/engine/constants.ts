@@ -12,7 +12,7 @@ export const ULTRA_QUERY = "ultra";
 export const COURSE_QUERY = "course";
 /** The page queries that shape the strip bench (`benchPlan`): a loop carries them onto every step. */
 export const STRIP_QUERY = { cars: "cars", same: "same", len: "len", props: "props", traffic: "traffic" } as const;
-/** The settings the bench reads off the HUD and the HUD's reset command names (`night`, `wet`, `realism`, `fx`), the HUD's `celLook`, and the page query `?fx=` that pins the tier: one spelling for all. */
-export const SETTING_KEY = { night: "night", wet: "wet", realism: "realism", fx: "fx", celLook: "celLook" } as const;
+/** The settings the bench reads off the HUD and the HUD's reset command names (`night`, `wet`, `sky`, `realism`, `fx`), the HUD's `celLook`, and the page query `?fx=` that pins the tier: one spelling for all. */
+export const SETTING_KEY = { night: "night", wet: "wet", sky: "sky", realism: "realism", fx: "fx", celLook: "celLook" } as const;
 /** A hit whose impulse is no more than this throws no sparks: a brush, not a crash. */
 export const SPARK_MIN_IMPULSE = 1.2;

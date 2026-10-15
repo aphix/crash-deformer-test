@@ -155,15 +155,21 @@ The setup's **Time of day** (`RaceOptions.timeOfDay`: `daytime`, `sunset`, `nigh
 and light. It is drawn only: the simulation, the replays and the wire never see it, so a netplay client keeps its own pick. The
 setup menu shows a change at once on the course behind it.
 
-- **Sky.** A 360° panorama strip (`public/sky/<time>.webp`, 4096 × 780, one column a 1/4096 turn) on a sphere round the camera,
-  drawn at infinity before everything (it writes no depth, takes no fog and no tone mapping, as the flat sky colour it replaces).
+- **Sky.** A 360° panorama strip (`public/sky/<time>.webp`, 4096 × 780, one column a 1/4096 turn; `<time>-half.webp` is the same at
+  2048 × 390) on a sphere round the camera, drawn at infinity after everything opaque so the depth test skips every pixel a
+  surface covers (it writes no depth, takes no fog and no tone mapping, as the flat sky colour it replaces).
   Under its `hazeTop` it fades into the scene's fog colour, so the fogged course meets it with no seam: by day that is each course's
   own haze (a wide 0.2 rad band, the picture's horizon differing from it), at sunset and night the strip's own horizon colour, which
-  is then the fog's too. Past the strip's top it fades to its zenith colour. Each picture loads on first use and stays; the flat
-  colour shows until it is in. `SKY_LOOKS` holds what was read off each strip: horizon row, disc (sun or moon) position, horizon
-  and zenith colours. The day strip is five gpt-image-1 generations seam-matched row by row and cross-faded; sunset (the day
-  strip regraded to golden hour) and night (procedural stars, Milky Way and moon) were made locally when the image API ran out of
-  credit, and are due to be replaced by generated ones.
+  is then the fog's too. Past the strip's top it fades to its zenith colour. The picture is sampled without anisotropic filtering:
+  at any setting above 1 the wrap column draws as a dashed line of coarse-mip pixels. `SKY_LOOKS` holds what was read off each
+  strip: horizon row, disc (sun or moon) position, and the horizon, middle and zenith colours. The day strip is five gpt-image-1
+  generations seam-matched row by row and cross-faded; sunset (the day strip regraded to golden hour) and night (procedural stars,
+  Milky Way and moon) were made locally when the image API ran out of credit, and are due to be replaced by generated ones.
+- **Sky setting** (`Sky` in the settings, `sky=auto|on|off` in the `#` and as a `?sky=0|1|auto|on|off` page query for the bench).
+  How much sky is drawn is a function of the setting and the FX tier (`skyDetailFor`): `off` draws none (the flat sky colour,
+  no dome, no texture fetched or decoded); `auto` (the default) draws the full strip on high and ultra, the half strip on low and
+  nothing on minimal and off; `on` is `auto` plus a plain horizon / middle / zenith gradient (no texture) on minimal and off.
+  Only the picture in use is held: a change of detail or of time of day frees the old strip and fetches the new one.
 - **Light.** The sun keeps the day's bearing and its 22 m height over the shadow box at every time; its elevation follows the
   time: the day's 58.6° (unchanged), sunset's disc but no lower than 12° (the shadow texels stretch 1 / sin of it), night's moon
   between 20° and 60°. The disc in the picture is turned onto that bearing (`uAtNorth`), and the shadow camera reaches 34 m past

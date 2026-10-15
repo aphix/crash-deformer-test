@@ -9,6 +9,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { cleanName, DRIVER_CARS, type DriverCar, type SubmitContext } from "../match/types.ts";
 import { driverCarApplies } from "../match/driver-pick.ts";
 import { FX_TIERS, type FxTier } from "../present/engine-post.ts";
+import type { SkyMode } from "../present/sky-dome.ts";
 import { CHASE_KNOBS, type ChaseKnobId } from "../present/drive-cam.ts";
 import { loadUltra as fetchUltra } from "../present/ultra/load.ts";
 import { gameKey } from "../vehicle/drive-input.ts";
@@ -177,6 +178,7 @@ export abstract class EngineInput extends EngineRigs {
    * frame is (the main thread's ms and the GPU's, `present/frame-work.ts`) and the sim time the pacer gave up (`lostSimS`: the pacer's running total, s).
    */
   protected fxFrame(wallDt: number, lostSimS: number): void {
+    this.stage.setSkyTier(this.cine.tier);
     const p = this.race.phase;
     const matchTime = p === "grid" || p === "countdown" || p === "racing" ? this.race.time : this.derbyMode && this.derby.active && this.derby.winnerId === null ? this.derby.time : null;
     const lost = lostSimS - this.lostSeen;
@@ -224,6 +226,12 @@ export abstract class EngineInput extends EngineRigs {
 
   setWet(on: boolean): void {
     this.stage.setWet(on);
+    this.emitHud();
+  }
+
+  /** The Sky setting: a race's sky picture auto (by FX tier: none on minimal and off), always (the plain gradient at least) or never. */
+  setSky(mode: SkyMode): void {
+    this.stage.setSky(mode);
     this.emitHud();
   }
 
@@ -388,6 +396,9 @@ export abstract class EngineInput extends EngineRigs {
         break;
       case SETTING_KEY.wet:
         this.setWet(D.wet);
+        break;
+      case SETTING_KEY.sky:
+        this.setSky(D.sky);
         break;
       case SETTING_KEY.fx:
         this.setFxAuto();

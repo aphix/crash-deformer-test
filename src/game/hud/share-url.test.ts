@@ -23,6 +23,13 @@ describe("given the default share settings", () => {
     // A value equal to its default is dropped even when it was set explicitly.
     assert.equal(encodeShare({ ...DEFAULTS, cars: INITIAL_HUD.carCount, night: false }), "");
   });
+
+  it("when the sky is pinned off or on, then the fragment carries it and reads it back, and auto (the default) writes nothing", () => {
+    assert.equal(encodeShare({ ...DEFAULTS, sky: "off" }), "sky=off");
+    assert.equal(decodeShare("sky=on").sky, "on");
+    assert.equal(decodeShare("sky=bogus").sky, "auto");
+    assert.equal(encodeShare({ ...DEFAULTS, sky: "auto" }), "");
+  });
 });
 
 describe("given a share state with every kind of field set", () => {

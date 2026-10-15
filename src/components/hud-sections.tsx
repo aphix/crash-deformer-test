@@ -28,6 +28,7 @@ import { CHASE_KNOBS } from "@/game/present/drive-cam";
 import { DRIVER_CARS } from "@/game/match/types";
 import { Button } from "@/components/ui/button";
 import { FX_TIERS } from "@/game/present/engine-post";
+import { SKY_MODES } from "@/game/present/sky-dome";
 import { INITIAL_HUD, KNOB_RANGES, STROKE_RANGE_M, squashForStroke, strokeAt56 } from "@/game/hud/hud-store";
 import { changedSettings, fleetLaunched, isChanged, SETTINGS, type SectionId, type SettingId } from "@/game/hud/settings-changes";
 import { useStoredString } from "@/components/use-stored-string";
@@ -210,6 +211,27 @@ function PlaybackSection({ state, engine }: HudProps) {
           >
             Auto
           </Button>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="hud-label relative w-12 shrink-0">
+          Sky
+          <ChangedDot on={ch("sky")} />
+        </span>
+        <div className={cn(TRACK, "grid-cols-3")} role="group" aria-label="Sky picture">
+          {SKY_MODES.map((mode) => (
+            <Button
+              key={mode}
+              className={cn(SEGMENT, "capitalize")}
+              variant={state.sky === mode ? "default" : "ghost"}
+              aria-pressed={state.sky === mode}
+              aria-label={`Sky ${mode}`}
+              title={mode === "auto" ? "The sky the FX tier affords: none on minimal and off" : undefined}
+              onClick={() => engine.current?.setSky(mode)}
+            >
+              {mode}
+            </Button>
+          ))}
         </div>
       </div>
       {/* The cel look is part of the post chain: low / high only (minimal and off draw straight to the canvas). */}

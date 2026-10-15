@@ -11,6 +11,7 @@ import { DEFAULT_RACE_OPTIONS, DRIVER_CARS, RACE_MODES, TIMES_OF_DAY } from "../
 import { NET_TX } from "../net/net-ports.ts";
 import { CHASE_DEFAULTS, CHASE_KNOBS, type ChaseKnobId } from "../present/drive-cam.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
+import { SKY_MODES } from "../present/sky-dome.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { SCENE_IDS, SOLO_SCENES } from "../scenes/scene-id.ts";
 import { carPickText, NO_CAR_PICK, NO_PERSON_PICK, parseCarPick, parsePersonPick, personPickText } from "../match/look-data.ts";
@@ -93,6 +94,7 @@ const BASE_FIELDS = {
   smax: num(R.speed.min, R.speed.max, D.speedMax),
   night: flag(D.night),
   wet: flag(D.wet),
+  sky: pick(SKY_MODES, D.sky),
   real: num(R.realism.min, R.realism.max, D.realism),
   rumble: flag(D.rumble),
   // null = automatic: `AutoFx` picks the tier, so the URL pins it only after a manual pick.

@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { TIME_OF_DAY, TIMES_OF_DAY } from "../match/types.ts";
 import { courseDay, sunElevation, sunOffset } from "./engine-world.ts";
-import { rowElevation, SKY_LOOKS, uAtNorth } from "./sky-dome.ts";
+import { rowElevation, SKY_LOOKS, SkyDome, skyDetailFor, uAtNorth, type SkyDetail, type SkyMode } from "./sky-dome.ts";
+import type { FxTier } from "./engine-post.ts";
 
 /** The sun's place before times of day: every course's daylight was lit from here. */
 const OLD_SUN = new THREE.Vector3(-10, 22, 9);
@@ -44,4 +45,48 @@ describe("given the race's times of day: the sky pictures and the light", () => 
       assert.ok(rowElevation(look, 0) > 40 * DEG, `the top row at ${(rowElevation(look, 0) / DEG).toFixed(0)}°`);
     });
   }
+});
+
+describe("given the Sky setting and the FX tier", () => {
+  const rows: [SkyMode, FxTier, SkyDetail][] = [
+    ["auto", "minimal", "off"],
+    ["auto", "off", "off"],
+    ["auto", "low", "half"],
+    ["auto", "high", "full"],
+    ["auto", "ultra", "full"],
+    ["on", "minimal", "gradient"],
+    ["on", "off", "gradient"],
+    ["on", "low", "half"],
+    ["on", "high", "full"],
+    ["off", "minimal", "off"],
+    ["off", "low", "off"],
+    ["off", "high", "off"],
+    ["off", "ultra", "off"],
+  ];
+  for (const [mode, tier, detail] of rows) {
+    it(`when the sky is ${mode} on the ${tier} tier, then it draws ${detail}`, () => {
+      assert.equal(skyDetailFor(mode, tier), detail);
+    });
+  }
+});
+
+describe("given a race's sky dome", () => {
+  it("when its detail goes gradient, then off, then gradient again, then it draws only while on and holds no texture", () => {
+    const dome = new SkyDome();
+    dome.show(TIME_OF_DAY.sunset, 0);
+    assert.equal(dome.mesh.visible, false, "no detail asked for yet");
+    dome.setDetail("gradient");
+    assert.equal(dome.mesh.visible, true);
+    assert.equal(dome.textureBytes, 0);
+    dome.setDetail("off");
+    assert.equal(dome.mesh.visible, false);
+    dome.setDetail("gradient");
+    assert.equal(dome.mesh.visible, true);
+    dome.show(null, 0);
+    assert.equal(dome.mesh.visible, false, "no time of day: no sky");
+  });
+
+  it("when it is built, then it draws after every opaque surface, so the depth test skips what they cover", () => {
+    assert.ok(new SkyDome().mesh.renderOrder > 1e9);
+  });
 });
