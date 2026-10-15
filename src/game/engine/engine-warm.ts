@@ -22,7 +22,8 @@ export abstract class EngineWarm extends EngineCore {
    * Link every program play can reach before the loop starts: a first-use link stalls its frame 50–800 ms.
    * Waits for the studio env (part of every lit program's key), then warms the scene (`warmScene`) with two
    * stand-ins added: cracked glass (a pane gains the crack map mid-crash, `car.ts`), linked on a hidden mesh
-   * that keeps the program alive, and the debug views (their helpers join the scene only while shown).
+   * that keeps the program alive, and the debug views (their helpers, and the thrown dummies' rig and particle
+   * views, join the scene only while shown).
    * Night, wet and the lamp pool's lights only change uniforms: the light count is fixed.
    */
   protected async warmPrograms(env: Promise<void>): Promise<void> {
@@ -37,6 +38,7 @@ export abstract class EngineWarm extends EngineCore {
     cracked.name = "warm-cracked-glass";
     cracked.visible = false;
     this.scene.add(cracked);
+    this.ragdolls.debug.set(true, true);
     for (const car of this.live()) {
       car.setRigVisible(true);
       car.deform.setParticlesVisible(true);
@@ -48,6 +50,7 @@ export abstract class EngineWarm extends EngineCore {
     await kernel;
     warmCrashPath();
     await scene;
+    this.ragdolls.debug.set(this.showRig, this.showParticles);
     for (const car of this.live()) {
       car.setRigVisible(this.showRig);
       car.deform.setParticlesVisible(this.showParticles);

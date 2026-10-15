@@ -28,7 +28,7 @@ no hitching ([`DESIGN_PILLARS.md`](DESIGN_PILLARS.md)).
 
 - **Program warm-up.** `CrashEngine.ready` resolves after boot links every program play can reach: `PostFX.warm` compiles
   the scene for both outputs (canvas and HDR target) plus every post pass and the composite, with a hidden cracked-glass
-  stand-in and the debug views added; the scene is drawn with every mesh shown and unculled through a zero-area scissor, so
+  stand-in and the debug views (the cars' helpers and the thrown dummies' rig lines and particle spheres) added; the scene is drawn with every mesh shown and unculled through a zero-area scissor, so
   shadow-depth variants link, every uniform location is fetched and every texture uploads. The loop reads input from
   `start()` but only simulates and draws after `ready`.
 - New scene content warms where it appears: a race course's art (`buildArt`) and new cars (`buildCar`) queue the same
