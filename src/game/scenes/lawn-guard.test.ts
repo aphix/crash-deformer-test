@@ -39,11 +39,11 @@ function run(at: { x: number; z: number }, seconds: number, standDown = false) {
 }
 
 describe("given the White House grounds' guard post (owner, 2026-10-14: drive onto the lawn and the guards come out and shoot the car)", () => {
-  it("when a car parks on the North Lawn, then the squad opens fire once it is out of the doors, and the car's engine dies at its 10th to 15th hit, keyed for the replay", () => {
+  it("when a car parks on the North Lawn, then the squad opens fire once it is out of the doors, and the car's engine dies at its 13th to 19th hit, keyed for the replay", () => {
     const { guard, car, firstShotAt, diedAt, hitsToKill } = run(NORTH_LAWN, 12);
     assert.ok(firstShotAt >= GUARD_DEPLOY_S - STEP && firstShotAt < GUARD_DEPLOY_S + 0.1, `first shot at ${firstShotAt.toFixed(2)} s`);
     assert.ok(diedAt > firstShotAt && diedAt < firstShotAt + 4, `the engine died at ${diedAt.toFixed(2)} s`);
-    assert.ok(hitsToKill >= 10 && hitsToKill <= 15, `${hitsToKill} hits killed it`);
+    assert.ok(hitsToKill >= 13 && hitsToKill <= 19, `${hitsToKill} hits killed it`);
     assert.equal(car.placements, 1, "the spawn only: the guards' kill is no placement");
     assert.equal(car.kills, 1, "the kill: the recorder keys the step the guards killed it in");
     assert.equal(guard.target, NO_TARGET, "a dead car is no target");

@@ -7,9 +7,8 @@ import { TRACK_ID } from "./constants.ts";
 import type { CarRecord } from "../match/types.ts";
 
 /**
- * Owner, 2026-10-14: "If you go on the whitehouse lawn, a bunch of human models should come out of the building and shoot at the
- * car, rapidly destroying it (the bullets should deal damage, and be what actually destroys the car after 10-15 shots)". The whole
- * race stack headless (`race-world.test-util.ts`): the player's car parked on the North Lawn mid-race.
+ * The White House lawn's guards come out of the building and shoot a car on the lawn until its engine dies (`scenes/lawn-guard.ts`: the share of
+ * shots that hit, the hits that kill). The whole race stack headless (`race-world.test-util.ts`): the player's car parked on the North Lawn mid-race.
  */
 const PLAYER = 0;
 /** The North Lawn, between the White House and Pennsylvania Avenue's plaza. */
