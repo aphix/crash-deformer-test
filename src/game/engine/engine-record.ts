@@ -1,6 +1,6 @@
 import { hypot3 } from "../kernel/physics-core.js";
 import { FLIGHT, type DeformableCar } from "../vehicle/car.ts";
-import { PART_STATE } from "../vehicle/part-state.ts";
+import { LOOSE_BODIES, PART_STATE } from "../vehicle/part-state.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
@@ -21,9 +21,11 @@ import {
   type ClipEjection,
   type ClipHit,
   type ClipKnock,
+  type ClipPartStir,
   type ClipStir,
   type HighlightClip,
   type ReelCar,
+  MAX_PART_STIRS,
 } from "../match/highlights.ts";
 import { THROW_HOLD_SIM } from "../match/phase.ts";
 import { ensureFrames, makeSnapshot, readSnapshot, Reader, snapshotMaxBytes, writeSnapshot, Writer, type NetLayout, type Snapshot } from "../net/codec.ts";
@@ -49,6 +51,8 @@ const KEY_SLOTS = 40;
 const MAX_EJECTED = 64;
 /** Numbers one more panel in a car's cage adds to its refit history (a police car's light bar over the civilian cars' hood, boot and two skinned panes: `CarCage.stateSize`), left in the keyframe's solver scratch. */
 const CAGE_PANEL_SLACK = 8;
+/** Most slices one clip part stir runs (its length is a u16: a clip of 8192 steps of 8 slices holds a run longer than that). */
+const MAX_RUN_SLICES = 0xffff;
 
 /**
  * A clip also takes cars within this many metres of its hit (`bystanders`): a camera sees them, and a car left out of
@@ -76,6 +80,17 @@ interface CourseMemory {
 }
 /** A car on no road segment, as a placement leaves one (and what a recorder with no course writes). */
 const NO_MEMORY = [-1];
+
+/** A spell of slices in which a loose body was stirred (`CrashRecorder.bodyStirs`): the step and slice it began in, its car (race slot) and body, the race's slice count at its start, its length in slices, and the step it was last stirred in. */
+interface BodyStir {
+  step: number;
+  car: number;
+  body: number;
+  slice: number;
+  from: number;
+  length: number;
+  last: number;
+}
 
 /**
  * Race highlight recorder (docs/HIGHLIGHTS.md), host or offline only. Per fixed step every car's drive output
@@ -176,6 +191,16 @@ export class CrashRecorder {
   /** Every sleeping wreck woken by a mover near it this race (`endStep`): the step, the car and the slice; a clip takes those of its steps and cars. Older than the ring, none is wanted again (`endStep` drops them). */
   private readonly stirred: { step: number; car: number; slice: number }[] = [];
   /**
+   * Every spell of slices in which a sleeping torn part or popped wheel was woken by something moving near it this race (`endStep`), by when it began: a run, not a slice each, so a
+   * car parked by a part costs one entry. `from`: the race's slice count at its first slice; `last`: the step it was last stirred in. Older than the ring, none is wanted again (`endStep` drops them).
+   */
+  private bodyStirs: BodyStir[] = [];
+  /** The open run of each body (car × `LOOSE_BODIES` + body): the one `endStep` extends if the body is stirred in the slice after its end. */
+  private readonly bodyRuns: (BodyStir | null)[] = Array.from({ length: MAX_CARS * LOOSE_BODIES }, () => null);
+  /** The race's slices so far (each step runs `shape + 1`), and the count at each ring step's start. */
+  private sliceCount = 0;
+  private readonly sliceAt = new Uint32Array(RING);
+  /**
    * Recorder time up to which the last driver thrown out (`eject`) is owed his reel slow-mo hold (`THROW_HOLD_SIM` past
    * the end of his step); `throwing`: one was thrown in the step under way; `closing`: the race is over (`over`) and recording runs on until then.
    */
@@ -208,6 +233,9 @@ export class CrashRecorder {
     this.ejected.length = 0;
     this.knocked.length = 0;
     this.stirred.length = 0;
+    this.bodyStirs.length = 0;
+    this.bodyRuns.fill(null);
+    this.sliceCount = 0;
     this.alive.fill(1);
     this.tracked = 0;
     this.strainCar.fill(null);
@@ -296,6 +324,7 @@ export class CrashRecorder {
     this.h[s] = h;
     this.shapes[s] = shape;
     this.at[s] = this.time;
+    this.sliceAt[s] = this.sliceCount;
     const inp = this.inputs;
     for (let i = 0; i < n; i++) {
       const c = cars[i]!;
@@ -317,6 +346,7 @@ export class CrashRecorder {
       }
       // A sleeping wreck woken by something that moves coming near it (`DeformableCar.stirSlice`), the slice of this step it was in: a clip that leaves the mover out replays the wake.
       if (c.stirSlice >= 0) this.stirred.push({ step: this.step, car: i, slice: c.stirSlice });
+      if (c.anyBodyStirred) this.noteBodyStirs(i, c);
       this.alive[i] = alive;
       // A car carried on another's roof (`CarSurfaces`) is in contact with it, though the plan SAT leaves the pair alone.
       const under = c.airborne && c.restsOn ? cars.indexOf(c.restsOn) : -1;
@@ -325,13 +355,35 @@ export class CrashRecorder {
     this.trackCrush(cars, n);
     this.time += h;
     this.step++;
+    this.sliceCount += shape + 1;
     while (this.stirred.length > 0 && this.stirred[0]!.step <= this.step - RING) this.stirred.shift();
+    if (this.step % RING === 0) this.bodyStirs = this.bodyStirs.filter((x) => x.last > this.step - RING);
     if (this.throwing) {
       this.throwing = false;
       this.owed = this.time + THROW_HOLD_SIM;
     }
     for (let c = this.ledger.due(this.time); c; c = this.ledger.due(this.time)) this.file(c);
     if (this.closing && this.time >= this.owed) this.end();
+  }
+
+  /** Car `i`'s loose bodies stirred in this step (`DeformableCar.stirredBodies`): each slice extends the body's open run when it follows the run's last slice, else opens a new one. */
+  private noteBodyStirs(i: number, c: DeformableCar): void {
+    for (let body = 0; body < LOOSE_BODIES; body++) {
+      const slices = c.stirredBodies[body]!;
+      for (let slice = 0; slices !== 0 && slice < 8; slice++) {
+        if (((slices >> slice) & 1) === 0) continue;
+        const at = this.sliceCount + slice;
+        const open = this.bodyRuns[i * LOOSE_BODIES + body];
+        if (open && open.from + open.length === at) {
+          open.length++;
+          open.last = this.step;
+          continue;
+        }
+        const run = { step: this.step, car: i, body, slice, from: at, length: 1, last: this.step };
+        this.bodyStirs.push(run);
+        this.bodyRuns[i * LOOSE_BODIES + body] = run;
+      }
+    }
   }
 
   /** Car `i` drives this step at the race draft's top speed (`DRAFT.top`): the replay must too. */
@@ -734,6 +786,7 @@ export class CrashRecorder {
       const j = slots.indexOf(x.car);
       if (j >= 0 && x.step >= start && x.step < this.step) stirs.push({ step: x.step - start, car: j, slice: x.slice });
     }
+    const partStirs = this.clipPartStirs(slots, start);
     this.ledger.keep({
       trackId: this.trackId,
       score,
@@ -744,6 +797,7 @@ export class CrashRecorder {
       ejections,
       knocks,
       stirs,
+      partStirs,
       peakKph: c.peak * 3.6,
       hitKph: c.hitMps * 3.6,
       deform,
@@ -771,5 +825,22 @@ export class CrashRecorder {
       keyCars: Uint32Array.from(keyCars),
       keys,
     });
+  }
+
+  /**
+   * The torn parts and popped wheels of the clip's cars (`slots`, race slots) woken during its steps (from the global step `start`) by something that moves near them (often a car the clip
+   * leaves out): the replay wakes them at those slices. A run begun before the clip begins at its first slice; one past `MAX_RUN_SLICES` is cut there and the runs past `MAX_PART_STIRS` dropped.
+   */
+  private clipPartStirs(slots: readonly number[], start: number): ClipPartStir[] {
+    const sliceStart = this.sliceAt[start % RING]!;
+    const out: ClipPartStir[] = [];
+    for (const x of this.bodyStirs) {
+      const car = slots.indexOf(x.car);
+      if (car < 0 || x.last < start) continue;
+      const opensInClip = x.step >= start;
+      const slicesBefore = opensInClip ? 0 : sliceStart - x.from;
+      out.push({ step: opensInClip ? x.step - start : 0, car, body: x.body, slice: opensInClip ? x.slice : 0, slices: Math.min(MAX_RUN_SLICES, x.length - slicesBefore) });
+    }
+    return out.slice(0, MAX_PART_STIRS);
   }
 }

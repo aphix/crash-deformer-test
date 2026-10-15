@@ -41,7 +41,7 @@ import {
   swingAccel,
   windWear,
 } from "./car-wear.ts";
-import { partState, PART_SLOTS } from "./part-state.ts";
+import { LOOSE_BODIES, partState, PART_SLOTS } from "./part-state.ts";
 
 const _interior = new Float64Array(4);
 const DOOR_LEFT: GlassPart = "doorLeft";
@@ -131,6 +131,15 @@ function showOnCamera(o: THREE.Object3D): void {
 export abstract class CarParts extends CarGlass {
   /** The car's torn shells, oldest first. */
   private readonly liveShells: DetachPart[] = [];
+  /**
+   * Per loose body (a part by its slot, then a popped wheel by its hub, `LOOSE_BODIES`): the slices of the step `stepWorld` last ran in which a stir woke it from sleep (bit i: slice i; `stepLoose`).
+   * A replay without the car that stirred it wakes it there (`wakeBody`); the recorder keeps it (`HighlightClip.partStirs`). `stepWorld` clears it each step.
+   */
+  readonly stirredBodies = new Uint8Array(LOOSE_BODIES);
+  /** Whether `stirredBodies` holds a stir: the recorder reads nothing otherwise. */
+  anyBodyStirred = false;
+  /** The bit of the slice `stepWorld` is running (`stirredBodies`); 0 outside a world step, where nothing is kept. */
+  sliceBit = 0;
   /** The flap clock (rad) turns with speed and shakes every hinged panel and bumper (`flapAngle`). Cosmetic: no rule reads it. */
   flapClock = 0;
   flapSpeed = 0;
@@ -757,10 +766,29 @@ export abstract class CarParts extends CarGlass {
       const p = this.parts[k]!;
       // A torn shell past `LIVE_SHELLS` is hidden for good (until the reset): nothing to see, nothing to move.
       if (!p.detached || !p.object.visible) continue;
-      stepLoose(p, dt, slot, p.dent);
+      if (stepLoose(p, dt, slot, p.dent)) this.noteStirred(k);
       applyDents(p.dent, p.object);
     }
-    if (wheels) for (let k = 0; k < this.looseWheels.length; k++) if (this.looseWheels[k]!.loose) stepLoose(this.looseWheels[k]!, dt, slot);
+    if (!wheels) return;
+    for (let k = 0; k < this.looseWheels.length; k++) if (this.looseWheels[k]!.loose && stepLoose(this.looseWheels[k]!, dt, slot)) this.noteStirred(PART_SLOTS + k);
+  }
+
+  private noteStirred(body: number): void {
+    this.stirredBodies[body]! |= this.sliceBit;
+    this.anyBodyStirred = true;
+  }
+
+  /** Loose body `body` (`stirredBodies`' index) wakes from sleep: a replay's stir, which its own world cannot make (a car it leaves out stirred it). A body the car does not have is ignored. */
+  wakeBody(body: number): void {
+    const shape = body < PART_SLOTS ? this.parts[body]?.shape : this.looseWheels[body - PART_SLOTS]?.shape;
+    if (shape) shape.asleep = false;
+  }
+
+  /** Forgets the stirs of the step before (`stepWorld`, as a step begins). */
+  clearStirredBodies(): void {
+    if (!this.anyBodyStirred) return;
+    this.stirredBodies.fill(0);
+    this.anyBodyStirred = false;
   }
 
   /** Into `out` from index `n` on: the objects this car has put in the world instead of on its group, torn parts and popped wheels (`stepLooseParts` moves them). Returns the count past the last one written. */

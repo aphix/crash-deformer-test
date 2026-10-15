@@ -523,6 +523,18 @@ export const MAX_STIRS = 1024;
  */
 export type ClipStir = { step: number; car: number; slice: number };
 
+/**
+ * Most part stirs a clip lists: runs, not slices (one entry per part per spell of stirred slices), and a clip is under 18 s; a decoder takes no more.
+ */
+export const MAX_PART_STIRS = 4096;
+
+/**
+ * A sleeping torn part or popped wheel (`body`: the clip's car `car`'s `LOOSE_BODIES` index) woken in every slice from slice `slice` of the step `step` (counted from the
+ * clip's first step) for `slices` slices, the following steps' too: something that moves (a car the clip leaves out, often) was within reach of where it lies (`stirNear`) in each, so
+ * it stepped and settled each time, which a replay without that car cannot do itself.
+ */
+export type ClipPartStir = { step: number; car: number; body: number; slice: number; slices: number };
+
 /** One highlight: initial conditions, every step's dt and drive outputs, and the steps a car was put on a spot. */
 export type HighlightClip = {
   trackId: string;
@@ -548,6 +560,11 @@ export type HighlightClip = {
    * moving cars is listed too, which the replay would make anyway: a wake twice is the same wake.
    */
   stirs: ClipStir[];
+  /**
+   * The torn parts and popped wheels of the clip's cars that something moving near them woke from sleep, as runs of slices, in step order: the same wake for loose bodies that `stirs`
+   * is for wrecks (`World.partStirs`). A stir by one of the clip's own moving cars is listed too, which the replay would make anyway.
+   */
+  partStirs: ClipPartStir[];
   /** Strongest closing speed (km/h) in the clip's scope: the flash a replayed hit throws. */
   peakKph: number;
   /** The main car's own speed (km/h) in its strongest impact (a wall hit's speed into the wall): the title's speed. */

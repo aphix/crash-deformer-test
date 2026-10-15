@@ -3,6 +3,10 @@ import type { CarParts } from "./car-parts.ts";
 
 /** Netplay part slots: the most parts any style has (8, six body panels, plus the police light bar), so every car shares one layout. */
 export const PART_SLOTS = 15;
+/** Wheels a car can pop off its hubs (`looseWheels`). */
+const WHEEL_SLOTS = 4;
+/** The bodies a car can fly in the world: its `PART_SLOTS` parts, then its `WHEEL_SLOTS` wheels (a body's index in `CarParts.stirredBodies` and in a clip's part stirs). */
+export const LOOSE_BODIES = PART_SLOTS + WHEEL_SLOTS;
 /** Numbers in a `CarParts.partState` block: ten for the car, then nine per part slot. */
 const PART_STATE_HEAD = 10;
 const PART_STATE_EACH = 9;

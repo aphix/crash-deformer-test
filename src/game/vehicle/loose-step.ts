@@ -148,17 +148,21 @@ export function wheelShape(shape: LooseShape, radius: number, width: number): vo
  * rims) meet what is under and beside them by the one point query, with the point's own velocity (`pointContact`: the ground, every
  * prism, the other cars' tops, car `skip`'s left out), as every body's points do, so a part topples, rolls, slides off an edge and stops
  * at a wall. Here: its sleep, the gate that asks no point when nothing is near, its spin dying in the air, and its dent.
+ * True when a sleeper at rest woke because something came near it (`stirNear`): a body woken by speed given it is not a stir.
  */
-export function stepLoose(p: LooseBody, dt: number, skip: number, dent?: DentState): void {
+export function stepLoose(p: LooseBody, dt: number, skip: number, dent?: DentState): boolean {
   const shape = p.shape;
   const object = p.object;
   const v = p.velocity;
   const w = p.angular;
   if (shape.count === 0) boxShape(shape, object);
+  let stirred = false;
   if (shape.asleep) {
     // At rest and nothing near that moves or changes: the step would hand it back where it is. A hit gave it speed or something came within its reach: it steps.
-    if (v.x * v.x + v.y * v.y + v.z * v.z + w.x * w.x + w.y * w.y + w.z * w.z === 0 && !stirNear(shape.sleepX, shape.sleepZ, shape.reach, skip)) return;
+    const still = v.x * v.x + v.y * v.y + v.z * v.z + w.x * w.x + w.y * w.y + w.z * w.z === 0;
+    if (still && !stirNear(shape.sleepX, shape.sleepZ, shape.reach, skip)) return false;
     shape.asleep = false;
+    stirred = still;
   }
   bindBody(object, v, w, shape.centre, shape.invI, skip, true, dt);
   moveBody();
@@ -197,4 +201,5 @@ export function stepLoose(p: LooseBody, dt: number, skip: number, dent?: DentSta
     _dv.copy(v).sub(_v0);
     if (_dv.x * _dv.x + _dv.y * _dv.y + _dv.z * _dv.z >= DENT_MIN_DV * DENT_MIN_DV) recordDent(dent, object, _dv);
   }
+  return stirred;
 }

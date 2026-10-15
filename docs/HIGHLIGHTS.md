@@ -186,6 +186,13 @@ crash it recorded. What it takes, each found by the replay straying from the liv
   then a pile's push-out: seed 1 of the city sweep, 0.22 m). `stepWorld` notes the slice a sleeper was woken in that way (`DeformableCar.stirSlice`), `CrashRecorder.endStep` keeps it with its step
   and car, a clip lists those of its steps and cars (`HighlightClip.stirs`: step u32, car u8, slice u8, after the knocks) and the replay
   wakes the wreck at that slice (`World.stirs`). `engine-record-stir.test.ts` replays a clip whose wreck a car the clip leaves out drove past: exact with the stirs, 2.5e-5 m off without.
+- **Torn parts and popped wheels stirred by cars the clip leaves out** (84). The same wake for loose bodies: a torn part or a popped wheel at rest sleeps (`stepLoose`) and steps again
+  while any car's roof but its own car's is within its reach (`stirNear`), settling a little each slice and sleeping again. The replay has no roof for a car the clip leaves out, so the body
+  lay still where the live one settled (3.9e-8 m the first slice in `engine-record-part-stir.test.ts`). `stepLoose` says it woke by a stir, `CarParts.stirredBodies` keeps the slices of the step each loose body
+  was woken in (`stepWorld` sets the slice's bit), `CrashRecorder.endStep` joins consecutive slices into runs (a car parked by a part is one run, not a slice each) and a clip lists those of its cars
+  (`HighlightClip.partStirs`: step u32, car u8, body u8 (the car's parts by slot, then its wheels), slice u8, slices u16 = 9 bytes a run, after the stirs); the replay wakes the body at each slice of the run
+  (`World.partStirs`). A stir by one of the clip's own cars is listed too (the replay makes it anyway): in that test the pair's own wrecks make 21 runs (189 bytes raw) and the passer 2 more (18 bytes, 130 slices).
+  Exact with the runs, off from the passer's approach without them.
 - **The world's step schedule** (23). A step runs 1 to 3 slices of 1 to 3 SAT passes, decided by every car in the world
   (`World.shape`), and a replay of a few cars cannot work them out: the clip carries it (`World.plan`).
 - **Masses touching** (23). A car that only pressed its masses or a door on a clip car is in the clip (`touch`, `partContactPair`).

@@ -74,6 +74,10 @@ export class ClipSim {
   private knockAt = 0;
   /** Next of `clip.stirs` to hand the world. */
   private stirAt = 0;
+  /** Next of `clip.partStirs` to open, the runs open now (from, end: the replay's slice count, as the recorder's), and the slices run so far. */
+  private partStirAt = 0;
+  private readonly partStirRuns: { car: number; body: number; from: number; end: number }[] = [];
+  private sliceNow = 0;
   private readonly knockBits: Uint8Array;
   private readonly sim: (Float64Array | null)[][] = [];
   /** The replay's own world: `strongest` holds the last step's hardest contact. */
@@ -169,6 +173,24 @@ export class ClipSim {
     return out;
   }
 
+  /** The torn parts and popped wheels the record woke in step `s` (of `slices` slices) by a mover the clip leaves out (or its own): woken at the same slices (`World.partStirs`). */
+  private stirBodies(s: number, slices: number): void {
+    const out = this.world.partStirs;
+    out.length = 0;
+    const runs = this.partStirRuns;
+    for (const ps = this.clip.partStirs; this.partStirAt < ps.length && ps[this.partStirAt]!.step <= s; this.partStirAt++) {
+      const x = ps[this.partStirAt]!;
+      runs.push({ car: x.car, body: x.body, from: this.sliceNow + x.slice, end: this.sliceNow + x.slice + x.slices });
+    }
+    const end = this.sliceNow + slices;
+    for (let k = runs.length - 1; k >= 0; k--) {
+      const run = runs[k]!;
+      for (let g = Math.max(run.from, this.sliceNow); g < Math.min(run.end, end); g++) out.push(g - this.sliceNow, run.car, run.body);
+      if (run.end <= end) runs.splice(k, 1);
+    }
+    this.sliceNow = end;
+  }
+
   /** Step `s` has run: the drivers the record threw out in it are out of their cars now. */
   private fire(s: number): void {
     const list = this.clip.ejections;
@@ -195,6 +217,9 @@ export class ClipSim {
     this.ejectAt = 0;
     this.knockAt = 0;
     this.stirAt = 0;
+    this.partStirAt = 0;
+    this.partStirRuns.length = 0;
+    this.sliceNow = 0;
     this.fired = [];
     this.stepAt = 0;
     // The cars go back on the sim's own poses before they are respawned (a drawn pose written back after it would undo the respawn).
@@ -237,6 +262,7 @@ export class ClipSim {
       const stirs = this.world.stirs;
       stirs.length = 0;
       for (const ss = clip.stirs; this.stirAt < ss.length && ss[this.stirAt]!.step <= s; this.stirAt++) if (ss[this.stirAt]!.step === s) stirs.push(ss[this.stirAt]!.slice, ss[this.stirAt]!.car);
+      this.stirBodies(s, (clip.shape[s]! & 7) + 1);
       const h = clip.h[s]!;
       const inp = clip.inputs;
       const d = this.input;

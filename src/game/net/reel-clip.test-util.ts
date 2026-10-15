@@ -89,6 +89,10 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
       { step: 241, car: 1, slice: 3 },
       { step: 500, car: 1, slice: 7 },
     ],
+    partStirs: [
+      { step: 0, car: 0, body: 3, slice: 0, slices: 1500 },
+      { step: 300, car: 1, body: 17, slice: 5, slices: 65535 },
+    ],
     peakKph: 96,
     hitKph: 48,
     deform: 1.25,
@@ -152,6 +156,7 @@ export function sameClip(got: HighlightClip, want: HighlightClip): void {
   }
   assert.deepEqual(got.knocks, want.knocks, "knocked props");
   assert.deepEqual(got.stirs, want.stirs, "stirred wrecks");
+  assert.deepEqual(got.partStirs, want.partStirs, "stirred parts");
   assert.equal(got.hits.length, want.hits.length);
   for (const [i, p] of got.hits.entries()) {
     const w = want.hits[i]!;
