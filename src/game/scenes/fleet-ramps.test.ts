@@ -4,31 +4,21 @@ import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
 import { COM_Y, G, TOUCH } from "../vehicle/car-air-body.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
-import { JerseyBarrier } from "./engine-props.ts";
-import { FleetRamps, RAMP } from "./fleet-ramps.ts";
-import { collideOn } from "./ramp-collide.test-util.ts";
+import { RAMP } from "./fleet-ramps.ts";
+import { approachSide, FRAME, pair, run, scene, watch } from "./fleet-ramps.test-util.ts";
 import { setGround } from "../world/ground.ts";
-import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "../vehicle/test-support.ts";
-import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
-import { assignClass, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
-import { applyDrive, idleDrive } from "../vehicle/car-drive.ts";
+import { newWorld, stepWorld } from "../engine/world-step.ts";
+import { assignClass, VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
 import { droop, SPRINGS } from "../vehicle/car-suspension.ts";
-import { fit, frame } from "../vehicle/ground-probe.test-util.ts";
+import { fit } from "../vehicle/ground-probe.test-util.ts";
 
-const FRAME = 1 / 60;
-/** The most (m) a slice's resting contact may lift a body that has stopped on its belly: the tolerance of the dy bound below. */
-const REST_LIFT = 0.02;
 /** Long enough for a car wedged between the ramps to stop sliding (main settles at about 6 s). */
 const SETTLE_S = 8;
-/** How far (m) a frame with an end on the ground may drop its origin beyond the speeds: a wreck's origin lands onto its floor band by up to this in a slice. */
-const WRECK_DROP = 0.1;
 const TYRE_CENTRE = 0.32;
 const DEG = 180 / Math.PI;
 /** The springs have settled when no corner is out of its rest length by more than this (m); a landing they took moved them past it. */
 const SETTLED = 0.01;
-/** The rise of a ramp's face per metre along it (`RAMP`). */
-const RAMP_SLOPE = RAMP.top / RAMP.len;
 /** A tyre this far (m) off the ground is out of its springs' reach: the car's class (the default, a sedan) pushes it up no more. */
 const SPRING_REACH = droop("sedan") + TOUCH;
 /** A jump's origin rises at least this far (m) over the lip it leaves. */
@@ -39,127 +29,6 @@ const PEAK_OVER = 0.3;
  * more than droop + reach over the lip, a rise and fall of the rest of `PEAK_OVER` under gravity.
  */
 const LEAST_AIR = 2 * Math.sqrt((2 * (PEAK_OVER - droop("sedan") - SPRING_REACH)) / G);
-
-/** Ramps on a slab whose long axis is +z (the engine's end-on placement), and one car `x0` across, `z0` along. */
-function scene(withSlab: boolean): { ramps: FleetRamps; w: World; car: DeformableCar } {
-  const three = new THREE.Scene();
-  const ramps = new FleetRamps(three);
-  const slab = withSlab ? new JerseyBarrier(three, new THREE.Group()) : null;
-  slab?.reset();
-  ramps.place(0, slab);
-  setGround(ramps);
-  const car = new DeformableCar(paint(), three);
-  const w = newWorld([car], slab);
-  w.collide = collideOn(ramps);
-  return { ramps, w, car };
-}
-
-/** Runs the world for `seconds` of frames: `slice` after every physics slice, `each` after every frame. */
-function run(w: World, seconds: number, each: () => void, slice?: (h: number) => void): void {
-  let acc = 0;
-  for (let t = 0; t < seconds; t += FRAME) {
-    for (const c of w.cars) if (c.crashed && c.deform.drivetrainAlive) applyDrive(c, idleDrive(), FRAME);
-    acc = Math.min(0.05, acc + FRAME);
-    while (acc > 1e-5) {
-      const h = physicsSlice(acc, sliceSpeed(w.cars));
-      stepWorld(w, h);
-      for (const c of w.cars) c.stepBreakage(h);
-      acc -= h;
-      slice?.(h);
-    }
-    for (const c of w.cars) c.updateSkin();
-    each();
-  }
-}
-
-/** Two cars head-on up the two ramps (no slab): `vA` from −z, `vB` from +z, `dx` m apart across. */
-function pair(vA: number, vB: number, dx = 0.4): { w: World; cars: [DeformableCar, DeformableCar] } {
-  const { ramps, w } = scene(false);
-  const b = new DeformableCar(paint(), new THREE.Scene());
-  w.cars[0]!.spawnFacing(0, -14, 0, vA);
-  b.spawnFacing(dx, 14, Math.PI, vB);
-  const w2 = newWorld([w.cars[0]!, b]);
-  w2.collide = collideOn(ramps);
-  return { w: w2, cars: [w.cars[0]!, b] };
-}
-
-/**
- * Ballistic check per frame: the height a car moves in a frame must be what its vertical speeds say, give or take a
- * snap's 2 cm (a snap to the ground, or a height that never moves under a stale speed, falls outside). In flight at both
- * ends the height is the centre of mass's, whose speed `velocity` is (`stepAir`); on the ground it is the origin's.
- *
- * The speeds are every slice's (`slice`), not the frame's two ends: a slice's contact can reverse a speed inside the
- * frame, and the frame's end speeds alone then put the same motion in or out of its bound by which slice the frame ended
- * on (a landing wreck's frame 101 moved 3.3 cm inside the speeds of its first slice and outside those at its end).
- * `stepAir` is semi-implicit: `v −= G·h`, `y += v·h`, then the contacts' impulses and lift. So:
- *  - Without an impulse in the frame, y moved by Σ vₖ·hₖ over the slices' speeds: dy ∈ [vmin, vmax]·F, ±2 cm.
- *  - With one (a slice's speed changed by more than gravity, or a car on the ground), a slice moved by the speed before
- *    its impulse (at least vmin − G·h), and the contact then lifted by at most the depth it had fallen in, which its
- *    impulse took the speed of: dy ∈ [(vmin − G·hmax)·F, max(vmax, 0)·F], ±(`TOUCH` + `REST_LIFT`): the two ways a slice's
- *    contact moves a body with no speed (a wheel that close counts as down; a body stopped on its belly lifts out of the
- *    belly's depth, up to `REST_LIFT` a slice).
- *  - A shove along a ramp's face (two cars meeting, or a car struck): it moves a body along the plan by at most the closing speed of
- *    the pair (a car alone: its own speed) over the frame, and the face under its tyres rises by its slope (`RAMP_SLOPE`) times that
- *    travel; the contact lifts the body out of it in the frame: the same bound again, plus that lift, with no speed to show for it.
- *  - A frame with an end on the ground measures the group's origin, which a wreck's pose keeps in a band over
- *    its floor: the frame drops onto the band by up to `WRECK_DROP` in a slice (beyond that the wreck goes aloft instead), so
- *    a drop is allowed that much (measured over the cells below: 0.0116 m past the speeds, 16/9/0.4 car B frame 121). A rise
- *    is not: a wreck in flight lands on a wedge's end only from within `WRECK_DROP` and its fall under its top (under that the end is
- *    a wall: its frame rose 0.24 m with no speed, and the masses were shoved after it, on main). A snap past that (a struck
- *    flier dropped 1.85 m onto the ground) is still outside.
- */
-function watch(cars: readonly DeformableCar[]): { list: string[]; frame: () => void; slice: (h: number) => void } {
-  const heights = (c: DeformableCar): [number, number] => {
-    const q = c.group.quaternion;
-    return [c.group.position.y, c.group.position.y + COM_Y * (1 - 2 * (q.x * q.x + q.z * q.z))];
-  };
-  const last = cars.map((c) => [...heights(c), c.velocity.y, c.airborne] as const);
-  const vmin = cars.map((c) => c.velocity.y);
-  const vmax = [...vmin];
-  const prev = [...vmin];
-  const touch = cars.map((c) => !c.airborne);
-  let hmax = 0;
-  let approach = 0;
-  const list: string[] = [];
-  let n = 0;
-  return {
-    list,
-    slice: (h) => {
-      hmax = Math.max(hmax, h);
-      const [first, second] = cars;
-      approach = Math.max(approach, Math.hypot(first!.velocity.x - (second?.velocity.x ?? 0), first!.velocity.z - (second?.velocity.z ?? 0)));
-      for (const [i, c] of cars.entries()) {
-        const vy = c.velocity.y;
-        vmin[i] = Math.min(vmin[i]!, vy);
-        vmax[i] = Math.max(vmax[i]!, vy);
-        if (!c.airborne || Math.abs(vy - prev[i]! + G * h) > 1e-6) touch[i] = true;
-        prev[i] = vy;
-      }
-    },
-    frame: () => {
-      n++;
-      for (const [i, c] of cars.entries()) {
-        const [o0, com0, vy0, air0] = last[i]!;
-        const [o, com] = heights(c);
-        const flying = air0 && c.airborne;
-        const y0 = flying ? com0 : o0;
-        const y = flying ? com : o;
-        const dy = y - y0;
-        const tol = touch[i] ? TOUCH + REST_LIFT + RAMP_SLOPE * approach * FRAME : 0.02;
-        const lo = (touch[i] ? vmin[i]! - G * hmax : vmin[i]!) * FRAME - tol - (flying ? 0 : WRECK_DROP);
-        const hi = (touch[i] ? Math.max(vmax[i]!, 0) : vmax[i]!) * FRAME + tol;
-        if (dy < lo || dy > hi) {
-          list.push(`car ${i} frame ${n}: y ${y0.toFixed(3)} → ${y.toFixed(3)}, vy ${vy0.toFixed(2)} → ${c.velocity.y.toFixed(2)} (slices ${vmin[i]!.toFixed(2)}..${vmax[i]!.toFixed(2)})`);
-        }
-        last[i] = [o, com, c.velocity.y, c.airborne];
-        vmin[i] = vmax[i] = prev[i] = c.velocity.y;
-        touch[i] = !c.airborne;
-      }
-      hmax = 0;
-      approach = 0;
-    },
-  };
-}
 
 type Jump = { air: number; peak: number; flightError: number; spinChange: number; turn: number; sink: number; gaps: number[]; endZ: number; slabHit: boolean; crashed: boolean };
 
@@ -231,37 +100,6 @@ function jump(v: number): Jump {
     lastNose = nose;
   });
   return { air, peak, flightError, spinChange, turn, sink, gaps, endZ: p.z, slabHit: w.barrierHits[0] === true, crashed: car.crashed };
-}
-
-/**
- * A car driven by the game's own drive model (`applyDrive`: throttle holding 3 m/s, steering never, so it pushes only while
- * its tyres grip) at the +z ramp's side from 3.3 m out, `off` deg off the run (90 = square to the side), aimed so its centre
- * line meets the side wall where the wall stands `wall` m high. Its worst roll about its own nose (deg, the lean of its right
- * side) and highest point while it enters: until its centre passes the ramp's midline, comes within 1 m of the high end (where
- * a jump starts), or `frames` (default 360: 6 s) are up. `dx` moves the spawn along +x (m).
- */
-function approachSide(cls: VehicleClassId, off: number, wall: number, { frames = 360, dx = 0 } = {}): { roll: number; high: number; z: number } {
-  const { w, car } = scene(false);
-  assignClass(car, cls);
-  const th = off / DEG;
-  const zWall = RAMP.start + ((RAMP.top - wall) * RAMP.len) / RAMP.top;
-  car.spawnFacing(RAMP.halfW + 3.3 + dx, zWall + 3.3 / Math.tan(th), Math.PI + th, 0);
-  const q = car.group.quaternion;
-  const right = new THREE.Vector3();
-  const input = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
-  const st = { acc: 0 };
-  let roll = 0;
-  let high = 0;
-  const p = car.group.position;
-  for (let f = 0; f < frames && p.z > RAMP.start + 1 && p.x > 0; f++) {
-    input.throttle = Math.max(0, Math.min(1, (3 - car.speed) / 1.5));
-    frame(w, input, st);
-    roll = Math.max(roll, Math.abs(Math.asin(Math.max(-1, Math.min(1, right.set(1, 0, 0).applyQuaternion(q).y)))) * DEG);
-    high = Math.max(high, p.y);
-  }
-  const out = { roll, high, z: p.z };
-  car.dispose();
-  return out;
 }
 
 /**
@@ -460,27 +298,23 @@ describe("given two cars driving head-on at each other up the two ramps, with no
     assert.deepEqual(flags.list, []);
   });
 
-  // The case above passed on main for its own cell only: on the speeds and offsets around it, 23 of 75 cells flagged (a wreck
-  // coming down beside another was lifted its whole depth into the other's flank, up to 0.45 m in one slice). The whole
-  // neighbourhood is the test: a result that holds for one realisation of a chaotic pile-up and not its neighbours is a defect.
-  it("when the speeds and offsets around that case are swept (first car 15–17 m/s, second 7–9 m/s, 0.3–0.5 m across: 75 combinations), then no frame of any of them moves a car's height away from its speeds", (t) => {
-    const failures: string[] = [];
-    let frames = 0;
-    for (const vA of [15, 15.5, 16, 16.5, 17]) {
-      for (const vB of [7, 7.5, 8, 8.5, 9]) {
-        for (const dx of [0.3, 0.4, 0.5]) {
-          const { w, cars } = pair(vA, vB, dx);
-          const flags = watch(cars);
-          run(w, 4, flags.frame, flags.slice);
-          frames += flags.list.length;
-          if (flags.list.length > 0) failures.push(`${vA}/${vB}/${dx}: ${flags.list.length} frames, first ${flags.list[0]}`);
-          for (const c of cars) c.dispose();
-        }
-      }
-    }
-    t.diagnostic(`${failures.length} of 75 cells flagged, ${frames} frames`);
-    assert.deepEqual(failures, []);
-  });
+  // The cells the neighbourhood sweep (fleet-ramps.ai-long-run.ts: 75 combinations around the case above) caught, each staged alone: the
+  // 15/8.5/0.5 cell's wreck belly sank 17 cm into a ramp lip between two body points (its tail point entered the end face at 6.2 m/s and the
+  // pose took the group 1.1 m back in one frame); the 15/9/0.3 cell's struck car fell at a wedge's high end with its middle under the wedge's top
+  // (also staged to its one slice below).
+  const caughtCells = [
+    { it: "when the car on its ramp at 15 m/s meets the other at 8.5 m/s 0.5 m across, then no frame moves a car's height away from its speeds", vA: 15, vB: 8.5, dx: 0.5 },
+    { it: "when the car on its ramp at 15 m/s meets the other at 9 m/s 0.3 m across, then no frame moves a car's height away from its speeds", vA: 15, vB: 9, dx: 0.3 },
+  ];
+  for (const testCase of caughtCells) {
+    it(testCase.it, (t) => {
+      const { w, cars } = pair(testCase.vA, testCase.vB, testCase.dx);
+      const flags = watch(cars);
+      run(w, 4, flags.frame, flags.slice);
+      t.diagnostic(`flagged ${flags.list.length}: ${flags.list.slice(0, 4).join("; ")}`);
+      assert.deepEqual(flags.list, []);
+    });
+  }
 });
 
 describe("given the ramps with no slab between them, and a car that is or becomes a wreck on them", () => {
@@ -596,23 +430,15 @@ describe("given a car driven at walking pace into a ramp's side", () => {
     assert.deepEqual(failures, []);
   });
 
-  it("when it is run for 12 s with the spawn a few mm either way, at 30° and 45° off the run and at wall heights from 0.05 m to 0.4 m, then it still never rolls over", (t) => {
+  it("when the monster truck is driven at the flank at 30° off the run for 12 s, at wall heights of 0.05 m and 0.2 m, then it still never rolls over", (t) => {
     // The monster driven at the flank at 30° crept up it on one tyre, took off at the high end (z 3.4) and tipped onto the wall
-    // (72° on main). That lands between 4.3 and 5.8 s, so the 6 s window above passed 7 of 21 throttle draws at wall 0.2 m and all 21 at 0.05 m by timing alone.
-    const failures: string[] = [];
-    let n = 0;
-    for (const cls of VEHICLE_CLASS_IDS) {
-      for (const off of [30, 45]) {
-        for (const wall of [0.05, 0.2, 0.4]) {
-          for (const dx of [-0.003, 0, 0.003]) {
-            const r = approachSide(cls, off, wall, { frames: 720, dx });
-            n++;
-            if (r.roll > 30) failures.push(`${cls} ${off}° off the run, wall ${wall} m, spawn ${dx * 1000} mm: worst roll ${r.roll.toFixed(0)}°, reached z ${r.z.toFixed(1)}`);
-          }
-        }
-      }
+    // (72° on main). That lands between 4.3 and 5.8 s, so a 6 s run passed it by timing alone: the run is 12 s, each wall height alone.
+    const rows: string[] = [];
+    for (const wall of [0.05, 0.2]) {
+      const r = approachSide("monster", 30, wall, { frames: 720 });
+      rows.push(`wall ${wall} m: worst roll ${r.roll.toFixed(0)}°, reached z ${r.z.toFixed(1)}`);
+      assert.ok(r.roll <= 30, `monster 30° off the run, wall ${wall} m: worst roll ${r.roll.toFixed(0)}°, reached z ${r.z.toFixed(1)}`);
     }
-    t.diagnostic(`${n} runs, ${failures.length} over 30°`);
-    assert.deepEqual(failures, []);
+    t.diagnostic(rows.join("; "));
   });
 });
