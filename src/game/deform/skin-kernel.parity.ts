@@ -13,6 +13,7 @@ import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import { SkinKernel, skinKernel, type SkinDynamic } from "./skin-kernel.ts";
 import { loadSkinKernelForTest } from "./skin-kernel.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * The WASM skin (kernels/skin) is the JS skin's exact bits. The engine's own frame loop (accumulator of fixed steps,
@@ -100,7 +101,7 @@ function play(s: Scenario): Leg {
   for (let f = 0; f < s.frames; f++) {
     s.setup?.(cars, f);
     const vmax = sliceSpeed(cars);
-    acc = Math.min(0.05, acc + 1 / 60);
+    acc = Math.min(0.05, acc + 1 / FRAME_HZ);
     for (let n = 0; acc > 1e-5 && n < 8; n++) {
       const h = physicsSlice(acc, vmax);
       if (s.derby) {

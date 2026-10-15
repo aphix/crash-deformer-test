@@ -12,6 +12,7 @@ import { DOOR_LANES, RAM, type DoorScenario } from "./door-rig.ts";
 import { fireRam, tyresStep } from "./door-rig.test-util.ts";
 import { firePiston, fitRigid } from "./piston-rig.test-util.ts";
 import { Ground, setGround } from "../world/ground.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * Matched pairs for docs/CONTACT_PARITY.md: the same hit delivered by a scene rig (Doors ram,
@@ -19,7 +20,7 @@ import { Ground, setGround } from "../world/ground.ts";
  * Not a test file itself.
  */
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** Clear air (m) between the parked car's bumper and a striker car's: the striker starts this far off. */
 const STRIKE_GAP = 2 * CAR_HALF.z + 0.25;
 const D2R = Math.PI / 180;

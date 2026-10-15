@@ -10,8 +10,9 @@ import { TRACK_ID } from "../world/constants.ts";
 import { setGround } from "../world/ground.ts";
 import { CrashEngine } from "./engine.ts";
 import { element, stubBrowser } from "./engine-headless.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 
 /** Race, then the scene picked after it: a race's time of day and night toggle leave the sandbox scene as a fresh page has it. */
 const cases = [

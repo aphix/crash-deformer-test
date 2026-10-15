@@ -5,7 +5,7 @@ import { Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { VEHICLE_CLASS_IDS, type VehicleClassId } from "./vehicle-classes.ts";
-import { DEG, drive, type Sample } from "./ground-probe.test-util.ts";
+import { DEG, drive, FRAME, type Sample } from "./ground-probe.test-util.ts";
 import { CONTACT_HZ, G } from "./car-air-body.ts";
 import { WHEEL_POS } from "./car-mesh.ts";
 import { SPRINGS } from "./car-suspension.ts";
@@ -18,7 +18,6 @@ import { BOUNDS } from "./ground-judge.test-util.ts";
  * face (−21.5° at s 908, a dip at s ≈ 908–916) to a −9° … −4° descent toward the tunnel mouth.
  */
 const track = new Track(TRACKS.find((t) => parseTrack(t).id === "stunt"));
-const FRAME = 1 / 60;
 
 /** Most the body's pitch may stray (deg) from the road's slope on its springs: the front axle at one end of its travel, the rear at the other. */
 function springPitch(cls: VehicleClassId): number {

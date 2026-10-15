@@ -14,6 +14,7 @@ import { placeProps, propColliders, type PropCollider } from "./placements.ts";
 import { Track } from "./track.ts";
 import { parseTrack } from "./track-schema.ts";
 import { OFF_MENU, TRACKS } from "./tracks/index.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * The owner's three captures on Havana (`owner-captures/palm-sideswipe-teleport`, `sedan-first-tree-teleport`, `sedan-teleport-3`): a
@@ -26,7 +27,7 @@ import { OFF_MENU, TRACKS } from "./tracks/index.ts";
  * the footprint is 0.11 m into the circle), and the wreck shove pushed it out that far, 3.4 m in one step.
  */
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const SECONDS = 8;
 /** How long (s) the handbrake is held: a tap. */
 const TAP = 0.35;

@@ -10,6 +10,7 @@ import { armKill, assignClass, carClass, HANDLING, killClass, type VehicleClassI
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { placeDrop, StackRig, stackLoads, type StackConfig } from "./stack-rig.ts";
 import { runStack } from "./stack-run.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** Which cars the column is made of: one sedan body, the fleet's slot order (police base) with or without its monster truck. */
 type Bodies = "sedans" | "fleet" | "fleet without the monster" | { selected: CarType };
@@ -128,7 +129,7 @@ describe("given the stack scene's defaults (4 cars, 0.02 m, one every 8 s), run 
     const { cars } = column(DEFAULTS, "fleet", DEFAULTS_S);
     const at = cars.map((c) => c.group.position.clone());
     const w = makeWorld(cars, false, false);
-    for (let f = 0; f < 5 * 60; f++) tickWorld(w, 1 / 60);
+    for (let f = 0; f < 5 * FRAME_HZ; f++) tickWorld(w, 1 / FRAME_HZ);
     const moved = Math.max(...cars.map((c, i) => c.group.position.distanceTo(at[i]!)));
     assert.ok(moved < 0.005, `a car moved ${(moved * 1000).toFixed(1)} mm in 5 s at rest`);
   });

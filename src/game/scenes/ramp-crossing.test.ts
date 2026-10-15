@@ -15,6 +15,7 @@ import { assignClass, CLASSES } from "../vehicle/vehicle-classes.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { fit } from "../vehicle/ground-probe.test-util.ts";
 import { STIFF_TRAVEL, useStiffSprings } from "../vehicle/stiff-springs.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * E1 of docs/UNIFIED_CONTACT.md (section 1.1, 7.1): the owner's ramp cases. A sedan cruises at v m/s with steer 0 and the
@@ -25,7 +26,7 @@ import { STIFF_TRAVEL, useStiffSprings } from "../vehicle/stiff-springs.test-uti
  * it touches (on one plane, a fixed height over the ground under the hub; a tyre on a lip or on a ramp's edge rests on the edge,
  * whichever side of it the hub is, so its hub comes down the edge as the tyre rolls off it), because the body's tilt follows its hubs.
  */
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const DEG = 180 / Math.PI;
 const EDGE = -RAMP.halfW;
 const TOE = RAMP.start + RAMP.len;

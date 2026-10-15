@@ -10,13 +10,12 @@ import { paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
 import { applyDrive, idleDrive } from "../vehicle/car-drive.ts";
 import { assignClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
-import { frame } from "../vehicle/ground-probe.test-util.ts";
+import { frame, FRAME } from "../vehicle/ground-probe.test-util.ts";
 
 /**
  * The fleet ramps' headless harness (`fleet-ramps.test.ts` and the neighbourhood sweeps of `fleet-ramps.ai-long-run.ts`): the scene,
  * the engine's frame, two cars head-on up the two ramps, and the ballistic watch of a car's height. Not a test file itself.
  */
-export const FRAME = 1 / 60;
 /** The most (m) a slice's resting contact may lift a body that has stopped on its belly: the tolerance of the dy bound below. */
 const REST_LIFT = 0.02;
 /** How far (m) a frame with an end on the ground may drop its origin beyond the speeds: a wreck's origin lands onto its floor band by up to this in a slice. */

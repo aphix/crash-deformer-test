@@ -13,6 +13,7 @@ import { propContact } from "../contact/prop-contact.ts";
 import { frame, makeCar, worldOf } from "../vehicle/ground-probe.test-util.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
+import { QUIET_HZ } from "../kernel/constants.ts";
 
 /**
  * A prop touches a car only while the car's lowest point is under the prop's top (`propContact`): the same rule for a
@@ -31,7 +32,7 @@ function course(id: string) {
   const colliders = propColliders(placed);
   const hits: number[] = [];
   w.race.onWallHit = (i) => hits.push(i);
-  const props = (car: DeformableCar): void => propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / 80);
+  const props = (car: DeformableCar): void => propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / QUIET_HZ);
   // A prop's top is its highest piece's (a palm's fronds), its foot where it stands.
   const top = (c: PropCollider): number => Math.max(...colliders.filter((o) => o.index === c.index).map((o) => o.top));
   return { w, colliders, placed, hits, props, top, foot: (c: PropCollider) => placed[c.index]!.y };

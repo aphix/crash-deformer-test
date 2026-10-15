@@ -78,7 +78,7 @@ describe("given the trackside cinematic camera (a fixed eye beside the course th
       const cine = new CineCam();
       const pt = blankPoint();
       const v = 40;
-      const dt = 1 / 60;
+      const dt = FRAME;
       track.pointAt(0, pt);
       car.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz), v);
       const L = track.length;

@@ -7,6 +7,7 @@ import { solidsOf, type PropCollider } from "../world/placements.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import { applyDrive } from "../vehicle/car-drive.ts";
 import { physicsSlice, sliceSpeed } from "./sat.ts";
+import { FINE_HZ, FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * Stage 2 of docs/UNIFIED_CONTACT.md (statics as one solid). A fixed solid answers a car the same whichever instant the car
@@ -15,12 +16,12 @@ import { physicsSlice, sliceSpeed } from "./sat.ts";
  * of one step and lets it drive through untouched on the other five.
  */
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** Sim seconds a run plays out: the hit, the throw and the block's last travel. */
 const SETTLE = 2.5;
 const PHASES = 8;
 /** One physics step's travel at `speed`: the finest step the engine takes (1/240 s). */
-const STEP = 1 / 240;
+const STEP = 1 / FINE_HZ;
 /** The same band the solid-parity cells use for "the same order of damage". */
 const HEALTH_BAND = 0.2;
 /** A car that stops and a car that drives on differ by far more than this; the same hit differs by less. */

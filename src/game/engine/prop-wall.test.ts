@@ -14,6 +14,7 @@ import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { newWorld, settleStep, stepWorld } from "./world-step.ts";
 import { STALL_S } from "../vehicle/constants.ts";
+import { FRAME_HZ, QUIET_HZ } from "../kernel/constants.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 
 /**
@@ -23,7 +24,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
  * probes each picked the NEAREST face, so a corner past the panel's middle plane was pushed on out through the far face.
  */
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** Seconds the driver keeps backing out once the engine runs after a hit. */
 const RECOVER = 3;
 const D = Math.PI / 180;
@@ -64,7 +65,7 @@ describe("given a panel of the Havana alley wall (0.44 m thick) and a car with o
       // Nose to +x, tail toward the wall, the tail at x = −40.45: 0.5 m into the panel, 0.2 m past its middle plane.
       const x0 = -40.45 - car.cage.fields.planBox[2]!;
       car.spawnFacing(x0, PANEL.z, 90 * D, 0);
-      propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / 80);
+      propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / QUIET_HZ);
       assert.ok(car.group.position.x > x0, `pushed east, to x=${car.group.position.x.toFixed(3)}`);
       const { past, inside } = reach(car);
       assert.equal(past, 0, "no corner past the far face");
@@ -76,7 +77,7 @@ describe("given a panel of the Havana alley wall (0.44 m thick) and a car with o
       const car = makeCar(cls);
       const x0 = -40.45 + Math.max(-car.cage.fields.planBox[0]!, car.cage.fields.planBox[1]!);
       car.spawnFacing(x0, PANEL.z, 0, 0);
-      propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / 80);
+      propContact(car, 0, w.race["solids"], w.race["knocked"], w.race["propHits"], 1 / QUIET_HZ);
       assert.ok(car.group.position.x > x0, `pushed east, to x=${car.group.position.x.toFixed(3)}`);
       assert.equal(reach(car).past, 0);
     });

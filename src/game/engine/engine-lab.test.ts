@@ -11,7 +11,7 @@ import { labDollRig, labRig, leaveLab, runLab, throwAt, throwFlatDummyAt, throwL
 import { WALL, type LabShot } from "./engine-lab.ts";
 import { benchPlan } from "./engine-bench-plan.ts";
 import { CRASH } from "../kernel/physics-core.js";
-import { GRAVITY } from "../kernel/constants.ts";
+import { FRAME_HZ, GRAVITY } from "../kernel/constants.ts";
 
 /**
  * The Lab's throw bench (`Lab`), headless through the engine's own step: the presets stand, a thrown car topples the house
@@ -48,7 +48,7 @@ function deepestPast(shot: LabShot, beside: number): number {
   return worst;
 }
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** The engine's pre-impact window at 60 frames a second, and its sim step. */
 const LEAD = Math.max(PRE_IMPACT_LEAD, 2 * FRAME);
 

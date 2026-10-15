@@ -16,6 +16,7 @@ import { placeProps, propColliders, type PropCollider } from "./placements.ts";
 import { Track, blankPoint, blankProjection } from "./track.ts";
 import { parseTrack } from "./track-schema.ts";
 import { OFF_MENU, TRACKS } from "./tracks/index.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * One car meeting a fixed solid, so every kind of solid can be held to the jersey barrier (the range's slab, the
@@ -24,7 +25,7 @@ import { OFF_MENU, TRACKS } from "./tracks/index.ts";
  * Not a test file itself.
  */
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** Sim seconds a hit plays out, the throw and the block's last travel included. */
 const SETTLE = 2.5;
 /** Nose-to-face gap (m) a car is sent from. */

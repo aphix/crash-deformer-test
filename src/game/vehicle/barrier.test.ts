@@ -9,6 +9,7 @@ import { makeCar, makeWorld, runWall, tickWorld } from "../contact/crash-scenari
 import { CLASSES, VEHICLE_CLASS_IDS } from "./vehicle-classes.ts";
 import { stepWorld } from "../engine/world-step.ts";
 import { DRAFT } from "../match/session.ts";
+import { FINE_HZ, FRAME_HZ } from "../kernel/constants.ts";
 
 /** Engine-block travel toward the cabin at rest after a hit (m). */
 function blockTravel(car: DeformableCar): number {
@@ -113,8 +114,8 @@ function runFor(car: DeformableCar, simSec: number, frameDt: number): void {
 }
 
 const slabStopCases = [
-  { it: "when it hits at 22 m/s at full speed in shape deform mode, then it does not tunnel through the slab", frameDt: 1 / 60, tunnelledMessage: "tunneled" },
-  { it: "when the same 22 m/s hit runs in slow motion (tiny frame steps), then it also stops on the slab and is flagged crashed", frameDt: 1 / 240, tunnelledMessage: "slomo tunneled" },
+  { it: "when it hits at 22 m/s at full speed in shape deform mode, then it does not tunnel through the slab", frameDt: 1 / FRAME_HZ, tunnelledMessage: "tunneled" },
+  { it: "when the same 22 m/s hit runs in slow motion (tiny frame steps), then it also stops on the slab and is flagged crashed", frameDt: 1 / FINE_HZ, tunnelledMessage: "slomo tunneled" },
 ] as const;
 
 describe("given a car driving into the face of a jersey barrier (a thin concrete slab across its path)", () => {
@@ -130,8 +131,8 @@ describe("given a car driving into the face of a jersey barrier (a thin concrete
   it("when the same 22 m/s hit runs at full speed and in slow motion, then both leave the nose on the same side of the slab and the crushed noses differ by under 0.55 m", () => {
     const fast = spawnAtBarrier(0, 22, "shape");
     const slow = spawnAtBarrier(0, 22, "shape");
-    runFor(fast, 0.5, 1 / 60);
-    runFor(slow, 0.5, 1 / 240);
+    runFor(fast, 0.5, 1 / FRAME_HZ);
+    runFor(slow, 0.5, 1 / FINE_HZ);
     assert.ok(fast.group.position.x > 0.45 && slow.group.position.x > 0.45);
     const dz = Math.abs(
       mass(fast.deform, "bumperFL").local.z + mass(fast.deform, "bumperFR").local.z
@@ -142,7 +143,7 @@ describe("given a car driving into the face of a jersey barrier (a thin concrete
 
   it("when it hits at 20 m/s with the car 1.88 m off the slab's middle, then the front-left corner on the slab crushes more than the front-right corner hanging off its end, and the contact is on the car's left side", () => {
     const car = spawnAtBarrier(1.88, 20, "shape");
-    runFor(car, 0.5, 1 / 60);
+    runFor(car, 0.5, 1 / FRAME_HZ);
     const fl = mass(car.deform, "bumperFL").local.z;
     const fr = mass(car.deform, "bumperFR").local.z;
     const hit = car.deform.impactLocal;
@@ -158,7 +159,7 @@ describe("given a car driving into the face of a jersey barrier (a thin concrete
 
   it("when a car in lattice deform mode hits at 22 m/s at full speed, then it does not tunnel through the slab either", () => {
     const car = spawnAtBarrier(0, 22, "lattice");
-    runFor(car, 0.55, 1 / 60);
+    runFor(car, 0.55, 1 / FRAME_HZ);
     assert.ok(car.group.position.x > 0.4, `lattice tunneled x=${car.group.position.x.toFixed(3)}`);
   });
 });
@@ -195,7 +196,7 @@ describe("given the top speed any driven car can reach (every class's top speed 
   it(`when a car hits the jersey slab at ${(DRIVEN_TOP * 3.6).toFixed(0)} km/h in shape or in lattice deform mode, then it stops on the slab instead of tunnelling through`, () => {
     for (const mode of ["shape", "lattice"] as const) {
       const car = spawnAtBarrier(0, DRIVEN_TOP, mode);
-      runFor(car, 0.55, 1 / 60);
+      runFor(car, 0.55, 1 / FRAME_HZ);
       assert.ok(car.group.position.x > 0.4, `${mode} tunneled to x=${car.group.position.x.toFixed(3)}`);
     }
   });
@@ -206,7 +207,7 @@ describe("given the top speed any driven car can reach (every class's top speed 
         // Along X: a heads +X from the left (head-on) or sits broadside at the origin (t-bone); b heads −X from the
         // right. b's start steps through one 1/240 s slice of its travel in 8 so contact lands at every phase.
         for (let k = 0; k < 8; k++) {
-          const start = 6 + (k * v) / 240 / 8;
+          const start = 6 + (k * v) / FINE_HZ / 8;
           const a = makeCar();
           const b = makeCar();
           a.spawnFacing(kind === "head-on" ? -6 : 0, 0, kind === "head-on" ? Math.PI / 2 : 0, 0);
@@ -246,7 +247,7 @@ describe("given a car hitting a rigid wall in shape deform mode, which kills the
   for (const testCase of engineDisableFrontCases) {
     it(testCase.it, () => {
       const car = spawnAtBarrier(0, FRONT_DISABLE_MPS * testCase.speedFactor, "shape");
-      runFor(car, testCase.simSec, 1 / 60);
+      runFor(car, testCase.simSec, 1 / FRAME_HZ);
       assert.equal(car.deform.drivetrainAlive, testCase.expectedAlive, testCase.message);
     });
   }
@@ -259,7 +260,7 @@ describe("given a car hitting a rigid wall in shape deform mode, which kills the
     car.refreshBasis();
     car.velocity.set(-speed, 0, 0);
     car.deform.bindKinematic(car.group, car.velocity, car.angular);
-    runFor(car, 1.3, 1 / 60);
+    runFor(car, 1.3, 1 / FRAME_HZ);
     assert.equal(car.deform.drivetrainAlive, true, "40 km/h tail-first wall should still drive");
   });
 });

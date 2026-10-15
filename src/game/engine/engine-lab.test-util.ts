@@ -10,11 +10,12 @@ import { AIR_LINEAR } from "../present/ragdoll-body.ts";
 import { BOARD, type LabLayout, type LabPresetId } from "../scenes/lab.ts";
 import { G } from "../vehicle/car-air-body.ts";
 import { Lab, WALL, type LabShot } from "./engine-lab.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** Headless Lab: a layout's cars built and placed, the Lab's ground made active, its hooks on the engine's step (`tickWorld`); `dolls`: the dummies' world, when the rig has one. */
 export type LabRig = { lab: Lab; cars: DeformableCar[]; w: CrashWorld; dolls: RagdollSystem | null };
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 
 export function labRig(layout: LabLayout | LabPresetId, dolls: RagdollSystem | null = null): LabRig {
   const lab = new Lab();

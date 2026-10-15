@@ -6,7 +6,7 @@ import { TYRE_R } from "./deform-state.ts";
 import type { DeformMode } from "./deform-rig.ts";
 import { DeformableCar } from "../vehicle/car.ts";
 import { leftoverCrumple, snapshotPoints } from "./physics-util.ts";
-import { GRAVITY } from "../kernel/constants.ts";
+import { FRAME_HZ, GRAVITY } from "../kernel/constants.ts";
 import { DT, dummyGeom, forModes, mass, paint } from "../vehicle/test-support.ts";
 import { FREEWHEEL, makeCar, makeWorld, PARKED, runPair, runWall, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { sliceSpeed } from "../contact/sat.ts";
@@ -487,7 +487,7 @@ function tbone(squash: number): { door: number; gap: number } {
     tickWorld(w);
     if (since < 0 && a.crashed) since = 0;
     if (since < 0 || !a.deform.massActive || !b.deform.massActive) continue;
-    since += 1 / 60;
+    since += 1 / FRAME_HZ;
     if (since <= 0.3) door = Math.max(door, 0.78 - (mass(a.deform, "doorR").local.x - mass(a.deform, "cell").local.x));
     gap = Math.min(gap, mass(b.deform, "cell").world.x - mass(a.deform, "cell").world.x);
   }
@@ -729,7 +729,7 @@ describe("given a debris system of 8 pieces whose first piece is nearly spent", 
     const debris = new DebrisSystem(new THREE.Scene(), 8);
     debris.burst(new THREE.Vector3(), new THREE.Vector3(0, 0, -1), 8);
     debris["life"][0] = 0.05;
-    for (let i = 0; i < 6; i++) debris.update(1 / 60);
+    for (let i = 0; i < 6; i++) debris.update(1 / FRAME_HZ);
     const m = new THREE.Matrix4();
     const col = new THREE.Vector3();
     const qs = [0, 1, 2].map(() => new THREE.Quaternion());
