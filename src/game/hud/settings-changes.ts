@@ -2,7 +2,7 @@ import { CHASE_KNOBS, type ChaseKnobId } from "../present/drive-cam.ts";
 import { INITIAL_HUD, type CrashHudState } from "./hud-store.ts";
 
 /** The settings menu's sections (`HudSections`). */
-export type SectionId = "playback" | "driving" | "tuning" | "debug";
+export type SectionId = "playback" | "audio" | "driving" | "tuning" | "debug";
 
 const D = INITIAL_HUD;
 
@@ -25,15 +25,15 @@ const BASE_SETTINGS = {
   loop: { section: "playback", label: "Loop", defaults: { looping: D.looping } },
   slomo: { section: "playback", label: "Slow-mo", defaults: { autoSlomo: D.autoSlomo } },
   orbit: { section: "playback", label: "Orbit", defaults: { autoRotate: D.autoRotate } },
-  audio: { section: "playback", label: "Audio", defaults: { audioOn: D.audioOn } },
-  music: { section: "playback", label: "Music volume", defaults: { musicVolume: D.musicVolume } },
-  engines: { section: "playback", label: "Engine volume", defaults: { engineVolume: D.engineVolume } },
   night: { section: "playback", label: "Night", defaults: { night: D.night } },
   wet: { section: "playback", label: "Wet", defaults: { wet: D.wet } },
   sky: { section: "playback", label: "Sky", defaults: { sky: D.sky } },
   fx: { section: "playback", label: "FX", defaults: { fxAuto: true } },
   cel: { section: "playback", label: "Cel look", defaults: { celLook: D.celLook } },
   ts: { section: "playback", label: "Time scale", defaults: { userTimeScale: D.userTimeScale } },
+  audio: { section: "audio", label: "Audio", defaults: { audioOn: D.audioOn } },
+  music: { section: "audio", label: "Music volume", defaults: { musicVolume: D.musicVolume } },
+  engines: { section: "audio", label: "Engine volume", defaults: { engineVolume: D.engineVolume } },
   car: { section: "driving", label: "Car", defaults: { playerCar: D.playerCar } },
   realism: { section: "driving", label: "Realism", defaults: { realism: D.realism } },
   rumble: { section: "driving", label: "Rumble", defaults: { rumble: D.rumble } },

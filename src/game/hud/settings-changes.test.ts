@@ -41,6 +41,15 @@ describe("given the settings menu, where each setting is a group of HUD fields w
     assert.deepEqual(changedSettings(reset(off, "rumble")), []);
   });
 
+  it("when audio is switched on and the music and engine volumes are moved, then all three read as changed Audio settings, none as Playback ones, and each resets on its own", () => {
+    const sound: CrashHudState = { ...INITIAL_HUD, audioOn: true, musicVolume: 0.4, engineVolume: 0.6 };
+    assert.deepEqual(changedSettings(sound, "audio"), ["audio", "music", "engines"]);
+    assert.deepEqual(changedSettings(sound, "playback"), []);
+    assert.deepEqual(changedSettings(reset(sound, "audio"), "audio"), ["music", "engines"]);
+    assert.deepEqual(changedSettings(reset(sound, "music"), "audio"), ["audio", "engines"]);
+    assert.deepEqual(changedSettings(reset(sound, "engines"), "audio"), ["audio", "music"]);
+  });
+
   it("when the fields each setting resets are listed, then every setting resets on its own and no two settings share a field", () => {
     const owner = new Map<string, SettingId>();
     for (const id of SETTING_IDS) {

@@ -66,7 +66,7 @@ Each row links the document that covers the system; [`docs/ARCHITECTURE.md`](doc
 | Crash highlights | A race's five biggest crashes replay in slow motion behind the results, the same on every peer. Watch one alone, Save it in the browser, or flag it. | [`HIGHLIGHTS`](docs/HIGHLIGHTS.md) |
 | FX tiers | `off`, `minimal`, `low`, `high`, `ultra` and Auto, which steps down when the frame is full and never lifts to Ultra. Bloom, grade, tyre marks and smoke, hit-stop, night and wet asphalt, the cel-shaded scene change. | [`CINEMATIC`](docs/CINEMATIC.md), [`PERF_HITCH`](docs/PERF_HITCH.md) |
 | Ultra | A lazy 3.4 MB look: an HDRI sky, a 2048 px sun shadow and PBR asphalt, concrete and ground. `?fx=ultra` picks it. | [`CINEMATIC`](docs/CINEMATIC.md) |
-| Audio | Engine voices from a worklet, tuned per class and damage; a four-track playlist with a credits dialog; levels in the Playback section. | [`CONTROLS`](docs/CONTROLS.md), [`DEPLOY`](docs/DEPLOY.md#music-served-from-a-folder-on-the-box-not-from-git) |
+| Audio | Engine voices from a worklet, tuned per class and damage; a four-track playlist with a credits dialog; levels in the Audio section. | [`CONTROLS`](docs/CONTROLS.md), [`DEPLOY`](docs/DEPLOY.md#music-served-from-a-folder-on-the-box-not-from-git) |
 | Share URL | The page's `#` records scene, settings and seed; copy it and anyone gets the same field. Changed settings carry a dot and a reset chip. | [`CONTROLS`](docs/CONTROLS.md#shareable-url) |
 | Benchmarks | `?bench=city`, `?bench=strip` and `?bench=lab` run a timed loop and submit a card; the page offers an update when a new build is live. | [`PERF_BENCH`](docs/PERF_BENCH.md), [`DEPLOY`](docs/DEPLOY.md) |
 

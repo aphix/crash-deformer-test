@@ -31,6 +31,7 @@ import { FX_TIERS } from "@/game/present/engine-post";
 import { SKY_MODES } from "@/game/present/sky-dome";
 import { INITIAL_HUD, KNOB_RANGES, STROKE_RANGE_M, squashForStroke, strokeAt56 } from "@/game/hud/hud-store";
 import { changedSettings, fleetLaunched, isChanged, SETTINGS, type SectionId, type SettingId } from "@/game/hud/settings-changes";
+import { audioLevels } from "@/game/hud/audio-levels";
 import { useStoredString } from "@/components/use-stored-string";
 import { VoiceDevicePickers } from "@/components/voice-device-pickers";
 import { useDriver } from "@/components/use-driver";
@@ -57,6 +58,9 @@ export function HudSections(props: HudProps) {
     >
       <Section {...section("playback")} title="Playback">
         <PlaybackSection {...props} />
+      </Section>
+      <Section {...section("audio")} title="Audio">
+        <AudioSection {...props} />
       </Section>
       <Section {...section("driving")} title="Driving">
         <DrivingSection {...props} />
@@ -165,10 +169,6 @@ function PlaybackSection({ state, engine }: HudProps) {
           <Orbit />
           Orbit
         </Toggle>
-        <Toggle on={state.audioOn} changed={ch("audio")} label="Toggle audio" onClick={() => engine.current?.toggleAudio()}>
-          {state.audioOn ? <Volume2 /> : <VolumeX />}
-          Audio
-        </Toggle>
         <Toggle on={state.night} changed={ch("night")} label="Toggle night lighting" onClick={() => engine.current?.setNight(!state.night)}>
           <Moon />
           Night
@@ -178,9 +178,6 @@ function PlaybackSection({ state, engine }: HudProps) {
           Wet
         </Toggle>
       </div>
-      <RangeRow label="Music" name="Music volume" value={state.musicVolume} min={KNOB_RANGES.musicVolume.min} max={KNOB_RANGES.musicVolume.max} step={0.01} digits={2} changed={ch("music")} onValue={(v) => engine.current?.setMusicVolume(v)} />
-      <RangeRow label="Engines" name="Engine volume" value={state.engineVolume} min={KNOB_RANGES.engineVolume.min} max={KNOB_RANGES.engineVolume.max} step={0.01} digits={2} changed={ch("engines")} onValue={(v) => engine.current?.setEngineVolume(v)} />
-      <VoiceDevicePickers engine={engine} />
       <div className="flex items-center gap-2">
         <span className="hud-label relative w-12 shrink-0">
           FX
@@ -295,6 +292,25 @@ function PlaybackSection({ state, engine }: HudProps) {
           className={FIELD}
         />
       </label>
+    </>
+  );
+}
+
+/** Audio on/off, the music and engine levels and the voice chat devices: the same `audioLevels` the race menus' Sound rows use. */
+function AudioSection({ state, engine }: HudProps) {
+  const ch = (id: SettingId) => isChanged(state, id);
+  const audio = audioLevels(state, engine);
+  return (
+    <>
+      <div className="grid grid-cols-3 gap-1">
+        <Toggle on={audio.on} changed={ch("audio")} label="Toggle audio" onClick={audio.onToggle}>
+          {audio.on ? <Volume2 /> : <VolumeX />}
+          Audio
+        </Toggle>
+      </div>
+      <RangeRow label="Music" name="Music volume" value={audio.music} min={KNOB_RANGES.musicVolume.min} max={KNOB_RANGES.musicVolume.max} step={0.01} digits={2} changed={ch("music")} onValue={audio.onMusic} />
+      <RangeRow label="Engines" name="Engine volume" value={audio.engines} min={KNOB_RANGES.engineVolume.min} max={KNOB_RANGES.engineVolume.max} step={0.01} digits={2} changed={ch("engines")} onValue={audio.onEngines} />
+      <VoiceDevicePickers engine={engine} />
     </>
   );
 }

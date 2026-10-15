@@ -89,7 +89,8 @@ Top left: the standings with gaps. Top right: lap, position, the race time besid
 | Reset / reshuffle | R (when not driving) | | Reset |
 | Scenes: Fleet, Derby, Race, Press, Pistons, Doors, Corkscrew, Stack, Range (each pick fades through a brief cel-shaded pulse and black; reduced motion: plain fade) | D (from the whole field), Z, C (when not driving), I, N, , (comma), / (slash), (none) | | scene buttons |
 | Jersey barrier / ramp balls / jump ramps (fleet only) | B / K / . (period) | | wall / balls / ramps buttons |
-| Loop, slow-mo, auto-orbit, audio (U: crash thumps, engine sound and the music playlist) | L, M, O, U | | Playback section; its Music (0-0.6) and Engines (0-1, default 0.5) sliders set the two levels, and the `mvol` / `evol` share keys carry them. The race setup and pause menus have the same three rows (Sound on/off, Music, Engines) |
+| Loop, slow-mo, auto-orbit | L, M, O | | Playback section |
+| Audio (U: crash thumps, engine sound and the music playlist) | U | | Audio section (collapsible, its open state kept like the other sections): the Audio on/off toggle, the Music (0-0.6) and Engines (0-1, default 0.25) sliders and the voice chat Mic / Output pickers. The toggle, the sliders and the `mvol` / `evol` share keys are the one setting the race setup and pause menus' Sound, Music and Engines rows also set |
 | Night, wet asphalt, cinematic FX tier (off → minimal → low → high → ultra; turns Auto off) | H (outside a race), X, F | | Playback section (FX Auto button too) |
 | Cel look: Auto (the cel look plays only as the scene-switch pulse) or a 0-100 % slider that holds it on, the pulse still playing over it | | | Playback section, Cel row (needs FX low / high / ultra; greyed with a hint on minimal / off) |
 | Shape ↔ lattice | Y | | Cars & crash section |

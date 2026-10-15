@@ -210,7 +210,7 @@ and `GameAudio.frame` hands them the priority car (nothing for any other car). S
 Measured muted in a browser (handbrake slide, then a hard stop, sedan, Engines at 0.25): the squeal's RMS sits 5 dB under the engine's in a slide and 10 dB under it braking hard. Thud: a 60 to 35 Hz sine over 0.25 s plus a short 400 Hz lowpassed burst of the same noise, at 0.015 per m/s of
 fall (at most 0.2), on each landing. A landing is `LandingWatch` (`present/landing.ts`), which the chase camera's wobble reads too, so the two cannot disagree: four wheels down within 0.3 s of a flight of at least 0.3 s whose fastest fall passed `LANDING.fall` (5 m/s, the camera's "Fall" knob);
 the reported fall is that fastest speed, because the touchdown has eaten most of the last frame's (a nose-first landing takes the wheels down over a few frames). Audio imports `landing.ts`, never the camera.
-The race menus (setup, pause) carry the Sound, Music and Engines rows, since their modal covers the settings panel.
+The race menus (setup, pause) carry the Sound, Music and Engines rows, since their modal covers the settings panel; they and the settings panel's Audio section build their controls from the same `audioLevels` (`hud/audio-levels.ts`), so there is one audio on/off setting.
 Engine loudness (`engine-law.ts`): a voice's level follows how a real car's audible level moves with load and revs (BMW M5 Active Sound
 Design: load is the dominant control). `engineLawDb(rpmFrac, load)` is the target in dB under a redline at full load (which keeps the
 voice's -12 dBFS peak at `MOTOR_OUTPUT_GAIN`): 3.3 dB per doubling of rpm, plus the M5's load curve (flat under 0.15, 8 of 22 dB at half

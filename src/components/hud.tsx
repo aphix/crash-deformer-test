@@ -21,6 +21,7 @@ import { useSpeedUnit } from "@/components/use-speed-unit";
 import { useStoredString } from "@/components/use-stored-string";
 import { Button } from "@/components/ui/button";
 import type { CrashEngine } from "@/game/engine/engine";
+import { audioLevels } from "@/game/hud/audio-levels";
 import { resetGlow, resetInput } from "@/game/hud/reset-prompt";
 import { PAD_BUTTON } from "@/game/vehicle/gamepad";
 import type { CrashHudState } from "@/game/hud/hud-store";
@@ -250,14 +251,7 @@ export function Hud(props: HudProps) {
           onReset={tapReset}
           onCommand={raceCommand}
           onSurvival={state.inRoom ? null : () => engine.current?.toggleSurvival()}
-          audio={{
-            on: state.audioOn,
-            music: state.musicVolume,
-            engines: state.engineVolume,
-            onToggle: () => engine.current?.toggleAudio(),
-            onMusic: (value) => engine.current?.setMusicVolume(value),
-            onEngines: (value) => engine.current?.setEngineVolume(value),
-          }}
+          audio={audioLevels(state, engine)}
         />
       ) : null}
       {state.race ? <RaceStatus race={state.race} corner={focus && !touch} /> : null}
