@@ -142,8 +142,11 @@ function axisPitch(e: ArrayLike<number>, o: number): number {
   return Math.asin(Math.max(-1, Math.min(1, e[o + 1]! / Math.hypot(e[o]!, e[o + 1]!, e[o + 2]!)))) * DEG;
 }
 
-/** How `car` sits on `ground` now. */
-export function fit(car: DeformableCar, ground: Ground): Fit {
+/**
+ * How `car` sits on `ground` now. `hullOnly`: for a caller that reads `pen`, `overlap` and `crush` (the hull points') alone: the tyre
+ * scan and the belly lines are skipped, so `gaps` are all Infinity and `hull` is the hull points' lowest clearance only.
+ */
+export function fit(car: DeformableCar, ground: Ground, hullOnly = false): Fit {
   car.group.updateWorldMatrix(true, true);
   // A car with no class assigned has no class body: its drawn body is the group (the springs move nothing, `Suspension.body`).
   const body = car.group.getObjectByName("classLift") ?? car.group;
@@ -170,17 +173,19 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
     };
     // Each ring at `TREAD_STEPS` points, then at 1/32 of that step across the step either side of its lowest one: at a face's edge the
     // tread's lowest point over the face is where the ring crosses the edge, and the nearest of 48 points read up to 4 cm above it.
-    for (const [x, r] of TREAD_RINGS) {
-      let low = 0;
-      let lowGap = Infinity;
-      for (let a = 0; a < TREAD_STEPS; a++) {
-        const g = at(x, r, (a / TREAD_STEPS) * Math.PI * 2);
-        if (g < lowGap) {
-          lowGap = g;
-          low = a;
+    if (!hullOnly) {
+      for (const [x, r] of TREAD_RINGS) {
+        let low = 0;
+        let lowGap = Infinity;
+        for (let a = 0; a < TREAD_STEPS; a++) {
+          const g = at(x, r, (a / TREAD_STEPS) * Math.PI * 2);
+          if (g < lowGap) {
+            lowGap = g;
+            low = a;
+          }
         }
+        for (let f = -32; f <= 32; f++) at(x, r, ((low + f / 32) / TREAD_STEPS) * Math.PI * 2);
       }
-      for (let f = -32; f <= 32; f++) at(x, r, ((low + f / 32) / TREAD_STEPS) * Math.PI * 2);
     }
     gaps.push(gap);
     _g[i] = ground.heightAt(_hub[i]!.x, _hub[i]!.z, hint);
@@ -283,8 +288,10 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
       top += 12;
     }
   };
-  for (const x of LINE_X) for (let i = 1; i < LINE_Z.length; i++) line(x, LINE_Z[i - 1]!, x, LINE_Z[i]!);
-  for (const z of LINE_Z) for (let i = 1; i < LINE_X.length; i++) line(LINE_X[i - 1]!, z, LINE_X[i]!, z);
+  if (!hullOnly) {
+    for (const x of LINE_X) for (let i = 1; i < LINE_Z.length; i++) line(x, LINE_Z[i - 1]!, x, LINE_Z[i]!);
+    for (const z of LINE_Z) for (let i = 1; i < LINE_X.length; i++) line(LINE_X[i - 1]!, z, LINE_X[i]!, z);
+  }
   const ge = car.group.matrixWorld.elements;
   return {
     airborne: car.airborne,
@@ -320,6 +327,17 @@ const BRAKE: DriveInput = { throttle: 0, steer: 0, brake: 1, ebrake: true, boost
 
 export type Drop = Fit & { slide: number; speed: number };
 
+/** The car a drop of class `cls` uses: built once and stood up again by `spawnFacing` (the engine's own scene reset, `resetVisual`) for each of a matrix's thousand cells. */
+const dropCars = new Map<VehicleClassId, DeformableCar>();
+function pooled(cls: VehicleClassId): DeformableCar {
+  let car = dropCars.get(cls);
+  if (!car) {
+    car = makeCar(cls);
+    dropCars.set(cls, car);
+  }
+  return car;
+}
+
 /**
  * One car dropped `height` m above the ground at (x, z) facing `yaw` and held (brake and handbrake) for `seconds`:
  * where it ends up and how it sits. `ground` is made the active one; the caller restores it.
@@ -333,7 +351,7 @@ export function drop(
   o: { height?: number; seconds?: number; hint?: number; collide?: ((c: DeformableCar, h: number) => unknown) | null } = {},
 ): Drop {
   setGround(ground);
-  const car = makeCar(cls);
+  const car = pooled(cls);
   car.spawnFacing(x, z, yaw, 0);
   car.group.position.y = ground.heightAt(x, z, o.hint) + (o.height ?? 0.5);
   const w = worldOf(car, o.collide ?? null);
@@ -342,7 +360,7 @@ export function drop(
   const r = fit(car, ground);
   const slide = Math.hypot(car.group.position.x - x, car.group.position.z - z);
   const speed = car.velocity.length();
-  car.dispose();
+  // Not disposed: the next drop of this class stands it up again.
   return { ...r, slide, speed };
 }
 

@@ -65,7 +65,10 @@ const LIMITS = { crestZ: 26, seconds: 25 };
 /** Where the ground starts to rise (z): the face's foot, rounded, begins 8 m before its nominal foot at z 34. */
 const FOOT_ROAD = 42;
 
+let matrix: Row[] | null = null;
+/** The drive matrix is deterministic and two suites read it: it is driven once. */
 function driveMatrix(): Row[] {
+  if (matrix) return matrix;
   const rows: Row[] = [];
   for (const cls of VEHICLE_CLASS_IDS) {
     for (const v of [10, 20, 30]) rows.push({ cls, run: `${v} m/s`, stopZ: -100, r: runLine(ground, cls, FOOT, { ...LIMITS, lead: 60, speed: v, stopZ: -100 }) });
@@ -73,6 +76,7 @@ function driveMatrix(): Row[] {
     rows.push({ cls, run: "30° across, 30 m/s", stopZ: -100, r: runLine(ground, cls, DIAG, { ...LIMITS, lead: 140, speed: 30, stopZ: -100 }) });
     rows.push({ cls, run: "30° across, full throttle", stopZ: -200, r: runLine(ground, cls, DIAG, { ...LIMITS, lead: 200, speed: "top", stopZ: -200 }) });
   }
+  matrix = rows;
   return rows;
 }
 

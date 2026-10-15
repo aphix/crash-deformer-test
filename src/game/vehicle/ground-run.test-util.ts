@@ -92,11 +92,12 @@ export function runLine(
     input.throttle = o.speed === "top" || car.speed < o.speed ? SURFACES[ground.surfaceAt(p.x, p.z, p.y)].speed : 0;
     const slice = (): void => {
       if (n < SETTLE) return;
-      const g = fit(car, ground);
+      const g = fit(car, ground, true);
       out.pen = Math.max(out.pen, g.pen - g.crush);
     };
     frame(w, input, st, o.slices ? slice : undefined);
-    const f = fit(car, ground);
+    // The tyres' gaps are read only past the spawn's settle and not in flight (the grass check below).
+    const f = fit(car, ground, n < SETTLE || car.airborne);
     // The first second is the spawn's 0.5 m drop settling, not the line.
     if (n >= SETTLE) out.pen = Math.max(out.pen, f.pen - f.crush);
     out.ejections += w.ejection.take().length;
