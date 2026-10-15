@@ -167,7 +167,7 @@ describe("given the Havana alley wall and a car swung into it with the handbrake
   }
 });
 
-describe("given the Havana alley wall and a physics step of 1/80 s (46 cm a step at 55 m/s, most of a panel's thickness)", () => {
+describe("given the Havana alley wall and a physics step of 1/80 s (69 cm a step at 55 m/s, more than a panel's thickness)", () => {
   const CASES = [
     { dw: 5, alpha: 45 * D, vdir: -30 * D, speed: 55, steer: 1, ebrake: false },
     { dw: 0, alpha: 60 * D, vdir: 0, speed: 55, steer: -1, ebrake: true },
@@ -178,7 +178,7 @@ describe("given the Havana alley wall and a physics step of 1/80 s (46 cm a step
       it(`when ${pinned ? `a ${cls} pinned by a cop` : `a ${cls}`} drives into the panels at 55 m/s in each of three ways, then no corner ends more than 2 cm past the far face or more than 5 cm inside the slab`, () => {
         const w = alley();
         for (const c of CASES) {
-          const r = hit(w, cls, c, pinned, 120);
+          const r = hit(w, cls, c, pinned, QUIET_HZ);
           assert.ok(r.past < 0.02, `${JSON.stringify(c)}: ${r.past.toFixed(2)} m past the far face`);
           assert.ok(r.inside < 0.05, `${JSON.stringify(c)}: left ${r.inside.toFixed(2)} m inside the slab`);
         }
