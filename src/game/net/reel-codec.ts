@@ -170,9 +170,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * (`ClipVip`, after the squad), and a replay seats him in that car's passenger seat and throws him with its driver as the live race does (a clip recorded before had no VIP in a replay, whatever its race had).
  * 93: a wreck leaves a free-standing solid (a rail, a container, a pad, a prop) round the end its car's centre stands beyond when that is nearer than its car-side face (`ContactBox.openEnds`), so a corner
  * that came in round a rail's end is pushed out a few millimetres, not the rail's whole width: a replayed derby of 92 or before moves its wrecks differently from the first such grind.
+ * 94: a wreck at rest lifts its body points in the world's ground (a crushed sill or fender the crush drove down, closing on nothing) out by their depth, at most rest speed a slice, whatever carried them there (it
+ * rested 4-19 cm in the road on them), so a replay of a clip of 93 or before rests its wrecks at other heights.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 93;
+const REPLAY_VERSION = 94;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

@@ -78,6 +78,24 @@ function noteClosing(c: number, closing: number): void {
   _crushPoint.copy(centreOfMass).add(R[c]!).toArray(CRUSH_POINT, c * 3);
 }
 
+/** The row's world point, for `standsOnGround`. */
+const _row = new THREE.Vector3();
+/** A floor that is the world's ground is this close (m) to what the ground's own height reads at the row: the same surface, to its rounding. */
+const GROUND_MATCH = 1e-6;
+
+/**
+ * Whether row `c` (a body point, not a tyre) is in the world's ground itself, not in a solid, a car's top or a wall: the ground has
+ * no side to enter by, so a wreck's point in it is lifted out whatever carried it there. A crush that pushes a sill or a fender
+ * down moves the cage's points with no speed of the rigid body's, so such a point closes on nothing and the lift that takes out a
+ * landing's depth never saw it: wrecks rested 4-19 cm in the road on their own crushed underside.
+ */
+function standsOnGround(c: number): boolean {
+  if (TYRE[c] || SOFT[c] || OWN[c]! >= 0 || N[c]!.y < CLIMB_NY || SINK[c]! <= 0) return false;
+  _row.copy(centreOfMass).add(R[c]!);
+  const floor = _row.y + SINK[c]! / N[c]!.y;
+  return Math.abs(activeGround().heightAt(_row.x, _row.z, _row.y) - floor) < GROUND_MATCH;
+}
+
 /**
  * The Gauss-Seidel solve of `n` rows, then the lift out: `PASSES` (`REST_PASSES` at rest) passes at each row's lever (`reach`), a closing contact taking what
  * it needs (restitution `RESTITUTION` above `BOUNCE_V` on the first pass), a parting one giving back what it over-took, Coulomb
@@ -237,7 +255,8 @@ export function solveRows(n: number): void {
   for (let c = 0; c < n; c++) {
     const s = SLOT[c]!;
     LEFT[c] = -Infinity;
-    if (UNDER[c]) under = Math.max(under, Math.min(SINK[c]!, CLOSING[c]! < BOUNCE_V ? CLOSING[c]! * dt : 0));
+    if (body.wreck && !part && standsOnGround(c)) LEFT[c] = SINK[c]! - 0.5 * dt * _dvSolve.dot(N[c]!);
+    else if (UNDER[c]) under = Math.max(under, Math.min(SINK[c]!, CLOSING[c]! < BOUNCE_V ? CLOSING[c]! * dt : 0));
     else if (s >= 0 && surf.isYielding(s)) {
       if (!SOFT[c]) surf.note(s, SINK[c]!, FOLLOW[c]!);
     } else if (part || HUB[c] || CLOSING[c]! > 0) {
