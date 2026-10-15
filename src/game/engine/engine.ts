@@ -263,6 +263,8 @@ export class CrashEngine extends EngineGarage {
       scene: this.scene,
       camera: this.camera,
       sun: this.sun,
+      sunOffset: this.stage.sunOffset,
+      setTimeOfDay: (time) => this.stage.setTime(time),
       seat: this.seat,
       live: () => this.live(),
       setCarCount: (n) => this.ensureCars(n),

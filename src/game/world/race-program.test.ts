@@ -92,8 +92,8 @@ describe("given a pasted share URL that names the city course, 9 laps, 15 AI car
   it("when the page applies it as the player's own settings, then the race options hold exactly those settings", () => {
     inRaceMode((w) => {
       const t = decodeShare("#scene=race&track=city&laps=9&ai=15&aggr=1&police=1");
-      w.race.command({ type: "options", options: { trackId: t.track, campaign: t.camp, mode: t.mode, laps: t.laps, aiCount: t.ai, aggression: t.aggr, aiDifficulty: t.diff, police: t.police, noReset: t.noreset, spectate: t.spectate } });
-      assert.deepEqual(playersOptions(w), { trackId: "city", campaign: ["oval", "rally", "city", "stunt", "four-count", "dam-spine", "razor-shelf", "breaker-yard"], mode: "single", laps: 9, aiCount: 15, aggression: 1, aiDifficulty: "hard", police: true, noReset: false, spectate: false });
+      w.race.command({ type: "options", options: { trackId: t.track, campaign: t.camp, mode: t.mode, laps: t.laps, aiCount: t.ai, aggression: t.aggr, aiDifficulty: t.diff, police: t.police, timeOfDay: t.tod, noReset: t.noreset, spectate: t.spectate } });
+      assert.deepEqual(playersOptions(w), { trackId: "city", campaign: ["oval", "rally", "city", "stunt", "four-count", "dam-spine", "razor-shelf", "breaker-yard"], mode: "single", laps: 9, aiCount: 15, aggression: 1, aiDifficulty: "hard", police: true, timeOfDay: "daytime", noReset: false, spectate: false });
     });
   });
 });

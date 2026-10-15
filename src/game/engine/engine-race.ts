@@ -14,7 +14,7 @@ import type { AiCar } from "../ai/derby-ai.ts";
 import { copyDrive, onSurface } from "../ai/race-ai.ts";
 import { AI_DIFFICULTIES } from "../ai/constants.ts";
 import { DRAFT, RaceSession } from "../match/session.ts";
-import { cleanName, RACE_MODES, type Entrant, type RaceCommand, type RacePhase, type RaceSnapshot } from "../match/types.ts";
+import { cleanName, RACE_MODES, TIMES_OF_DAY, type Entrant, type RaceCommand, type RacePhase, type RaceSnapshot } from "../match/types.ts";
 import type { Cand, Wreck } from "../match/auto-watch.ts";
 import { RaceHudLayer } from "./engine-race-hud.ts";
 
@@ -22,10 +22,9 @@ import { RaceHudLayer } from "./engine-race-hud.ts";
 const BUBBLE_EVERY = 0.25;
 /** Seconds the finish card shows before the results menu (and the results reel), and the BUSTED banner before the camera moves on. */
 export const RESULTS_DELAY = 2.5;
-const SUN_OFFSET = new THREE.Vector3(-10, 22, 9);
-/** The sun's shadow-camera basis (unit; three's lookAt with world up): right = up x (eye - target), up = (eye - target) x right. */
-const SUN_RIGHT = new THREE.Vector3(0, 1, 0).cross(SUN_OFFSET).normalize();
-const SUN_UP = SUN_OFFSET.clone().cross(SUN_RIGHT).normalize();
+/** The sun's shadow-camera basis (unit; three's lookAt with world up), from the time of day's offset: right = up x (eye - target), up = (eye - target) x right. */
+const SUN_RIGHT = new THREE.Vector3();
+const SUN_UP = new THREE.Vector3();
 
 /**
  * Race scene glue: owns the course (track, art, ground), the field's controller slots, the rules
@@ -140,7 +139,7 @@ export class RaceDirector extends RaceHudLayer {
     }
     this.saved = null;
     const sun = this.host.sun;
-    sun.position.copy(SUN_OFFSET);
+    sun.position.copy(this.host.sunOffset);
     sun.target.position.set(0, 0, 0);
     sun.target.updateMatrixWorld();
     this.host.seat.drivable = null;
@@ -170,13 +169,17 @@ export class RaceDirector extends RaceHudLayer {
         o.aggression = clamp(o.aggression, 0, 1);
         if (!AI_DIFFICULTIES.includes(o.aiDifficulty)) o.aiDifficulty = this.options.aiDifficulty;
         if (!RACE_MODES.includes(o.mode)) o.mode = this.options.mode;
+        if (!TIMES_OF_DAY.includes(o.timeOfDay)) o.timeOfDay = this.options.timeOfDay;
         if (!this.courses.some((c) => c.id === o.trackId)) o.trackId = this.options.trackId;
         // The campaign's pick keeps the caller's order; unknown and repeated ids drop. Empty stays: the menu has nothing ticked yet.
         if (cmd.options.campaign) o.campaign = cmd.options.campaign.filter((id, i, all) => this.courses.some((c) => c.id === id) && all.indexOf(id) === i);
         const moved = o.trackId !== this.options.trackId || o.aiCount !== this.options.aiCount || o.spectate !== this.options.spectate;
+        const relit = o.timeOfDay !== this.options.timeOfDay;
         this.options = o;
         this.syncRules();
         if (this.menu === "setup" && moved) this.park();
+        // The setup menu shows the pick at once, on the course behind it.
+        if (relit && this.track) this.host.setTimeOfDay(this.rules.timeOfDay);
         return;
       }
       case "program":
@@ -658,6 +661,9 @@ export class RaceDirector extends RaceHudLayer {
     const cam = sun.shadow.camera;
     const texX = (cam.right - cam.left) / sun.shadow.mapSize.x;
     const texY = (cam.top - cam.bottom) / sun.shadow.mapSize.y;
+    const off = this.host.sunOffset;
+    SUN_RIGHT.set(0, 1, 0).cross(off).normalize();
+    SUN_UP.copy(off).cross(SUN_RIGHT).normalize();
     // Snap the box centre to whole shadow-map texels in the light's right/up basis, so static casters' edges never crawl.
     const a = SUN_RIGHT.x * p.x + SUN_RIGHT.z * p.z;
     const b = SUN_UP.x * p.x + SUN_UP.z * p.z;
@@ -667,7 +673,7 @@ export class RaceDirector extends RaceHudLayer {
     const ty = SUN_RIGHT.y * da + SUN_UP.y * db;
     const tz = p.z + SUN_RIGHT.z * da + SUN_UP.z * db;
     sun.target.position.set(tx, ty, tz);
-    sun.position.set(tx + SUN_OFFSET.x, ty + SUN_OFFSET.y, tz + SUN_OFFSET.z);
+    sun.position.set(tx + off.x, ty + off.y, tz + off.z);
     sun.target.updateMatrixWorld();
   }
 

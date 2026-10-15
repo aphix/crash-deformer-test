@@ -58,6 +58,11 @@ export const RACE_MODE = { single: "single", campaign: "campaign" } as const;
 export const RACE_MODES = Object.values(RACE_MODE);
 export type RaceMode = (typeof RACE_MODE)[keyof typeof RACE_MODE];
 
+/** The race's light: a clear day, a low golden sun, or moonlight. It picks the sky (`present/sky-dome.ts`), the sun and the night lamps; a course's own `backdrop` stays in every one. */
+export const TIME_OF_DAY = { day: "daytime", sunset: "sunset", night: "nighttime" } as const;
+export const TIMES_OF_DAY = Object.values(TIME_OF_DAY);
+export type TimeOfDay = (typeof TIME_OF_DAY)[keyof typeof TIME_OF_DAY];
+
 export type RaceOptions = {
   trackId: string;
   /** 1–5 in the menu; the rules accept any ≥ 1. */
@@ -74,6 +79,8 @@ export type RaceOptions = {
   spectate: boolean;
   /** Police chase: packs of police cars park beside the course from a third of the first lap on and hunt the racers. */
   police: boolean;
+  /** The light the race runs in: what this browser draws (a netplay client keeps its own pick). */
+  timeOfDay: TimeOfDay;
   /** The campaign's courses, raced in this order (the menu's tap order). Course ids; empty is "not startable yet". */
   campaign: readonly string[];
   /** The setup menu's Mode row: the course cards pick one course ("single") or the campaign's list ("campaign"). Kept here, not in the menu, so it outlives the menu's mount; the Start button runs the matching command. */
@@ -81,7 +88,7 @@ export type RaceOptions = {
 };
 
 /** The campaign defaults to every course in `TRACK_ID` order, which is `CAMPAIGN`'s (pinned by test: `tracks/index.ts` is not imported here, it carries the course JSON). */
-export const DEFAULT_RACE_OPTIONS: RaceOptions = { trackId: TRACK_ID.oval, laps: 3, noReset: false, aiCount: 7, aggression: 0.35, aiDifficulty: AI_EVERY_SLICE, spectate: false, police: false, campaign: Object.values(TRACK_ID), mode: RACE_MODE.single };
+export const DEFAULT_RACE_OPTIONS: RaceOptions = { trackId: TRACK_ID.oval, laps: 3, noReset: false, aiCount: 7, aggression: 0.35, aiDifficulty: AI_EVERY_SLICE, spectate: false, police: false, timeOfDay: TIME_OF_DAY.day, campaign: Object.values(TRACK_ID), mode: RACE_MODE.single };
 
 /** Per-step input to the rules for one car (same order as the entrants). */
 export type CarPose = {

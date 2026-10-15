@@ -34,7 +34,7 @@ import { AI_DIFFICULTIES } from "@/game/ai/constants";
 import { missedCheckpointText, type ResetInput } from "@/game/hud/reset-prompt";
 import { courseTap, selectAll } from "@/game/hud/setup-patch";
 import { LEAVE_MS, STANDING_LI, withLeavers, type StandingSlot } from "@/game/hud/standings-motion";
-import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/match/types";
+import { TIMES_OF_DAY, type CarStatus, type RaceCommand, type RaceHud, type RaceHudRow, type RaceOptions, type TimeOfDay } from "@/game/match/types";
 import { fmtGap, fmtTime } from "@/game/hud/race-clock";
 import { cn } from "@/lib/utils";
 
@@ -496,6 +496,16 @@ function SetupMenu({ race, pad, onCommand, onSurvival, audio }: { race: RaceHud;
           hint="How well rivals drive: hard never slips and reacts every physics step; easy brakes late, runs wide and drifts off the line"
           onSet={(k) => options({ aiDifficulty: AI_DIFFICULTIES[k]! })}
         />
+        <Stepper
+          label="Time of day"
+          value={TIMES_OF_DAY.indexOf(o.timeOfDay)}
+          min={0}
+          max={TIMES_OF_DAY.length - 1}
+          step={1}
+          shown={TIME_OF_DAY_LABEL[o.timeOfDay]}
+          hint="The sky and the light: midday sun, a low golden sunset, or moonlight with the street lamps on"
+          onSet={(k) => options({ timeOfDay: TIMES_OF_DAY[k]! })}
+        />
         <Choice label="Wrecks" off="Respawn" on="No reset" value={o.noReset} onSet={(noReset) => options({ noReset })} />
         <Choice label="Police" off="Off" on="Chase" value={o.police} onSet={(police) => options({ police })} />
         <AudioRows audio={audio} />
@@ -511,7 +521,7 @@ function SetupMenu({ race, pad, onCommand, onSurvival, audio }: { race: RaceHud;
             Survival
           </NavButton>
         ) : null}
-        <NavButton variant="ghost" className={onSurvival ? "col-span-2" : undefined} onClick={() => onCommand({ type: "quit" })}>
+        <NavButton variant="ghost" className={onSurvival ? undefined : "col-span-2"} onClick={() => onCommand({ type: "quit" })}>
           Back
         </NavButton>
       </div>
@@ -519,6 +529,8 @@ function SetupMenu({ race, pad, onCommand, onSurvival, audio }: { race: RaceHud;
     </MenuShell>
   );
 }
+
+const TIME_OF_DAY_LABEL: Record<TimeOfDay, string> = { daytime: "Daytime", sunset: "Sunset", nighttime: "Nighttime" };
 
 const RESULT_STATUS: Record<CarStatus, string> = { racing: "Racing", respawning: "Racing", finished: "", out: "Out", dnf: "DNF" };
 

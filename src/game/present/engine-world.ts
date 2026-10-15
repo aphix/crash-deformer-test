@@ -3,6 +3,8 @@ import { applyMarkMap } from "./engine-marks.ts";
 import { groundMaterial, groundMesh } from "../scenes/ground-stack.ts";
 import { tagSurface } from "./ultra/surface-tag.ts";
 import { LAMP_POOL } from "./constants.ts";
+import { rowElevation, SKY_LOOKS, SkyDome } from "./sky-dome.ts";
+import { TIME_OF_DAY, type TimeOfDay } from "../match/types.ts";
 
 /** The sandbox's asphalt disc: its UVs span this many metres (its texture repeats 18 times across). */
 const STAGE_DIAMETER = 96;
@@ -191,6 +193,56 @@ const NIGHT = {
   smoke: 0.4,
 } as const;
 
+/**
+ * Sunset (`TIME_OF_DAY.sunset`): a low orange sun, a rose-violet sky light, a cool blue fill from the far side of the sky, the
+ * street lamps lit early and the studio reflections dimmed; its sky (and fog) colour is the sunset strip's horizon. A course's own
+ * daylight is a midday look and gives way to it.
+ */
+const SUNSET: Day = {
+  sky: parseInt(SKY_LOOKS[TIME_OF_DAY.sunset].horizon.slice(1), 16),
+  hemi: [0xc9a2b4, 1.1],
+  sun: [0xffa257, 2.5],
+  fill: [0x7f8ccc, 0.7],
+  env: 0.55,
+  lamp: 4,
+  smoke: 0.85,
+};
+
+/**
+ * Where the sun (and the moon) shines from: the default day's bearing (rad from −z toward +x) and height over the shadow box's
+ * centre (m), kept at every time of day so the light stays above the roofs it shades past. Sunset's sun comes in no lower than
+ * `LOW_SUN` (rad): the shadow map's texels stretch 1 / sin(elevation) along the light, 4.8× at 12°.
+ */
+const DEFAULT_SUN_OFFSET = new THREE.Vector3(-10, 22, 9);
+const SUN_BEARING = Math.atan2(DEFAULT_SUN_OFFSET.x, -DEFAULT_SUN_OFFSET.z);
+const LOW_SUN = THREE.MathUtils.degToRad(12);
+/** The moon's light stays between these elevations (rad) whatever the picture has: lower stretches the shadows, higher flattens them. */
+const MOON_ELEVATION = { min: THREE.MathUtils.degToRad(20), max: THREE.MathUtils.degToRad(60) };
+/** The shadow camera reaches this far (m) past the shadow box's centre, beyond the sun's own distance (60 m over the default 25.8). */
+const SHADOW_REACH = 34;
+
+/** The sun's elevation (rad) for `time`: the default day's, or where the picture's disc is (sunset not under `LOW_SUN`). */
+export function sunElevation(time: TimeOfDay | null): number {
+  const look = time === null ? null : SKY_LOOKS[time];
+  if (time === TIME_OF_DAY.sunset && look?.disc) return Math.max(LOW_SUN, rowElevation(look, look.disc.row));
+  if (time === TIME_OF_DAY.night && look?.disc) return THREE.MathUtils.clamp(rowElevation(look, look.disc.row), MOON_ELEVATION.min, MOON_ELEVATION.max);
+  return Math.atan2(DEFAULT_SUN_OFFSET.y, Math.sqrt(DEFAULT_SUN_OFFSET.x ** 2 + DEFAULT_SUN_OFFSET.z ** 2));
+}
+
+/** `out` = the offset (m) from the shadow box's centre to the sun for `time`: on `SUN_BEARING`, at the default's height. */
+export function sunOffset(time: TimeOfDay | null, out: THREE.Vector3): THREE.Vector3 {
+  const el = sunElevation(time);
+  const flat = DEFAULT_SUN_OFFSET.y / Math.tan(el);
+  return out.set(Math.sin(SUN_BEARING) * flat, DEFAULT_SUN_OFFSET.y, -Math.cos(SUN_BEARING) * flat);
+}
+
+/** The palette a course lights with: its own daylight over the default's, and its own sky colour (`sky`, else the daylight's, else the studio's). */
+export function courseDay(light: Daylight | null, sky?: string): Day {
+  const base: Day = light ? { ...DAY, sun: [hex(light.sun), light.sunIntensity], hemi: [hex(light.hemi), DAY.hemi[1]], fill: [hex(light.fill), DAY.fill[1]] } : DAY;
+  const tint = sky ?? light?.sky;
+  return tint ? { ...base, sky: hex(tint) } : base;
+}
+
 const _night = new THREE.Color();
 /** `out` = the day colour moved `k` of the way to the night one (linear working space). */
 function mixHex(out: THREE.Color, day: number, night: number, k: number): void {
@@ -236,17 +288,25 @@ export class WorldStage {
   private day = DAY;
   /** A multiplier on the environment's day / night level: 1 except under Ultra (`present/ultra/`), whose HDRI is lit differently from the studio env. */
   envGain = 1;
+  /** A race's time of day (`setTime`), null outside one: its sky, its sun, and night at night. */
+  time: TimeOfDay | null = null;
+  /** The sandbox's own night setting, kept while a race's time of day overrides it. */
+  private nightOutside = false;
+  /** The offset (m) from the shadow box's centre to the sun for the time of day (the race director keeps the box on the followed car). */
+  readonly sunOffset = DEFAULT_SUN_OFFSET.clone();
+  /** The race's sky (`present/sky-dome.ts`). */
+  readonly sky = new SkyDome();
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.hemi = new THREE.HemisphereLight(DAY.hemi[0], 0x1a1816, DAY.hemi[1]);
     scene.add(this.hemi);
     const dir = new THREE.DirectionalLight(DAY.sun[0], DAY.sun[1]);
-    dir.position.set(-10, 22, 9);
+    dir.position.copy(DEFAULT_SUN_OFFSET);
     dir.castShadow = true;
     dir.shadow.mapSize.set(1024, 1024);
     dir.shadow.camera.near = 2;
-    dir.shadow.camera.far = 60;
+    dir.shadow.camera.far = DEFAULT_SUN_OFFSET.length() + SHADOW_REACH;
     dir.shadow.camera.left = -24;
     dir.shadow.camera.right = 24;
     dir.shadow.camera.top = 24;
@@ -269,17 +329,18 @@ export class WorldStage {
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.receiveShadow = true;
     scene.add(this.ground);
+    scene.add(this.sky.mesh);
     this.apply();
   }
 
   /** Environment-map strength for the current time of day (the studio env loads async). */
   get envIntensity(): number {
-    return THREE.MathUtils.lerp(this.day.env, NIGHT.env, this.depth) * this.envGain;
+    return THREE.MathUtils.lerp(this.lit.env, NIGHT.env, this.depth) * this.envGain;
   }
 
   /** Smoke brightness for the current time of day. */
   get smokeShade(): number {
-    return THREE.MathUtils.lerp(this.day.smoke, NIGHT.smoke, this.depth);
+    return THREE.MathUtils.lerp(this.lit.smoke, NIGHT.smoke, this.depth);
   }
 
   /** How far toward full night the lighting sits: `nightDepth` at night, 0 by day. */
@@ -287,14 +348,43 @@ export class WorldStage {
     return this.night ? this.nightDepth : 0;
   }
 
-  /** A course's own daylight, or the default (null: it leaves). A course's sky and fog are its own (`RaceField.load`). */
-  look(light: Daylight | null): void {
-    this.day = light ? { ...DAY, sky: light.sky ? hex(light.sky) : DAY.sky, sun: [hex(light.sun), light.sunIntensity], hemi: [hex(light.hemi), DAY.hemi[1]], fill: [hex(light.fill), DAY.fill[1]] } : DAY;
+  /**
+   * A course's own daylight, or the default (null: it leaves), and its sky (and fog) colour `sky` when it has one: every relight
+   * (night, a time of day) starts from it, never from the studio's.
+   */
+  look(light: Daylight | null, sky?: string): void {
+    this.day = courseDay(light, sky);
     this.apply();
   }
 
+  /** The palette the time of day lights with: sunset's own, else the course's daylight (which night darkens). */
+  private get lit(): Day {
+    return this.time === TIME_OF_DAY.sunset ? SUNSET : this.day;
+  }
+
+  /** Night lighting on or off. In a race it is the time of day: night, or back to day. */
   setNight(on: boolean): void {
+    if (this.time !== null) {
+      this.setTime(on ? TIME_OF_DAY.night : TIME_OF_DAY.day);
+      return;
+    }
     this.night = on;
+    this.apply();
+  }
+
+  /**
+   * A race's time of day (null: the race is over, the sandbox's own night setting comes back): its sky, the sun's direction (the
+   * shadow camera reaching past it) and night's lighting at night.
+   */
+  setTime(time: TimeOfDay | null): void {
+    if (this.time === null && time !== null) this.nightOutside = this.night;
+    this.time = time;
+    this.night = time === null ? this.nightOutside : time === TIME_OF_DAY.night;
+    sunOffset(time, this.sunOffset);
+    const cam = this.sun.shadow.camera;
+    cam.far = this.sunOffset.length() + SHADOW_REACH;
+    cam.updateProjectionMatrix();
+    this.sky.show(time, SUN_BEARING);
     this.apply();
   }
 
@@ -317,9 +407,11 @@ export class WorldStage {
     const k = this.depth;
     if (!(this.scene.background instanceof THREE.Color)) this.scene.background = new THREE.Color();
     const sky = this.scene.background;
-    mixHex(sky, this.day.sky, NIGHT.sky, k);
+    const day = this.lit;
+    // A race's night is its night sky's horizon, not the day's haze darkened.
+    if (this.time === TIME_OF_DAY.night) sky.set(SKY_LOOKS[TIME_OF_DAY.night].horizon);
+    else mixHex(sky, day.sky, NIGHT.sky, k);
     this.scene.fog?.color.copy(sky);
-    const day = this.day;
     mixHex(this.hemi.color, day.hemi[0], NIGHT.hemi[0], k);
     this.hemi.intensity = THREE.MathUtils.lerp(day.hemi[1], NIGHT.hemi[1], k);
     mixHex(this.sun.color, day.sun[0], NIGHT.sun[0], k);

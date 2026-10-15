@@ -7,7 +7,7 @@
 
 import { AI_DIFFICULTIES } from "../ai/constants.ts";
 import { INITIAL_HUD, KNOB_RANGES } from "./hud-store.ts";
-import { DEFAULT_RACE_OPTIONS, DRIVER_CARS, RACE_MODES } from "../match/types.ts";
+import { DEFAULT_RACE_OPTIONS, DRIVER_CARS, RACE_MODES, TIMES_OF_DAY } from "../match/types.ts";
 import { NET_TX } from "../net/net-ports.ts";
 import { CHASE_DEFAULTS, CHASE_KNOBS, type ChaseKnobId } from "../present/drive-cam.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
@@ -134,6 +134,7 @@ const BASE_FIELDS = {
   aggr: num(0, 1, O.aggression),
   diff: pick(AI_DIFFICULTIES, O.aiDifficulty),
   police: flag(O.police),
+  tod: pick(TIMES_OF_DAY, O.timeOfDay),
   noreset: flag(O.noReset),
   spectate: flag(O.spectate),
   seed: hex,

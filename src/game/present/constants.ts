@@ -10,3 +10,6 @@ export const SLOW_WINDOWS = 2;
 export const LAMP_POOL = "pool";
 /** A frame whose sim time (s) is no more than this advanced nothing: no hit to read, no mark to stamp. */
 export const MIN_SIM_DT = 1e-5;
+
+/** `ImageBitmapLoader` options for a picture drawn as authored: upright for GL (three's `flipY` is off for a bitmap), no premultiplying, no colour conversion. */
+export const BITMAP_UPRIGHT = { imageOrientation: "flipY", premultiplyAlpha: "none", colorSpaceConversion: "none" } as const;

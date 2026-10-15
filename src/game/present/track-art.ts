@@ -49,7 +49,7 @@ export class TrackArt {
   constructor(track: Track, placed: readonly Placed[], stage: Pick<WorldStage, "look">) {
     this.group.name = "track-art";
     this.stage = stage;
-    stage.look(track.json.environment.light ?? null);
+    stage.look(track.json.environment.light ?? null, track.json.environment.sky);
     const ground = track.ground();
     const tex = makeRaceTextures();
     this.textures = tex;

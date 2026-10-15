@@ -105,6 +105,17 @@ describe("given the campaign's picked courses in a share link", () => {
   });
 });
 
+describe("given the race's time of day in a share link", () => {
+  it("when it is Daytime, then nothing is written; Sunset and Nighttime write tod= and read back; an unknown one reads as Daytime", () => {
+    assert.equal(encodeShare({ ...DEFAULTS, tod: "daytime" }), "");
+    for (const tod of ["sunset", "nighttime"] as const) {
+      assert.equal(encodeShare({ ...DEFAULTS, tod }), `tod=${tod}`);
+      assert.equal(decodeShare(`#tod=${tod}`).tod, tod);
+    }
+    assert.equal(decodeShare("#tod=dawn").tod, "daytime");
+  });
+});
+
 describe("given the player's car type, any of the shared list's", () => {
   for (const car of DRIVER_CARS) {
     const written = car.id === INITIAL_HUD.playerCar ? "" : `car=${car.id}`;

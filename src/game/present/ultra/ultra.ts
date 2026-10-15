@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { setSunBias } from "../engine-world.ts";
 import { loadHdrEnv } from "../look-env.ts";
+import { BITMAP_UPRIGHT } from "../constants.ts";
 import { gainOf } from "../prefabs.ts";
 import { surfaceOf, type SurfaceRole, type SurfaceTag } from "./surface-tag.ts";
 import { envYaw, LOOK, SURFACE_METRES } from "./ultra-look.ts";
@@ -40,7 +41,7 @@ type Saved = {
 };
 const SAVED = "ultraSaved";
 
-const bitmaps = new THREE.ImageBitmapLoader().setOptions({ imageOrientation: "flipY", premultiplyAlpha: "none", colorSpaceConversion: "none" });
+const bitmaps = new THREE.ImageBitmapLoader().setOptions(BITMAP_UPRIGHT);
 
 async function loadImage(role: SurfaceRole, kind: "diff" | "nor" | "arm", anisotropy: number): Promise<THREE.Texture> {
   const bitmap = await bitmaps.loadAsync(`${BASE}ultra/${role}-${kind}.webp`);
