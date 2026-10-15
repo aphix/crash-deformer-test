@@ -1,6 +1,10 @@
+import assert from "node:assert/strict";
 import * as THREE from "three";
+import { HUNT } from "../ai/hunter.ts";
+import { COUNTDOWN, GRID_TIME } from "../match/session.ts";
 import { activeGround, setGround } from "./ground.ts";
 import { FRAME, frame, makeWorld, type World } from "./race-world.test-util.ts";
+import type { Track } from "./track.ts";
 import { sightLine } from "../present/spectate-cam.ts";
 
 /**
@@ -222,5 +226,41 @@ export function play(w: World, o: PlayOpts): Play {
     }
   }
   return out;
+}
+
+/** Seconds a pose of `dropInsAtPoses` lasts: a drop-in gap, and the beat the cop needs to show. */
+const POSE_S = HUNT.gap + 0.5;
+
+/**
+ * Cops dropped in with the chase camera at `poses` places evenly round `path`, the player driving on at `speed` m/s from each. Staged, not waited for: at each pose's turn
+ * every cop on the road is wrecked, so the pack is short and the next drop-in is due at once, and the player is put on the pose; the drop-in is judged against the
+ * camera of the frame it shows in.
+ */
+export function dropInsAtPoses(w: World, path: Track["path"], poses: number, speed: number): Play {
+  const at = Array.from({ length: poses }, (_, i) => {
+    const k = Math.floor((i * path.count) / poses);
+    return { x: path.x[k]!, z: path.z[k]!, yaw: Math.atan2(path.tx[k]!, path.tz[k]!), tx: path.tx[k]!, tz: path.tz[k]! };
+  });
+  let turn = -1;
+  const player = (ww: World): void => {
+    const next = ww.race.time < 0 ? -1 : Math.floor(ww.race.time / POSE_S);
+    if (next !== turn && next >= 0 && next < poses) {
+      turn = next;
+      for (let i = 1; i < ww.live().length; i++) if (ww.cars[i]!.group.visible) ww.cars[i]!.deform.drivetrainAlive = false;
+      ww.cars[0]!.spawnFacing(at[turn]!.x, at[turn]!.z, at[turn]!.yaw, speed);
+    }
+    const p = at[Math.max(turn, 0)]!;
+    const me = ww.cars[0]!.group.position;
+    steerAt(ww, me.x + p.tx * 40, me.z + p.tz * 40, speed);
+  };
+  return play(w, { seconds: GRID_TIME + COUNTDOWN + 3 + poses * POSE_S, player, retry: false });
+}
+
+/** The bars on `dropInsAtPoses`' result: a drop-in for every pose (else the check is vacuous), none in the camera's view, none nearer than `HUNT.dropMin`. */
+export function assertDropInsHidden(r: Play, poses: number): void {
+  const seen = r.spawns.filter((s) => s.visible);
+  assert.ok(r.spawns.length >= poses, `only ${r.spawns.length} drop-ins for ${poses} poses: the invariant would be vacuous (ends ${JSON.stringify(r.ends)})`);
+  assert.deepEqual(seen, [], `cops appeared in view: ${JSON.stringify(seen.slice(0, 3))}`);
+  assert.ok(r.spawns.every((s) => s.dist >= HUNT.dropMin - 1e-6), "a drop-in closer than the minimum");
 }
 

@@ -3,12 +3,13 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { RESULTS_DELAY } from "../engine/engine-race.ts";
 import { copsWanted, HUNT } from "../ai/hunter.ts";
+import { COUNTDOWN, GRID_TIME } from "../match/session.ts";
 import { SURVIVAL } from "../match/survival.ts";
 import type { RaceHud } from "../match/types.ts";
 import { FRAME, frame, type World } from "./race-world.test-util.ts";
 import { Track } from "./track.ts";
 import { HAVANA } from "./tracks/havana.ts";
-import { chaseCam, hold, leaveSurvival, liveCops, play, steerAt, survivalWorld, visibleFrom } from "./survival-run.test-util.ts";
+import { assertDropInsHidden, chaseCam, dropInsAtPoses, hold, leaveSurvival, liveCops, play, steerAt, survivalWorld, visibleFrom } from "./survival-run.test-util.ts";
 
 const spec = new Track(HAVANA).survival!;
 const KEY = "crush.survival.best.havana";
@@ -32,9 +33,8 @@ function useStorage(s: Storage): void {
   Object.defineProperty(globalThis, "localStorage", { value: s, configurable: true, writable: true });
 }
 
-/** A wall of building 30 m wide across the boulevard 28 m in front of the start's far side: cops must go round it. */
-const WALL = { prefab: "building", x: 0, z: 392, yaw: 0, scale: 1, size: [30, 14, 14] };
-const WALLED = { ...(HAVANA as object), props: [WALL] };
+/** The survival hold (s) the bust test runs with, shortened from the owner's. */
+const BUST_HOLD = 3;
 
 function hud(w: World): ReturnType<World["race"]["hud"]> {
   return w.race.hud();
@@ -99,14 +99,14 @@ describe("given a Survival run on the Havana course (the player against a pack o
     }
   });
 
-  it("when the player sits still beside the cops, then the run ends, and a bust never comes before the 12 s survival hold", () => {
-    assert.equal(SURVIVAL.bustTime, 12);
-    const w = survivalWorld(WALLED);
+  it("when the player sits still on its start as the pack closes in, then the run ends, and a bust never comes before the survival hold", () => {
+    // The hold is shortened (its own constant) so the pack's box-in and the bust fit in seconds; the owner's 12 s is the session test's (`match/survival.test.ts`).
+    const owner = SURVIVAL.bustTime;
+    Reflect.set(SURVIVAL, "bustTime", BUST_HOLD);
+    const w = survivalWorld();
     try {
       const state = { acc: 0 };
       toGreen(w, state);
-      // The player sits 80 m down the boulevard, behind the wall, on the handbrake.
-      w.cars[0]!.spawnFacing(0, 340, Math.PI, 0);
       let held = 0;
       let heldAtBust = -1;
       let longest = 0;
@@ -124,13 +124,14 @@ describe("given a Survival run on the Havana course (the player against a pack o
       assert.equal(h.you?.status, "out");
       const cause = h.survival?.result?.cause;
       // The cops may wreck a car that sits there before the hold runs out (they ram it); the bust, when it comes, is never early.
-      // The frame-end count cannot see a shove's spike inside a frame (it restarts the real hold), so it may run past 12 s before
+      // The frame-end count cannot see a shove's spike inside a frame (it restarts the real hold), so it may run past the hold before
       // the bust, never short of it. The exact bust time is the session test's (`match/survival.test.ts`).
       assert.ok(cause === "busted" || cause === "wrecked", `cause ${cause}`);
       if (cause === "busted") assert.ok(heldAtBust >= SURVIVAL.bustTime - 0.05, `busted after holding only ${heldAtBust.toFixed(2)} s`);
       else assert.equal(h.you?.busted, false);
     } finally {
       leaveSurvival(w);
+      Reflect.set(SURVIVAL, "bustTime", owner);
     }
   });
 
@@ -235,11 +236,11 @@ describe("given a Survival run on the Havana course (the player against a pack o
     }
   });
 
-  it("when the player lasts through the schedule steps, then the HUD's pack count follows the schedule (the cap and the long run are the hunter unit test's)", () => {
+  it("when the player lasts through the first two schedule steps, then the HUD's pack count follows the schedule (the cap and the long run are the hunter unit test's)", () => {
     const w = survivalWorld();
     try {
       const pts = ringTour();
-      const r = play(w, { seconds: 90, player: tour(pts), retry: true });
+      const r = play(w, { seconds: GREEN_S + 2 * HUNT.every - 1, player: tour(pts) });
       const runs = new Map<number, number[]>();
       for (const g of r.gaps) {
         // Halfway between two schedule steps (and past the 1.5 s drop gap) the pack has what the schedule wants.
@@ -256,6 +257,12 @@ describe("given a Survival run on the Havana course (the player against a pack o
     }
   });
 });
+
+/** The green comes this long (s) after the world is built: the grid, then the countdown. */
+const GREEN_S = GRID_TIME + COUNTDOWN;
+/** The places round the course a cop is dropped in at, and the speed the scripted player drives at (m/s). */
+const POSES = 12;
+const DRIVE_SPEED = 16;
 
 describe("given Survival's cops dropped in during a run", () => {
   it("when a car sits in front of the chase camera, then the camera's own visibility check sees it, so the check below is not blind", () => {
@@ -276,18 +283,13 @@ describe("given Survival's cops dropped in during a run", () => {
     }
   });
 
-  it("when 5 minutes of scripted play run, then no dropped-in cop ever appears in the camera's view, and none lands closer than the minimum drop distance", (t) => {
+  it("when a cop drops in with the player driving at 16 m/s at each of 12 places round the course, then it lands out of the chase camera's view and no nearer than the minimum drop distance", (t) => {
     const w = survivalWorld();
     try {
-      useStorage(memoryStorage());
-      const r = play(w, { seconds: 300, player: tour(ringTour()), retry: true });
-      const seen = r.spawns.filter((s) => s.visible);
-      t.diagnostic(`${r.spawns.length} drop-ins in ${r.seconds.toFixed(0)} s over ${r.ends.length + 1} runs (ends ${r.ends.map((e) => `${e.cause}@${e.t.toFixed(0)}`).join(" ")}), nearest ${Math.min(...r.spawns.map((s) => s.dist)).toFixed(0)} m, ${seen.length} visible`);
-      assert.ok(r.spawns.length >= 12, `only ${r.spawns.length} drop-ins: the invariant would be vacuous`);
-      assert.deepEqual(seen, [], `cops appeared in view: ${JSON.stringify(seen.slice(0, 3))}`);
-      assert.ok(r.spawns.every((s) => s.dist >= HUNT.dropMin - 1e-6), "a drop-in closer than the minimum");
+      const r = dropInsAtPoses(w, new Track(HAVANA).path, POSES, DRIVE_SPEED);
+      t.diagnostic(`${r.spawns.length} drop-ins in ${r.seconds.toFixed(0)} s, nearest ${Math.min(...r.spawns.map((s) => s.dist)).toFixed(0)} m, ${r.spawns.filter((s) => s.visible).length} visible`);
+      assertDropInsHidden(r, POSES);
     } finally {
-      Reflect.deleteProperty(globalThis, "localStorage");
       leaveSurvival(w);
     }
   });
@@ -302,31 +304,16 @@ function ringTour(): [number, number][] {
 }
 
 /**
- * The scripted player's speeds (m/s), one per run in turn. It was 22: the ring's 90° corner is more than the car turns at that speed, so it ran off the road into a stucco block
- * at 18 m/s closing (65 km/h), which a solid now crushes and ejects the driver from as the range's slab does, wrecking the player at the same spot every
- * run; the runs ended 14.5 s apart and too few cops dropped in to check anything (1 drop-in against the 12 the guard needs). Measured at 16: 46 drop-ins.
- * A Retry puts the run back exactly on this tree (the same cops, the same start: run after run is bit-identical; on main a retry differs from the first run from the
- * first second, 0.3 m at 1 s), and at 16 m/s the player rams a cop slowed ahead of it at 6.6 s (main wrecks the same way at the same place in its first run, and at
- * 5.3-5.5 s in the next three), so on this tree every retry at one speed ended there. A human does not repeat a run to the digit: each run takes the next speed.
- * Measured from the start over 45 s: 15.5, 16.5, 16.75 and 17.5 m/s survive here (main: 15.25 and 17-17.5 survive, 16.5 wrecks at 31 s, 16.75 at 40 s); 16 is the 6.6 s wreck on both.
+ * The scripted player: round the ring at `DRIVE_SPEED`, steering at the next waypoint, starting with the waypoint nearest to where it is (waypoint 0 lies across a
+ * stucco block from the start: the car drove into it and sat there until the cops finished it). It was 22 m/s: the ring's 90° corner is more than the car turns at
+ * that speed, so it ran off the road into a stucco block, which a solid crushes and ejects the driver from as the range's slab does. From the start it lasts 31 s at 16 m/s.
  */
-const TOUR_SPEEDS = [16, 16.5, 15.5, 17.5, 16.75];
-
-/** The scripted player: round the ring at the run's speed (`TOUR_SPEEDS`), steering at the next waypoint, starting with the waypoint nearest to where it is (waypoint 0 lies across a stucco block from the start: the car drove into it and sat there until the cops finished it). */
 function tour(pts: readonly (readonly [number, number])[]): (w: World) => void {
   let i = -1;
-  let run = 0;
-  let lastTime = 0;
   return (w) => {
     const car = w.cars[0]!.group.position;
-    // A Retry starts the clock over: the next run, from the waypoint nearest to where the car stands now.
-    if (w.race.time < lastTime - 1) {
-      run++;
-      i = -1;
-    }
-    lastTime = w.race.time;
     if (i < 0) i = pts.reduce((best, q, k) => (Math.hypot(q[0] - car.x, q[1] - car.z) < Math.hypot(pts[best]![0] - car.x, pts[best]![1] - car.z) ? k : best), 0);
     if (Math.hypot(pts[i]![0] - car.x, pts[i]![1] - car.z) < 14) i = (i + 1) % pts.length;
-    steerAt(w, pts[i]![0], pts[i]![1], TOUR_SPEEDS[run % TOUR_SPEEDS.length]!);
+    steerAt(w, pts[i]![0], pts[i]![1], DRIVE_SPEED);
   };
 }

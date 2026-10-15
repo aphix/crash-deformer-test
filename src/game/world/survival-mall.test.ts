@@ -1,10 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { HUNT } from "../ai/hunter.ts";
 import { FRAME, frame, makeWorld, type World } from "./race-world.test-util.ts";
 import { TRACK_ID } from "./constants.ts";
 import { placeProps, propColliders } from "./placements.ts";
-import { hold, leaveSurvival, play, steerAt } from "./survival-run.test-util.ts";
+import { assertDropInsHidden, dropInsAtPoses, hold, leaveSurvival } from "./survival-run.test-util.ts";
+import { LAUNCH_SPEED, rimReach, type Launch } from "./survival-rim.test-util.ts";
 import { Track } from "./track.ts";
 import { TRACKS } from "./tracks/index.ts";
 
@@ -13,6 +13,10 @@ import { TRACKS } from "./tracks/index.ts";
  * the race's start line and facing the Washington Monument down the middle of the Mall, closed all round, with the White House
  * guards still on duty.
  */
+
+/** The places along the streets a cop is dropped in at, and the speed the scripted player drives at (m/s). */
+const POSES = 12;
+const DRIVE_SPEED = 16;
 
 const mall = TRACKS.find((j) => new Track(j).id === TRACK_ID.nationalMall)!;
 const track = new Track(mall);
@@ -83,15 +87,12 @@ describe("given a Survival run on the National Mall", () => {
     }
   });
 
-  it("when the pack is played against for 150 s, then cops keep dropping in and none appears in the chase camera's view", (t) => {
+  it("when a cop drops in with the player driving at 16 m/s at each of 12 places along the Mall's streets, then it lands out of the chase camera's view and no nearer than the minimum drop distance", (t) => {
     const w = mallWorld();
     try {
-      const r = play(w, { seconds: 150, player: (ww) => steerAt(ww, monument.x, monument.z, null), retry: true });
-      const seen = r.spawns.filter((s) => s.visible);
-      t.diagnostic(`${r.spawns.length} drop-ins over ${r.ends.length + 1} runs, nearest ${Math.min(...r.spawns.map((s) => s.dist)).toFixed(0)} m, ${seen.length} visible`);
-      assert.ok(r.spawns.length >= 8, `only ${r.spawns.length} drop-ins: the invariant would be vacuous`);
-      assert.deepEqual(seen, [], `cops appeared in view: ${JSON.stringify(seen.slice(0, 3))}`);
-      assert.ok(r.spawns.every((s) => s.dist >= HUNT.dropMin - 1e-6), "a drop-in closer than the minimum");
+      const r = dropInsAtPoses(w, track.path, POSES, DRIVE_SPEED);
+      t.diagnostic(`${r.spawns.length} drop-ins in ${r.seconds.toFixed(0)} s, nearest ${Math.min(...r.spawns.map((s) => s.dist)).toFixed(0)} m, ${r.spawns.filter((s) => s.visible).length} visible`);
+      assertDropInsHidden(r, POSES);
     } finally {
       leaveSurvival(w);
     }
@@ -185,7 +186,6 @@ describe("given the National Mall as a Survival course, a city closed by a rim o
     const south = Math.min(...zs) + 6;
     const north = Math.max(...zs) - 6;
     const RUN = 45;
-    type Launch = { name: string; x: number; z: number; yaw: number };
     /** Where the blocks of one side stand along it, sorted; the middle seam is halfway between the two blocks round the middle. */
     const row = (side: (p: (typeof rim)[number]) => boolean, along: "x" | "z"): { block: number; seam: number } => {
       const at = rim.filter(side).map((p) => p[along]).sort((a, b) => a - b);
@@ -212,34 +212,9 @@ describe("given the National Mall as a Survival course, a city closed by a rim o
     ];
     /** How far the car's centre is outside the faces (m): positive = through the rim. */
     const past = (x: number, z: number): number => Math.max(west - x, x - east, south - z, z - north);
-    let deepest = -Infinity;
-    for (const l of launches) {
-      const w = mallWorld();
-      try {
-        const state = { acc: 0 };
-        toGreen(w, state);
-        const car = w.cars[0]!;
-        car.spawnFacing(l.x, l.z, l.yaw, 60);
-        let far = -Infinity;
-        for (let n = 0; n < 60 * 2; n++) {
-          const seat = w.seat;
-          seat.mode = "drive";
-          seat.carIndex = 0;
-          seat.intent.analogGas = true;
-          seat.intent.gas = 1;
-          seat.intent.analogWheel = true;
-          seat.intent.wheel = 0;
-          seat.intent.handbrake = false;
-          seat.intent.brake = 0;
-          frame(w, state);
-          far = Math.max(far, past(car.group.position.x, car.group.position.z));
-        }
-        deepest = Math.max(deepest, far);
-        assert.ok(far < 0, `${l.name}: the car got ${far.toFixed(1)} m through the rim`);
-      } finally {
-        leaveSurvival(w);
-      }
-    }
-    t.diagnostic(`${launches.length} launches at 60 m/s; the car that got furthest stopped ${(-deepest).toFixed(1)} m inside the blocks' inner faces`);
+    const reach = rimReach(TRACK_ID.nationalMall, launches, past);
+    const deepest = Math.max(...reach.map((r) => r.far));
+    for (const r of reach) assert.ok(r.far < 0, `${r.name}: the car got ${r.far.toFixed(1)} m through the rim`);
+    t.diagnostic(`${launches.length} launches at ${LAUNCH_SPEED} m/s; the car that got furthest stopped ${(-deepest).toFixed(1)} m inside the blocks' inner faces`);
   });
 });

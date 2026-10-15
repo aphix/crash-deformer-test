@@ -1,15 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { frame } from "./race-world.test-util.ts";
 import { placeProps, propColliders } from "./placements.ts";
-import { chase } from "./survival-players.test-util.ts";
-import { leaveSurvival, survivalWorld } from "./survival-run.test-util.ts";
+import { LAUNCH_SPEED, rimReach, type Launch } from "./survival-rim.test-util.ts";
 import { Track } from "./track.ts";
 import { HAVANA } from "./tracks/havana.ts";
 
 /**
  * Survival is a closed city (docs/SURVIVAL.md): there is nowhere to run to. The pack's side, that it catches a player who keeps running,
- * is `survival-pursuit.test.ts` (pursuit in the closed arena) and `survival-bust.test.ts` (the bust of a cornered player).
+ * is `survival-pursuit.ai-long-run.ts` (pursuit in the closed arena) and `survival-bust.ai-long-run.ts` (the bust of a cornered player); that a player
+ * who keeps running stays on the map is `survival-chase.ai-long-run.ts`'s. All three are the full-sanity suite's (`npm run test:ai-long-run`).
  */
 
 const track = new Track(HAVANA);
@@ -73,7 +72,6 @@ describe("given Havana's Survival course, a closed city with a ring of stucco bl
     /** The row of one side: where the blocks stand along it, sorted. */
     const row = (pick: (p: (typeof RIM)[number]) => boolean, along: "x" | "z"): number[] => RIM.filter(pick).map((p) => p[along]).sort((a, b) => a - b);
     const RUN = 45;
-    type Launch = { name: string; x: number; z: number; yaw: number };
     const launches: Launch[] = [];
     const sides = [
       { name: "south", along: row((p) => p.z === Math.min(...zs), "x"), at: (a: number): Launch => ({ name: "", x: a, z: south + RUN, yaw: Math.PI }) },
@@ -91,42 +89,9 @@ describe("given Havana's Survival course, a closed city with a ring of stucco bl
     for (const [x, z, yaw, name] of [[east - RUN, south + RUN, (3 * Math.PI) / 4, "south-east"], [RUN - east, south + RUN, (-3 * Math.PI) / 4, "south-west"], [east - RUN, north - RUN, Math.PI / 4, "north-east"], [RUN - east, north - RUN, -Math.PI / 4, "north-west"]] as const) {
       launches.push({ name: `${name} corner`, x, z, yaw });
     }
-    let deepest = -Infinity;
-    for (const l of launches) {
-      const w = survivalWorld(undefined, 1);
-      try {
-        const state = { acc: 0 };
-        for (let n = 0; n < 60 * 30 && w.race.phase !== "racing"; n++) frame(w, state);
-        const car = w.cars[0]!;
-        car.spawnFacing(l.x, l.z, l.yaw, 60);
-        let far = -Infinity;
-        for (let n = 0; n < 60 * 2; n++) {
-          const seat = w.seat;
-          seat.mode = "drive";
-          seat.carIndex = 0;
-          seat.intent.analogGas = true;
-          seat.intent.gas = 1;
-          seat.intent.analogWheel = true;
-          seat.intent.wheel = 0;
-          seat.intent.handbrake = false;
-          seat.intent.brake = 0;
-          frame(w, state);
-          far = Math.max(far, past(car.group.position.x, car.group.position.z));
-        }
-        deepest = Math.max(deepest, far);
-        assert.ok(far < 0, `${l.name}: the car got ${far.toFixed(1)} m through the rim`);
-      } finally {
-        leaveSurvival(w);
-      }
-    }
-    t.diagnostic(`${launches.length} launches at 60 m/s; the car that got furthest stopped ${(-deepest).toFixed(1)} m inside the blocks' inner faces`);
-  });
-
-  it("when a player holds the throttle and steers only round solids, then it stays on the map", (t) => {
-    const c = chase("flee", 1, 120);
-    const b = track.bounds;
-    t.diagnostic(`reach x ${c.reach.minX.toFixed(0)}…${c.reach.maxX.toFixed(0)}, z ${c.reach.minZ.toFixed(0)}…${c.reach.maxZ.toFixed(0)}; ended ${c.cause} at ${c.time.toFixed(1)} s`);
-    assert.ok(c.reach.minX > b.minX && c.reach.maxX < b.maxX, `drove to x ${c.reach.minX.toFixed(0)}…${c.reach.maxX.toFixed(0)}`);
-    assert.ok(c.reach.minZ > b.minZ && c.reach.maxZ < b.maxZ, `drove to z ${c.reach.minZ.toFixed(0)}…${c.reach.maxZ.toFixed(0)}`);
+    const reach = rimReach("havana", launches, past);
+    const deepest = Math.max(...reach.map((r) => r.far));
+    for (const r of reach) assert.ok(r.far < 0, `${r.name}: the car got ${r.far.toFixed(1)} m through the rim`);
+    t.diagnostic(`${launches.length} launches at ${LAUNCH_SPEED} m/s; the car that got furthest stopped ${(-deepest).toFixed(1)} m inside the blocks' inner faces`);
   });
 });
