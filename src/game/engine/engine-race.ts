@@ -109,8 +109,8 @@ export class RaceDirector extends RaceHudLayer {
   }
 
   /**
-   * Race mode on. `survival`: a Survival run on its own course instead of the setup menu. `lobby`: the Havana free-drive
-   * lobby of a hosted room (no menu, no rules, no hunters; `showLobby`) with a car for the host and each seated peer.
+   * Race mode on. `survival`: a Survival run on the picked Survival course instead of the setup menu. `lobby`: the free-drive
+   * lobby of a hosted room, on that course (no menu, no rules, no hunters; `showLobby`) with a car for the host and each seated peer.
    */
   enter(survival = false, lobby = false): void {
     if (this.active) return;
@@ -127,7 +127,7 @@ export class RaceDirector extends RaceHudLayer {
     else this.toSetup();
   }
 
-  /** Lobby on: no menu, no police or traffic, a car for the host and every seat, all placed on the Havana start. */
+  /** Lobby on: no menu, no police or traffic, a car for the host and every seat, all placed on the Survival course's start. */
   private toLobby(): void {
     this.campaign = null;
     this.setProgram(null);
@@ -221,6 +221,10 @@ export class RaceDirector extends RaceHudLayer {
       }
       case "program":
         this.setProgram(cmd.options);
+        return;
+      case "survivalCourse":
+        // The lobby is on the Survival course, so a pick there moves it (a hosted room's guests follow through the lobby message).
+        if (this.pickSurvivalCourse(cmd.id) && this.free) this.showLobby(cmd.id);
         return;
       case "start":
         this.campaign = null;
@@ -461,10 +465,11 @@ export class RaceDirector extends RaceHudLayer {
 
   /**
    * Netplay lobby, no menu, no rules: the course is up and every car free-drives from its spawn (a public host's race or derby waits here
-   * for its players; a client shows the host's course until the game starts). Cars are placed once, when the lobby opens.
+   * for its players; a client shows the host's course until the game starts, and its Survival run is on that course). Cars are placed once, when the lobby opens.
    */
   showLobby(trackId: string): void {
     const fresh = !this.free || this.track?.id !== trackId;
+    this.pickSurvivalCourse(trackId);
     this.load(trackId);
     this.session = null;
     this.menu = null;
@@ -490,7 +495,7 @@ export class RaceDirector extends RaceHudLayer {
     seat.boost = 1;
   }
 
-  /** Lobby: car `id` (a peer's request, or this browser's R) back at its Havana spawn, repaired. */
+  /** Lobby: car `id` (a peer's request, or this browser's R) back at its spawn, repaired. */
   resetLobbyCar(id: number): void {
     if (this.free) this.placeLobby(id);
   }

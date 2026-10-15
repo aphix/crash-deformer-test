@@ -23,7 +23,7 @@ import { DORMANT, TrafficBrain } from "../ai/traffic.ts";
 import type { TrackArt } from "../present/track-art.ts";
 import type { DriverLook } from "../present/driver-look.ts";
 import { raceSight, sightLine, type Sight } from "../present/spectate-cam.ts";
-import { parseTrack } from "../world/track-schema.ts";
+import { parseTrack, type TrackJson } from "../world/track-schema.ts";
 import { Track, blankProjection } from "../world/track.ts";
 import { OFF_MENU, TRACKS } from "../world/tracks/index.ts";
 import { HAVANA } from "../world/tracks/havana.ts";
@@ -116,7 +116,7 @@ const _c = new THREE.Vector3();
 export abstract class RaceField {
   active = false;
   /**
-   * The Havana lobby (`RaceDirector.showLobby`): the course is up with no session, no rules and no hunters; every car drives freely from a spawn
+   * The lobby (`RaceDirector.showLobby`): the Survival course is up with no session, no rules and no hunters; every car drives freely from a spawn
    * on the course's start anchor until the host's game starts.
    */
   free = false;
@@ -181,9 +181,11 @@ export abstract class RaceField {
   private readonly sphere = new THREE.Sphere();
   protected readonly host: RaceHost;
   private readonly survivalJson: unknown;
-  /** The Survival course's id (`RaceDirector.enter(true)` starts the run on it). */
-  protected readonly survivalId: string;
+  /** The Survival course the next run, and a hosted room's lobby, is on: one of `survivalCourses` (`RaceDirector.enter(true)` starts the run on it). */
+  protected survivalId: string;
   readonly courses: { id: string; name: string; blurb: string }[];
+  /** The courses Survival can be played on (those with `survival` anchors): the constructor's own first, then the menu's. */
+  readonly survivalCourses: { id: string; name: string; blurb: string }[];
   private readonly tracks = new Map<string, Track>();
   protected track: Track | null = null;
   protected art: TrackArt | null = null;
@@ -269,11 +271,19 @@ export abstract class RaceField {
   constructor(host: RaceHost, survivalCourse: unknown = HAVANA) {
     this.host = host;
     this.survivalJson = survivalCourse;
-    this.survivalId = parseTrack(survivalCourse).id;
-    this.courses = TRACKS.map((json) => {
-      const t = parseTrack(json);
-      return { id: t.id, name: t.name, blurb: t.blurb };
-    });
+    const own = parseTrack(survivalCourse);
+    this.survivalId = own.id;
+    const menu = TRACKS.map((json) => parseTrack(json));
+    const summary = (t: TrackJson) => ({ id: t.id, name: t.name, blurb: t.blurb });
+    this.courses = menu.map(summary);
+    this.survivalCourses = [own, ...menu].filter((t) => t.survival).map(summary);
+  }
+
+  /** The next Survival run (and a lobby) is on course `id`; false when Survival is not played on it. */
+  protected pickSurvivalCourse(id: string): boolean {
+    if (!this.survivalCourses.some((c) => c.id === id)) return false;
+    this.survivalId = id;
+    return true;
   }
 
   /** A bench-only course (`?bench=strip`): found by its id like the off-menu ones, listed nowhere, replaced by the next call. */

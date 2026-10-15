@@ -153,9 +153,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * flight block no longer carries whether the engine runs (the wreck's section does), so a clip of 85 does not decode.
  * 87: the sim's inverse trigonometry (headings from `atan2`, a clamped rotation's angle from `acos`, the suspension's `atan`, the spawn layout's `asin`) is the kernel's `detAtan2`/`detAcos`/`detAtan`/`detAsin` in place of the engine's `Math` ones, which
  * differ in the last bit between Chromium and Firefox, so every heading the AI and the contact code read moves in the last bit and a replayed race drifts from a clip of 86 or before.
+ * 88: the National Mall's course file gains a rim of 154 `building` blocks round its city (Survival's closed arena; the race meets them too), so a clip recorded on it at 87 has
+ * a prop list (and keyframe knocked-prop bits) of another length and a replayed car meets blocks the record never had.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 87;
+const REPLAY_VERSION = 88;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

@@ -109,3 +109,32 @@ export function Choice({ label, off, on, value, onSet }: { label: string; off: s
     </div>
   );
 }
+
+/** An n-way row: a tap on a segment picks it; ←/→ pick the neighbours (the segment before the lit one is `data-step="-1"`, the one after `"1"`). */
+export function Pick({ label, options, value, onSet }: { label: string; options: readonly { id: string; name: string }[]; value: string; onSet: (id: string) => void }) {
+  const lit = options.findIndex((o) => o.id === value);
+  const segment = (on: boolean) =>
+    cn(
+      "h-11 rounded-md px-2 font-display text-sm font-medium transition-colors duration-[var(--motion-quick)] sm:h-7",
+      on ? "bg-accent text-accent-fg" : "text-muted hover:text-fg",
+    );
+  return (
+    <div
+      data-nav
+      data-adjust
+      tabIndex={0}
+      role="group"
+      aria-label={`${label}: ${options[lit]?.name ?? ""}`}
+      className={cn("flex min-h-11 items-center gap-2 rounded-md bg-surface-2 py-0.5 pl-2 pr-0.5 shadow-[var(--shadow-border)] sm:min-h-8", FOCUS_WITHIN)}
+    >
+      <span className="hud-label w-24 shrink-0 text-muted sm:w-32">{label}</span>
+      <div className="grid flex-1 auto-cols-fr grid-flow-col gap-0.5 rounded-md bg-surface p-0.5">
+        {options.map((o, i) => (
+          <button key={o.id} type="button" tabIndex={-1} data-step={i === lit - 1 ? "-1" : i === lit + 1 ? "1" : undefined} aria-pressed={i === lit} onClick={() => onSet(o.id)} className={segment(i === lit)}>
+            {o.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}

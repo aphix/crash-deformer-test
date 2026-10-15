@@ -1,12 +1,14 @@
 # Survival (Driver 2 Havana)
 
-Driver 2's Survival mode on its own course, Havana's Plaza de la Revolución: one car, a pack of cops that grows, and a
+Driver 2's Survival mode on a course of its own, Havana's Plaza de la Revolución or the National Mall: one car, a pack of cops that grows, and a
 stopwatch that is the score. Survive as long as possible while more and more cops try to wreck you.
 
 ## The mode
 
 - **Entry:** the scene bar's **Survival** button (desktop dock and phone picker), the **S** key from the whole-field view
-  (S is the brake once a car is driven), the **Survival** button in the Race "Pick a course" menu, or `#scene=survival`.
+  (S is the brake once a car is driven), the **Survival** button in the Race "Pick a course" menu, or `#scene=survival`. Each starts the run on the
+  **Survival course** last picked (Havana until the player picks the Mall): the setup menu's "Survival course" row lists every course with
+  `survival` anchors (`RaceField.survivalCourses`: Havana, Washington DC) and the pick is the director's (`RaceCommand` `survivalCourse`; it is not in the share URL, so a shared link opens Havana).
 - **Single player or a team.** A private room's host may run it: the button stays on while hosting, and every peer seated at the
   run's start plays it as one team (see **Co-op** below). A public room refuses it (`EngineScenes.setScene`: it runs the race or
   derby its name says), a guest cannot pick it (it follows its host's scene), and a guest's own run ends when it joins a room
@@ -27,7 +29,7 @@ stopwatch that is the score. Survive as long as possible while more and more cop
   finish), no traffic, the hunters instead of the police brain. The crash cinematic, slow-mo and the loop's auto-reset are
   off, as in a race.
 
-## The map
+## Havana's map
 
 `world/tracks/havana.json` (id `havana`), exported as `HAVANA` from `world/tracks/havana.ts`. It is in `OFF_MENU`
 (`world/tracks/index.ts`), not in `TRACKS`: the race menu, the campaign and the per-course sweeps do not list it, and
@@ -65,6 +67,19 @@ after the roads are stamped: a flat top at `height`, each side a plane down over
 rounded over `round` m (a parabola). A bare crest would hang two of a car's four tyres at once; `round` must be 3 or more
 (the drop matrix fails at 0). `checkPlateaus` rejects a plateau whose footprint touches a road. Havana's: half-size 12 × 18,
 height 4, run [10, 10, 18, 16], round 6.
+
+## The National Mall
+
+`world/tracks/national-mall.json` (the race course, `TRACKS`) carries `survival` anchors, so it is a Survival course too. The race's own course and props are the run's city:
+
+- **Start.** The player stands on the race's pole slot (-3.6, -284) on 3rd Street and faces the Washington Monument (yaw -1.5995: toward the obelisk at (-910, -310), 2.4 km down the open lawn of the Mall); the five cops queue behind it,
+  14 to 36 m east of the start on the grass across 3rd Street, staggered ±2.6 m, facing the same way (`survival-mall.test.ts`).
+- **Roads.** The race loop and the side streets (`traffic.routes`, no cars in Survival) are the drop-in roads (`HunterBrain` reads `Track.paths()`), so cops come in on a street out of sight among the museums and trees.
+- **The rim.** The city is open ground, so Survival closes it: 154 `building` blocks (12 m thick, 20 m tall, 60 m long, overlapping) stand round it with inner faces at x -2140 and 790, z -1290 and 190, 70 to 100 m outside the last street and prop. A flood fill of a car-sized
+  disc over the solids from the start reaches 800 000 2 m cells and no edge cell (994 000 and 4 750 edge cells without the rim), and 12 launches at 60 m/s (each side's block middle and seam, the four corners) all stop inside the faces. The race meets the rim too (it is in the course file).
+- **The guards stay on duty.** The White House's lawn guards (`scenes/lawn-guard.ts`) fire in a Survival run as in the race: a car on the lawn is shot dead in seconds, which `judge` counts a wreck, so the lawn is a place that ends a run (and a cop that chases onto it is wrecked and dropped in again). Nothing in the pack's rules needs
+  them off, and the course's Konami secret works in a run (the guards stand down, the VIP rides along); a Retry puts it all back (`RaceDirector.stowSecret`).
+- **Best time.** Per course (`crush.survival.best.national-mall`).
 
 ## The cops (`ai/hunter.ts`)
 
@@ -109,6 +124,7 @@ cops, decides the busts. Rules, all in the existing per-car machinery:
 - **Joining and leaving:** a peer who joins mid-run spectates; Retry seats the peers the room has then. A car whose peer is gone
   (the room's seats have a hole) is nobody's: it is parked off the course and never hunted or counted.
 - **Host leaves:** no migration; the guests' run ends with the host.
+- **The course:** the host picks it in the lobby panel while Survival is the game Go starts (`NetPlay.setLobbyCourse`, the same `survivalCourse` pick); the lobby is on that course for every peer (the lobby message's `trackId`), and a guest that joins later, or mid-run, loads the run's course from the snapshot's `trackId` (`net/lobby.test.ts`).
 
 Measured (probe `scratch-CoopModes/probe.ts`: the scripted fleers straight, flee, ring and held on seeds 1–6, two humans each driving a
 script from the start slots, 200 s cap; fall = race second a human was busted or wrecked, 200 for one still free). One human: mean fall
@@ -134,6 +150,8 @@ Not built: rescue (ramming the cop that is busting a teammate cancels the bust) 
 | wheels on the grass and the crest: drop matrix and drive matrix over the face, plaza, crest and alley | `vehicle/havana-fit.test.ts` |
 | a team's pack: the cops wanted, the cap and the units grow with the humans (1, 2, 4), never past the car list; each cop's quarry is the nearest free human; no drop-in within `dropMin` of any human | `ai/hunter-team.test.ts` |
 | a hosted run with several humans: they start on their own slots, the run goes on while one is free and ends when none is, its time is the last fall, a car nobody drives is parked, Retry seats the peers the room has now; with every cop in view wrecked and the humans parked, a drop-in still comes every `HUNT.gap`; a client reads the pack, the team and the run's time as the host does | `world/survival-coop.test.ts`, `net/race-net.test.ts` |
+| the Survival course list (Havana, Washington DC), the Mall's start on the pole slot facing the monument with the cops behind, drop-ins out of view over 150 s, the White House guards ending a run on the lawn, the Mall closed (flood fill, 12 launches at the rim) | `world/survival-mall.test.ts` |
+| the lobby's Survival course picked by the host, followed by a guest present, joining and joining mid-run | `net/lobby.test.ts` |
 
 Harnesses: `world/survival-run.test-util.ts` (the director in survival mode, a scripted player, the chase camera),
 `world/survival-players.test-util.ts` (the scripted fleeing players and `chase(...)`), `world/survival-arena.test-util.ts`

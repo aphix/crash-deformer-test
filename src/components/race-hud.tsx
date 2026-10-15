@@ -26,7 +26,7 @@ import { FOCUS } from "@/components/race-menu-styles";
 import { AudioRows } from "@/components/race-audio";
 import type { AudioLevels } from "@/game/hud/audio-levels";
 import { ReelList, SavedList } from "@/components/race-reel";
-import { Choice, Stepper } from "@/components/race-rows";
+import { Choice, Pick, Stepper } from "@/components/race-rows";
 import { ResetPrompt } from "@/components/reset-prompt";
 import { StartLights } from "@/components/start-lights";
 import { SurvivalResults } from "@/components/survival-hud";
@@ -509,6 +509,7 @@ function SetupMenu({ race, pad, onCommand, onSurvival, audio }: { race: RaceHud;
         />
         <Choice label="Wrecks" off="Respawn" on="No reset" value={o.noReset} onSet={(noReset) => options({ noReset })} />
         <Choice label="Police" off="Off" on="Chase" value={o.police} onSet={(police) => options({ police })} />
+        {onSurvival && race.survivalCourses.length > 1 ? <Pick label="Survival course" options={race.survivalCourses} value={race.survivalCourse} onSet={(id) => onCommand({ type: "survivalCourse", id })} /> : null}
         <AudioRows audio={audio} />
       </div>
       <div className="mt-3 grid grid-cols-2 gap-1.5">

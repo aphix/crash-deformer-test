@@ -135,6 +135,8 @@ export abstract class RaceHudLayer extends RaceWatch {
       mode: this.campaign ? RACE_MODE.campaign : RACE_MODE.single,
       options: { ...this.options },
       courses: this.courses,
+      survivalCourses: this.survivalCourses,
+      survivalCourse: this.survivalId,
       phase: s ? s.phase : null,
       trackName: tr ? tr.name : "",
       laps: s ? s.laps : this.rules.laps,
