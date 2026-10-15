@@ -5,6 +5,7 @@ import { clamp01, wrapPi } from "../kernel/scalar.ts";
 import { SURFACE_IDS, type SurfaceId } from "./catalog.ts";
 import { parseTrack, type SurvivalSpec, type TrackJson } from "./track-schema.ts";
 import { checkPlateaus, paintGrid, raisePlateaus } from "./terrain.ts";
+import { capsuleRow, sameRun } from "./ground-stamp.ts";
 import { RoadCrease } from "./road-crease.ts";
 import { nearestOnPath } from "./path-grid.ts";
 
@@ -27,6 +28,8 @@ const BLEND = 24;
  * held 0.25 m above the falling road beside it (rally node 6), a ford dropping off a bank's high side (0.35 m).
  */
 const MEET = 8;
+/** `capsuleRow`'s out: the x run's two ends. */
+const _row = new Float64Array(2);
 const CELL = 1;
 /**
  * A gate reaches this far (m) past its road and runoff: `WALL_REACH` where a wall stands, `OPEN_REACH` on a side with no wall
@@ -683,7 +686,10 @@ export class TrackGround extends Ground {
     for (let k = 0; k < segs; k++) {
       // Bridge spans are analytic decks, not terrain: the ground under them stays.
       if (p.deck[k]) continue;
-      const b = (k + 1) % p.count;
+      // An open side street's straight run of like samples is stamped as one segment: each cell is measured once against it,
+      // not again for every metre's sample within its reach (a city of long straight streets baked each cell some 60 times).
+      let b = (k + 1) % p.count;
+      if (side && !p.closed) while (b < segs && sameRun(p, k, b + 1)) b++;
       // Ends of the stamped run (an open path's ends, a deck's abutments) are rounded off, not stretched along.
       const openEnd = (!p.closed && b === p.count - 1) || (p.deck[b] === 1 && b < segs);
       const openStart = (!p.closed && k === 0) || p.deck[(k - 1 + p.count) % p.count] === 1;
@@ -698,7 +704,11 @@ export class TrackGround extends Ground {
       const len = Math.sqrt(len2);
       for (let j = j0; j <= j1; j++) {
         const z = this.minZ + j * CELL;
-        for (let i = i0; i <= i1; i++) {
+        // Only the row's run inside the segment's reach (a cell wider each way) can be stamped.
+        if (!capsuleRow(p.x[k]!, p.z[k]!, p.x[b]!, p.z[b]!, reach, z, _row)) continue;
+        const r0 = Math.max(i0, Math.floor((_row[0]! - this.minX) / CELL) - 1);
+        const r1 = Math.min(i1, Math.ceil((_row[1]! - this.minX) / CELL) + 1);
+        for (let i = r0; i <= r1; i++) {
           const x = this.minX + i * CELL;
           let f = ((x - p.x[k]!) * ex + (z - p.z[k]!) * ez) / len2;
           const beyond = (f > 1 && openEnd) || (f < 0 && openStart);
@@ -747,6 +757,7 @@ export class TrackGround extends Ground {
           st.h[c] = h;
         }
       }
+      if (b > k) k = b - 1;
     }
   }
 }

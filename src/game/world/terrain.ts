@@ -32,7 +32,7 @@ export function plateauHeight(p: Plateau, x: number, z: number): number {
   return p.height * soft(1 - hypot2(ux, uz), p.round / (ux >= uz ? rx : rz));
 }
 
-function inside(poly: readonly (readonly [number, number])[], x: number, z: number): boolean {
+export function insidePolygon(poly: readonly (readonly [number, number])[], x: number, z: number): boolean {
   let in_ = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, zi] = poly[i]!;
@@ -47,10 +47,29 @@ function inside(poly: readonly (readonly [number, number])[], x: number, z: numb
  * terrain: a road or its runoff keeps its own.
  */
 export function paintGrid(paint: readonly Paint[], surf: Uint8Array, terrain: number, minX: number, minZ: number, nx: number, cell: number): void {
+  const nz = surf.length / nx;
   for (const p of paint) {
     const id = SURFACE_IDS.indexOf(p.surface);
-    for (let c = 0; c < surf.length; c++) {
-      if (surf[c] === terrain && inside(p.poly, minX + (c % nx) * cell, minZ + Math.floor(c / nx) * cell)) surf[c] = id;
+    // Only the cells over the polygon's bounds can be inside it (a cell wider each way: the bounds' rounding never drops one).
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let z0 = Infinity;
+    let z1 = -Infinity;
+    for (const [x, z] of p.poly) {
+      x0 = Math.min(x0, x);
+      x1 = Math.max(x1, x);
+      z0 = Math.min(z0, z);
+      z1 = Math.max(z1, z);
+    }
+    const i0 = Math.max(0, Math.floor((x0 - minX) / cell));
+    const i1 = Math.min(nx - 1, Math.ceil((x1 - minX) / cell));
+    const j0 = Math.max(0, Math.floor((z0 - minZ) / cell));
+    const j1 = Math.min(nz - 1, Math.ceil((z1 - minZ) / cell));
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const c = j * nx + i;
+        if (surf[c] === terrain && insidePolygon(p.poly, minX + i * cell, minZ + j * cell)) surf[c] = id;
+      }
     }
   }
 }
