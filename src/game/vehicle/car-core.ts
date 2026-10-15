@@ -179,7 +179,7 @@ export interface GlassPane {
 
 /** Housing + lens on the body skin (never the bumper): breaks only from its own corner's crush. */
 export interface Lamp {
-  /** Its pose on the skin (`poseLamps`), in the car group; `LampBatch` draws the unit there. Named "lamp". */
+  /** Its pose on the skin (`poseLamps`), in the class lift's frame (`assignClass` seats it). Parented for its world matrix, never a child: the scene's matrix pass and traversals skip it, `LampBatch.sync` and `lampWorld` bring its world matrix current. */
   seat: THREE.Object3D;
   intact: boolean;
   kind: LampKind;
@@ -496,7 +496,7 @@ export abstract class CarCore {
       for (const side of [-1, 1]) {
         const seat = new THREE.Object3D();
         seat.name = LAMP_SEAT;
-        this.group.add(seat);
+        seat.parent = this.group;
         _p.set(side * x, y, z);
         this.lamps.push({
           seat,

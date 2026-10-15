@@ -646,8 +646,8 @@ const LAMP_LOOK = {
 
 /**
  * Every car's lamp units as four instanced draws (head / tail × lit / broken) instead of four meshes per car. A car
- * keeps a bare Object3D per lamp that it seats on the skin; `sync` copies the shown ones' world matrices into the
- * batch for the lamp's kind and state once the scene's matrices are current for the frame.
+ * keeps a bare Object3D per lamp that it seats on the skin, parented to the class lift but out of the scene graph; `sync`
+ * brings each shown seat's world matrix current from the lift's and copies it into the batch for the lamp's kind and state.
  */
 export class LampBatch {
   /** Head lit, head broken, tail lit, tail broken. */
@@ -671,7 +671,7 @@ export class LampBatch {
     });
   }
 
-  /** Pack the shown lamps of `cars` (world matrices must be current). A seat off layer 0 (distance detail) is hidden. */
+  /** Pack the shown lamps of `cars` (the cars' own world matrices must be current). A seat off layer 0 (distance detail) is hidden. */
   sync(cars: readonly { readonly lamps: readonly { readonly seat: THREE.Object3D; readonly intact: boolean; readonly kind: LampKind }[] }[]): void {
     const n = this.n;
     n.fill(0);
@@ -682,6 +682,7 @@ export class LampBatch {
         if (!shown) continue;
         const b = (l.kind === "head" ? 0 : 2) + (l.intact ? 0 : 1);
         const mesh = this.meshes[b]!;
+        l.seat.updateWorldMatrix(false, false);
         if (n[b]! < mesh.instanceMatrix.count) mesh.setMatrixAt(n[b]!++, l.seat.matrixWorld);
       }
     }

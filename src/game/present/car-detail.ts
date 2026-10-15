@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { INTERIOR_MESH, LAMP_SEAT, LIGHT_BAR } from "../vehicle/constants.ts";
+import { INTERIOR_MESH, LIGHT_BAR } from "../vehicle/constants.ts";
 
 /**
  * Distance detail, one rule for every car in every scene. Seen from the camera (m, at the 50 degree lens the game frames with),
@@ -50,9 +50,13 @@ const _eye = new THREE.Vector3();
 /** The small parts a mid cut takes: the lamp seats and the plain meshes that cast no shadow. A hinged panel's shell stays (the body under it is primer). */
 function takeMid(car: DeformableCar): THREE.Object3D[] {
   const parts: THREE.Object3D[] = [];
+  for (const lamp of car.lamps) {
+    lamp.seat.layers.disable(0);
+    parts.push(lamp.seat);
+  }
   car.group.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (o.name !== LAMP_SEAT && (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.castShadow || car.flushCasters.includes(m) || m.name === INTERIOR_MESH || m.name === "panel")) return;
+    if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.castShadow || car.flushCasters.includes(m) || m.name === INTERIOR_MESH || m.name === "panel") return;
     m.layers.disable(0);
     parts.push(m);
   });

@@ -386,6 +386,8 @@ export function cornerSpeed(s: ClassStats, r: number, mu = 1, realism = HANDLING
 type Dressable = {
   readonly group: THREE.Group;
   readonly wheels: readonly THREE.Object3D[];
+  /** Lamp seats ride the lift like the body they sit on (bare objects, not children of the group). */
+  readonly lamps: readonly { readonly seat: THREE.Object3D }[];
   readonly style: { id: CarStyleId };
 };
 
@@ -421,4 +423,5 @@ export function assignClass(car: Dressable, id: VehicleClassId): void {
     else body.add(c);
   }
   for (const w of car.wheels) w.scale.setScalar(s.wheelScale);
+  for (const lamp of car.lamps) lamp.seat.parent = body;
 }

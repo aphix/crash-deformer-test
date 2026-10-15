@@ -6,6 +6,7 @@ import { FULL_POOL, LampBatch, LampLights, type LampPool, PHONE_POOL } from "./l
 import { LAMP_HOUSING } from "./car-materials.ts";
 import { CAR_STYLE_IDS, type CarStyleId } from "./car-variants.ts";
 import { assignClass, STYLE_CLASS, type VehicleClassId } from "./vehicle-classes.ts";
+import { CLASS_LIFT } from "./constants.ts";
 import { DT, forModes, paint } from "./test-support.ts";
 
 type LampRow = { kind: string; side: number; intact: boolean };
@@ -143,6 +144,7 @@ describe("given every body style fitted with its own lamps", () => {
       const dir = new THREE.Vector3();
       for (const [i, l] of car.lamps.entries()) {
         const name = `${l.kind}${l.side < 0 ? "L" : "R"}`;
+        l.seat.updateWorldMatrix(true, false);
         const m = l.seat.matrixWorld;
         x.setFromMatrixColumn(m, 0).normalize();
         y.setFromMatrixColumn(m, 1).normalize();
@@ -167,6 +169,41 @@ describe("given every body style fitted with its own lamps", () => {
       }
     });
   }
+});
+
+describe("given a monster-class car, whose lamp seats ride its lift", () => {
+  const dressed = (): DeformableCar => {
+    const car = new DeformableCar(paint(), new THREE.Scene(), null, "pickup");
+    assignClass(car, "monster");
+    car.group.updateMatrixWorld(true);
+    return car;
+  };
+
+  it("when its group is walked, then no lamp seat is one of its nodes", () => {
+    const car = dressed();
+    const seats = new Set<THREE.Object3D>(car.lamps.map((l) => l.seat));
+    let found = 0;
+    car.group.traverse((o) => void (seats.has(o) && found++));
+    assert.equal(found, 0);
+  });
+
+  it("when the batch packs its lamps, then each instance is the seat's pose in the lift's frame", () => {
+    const car = dressed();
+    const lift = car.group.getObjectByName(CLASS_LIFT)!;
+    assert.ok(lift.position.y > 0.1, "the control: the monster class raises the body");
+    const batch = new LampBatch(8);
+    batch.sync([car]);
+    const seatInLift = new THREE.Matrix4();
+    const expected = new THREE.Matrix4();
+    const got = new THREE.Matrix4();
+    for (const l of car.lamps) {
+      seatInLift.compose(l.seat.position, l.seat.quaternion, l.seat.scale);
+      expected.multiplyMatrices(lift.matrixWorld, seatInLift);
+      const slot = car.lamps.filter((other) => other.kind === l.kind).indexOf(l);
+      batch.meshes[l.kind === "head" ? 0 : 2]!.getMatrixAt(slot, got);
+      for (let k = 0; k < 16; k++) assert.ok(Math.abs(got.elements[k]! - expected.elements[k]!) < 1e-5, `${l.kind} ${l.side} element ${k}`);
+    }
+  });
 });
 
 describe("given the lamp light pool with a followed car far ahead, a nearer car between and a nearest car behind the camera", () => {
