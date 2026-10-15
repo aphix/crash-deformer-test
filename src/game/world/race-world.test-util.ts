@@ -58,8 +58,11 @@ export type World = {
   onKnock: ((index: number, car: number, vx: number, vy: number, vz: number) => void) | null;
 };
 
-/** `survivalCourse`: a variant of the Survival course file (props added, say); the real one when omitted. */
-export function makeWorld(survivalCourse?: unknown): World {
+/**
+ * `survivalCourse`: a variant of the Survival course file (props added, say); the real one when omitted. `tracks`: the baked courses of
+ * other worlds of the same test, so a second director reads the Mall's ground instead of baking it again (a course is read-only once built).
+ */
+export function makeWorld(survivalCourse?: unknown, tracks?: Map<string, Track>): World {
   const scene = new THREE.Scene();
   const cars: DeformableCar[] = [];
   const liveBuf: DeformableCar[] = [];
@@ -135,6 +138,7 @@ export function makeWorld(survivalCourse?: unknown): World {
     throwPassenger: () => {},
     throwFigure: (strike) => void w.figures.push({ ...strike }),
   }, survivalCourse);
+  if (tracks) Reflect.set(race, "tracks", tracks);
   const step = newWorld(liveBuf);
   step.ejection = new EjectionWatch();
   step.collide = (car, i, h) => race.collide(car, i, h);

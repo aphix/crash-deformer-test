@@ -69,12 +69,15 @@ function worldGame(w: World, name: string) {
   return { game, log };
 }
 
+/** The courses every world of this file has baked: a Mall's ground is built once, not once per host, guest and late joiner. */
+const bakedCourses = new Map<string, Track>();
+
 /** A host and one guest in room R, both in the lobby, on one clock. */
 function lobby(opts: { minPlayers?: number; course?: string } = {}) {
   const hub = new Hub();
   let now = 1000;
-  const hw = makeWorld();
-  const gw = makeWorld();
+  const hw = makeWorld(undefined, bakedCourses);
+  const gw = makeWorld(undefined, bakedCourses);
   const hg = worldGame(hw, "Ann");
   const gg = worldGame(gw, "Zed");
   const host = new NetPlay(hg.game, { connect: hub.connect, now: () => now });
@@ -304,7 +307,7 @@ describe("given a host and a guest in the lobby of a private room, Survival chos
     s.host.setLobbyCourse("national-mall");
     assert.equal(s.host.go(), true);
     s.step(30);
-    const lw = makeWorld();
+    const lw = makeWorld(undefined, bakedCourses);
     const late = new NetPlay(worldGame(lw, "Yan").game, { connect: s.hub.connect, now: s.now });
     open.push(late);
     late.join("R", "bc");
