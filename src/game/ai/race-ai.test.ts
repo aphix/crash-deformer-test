@@ -147,14 +147,13 @@ function hardMarks(track: Track): string[] {
   return marks;
 }
 /**
- * `hardMarks` of the hard brain driving the 8 cars from the grid: it was pinned at f1ddc1cc (before the tiers existed) and hard must keep reproducing every
- * one. The marks hash the brain's outputs along a real drive, so they re-pin when the drive changes under it: re-pinned for REPLAY 78 (the boost's
- * thrust ramps over `BOOST.ramp` instead of switching, which moves each car's launch and so every later output).
+ * `hardMarks` of the hard brain driving the 8 cars from the grid: the tiers must leave hard's outputs bit for bit as they were. The marks hash those
+ * outputs along a real drive, so a change to the drive under the brain re-pins them; the oval's are still the marks pinned before the tiers existed.
  */
 const HARD_MARKS: Record<string, string[]> = {
-  oval: ["c8f053f0", "c584d9c6", "ff04c11e", "1c4f7e50", "97511591", "9b9fd469", "99c60c04", "41f97176", "ea23b874", "6b6b67fa", "bde5cec", "3f5c9a4f", "d94185cd", "7576e5c3", "48122a4", "a0d39cdc"],
-  rally: ["d2633158", "95787e35", "50e5860d", "8fcc7cc5", "34075bcf", "f6ff0a76", "e56aa83", "d93a8f35", "aac78315", "e2e0702a", "6ff7d181", "ff6149e1", "e0614f66", "73cb1c6c", "a6af7133", "71d63181"],
-  stunt: ["bb594f1e", "f6b9bede", "a2b8665a", "c7b6d410", "a12d0721", "d2256dc3", "38393052", "b4b1d443", "934973ca", "1f7b90f7", "26e0602f", "c457a0be", "f0f09cc6", "e08f5226", "62787b55", "f5adfee2"],
+  oval: ["84661866", "2ceaf5e5", "f225d9a0", "9d8034b2", "606b507d", "2a1bf232", "5d2d531e", "f77a5910", "2687c2ae", "40a3ab55", "6144f51e", "1f15c162", "51530d1d", "57b0d8a3", "42dc4706", "8de13631"],
+  rally: ["bb4cb28b", "682d5f14", "ba47a3a5", "dcb17bee", "aa31d2a5", "b8285287", "3d1d0992", "bb4adf8f", "f93df60c", "8f1ab300", "f003b310", "eb8fc120", "cb64df49", "974e71ab", "45f61a11", "b372f58e"],
+  stunt: ["cfe9223e", "7c29ef0c", "9c71538e", "c480fff", "9ecf007", "adae4797", "5e321814", "bc384445", "d370c5a0", "27ceee7f", "bf7e66de", "46a9ede0", "f72a6dae", "110e9fac", "17e6868", "53f5522a"],
 };
 
 for (const difficulty of AI_DIFFICULTIES) {
