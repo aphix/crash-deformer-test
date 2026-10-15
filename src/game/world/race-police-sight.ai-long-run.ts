@@ -32,6 +32,13 @@ const COURSES: readonly Course[] = [
 ];
 
 /**
+ * Full-sanity sweep, not a per-commit test: whole 150 s police races on three courses and two seeds, every put-on and put-away read against
+ * where the racers stood. The rules themselves are pinned in the regular suite, each on a staged moment: a spot in or out of a racer's sight
+ * (`ai/cop-sight.test.ts`; the spots a pack picks, `ai/police.test.ts`), a cop moving inside the near range never put away and one in sight
+ * put away only once STALE_LIFE old, MIN_LIFE, OUT_RANGE and a knocked-out cop (`ai/police.test.ts`), a stalled cop (`race-police-stall.test.ts`).
+ */
+
+/**
  * The owner's flagged Four-Count clips (a cop gone while driving 56 m from the player; a cop put on the road, standing 0.75 s and gone; two
  * dropped in beside the reel's cars) read as a race's police pops: here a seeded police race on Four-Count, every placement and put-away checked
  * against where the racers stood at that frame.

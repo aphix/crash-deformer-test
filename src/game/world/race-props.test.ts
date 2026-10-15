@@ -11,11 +11,12 @@ import { parseTrack } from "./track-schema.ts";
 import { TRACKS } from "./tracks/index.ts";
 
 /**
- * City, 4 AI rivals and the AI-driven player slot, seed 3: its first 40 s knock three of the course's cones and crates (a scenario
- * input: the seed is picked for its knocks). Seeds 3-12 knock 2-4 props in this race, the same counts with the cage baked and fitted by the sim
- * alone as before it (it moved the early laps of seeds 1 and 2: 2 and 2 knocks before, 0 and 1 after), so the premise is the seed's.
+ * City, 4 AI rivals and the AI-driven player slot, seed 3: its first 23 s knock three of the course's cones and crates (at 15.2, 22.0 and
+ * 22.5 s; a scenario input: the seed is picked for its knocks). Seeds 3-12 knock 2-4 props in this race, the same counts with the cage baked
+ * and fitted by the sim alone as before it (it moved the early laps of seeds 1 and 2: 2 and 2 knocks before, 0 and 1 after), so the premise is
+ * the seed's. The race stops just past the third knock: nothing after it is compared.
  */
-const SECONDS = 40;
+const SECONDS = 23;
 const SEED = 3;
 
 type Run = { knocks: number[]; knocked: number; state: number[]; flying: number };

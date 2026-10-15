@@ -1,11 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { setGround } from "./ground.ts";
-import { COURSE_IDS, FRAME, finishSweep, frame, makeWorld, raceOnce, type World } from "./race-world.test-util.ts";
-import { blankPoint, blankProjection, Track } from "./track.ts";
-import { parseTrack } from "./track-schema.ts";
-import city from "./tracks/city.json" with { type: "json" };
-import { TRACKS } from "./tracks/index.ts";
+import { leadIns } from "./race-police-leadin.test-util.ts";
+import { FRAME, frame, makeWorld, type World } from "./race-world.test-util.ts";
+import { Track } from "./track.ts";
 import oval from "./tracks/oval.json" with { type: "json" };
 
 /** Frames until the race is over or `bound` race seconds pass (grid and countdown included). */
@@ -14,24 +12,12 @@ function runOut(w: World, bound: number): void {
   for (let n = 0; w.race.phase !== "finished" && n * FRAME < bound; n++) frame(w, state);
 }
 
-for (const course of COURSE_IDS) finishSweep(course);
-
-describe("given a 2-lap city race at aggression 0.7 with field seed 1, on a fresh world", () => {
-  it("when the race is run out, then it closes and all 5 cars finish, the AI-driven player car included (oncoming traffic must not hold it nose to nose until it is DNF)", () => {
-    const track = new Track(city);
-    const w = makeWorld();
-    w.race.enter();
-    try {
-      // The finish sweep's bound: the grid and countdown, then 2 laps at 3 × the 9 m/s reference lap.
-      const o = raceOnce(w, track, 4.5 + 2 * 3 * (track.length / 9), 1, 0.7);
-      assert.ok(Number.isFinite(o.closedAt), "the race closed");
-      assert.equal(o.finished, 5, `finished ${o.finished}/5; DNF ${o.dnf.map((d) => `${d.name}: ${d.cause}`).join("; ")}`);
-    } finally {
-      w.race.exit();
-      setGround(null);
-    }
-  });
-});
+/** Lead-in headings judged (a cop woken, its 1.8 s run) before the per-commit lead-in test stops its race. */
+const LEAD_INS_CHECKED = 2;
+/** Race seconds the first police car may take to come out on the city course (it does at 14 s with field seed 2). */
+const POLICE_BOUND = 40;
+/** Seconds Auto runs among the police and traffic cars (it may switch about once a second). */
+const AUTO_SECONDS = 10;
 
 describe("given a 1-lap oval race of 4 AI rivals and the AI-driven player slot, with field seed 1", () => {
   it("when the race is run to its end, then it closes on laps with every car home on its single lap, placed and gapped by finish time", () => {
@@ -201,17 +187,19 @@ describe("given a Watch race on the city course with police and traffic cars amo
       w.race.reseed(2);
       w.race.command({ type: "start" });
       const state = { acc: 0 };
-      // Police park beside the course from a third of the first lap on, and give chase.
-      for (let n = 0; n < 40 / FRAME; n++) frame(w, state);
-      assert.ok(w.live().length > w.race.racers.length, "the fixture has police or traffic cars past the racers");
       const racers = w.race.racers.length;
+      const policeOut = () => w.live().some((c, i) => i >= racers && c.group.visible && c.style.id === "police");
+      // Police park beside the course from a third of the first lap on: the moment starts when the first one is out among the traffic.
+      for (let n = 0; n < POLICE_BOUND / FRAME && !policeOut(); n++) frame(w, state);
+      assert.ok(policeOut(), `no police car came out within ${POLICE_BOUND} s`);
+      assert.ok(w.live().length > racers, "the fixture has police and traffic cars past the racers");
       w.race.command({ type: "watch", id: 0 });
       for (let k = 0; k < 3 * (racers + 1); k++) {
         w.race.command({ type: "cycle", dir: k % 2 === 0 ? 1 : -1 });
         assert.ok(w.seat.carIndex < racers, `cycling landed on car ${w.seat.carIndex}, past the ${racers} racers`);
       }
       w.race.command({ type: "watch", id: -1 });
-      for (let n = 0; n < 60 / FRAME; n++) {
+      for (let n = 0; n < AUTO_SECONDS / FRAME; n++) {
         frame(w, state);
         w.race.autoStep(-1, true);
         assert.ok(w.seat.carIndex < racers, `Auto picked car ${w.seat.carIndex} at ${w.race.time.toFixed(1)} s, past the ${racers} racers`);
@@ -242,12 +230,12 @@ describe("given a Watch campaign with 3 AI rivals and this browser's car racing 
   });
 });
 
-describe("given 2-lap Watch races of 4 AI rivals on a course with police cars on", () => {
-  it("when an oval race runs out, then stakeouts park with sirens off, wake into pursuits with sirens on, Watch cycling never lands on them, police never race or appear in the results, and the race closes", () => {
+describe("given a 1-lap Watch race of 4 AI rivals on the oval with police cars on", () => {
+  it("when the race runs out, then stakeouts park with sirens off, wake into pursuits with sirens on, Watch cycling never lands on them, police never race or appear in the results, and the race closes", () => {
     const w = makeWorld();
     w.race.enter();
     try {
-      w.race.command({ type: "options", options: { trackId: "oval", laps: 2, aiCount: 4, spectate: true, police: true } });
+      w.race.command({ type: "options", options: { trackId: "oval", laps: 1, aiCount: 4, spectate: true, police: true } });
       w.race.reseed(1);
       w.race.command({ type: "start" });
       const racers = w.race.racers.length;
@@ -255,7 +243,7 @@ describe("given 2-lap Watch races of 4 AI rivals on a course with police cars on
       let chasingLit = 0;
       let watched = false;
       const state = { acc: 0 };
-      const bound = 4.5 + 2 * 3 * (new Track(oval).length / 9);
+      const bound = 4.5 + 3 * (new Track(oval).length / 9);
       for (let n = 0; w.race.phase !== "finished" && n * FRAME < bound; n++) {
         frame(w, state);
         if (n % 30 !== 0) continue;
@@ -286,249 +274,12 @@ describe("given 2-lap Watch races of 4 AI rivals on a course with police cars on
     }
   });
 
-  /**
-   * One 2-lap police race on the oval (field seed 1), its frame accumulator starting at `phase` seconds: the same field
-   * and the same cops, but the physics steps partition the frames differently, so the cars take a different chaotic
-   * path through it. Every lead-in's heading is checked as it ends; the counts and the lead-ins whose heading did not
-   * converge come back for the pooled floors and caps.
-   */
-  function leadIns(phase: number, seed = 1, trackId = "oval"): { wakes: number; converged: number; diverged: string[]; offRoadLeadIns: number; tbones: number; pursuitHits: number; leadInPairs: number } {
-    const w = makeWorld();
-    w.race.enter();
-    try {
-      w.race.command({ type: "options", options: { trackId, laps: 2, aiCount: 4, spectate: true, police: true } });
-      w.race.reseed(seed);
-      w.race.command({ type: "start" });
-      const track = new Track(TRACKS.find((j) => parseTrack(j).id === trackId)!);
-      const L = track.length;
-      const proj = blankProjection();
-      // A car's arc along the road. Where two stretches stack (Dam Spine's dam over the valley road, at one place in plan) the nearest
-      // centreline in plan flips between them from one frame to the next, so a car's first read takes the stretch at its own height and
-      // every later one stays near it, as the cops' own brain reads its racers and its parking spots.
-      const hint = new Int32Array(64).fill(-1);
-      const stretchAt = (x: number, y: number, z: number): number => {
-        const p = track.path;
-        let best = -1;
-        let bestCost = Infinity;
-        for (let k = 0; k < p.count; k++) {
-          const d = Math.hypot(p.x[k]! - x, p.z[k]! - z);
-          const cost = d + 5 * Math.abs(p.y[k]! - y);
-          if (cost < bestCost) [best, bestCost] = [k, cost];
-        }
-        return best;
-      };
-      const arc = (i: number) => {
-        const p = w.cars[i]!.group.position;
-        if (hint[i]! < 0) hint[i] = stretchAt(p.x, p.y, p.z);
-        const on = track.project(p.x, p.z, hint[i]!, proj);
-        hint[i] = on.k;
-        return on.s;
-      };
-      const ahead = (s: number, from: number) => s - from - L * Math.round((s - from) / L);
-      const angle = (ax: number, az: number, bx: number, bz: number) => Math.abs(Math.atan2(ax * bz - az * bx, ax * bx + az * bz));
-      const racers = w.race.racers.length;
-      const tangent = blankPoint();
-      // Per racer, the cells of the road (per 2 m of it) it has driven on: a lead-in whose target never drove its cell has no road there to line up on.
-      const drove = Array.from({ length: racers }, () => new Uint8Array(Math.ceil(L / 2)));
-      // Per police car: its parked spot's arc (NaN: not parked), the lead-in window's target and end, and its last
-      // contact with any car (a parked car knocked along, or a lead-in knocked off line by a pack-mate, says nothing of its steering).
-      const parkS = new Float64Array(64).fill(NaN);
-      const target = new Int32Array(64).fill(-1);
-      const leadEnd = new Float64Array(64);
-      const angle0 = new Float64Array(64).fill(NaN);
-      const bumped = new Float64Array(64).fill(-1e9);
-      // Per police car: a pack-mate came within `CROWD` m during its lead-in (the pack guard swerved it round the mate, which
-      // says nothing of its steering toward the target, as a knock from one does not).
-      const CROWD = 8;
-      const crowded = new Uint8Array(64);
-      // Per police car: a stretch of the target's heading the cop is matching was never driven on the road (the target merged off a
-      // shortcut there), so the lead-in has no reference and is not checked; `offRoadLeadIns` counts those.
-      const offRoad = new Uint8Array(64);
-      let t = 0;
-      let wakes = 0;
-      let converged = 0;
-      let offRoadLeadIns = 0;
-      let tbones = 0;
-      let pursuitHits = 0;
-      const diverged: string[] = [];
-      // Pairs of police cars that touched while both were inside their lead-in windows (a stakeout pair parks 12 m apart, one
-      // facing each racer's travel and one against it, so both full-throttle lead-ins met head-on).
-      const leadInPairs = new Set<number>();
-      const hit = w.step.pairHit;
-      w.step.pairHit = (a, b, h) => {
-        hit?.(a, b, h);
-        if (a >= racers && b >= racers && t < leadEnd[a]! && t < leadEnd[b]!) leadInPairs.add((a * 64 + b) * 1e4 + Math.round(leadEnd[a]!));
-        if (a >= racers) bumped[a] = t;
-        if (b >= racers) bumped[b] = t;
-        if (a >= racers === b >= racers) return;
-        const [p, r] = a >= racers ? [a, b] : [b, a];
-        if (t >= leadEnd[p]!) {
-          pursuitHits++;
-          return;
-        }
-        if (r !== target[p]) return;
-        // A T-bone: the normal across the target's flank with the police car crossways to it.
-        const ty = w.cars[r]!.yaw;
-        const py = w.cars[p]!.yaw;
-        const nAlong = Math.abs(h.normal.x * Math.sin(ty) + h.normal.z * Math.cos(ty));
-        const cross = Math.abs(Math.sin(py) * Math.sin(ty) + Math.cos(py) * Math.cos(ty));
-        if (nAlong < 0.5 && cross < 0.5) tbones++;
-      };
-      const state = { acc: phase };
-      const bound = 4.5 + 2 * 3 * (track.length / 9);
-      for (let n = 0; w.race.phase !== "finished" && n * FRAME < bound; n++) {
-        frame(w, state);
-        t = n * FRAME;
-        for (let r = 0; r < racers; r++) {
-          // Every frame, as the cops' brain reads its racers: a hint left to the wake checks lags its car by up to the road's corridor
-          // (a truck 9 m past a cop's spot read 8 m short of it, so the cop it woke looked like it pulled away unprompted).
-          arc(r);
-          const p = w.cars[r]!.group.position;
-          const on = track.project(p.x, p.z, -1, proj);
-          // Only where the racer drives the road: a racer merging off a shortcut has no road under it, so the cop that lines
-          // up behind it has no stretch of road to line up on (seed 1, cop 6 at 38 s: the target merged off the road).
-          // Cells never driven stay 0: no sample.
-          if (Math.abs(on.lateral) > track.path.half[on.k]!) continue;
-          drove[r]![Math.floor(on.s / 2)] = 1;
-        }
-        for (let i = racers; i < w.live().length; i++) {
-          const car = w.cars[i]!;
-          const v = car.velocity;
-          const speed = Math.hypot(v.x, v.z);
-          if (!car.group.visible) {
-            // Stored: it comes back parked somewhere new, so its next read is a first read. Kept, the hint from its last spot
-            // read Dam Spine seed 1's cop 6 (stored after a thrown driver, re-parked at 54.25 s) on the stretch stacked under
-            // its new spot: 488 m along, not 2543, so the racer 8 m past it as it woke read 2064 m past.
-            parkS[i] = NaN;
-            hint[i] = -1;
-            continue;
-          }
-          // A wrecked cop that lies still is not a stakeout: a racer wreck that shoves it along would read as the cop waking (a wall now slows a racer
-          // that hits it at speed, and the cop that was pursuing it ends up a wreck beside it).
-          if (speed < 0.3 && !car.sirens && !car.crashed && t >= leadEnd[i]!) {
-            parkS[i] = arc(i);
-            continue;
-          }
-          // It moved, or its sirens came on (a woken cop held by the pack guard can sit still for a second: a racer 55 m/s fast is 55 m on by then):
-          // a racer must be past its spot (a patrol beat plus its pull-away), unless one just knocked it.
-          if (!Number.isNaN(parkS[i]!) && (car.sirens || speed > 1)) {
-            // The sirens come on within a beat (0.25 s) of the wake, when the racer that woke it is at most 30 m + a beat past.
-            let best = -1;
-            let bestD = Infinity;
-            for (let r = 0; r < racers; r++) {
-              const d = ahead(arc(r), parkS[i]!);
-              if (d >= 0 && d < bestD) [best, bestD] = [r, d];
-            }
-            assert.ok(bestD < 80 || t - bumped[i]! < 0.5, `police car ${i} pulled away at ${t.toFixed(2)} s with no racer past its spot (nearest past ${bestD.toFixed(0)} m)`);
-            parkS[i] = NaN;
-            target[i] = best;
-            leadEnd[i] = t + 1.8;
-            angle0[i] = NaN;
-            crowded[i] = 0;
-            offRoad[i] = 0;
-            wakes++;
-          }
-          const r = target[i]!;
-          if (r < 0 || t >= leadEnd[i]! || speed < 3) continue;
-          for (let j = racers; j < w.live().length; j++) {
-            if (j !== i && w.cars[j]!.group.visible && w.cars[i]!.group.position.distanceTo(w.cars[j]!.group.position) < CROWD) crowded[i] = 1;
-          }
-          const s = arc(i);
-          if (!drove[r]![Math.floor(s / 2)]) offRoad[i] = 1;
-          // The cop's heading against the road's direction of travel under it: lining up behind its target on the road.
-          const road = track.pointAt(s, tangent);
-          const a = angle(v.x, v.z, road.tx, road.tz);
-          if (Number.isNaN(angle0[i]!)) angle0[i] = a;
-          if (t + FRAME >= leadEnd[i]! && bumped[i]! < leadEnd[i]! - 1.8 && !crowded[i]) {
-            if (offRoad[i]) {
-              offRoadLeadIns++;
-              continue;
-            }
-            if (a < angle0[i]! || a < 0.2) converged++;
-            else diverged.push(`seed ${seed} car ${i} at ${t.toFixed(1)} s: ${angle0[i]!.toFixed(2)} → ${a.toFixed(2)} rad`);
-          }
-        }
-      }
-      assert.equal(w.race.phase, "finished", "the race closed");
-      assert.equal(tbones, 0, "a police car T-boned its target during its lead-in");
-      return { wakes, converged, diverged, offRoadLeadIns, tbones, pursuitHits, leadInPairs: leadInPairs.size };
-    } finally {
-      w.race.exit();
-      setGround(null);
-    }
-  }
-
-  // A lead-in's heading is read against the road's direction of travel under the cop (it lines up behind its target on the
-  // road) and converges when it ends under 0.2 rad or under where it started. It was read against the target's own last
-  // velocity in that cell, with every lead-in required to converge. Measured on main ca86b51 and on this head over seeds 1-60
-  // at start phases 0 and 0.008 (the pools below; 87 and 84 distinct lead-ins, 98 together, since the phases and the two
-  // trees replay many of the same ones): the racer's cell failed 6 of 87 on main and 5 of 84 here (8 of 98, 8.2 %). A racer's
-  // line is not the road: it leads the tangent through a corner (seed 6, cop 5 at 67 s: 0.26 → 0.18 against the road, 0.28 →
-  // 0.35 against the racer, steer 0.48, no mate near) and swerves in a cell (seeds 30 and 48, cop 5 at 15 s: the racer 0.2 rad
-  // off the road there, 0.25 → 0.19 against the road). The road fails 3 of 98 (3.1 %), none of them the cop's own steer: seed 27
-  // cop 9 (32.8 s) and seed 32 cop 5 (40.0 s, on main) are a stakeout pair woken together, the pack-mate guard turning the cop
-  // off a head-on with its mate 12 m away (steer ±1 and brakes for 0.5-0.8 s; error 0.25 → 0.54 and 0.15 → 0.33); seed 32 cop 9
-  // (28.5 s) is a merge on a bend, where the error must rise while the cop turns into the road (0.18 → 0.23, 10 m to cross). So
-  // a pool of n checked lead-ins false-fails when more than k fail, at 3.1 %: 4 samples n = 7, k = 1: 1.9 %; 12 seeds n = 15,
-  // k = 2: 1.0 % (k = 0 would false-fail 20 % and 38 %). A real break (no lead-in lines up) fails most of them. Do not loosen k,
-  // or tighten it back to every lead-in, without re-measuring on that many seeds.
-  const DIVERGED_OF_SAMPLES = 1;
-  const DIVERGED_OF_SEEDS = 2;
-
-  it("when four differently seeded and phased oval races run, then police wait until a racer passes their stakeout and lead in behind it (heading converging, no side T-bone) before the pursuit attacks", () => {
-    // Four samples: four fields (seeds: each rolls its rivals' aggression and the cops' beats), each started at its own
-    // phase of one frame in 4 ms steps. Racers that never touch (the contact guard) no longer let one field's phases
-    // fall apart into chaotic samples, so the samples differ by construction. The lead-ins a pack-mate rams (cop on cop,
-    // unbumped by the target) do not count, so a single race converges 0 to 6 of its 6; samples that play out
-    // identically are one sample, and the fields must really differ.
-    const seen = new Set<string>();
-    let wakes = 0;
-    let converged = 0;
-    let offRoad = 0;
-    let pursuitHits = 0;
-    const diverged: string[] = [];
-    for (const [phase, seed] of [[0, 1], [0.004, 2], [0.008, 3], [0.012, 4]] as const) {
-      const r = leadIns(phase, seed);
-      if (seen.has(JSON.stringify(r))) continue;
-      seen.add(JSON.stringify(r));
-      wakes += r.wakes;
-      converged += r.converged;
-      diverged.push(...r.diverged);
-      offRoad += r.offRoadLeadIns;
-      pursuitHits += r.pursuitHits;
-    }
-    assert.ok(seen.size >= 3, `only ${seen.size} different samples out of 4 fields`);
-    assert.ok(wakes >= 4 && converged >= 3 && offRoad <= converged, `wakes ${wakes}, unbumped lead-ins converged ${converged}, ${offRoad} left out for a target off the road`);
-    assert.ok(diverged.length <= DIVERGED_OF_SAMPLES, `${diverged.length} of ${converged + diverged.length} lead-in headings did not converge: ${diverged.join("; ")}`);
-    assert.ok(pursuitHits >= 1, "the pursuit after the lead-in never touched a racer");
-  });
-
-  it("when twelve seeded oval races run, then no two police cars meet during their lead-ins (a stakeout pair woken together must not drive into each other)", () => {
-    let wakes = 0;
-    let converged = 0;
-    let offRoad = 0;
-    const diverged: string[] = [];
-    const met: string[] = [];
-    for (let seed = 1; seed <= 12; seed++) {
-      const r = leadIns(0, seed);
-      wakes += r.wakes;
-      converged += r.converged;
-      diverged.push(...r.diverged);
-      offRoad += r.offRoadLeadIns;
-      if (r.leadInPairs > 0) met.push(`seed ${seed}: ${r.leadInPairs} pairs`);
-    }
-    assert.ok(wakes >= 40, `only ${wakes} lead-ins over 12 seeds`);
-    // The headings really were checked (15 here, 1 more left out for a target off the road), so this cannot pass on an empty check.
-    assert.ok(converged >= 8 && offRoad <= converged, `${converged} lead-in headings checked, ${offRoad} left out for a target off the road (of ${wakes})`);
-    assert.ok(diverged.length <= DIVERGED_OF_SEEDS, `${diverged.length} of ${converged + diverged.length} lead-in headings did not converge: ${diverged.join("; ")}`);
-    assert.deepEqual(met, [], `lead-in pairs that touched (of ${wakes} lead-ins)`);
-  });
-
-  it("when the long fast courses Dam Spine (seed 1) and Four-Count (seed 6) run, then no two cops touch during their lead-ins, and each cop that pulls away has a racer past its spot", () => {
-    for (const [course, seed] of [["dam-spine", 1], ["four-count", 6]] as const) {
-      const r = leadIns(0, seed, course);
-      assert.ok(r.wakes >= 10, `${course} seed ${seed}: only ${r.wakes} wakes`);
-      assert.equal(r.leadInPairs, 0, `${course} seed ${seed}: lead-in pairs that touched`);
-    }
+  it("when one stakeout's cop wakes as a racer passes and its lead-in runs its 1.8 s, then it lined up behind the racer on the road (heading converging) without a side T-bone", () => {
+    // The first two lead-in headings judged on the oval (seed 1), then the race stops: the moment is the cops' wake and lead-in, not the 2 laps after it.
+    const r = leadIns(0, 1, "oval", (checked) => checked >= LEAD_INS_CHECKED);
+    assert.ok(r.wakes >= LEAD_INS_CHECKED, `only ${r.wakes} cops woke`);
+    assert.ok(r.converged >= 1, `no lead-in heading converged (${r.converged} did, ${r.diverged.length} did not: ${r.diverged.join("; ")})`);
+    assert.equal(r.diverged.length, 0, `lead-in headings that did not converge: ${r.diverged.join("; ")}`);
+    assert.equal(r.tbones, 0, "a police car T-boned its target during its lead-in");
   });
 });

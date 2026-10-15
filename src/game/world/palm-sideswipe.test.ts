@@ -77,6 +77,13 @@ function overlap(car: DeformableCar, c: PropCollider): number {
   return Math.max(0, least);
 }
 
+/** Havana's low solid pieces, placed once: the course is the same for every run. */
+let havanaSolids: PropCollider[] | undefined;
+function solidPieces(): PropCollider[] {
+  const track = new Track([...TRACKS, ...OFF_MENU].find((j) => parseTrack(j).id === "havana"));
+  return propColliders(placeProps(track)).filter((c) => c.body === "solid" && c.base < LOW);
+}
+
 /**
  * Drives `scene`'s car on the gas for SECONDS; `turnIn` m from its palm (none when negative) the wheel goes to `steer` (±1) and the
  * handbrake is tapped for TAP s. Returns the step that moved it furthest past its allowance.
@@ -84,8 +91,7 @@ function overlap(car: DeformableCar, c: PropCollider): number {
 function sideswipe(scene: Scene, steer: number, turnIn: number, boost = false): Jump {
   const w = raceWorld();
   w.race.showLobby("havana");
-  const track = new Track([...TRACKS, ...OFF_MENU].find((j) => parseTrack(j).id === "havana"));
-  const solids = propColliders(placeProps(track)).filter((c) => c.body === "solid" && c.base < LOW);
+  const solids = (havanaSolids ??= solidPieces());
   assert.ok(solids.some((c) => c.prefab === "palm" && c.kind === "circle" && Math.hypot(c.x - scene.palm.x, c.z - scene.palm.z) < 0.5), "the palm stands where the capture says");
   const car = armedCar(scene.cls);
   launch(car, scene.x, scene.z, scene.yaw, scene.vx ?? 0, scene.vz ?? 0);

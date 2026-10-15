@@ -113,6 +113,38 @@ describe("given the city track's ambient traffic (cars that drive the lanes arou
     assert.ok(p.s > 240, `got past the blocker (s ${p.s.toFixed(1)})`);
   });
 
+  it("when a car comes up on a racer stopped in its lane and facing it, then after the wait it edges out to its own kerb, and for a blocker facing the same way it edges toward the road's centre instead", () => {
+    const slot = brain.slotOf(0);
+    const kerbSide = Math.sign(slot.offset);
+    const at = (s: number) => {
+      const pt = track.pointAt(s, { x: 0, y: 0, z: 0, tx: 0, tz: 1, half: 0 });
+      return { x: pt.x + pt.tz * slot.offset, z: pt.z - pt.tx * slot.offset, yaw: Math.atan2(pt.tx, pt.tz) };
+    };
+    // How far the car moves sideways from its lane (m) over 14 s (2.5 s to stop and wait, 4.5 s to edge): toward its own kerb, and toward the road's centre.
+    const swing = (blockerTurn: number): { kerb: number; centre: number } => {
+      const [mover, blocker] = cars(2, new THREE.Scene());
+      brain.reset();
+      const a = at(200);
+      const b = at(235);
+      mover!.spawnFacing(a.x, a.z, a.yaw, brain.speed);
+      blocker!.spawnFacing(b.x, b.z, b.yaw + blockerTurn, 0);
+      const p = blankProjection();
+      const out = { kerb: 0, centre: 0 };
+      run(brain, [mover!, blocker!], 14, (i, c) => {
+        if (i !== 0) return;
+        projectPath(track.path, c.group.position.x, c.group.position.z, -1, p);
+        const toKerb = kerbSide * (p.lateral - slot.offset);
+        out.kerb = Math.max(out.kerb, toKerb);
+        out.centre = Math.max(out.centre, -toKerb);
+      }, 1);
+      return out;
+    };
+    const facing = swing(Math.PI);
+    const sameWay = swing(0);
+    assert.ok(facing.kerb > 1 && facing.centre < 1, `facing blocker: ${facing.kerb.toFixed(2)} m toward its own kerb, ${facing.centre.toFixed(2)} m toward the centre`);
+    assert.ok(sameWay.centre > 2.5 && sameWay.kerb < 0.5, `same-way blocker: ${sameWay.centre.toFixed(2)} m toward the centre, ${sameWay.kerb.toFixed(2)} m toward its own kerb`);
+  });
+
   it("when a car on the throttle stays pinned where it is, then after about a second it backs off in reverse", () => {
     brain.reset();
     const slot = brain.slotOf(0);

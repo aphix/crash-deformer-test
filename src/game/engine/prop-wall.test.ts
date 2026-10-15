@@ -2,7 +2,7 @@ import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { placeProps, propColliders, type PropCollider } from "../world/placements.ts";
 import { setGround } from "../world/ground.ts";
-import { makeWorld } from "../world/race-world.test-util.ts";
+import { makeWorld, type World } from "../world/race-world.test-util.ts";
 import { Track } from "../world/track.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { OFF_MENU, TRACKS } from "../world/tracks/index.ts";
@@ -87,8 +87,7 @@ describe("given a panel of the Havana alley wall (0.44 m thick) and a car with o
  * One scripted hit: the car `dist` m off the wall's near face at `speed`, its heading `alpha` off the wall and its path `vdir` off it, `steer`, handbrake and boost held for `secs`.
  * `hz` > 0 steps the sim at that fixed rate (else the engine's `physicsSlice`).
  */
-function hit(cls: VehicleClassId, o: { dw: number; alpha: number; vdir: number; speed: number; steer: number; ebrake: boolean }, pinned: boolean, hz = 0) {
-  const w = alley();
+function hit(w: World, cls: VehicleClassId, o: { dw: number; alpha: number; vdir: number; speed: number; steer: number; ebrake: boolean }, pinned: boolean, hz = 0) {
   const car = makeCar(cls);
   const cop = pinned ? makeCar("police") : null;
   const cars = cop ? [car, cop] : [car];
@@ -154,8 +153,9 @@ describe("given the Havana alley wall and a car swung into it with the handbrake
   for (const cls of VEHICLE_CLASS_IDS) {
     for (const pinned of [false, true]) {
       it(`when ${pinned ? `a ${cls} pinned by a cop ramming from behind` : `a ${cls}`} is swung in each of the nine ways, then no corner ends more than 2 cm past the far face, under 5 cm of it is left in the wall, and a car that survives alone drives out of the wall`, () => {
+        const w = alley();
         for (const c of CASES) {
-          const r = hit(cls, c, pinned);
+          const r = hit(w, cls, c, pinned);
           assert.ok(r.past < 0.02, `${JSON.stringify(c)}: ${r.past.toFixed(2)} m past the far face`);
           assert.ok(r.inside < 0.05, `${JSON.stringify(c)}: left ${r.inside.toFixed(2)} m inside the slab`);
           // Alone, a car that lived through the hit drives out of the wall. (A pinned car can lose its wheel hubs to the cop; that is the pair contact's, not the wall's.)
@@ -175,8 +175,9 @@ describe("given the Havana alley wall and a physics step of 1/80 s (46 cm a step
   for (const cls of VEHICLE_CLASS_IDS) {
     for (const pinned of [false, true]) {
       it(`when ${pinned ? `a ${cls} pinned by a cop` : `a ${cls}`} drives into the panels at 55 m/s in each of three ways, then no corner ends more than 2 cm past the far face or more than 5 cm inside the slab`, () => {
+        const w = alley();
         for (const c of CASES) {
-          const r = hit(cls, c, pinned, 120);
+          const r = hit(w, cls, c, pinned, 120);
           assert.ok(r.past < 0.02, `${JSON.stringify(c)}: ${r.past.toFixed(2)} m past the far face`);
           assert.ok(r.inside < 0.05, `${JSON.stringify(c)}: left ${r.inside.toFixed(2)} m inside the slab`);
         }

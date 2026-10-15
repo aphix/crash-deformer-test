@@ -4,7 +4,7 @@ import { TRACK_ID } from "./constants.ts";
 import { setGround } from "./ground.ts";
 import { frame, makeWorld } from "./race-world.test-util.ts";
 
-/** Seconds the race runs before the views are read: past a third of the oval's first lap, when its police packs are out. */
+/** Most seconds the race runs for the police packs to come out (they do a third of the oval's first lap in): the views are read as the first one is out. */
 const RUN_S = 40;
 
 describe("given an oval race with police on, whose player car the race AI drives while the seat only follows (a bench, a watched race)", () => {
@@ -17,9 +17,10 @@ describe("given an oval race with police on, whose player car the race AI drives
       w.race.command({ type: "start" });
       w.seat.mode = "follow";
       const state = { acc: 0 };
-      for (let n = 0; n < RUN_S * 60; n++) frame(w, state);
       const racers = w.race.racers.length;
-      assert.ok(w.live().length > racers, "the police are out");
+      const policeOut = () => w.live().some((c, i) => i >= racers && c.group.visible);
+      for (let n = 0; n < RUN_S * 60 && !policeOut(); n++) frame(w, state);
+      assert.ok(policeOut(), "the police are out");
       const meterOf = (id: number): number | null => {
         w.seat.carIndex = id;
         return w.race.hud().view!.boost;

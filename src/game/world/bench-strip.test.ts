@@ -97,7 +97,7 @@ describe("given a page's bench query", () => {
 });
 
 describe("given a race field handed the strip as its bench course", () => {
-  test("when the strip bench's program races it for 25 s, then 16 racers run up the straight and the traffic in play drives its own road (a car the race has put away is parked off the course), the menu lists no strip and the player's options hold no bench value", () => {
+  test("when the strip bench's program races it until the leader is 300 m up (25 s at most), then 16 racers run up the straight and the traffic in play drives its own road (a car the race has put away is parked off the course), the menu lists no strip and the player's options hold no bench value", () => {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -107,7 +107,9 @@ describe("given a race field handed the strip as its bench course", () => {
       w.race.reseed(1);
       w.race.command({ type: "start" });
       const state = { acc: 0 };
-      for (let n = 0; n < 25 * 60; n++) frame(w, state);
+      const leader = (): number => Math.max(...w.live().slice(0, 16).map((c) => c.group.position.z));
+      // The strip's straight is run until the leader is 300 m up it (25 s at most).
+      for (let n = 0; n < 25 * 60 && (n % 30 !== 0 || leader() <= 300); n++) frame(w, state);
       const hud = w.race.hud();
       assert.equal(hud.trackName, "Bench strip");
       assert.equal(hud.field, 16);

@@ -9,6 +9,8 @@ import { TRACK_ID } from "./constants.ts";
 /** The race's stall rule: a police car out driving that gains under 25 m in 8 s with nothing touching it is put away (`RaceField.copStalls`). */
 const WINDOW = 8;
 const BOUND = 120;
+/** Cops put away (the pair of a stakeout) after which the race stops: the rule has been watched to its end. */
+const STALLS_SEEN = 2;
 
 /** A police race on the oval whose cops have their pedals cut (throttle off, brakes on) from the moment they wake: seconds each spent out driving. */
 function frozenCops(seed: number): number[] {
@@ -45,6 +47,7 @@ function frozenCops(seed: number): number[] {
           since.delete(id);
         }
       }
+      if (spent.length >= STALLS_SEEN && since.size === 0) break;
     }
     for (const at of since.values()) spent.push(w.race.time - at);
     return spent;
