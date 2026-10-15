@@ -6,6 +6,7 @@ import { assertSameDigest, assertSameNumbers } from "../vehicle/test-support.ts"
 import { INPUT_BYTES, MEMORY, type HighlightClip } from "../match/highlights.ts";
 import { makeCarFrame, makeSnapshot, snapshotMaxBytes, writeSnapshot, Writer } from "./codec.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /** A keyframe's knocked props (bits), and each car's course memory (`MEMORY` doubles: the road segment of its projection hint). */
 const KNOCKS = [0b101, 0, 0b10000001];
@@ -20,7 +21,7 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
   a.spawnFacing(0, 0, 0, 0);
   b.spawnFacing(4, 2, 1.2, 9);
   a.applyImpact(new THREE.Vector3(0, 0.5, 2.2), new THREE.Vector3(0, 0, -1), 18, 14);
-  for (let i = 0; i < 30; i++) a.step(1 / 240);
+  for (let i = 0; i < 30; i++) a.step(1 / FINE_HZ);
   const L = carLayout(a);
   const keys = [0, 1].map((k) => {
     const here = k === 0 ? [a, b] : [b];
@@ -124,7 +125,7 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
       { slot: 3, style: a.style.id, cls: "sedan", name: "Ayla" },
       { slot: 7, style: b.style.id, cls: "truck", name: "Bo" },
     ],
-    h: new Float32Array(steps).fill(1 / 240),
+    h: new Float32Array(steps).fill(1 / FINE_HZ),
     shape: new Uint32Array(steps).map((_, i) => (i % 5 === 0 ? (0b100111 << 3) | 2 : 0b1 << 3)),
     inputs: new Uint8Array(steps * 2 * INPUT_BYTES).map((_, i) => (i * 37) & 255),
     keyStep: Uint32Array.of(0, 240),

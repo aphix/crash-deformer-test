@@ -8,6 +8,7 @@ import { ensureFrames, makeSnapshot, readEject, readSnapshot, Reader, writeEject
 import { EjectQueue } from "./eject-queue.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
 import { drawSnapshots } from "./net-view.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** A thrown driver as `EjectionWatch` makes one: f32-exact numbers. */
 function sample(car = 1): Ejection {
@@ -59,11 +60,11 @@ describe("given a network snapshot whose per-car flags byte records whether the 
     const client = makeCar();
     const ring = [s];
     s.time = 5;
-    drawSnapshots(ring, [1], [], [client], 5, 1 / 60, { setVaporized: () => {}, clearScene: () => {} }, -1);
+    drawSnapshots(ring, [1], [], [client], 5, 1 / FRAME_HZ, { setVaporized: () => {}, clearScene: () => {} }, -1);
     assert.equal(client.driverOut, "doorL");
     host.spawnFacing(0, 0, 0, 0);
     readCarPose(host, s.cars[0]!);
-    drawSnapshots(ring, [1], [], [client], 5, 1 / 60, { setVaporized: () => {}, clearScene: () => {} }, -1);
+    drawSnapshots(ring, [1], [], [client], 5, 1 / FRAME_HZ, { setVaporized: () => {}, clearScene: () => {} }, -1);
     assert.equal(client.driverOut, null, "the host put him back");
   });
 });

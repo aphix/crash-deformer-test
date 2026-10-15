@@ -16,6 +16,7 @@ import { HOST_WAIT_MS, SLOT_GRACE_MS } from "./net-constants.ts";
 import type { LookData } from "./look-codec.ts";
 import { CAR_SPRAY, NO_CAR_PICK, NO_PERSON_PICK, PERSON_SPRAY, carPickText, personPickText } from "../match/look-data.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /** A player who picked nothing and sprayed nothing. */
 const bareLook = (): LookData => ({
@@ -694,7 +695,7 @@ describe("given a guest whose host sends the highlight reel", () => {
     const noise = (n: number): Uint8Array => Uint8Array.from({ length: n }, () => next() >>> 24);
     const steps = 8000;
     const shape = Uint32Array.from({ length: steps }, () => next() >>> 13);
-    const big = { ...clip, h: new Float32Array(steps).fill(1 / 240), shape, inputs: noise(steps * 2 * INPUT_BYTES) };
+    const big = { ...clip, h: new Float32Array(steps).fill(1 / FINE_HZ), shape, inputs: noise(steps * 2 * INPUT_BYTES) };
     const clips = [big, { ...big, score: 9 }, { ...big, score: 8 }, { ...big, score: 7 }, { ...big, score: 6 }];
     const msg = await packReel({ seed: 5, clips }, s.clock() / 1000 + 3);
     assert.ok(msg.length > RELAY_MSG_MAX, `precondition: the reel is ${msg.length} bytes, over the cap`);

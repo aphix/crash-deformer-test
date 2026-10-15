@@ -24,6 +24,7 @@ import {
   type NetLayout,
   type Snapshot,
 } from "./codec.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 const L: NetLayout = { masses: 20, clusters: 16, sensors: 21, parts: 8, wheels: 4 };
 
@@ -315,14 +316,14 @@ describe("given a client car that applies the host car's state from the wire", (
     runWall(40, 1, "front", { car: host, after: 0.5 });
     host.deform.popHub(host.deform.masses.find((m) => m.name === "hubFL")!);
     for (let i = 0; i < 90; i++) {
-      host.integrate(1 / 60);
-      host.afterContacts(1 / 60);
+      host.integrate(1 / FRAME_HZ);
+      host.afterContacts(1 / FRAME_HZ);
     }
     const hostWheel = host.wheels[0]!.getWorldPosition(host.wheels[0]!.position.clone());
     assert.ok(hostWheel.distanceTo(host.group.position) > 0.5, "the host's wheel left the car");
 
     const client = apply(makeCar(), wire(host));
-    for (let i = 0; i < 30; i++) client.netFrame(1 / 60);
+    for (let i = 0; i < 30; i++) client.netFrame(1 / FRAME_HZ);
     const f = makeCarFrame(layoutOf(client));
     client.readPartNetState(f.parts);
     assert.equal(f.parts.wheelLoose, 1, "only wheel 0 is loose");
