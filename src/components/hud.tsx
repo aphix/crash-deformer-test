@@ -87,7 +87,7 @@ const SCENE_KEYS: [string, string][] = [
   ...SCENE_KEY_BINDINGS.map((binding): [string, string] => [binding.label, sceneLabel(binding.scene)]),
   ["H", "In a race: race view · full menu"],
   ["1–8 · 0", "Fire ram · all"],
-  ["1–3 · 4 · 5", "Door ram A–C · open · side"],
+  ["1–3 · 4 · 5 · 6 · 7", "Door ram A–C · open · side · panel D · E"],
   ["B", "Wall"],
   ["K", "Balls"],
   [".", "Ramps"],
@@ -98,6 +98,7 @@ const SCENE_KEYS: [string, string][] = [
   ["G", "Rig"],
   ["P", "Particles"],
   ["J", "JSON capture"],
+  ["\\", "Stats overlay"],
 ];
 
 const CAMERA_KEYS: [string, string][] = [
@@ -107,7 +108,7 @@ const CAMERA_KEYS: [string, string][] = [
   ["` (hold)", "Look back"],
   ["Drag · scroll", "Orbit camera"],
   [";", "Mouse look (Esc ends it)"],
-  ["V", "Camera view (also C, T): chase, trackside, wheel, orbit, auto"],
+  ["V", "Camera view (also C, T): chase, far, hood / trackside, wheel, orbit, auto"],
 ];
 
 function seatHint(state: CrashHudState): { title: string; keys: string } {

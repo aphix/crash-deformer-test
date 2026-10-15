@@ -95,8 +95,9 @@ Top left: the standings with gaps. Top right: lap, position, the race time besid
 | Cel look: Auto (the cel look plays only as the scene-switch pulse) or a 0-100 % slider that holds it on, the pulse still playing over it | | | Playback section, Cel row (needs FX low / high / ultra; greyed with a hint on minimal / off) |
 | Shape ↔ lattice | Y | | Cars & crash section |
 | Deform rig, control particles, JSON capture; the chase camera's sliders (changed dot, reset chip, Defaults and the share URL like every other setting) | G, P, J | | Debug views section |
+| Stats overlay | \ (Backslash), or `?stats=1` | | |
 | Pistons: fire one ram (clockwise from front-left) / all eight | 1–8 / 0 | | piston panel |
-| Doors: fire A / B / C, open or shut the door, swap side | 1–3, 4, 5 | | door panel |
+| Doors: fire A / B / C, open or shut the door, swap side, fire D / E (panel) | 1–3, 4, 5, 6, 7 | | door panel |
 | Fullscreen | (the browser's own F11) | | Fullscreen |
 | Key list; its **Credits** button opens the credits dialog (the soundtrack's attribution from the music folder's manifest, the engine sound's MIT notice; Esc or Close dismisses it) | | | ? |
 | Multiplayer | | | Net |

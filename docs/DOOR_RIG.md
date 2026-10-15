@@ -17,11 +17,14 @@ front at the top:
   tail), so the directions swap. Open doors also swing with the car's own acceleration; see
   [`PANEL_FLAP.md`](PANEL_FLAP.md).
 
-Code: `car.ts` (hinge state and rules), `door-rig.ts` (`DoorRig`, DOM-free),
-`engine-doors.ts` (ram visuals), the `doors` scene in `engine.ts`, and `DoorPanel` in
-`hud-panels.tsx`. Tests: `door-rig.test.ts`, with the headless `fireRam` in `door-rig.test-util.ts`.
+Code: `vehicle/car-core.ts` (hinge constants) and `vehicle/car-parts.ts` (hinge state and rules:
+`swingDoors`, `syncAttachedParts`, `evaluateBreakage`, `loadDoorStop`), `scenes/door-rig.ts`
+(`DoorRig`, DOM-free), `contact/door-contact.ts` (door and mirror colliders `hitDoor`/`hitMirror`),
+`present/engine-doors.ts` (ram visuals), the doors scene in `engine/engine-rigs.ts` (`fireDoorRam`,
+`stepDoors`), and `DoorPanel` in `components/hud-panels.tsx`. Tests: `door-rig.test.ts`, with the
+headless `fireRam` in `door-rig.test-util.ts`.
 
-## Hinge model (`car.ts`)
+## Hinge model (`car-parts.ts`)
 
 Each door has a `DoorHinge`: open angle θ, rate ω, `latched`, the energy `load` its hinges have
 taken at the stop, and its mirror's fold. The door is a thin slab about its front edge:

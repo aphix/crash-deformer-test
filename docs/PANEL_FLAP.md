@@ -3,7 +3,7 @@
 Hinged body parts (quarter panels, arch flares, a hanging bumper) and open doors react to the wind, to the car's own
 acceleration and to whatever touches them. All of it is a function of the car's relative motion and the contact. Code:
 `vehicle/car-wear.ts` (the laws), `car-parts.ts` (the rules that use them), `car-panels.ts` (shell geometry),
-`contact/external-contact.ts` `hitPanel` (the striker against a panel), `scenes/door-rig.ts` (Doors scenes D and E).
+`contact/door-contact.ts` `hitPanel` (the striker against a panel, reached through `partContact` in `external-contact.ts`), `scenes/door-rig.ts` (Doors scenes D and E).
 
 ## Stand-off cap
 

@@ -31,15 +31,16 @@ the front-left corner, seen from above.
   to the shot speed, then coasts as a free mass: contact is the only thing
   that slows it. It retracts (1.6 m/s) once the car stops it, the contact
   lets go for 50 ms, or the face reaches 0.9 m past the paint (end stop).
-- **Contact** is the shared striker contact (`external-contact.ts`
-  `bodyContact`, [`CONTACT_PARITY.md`](CONTACT_PARITY.md)), the same code as the press plates
-  and the Doors ram, in the head's rest frame: every particle velocity is
-  shifted by −(face speed), then `StreamedDeformation.projectOutOfBox` (the
-  head is the box: depth 0.3 m along the axis, half the face width across)
-  puts crossed particles back on the face, and while particles rest on it
-  `brakeInbound` applies the stroke-sized crush force `m·EBS²/(2·hitStroke)`
-  (the jersey barrier's `brake`). Velocities are shifted back; the momentum
-  the car took comes off the ram (`u −= Δp / M`). The head also meets the
+- **Contact** is the shared striker contact ([`CONTACT_PARITY.md`](CONTACT_PARITY.md)), the same
+  code as the press plates and the Doors ram, in the head's rest frame: every particle velocity is
+  shifted by −(face speed). The head meets the car through `strikeCar`
+  (`contact/external-contact.ts`), which calls the kernel `bodyContact`
+  (`contact/body-contact.ts`) once per slice and holds the car's particles on the head's face
+  through `holdOnFace` (the head is the box: depth 0.3 m along the axis, half the face width
+  across): each particle past the face takes its inbound speed off and is put back on the face
+  along the face normal. The stroke-sized crush force cap `m·EBS²/(2·hitStroke)` bounds the
+  exchange `strikeCar` hands to `bodyContact` (its `maxJ`) each slice. Velocities are shifted
+  back; the momentum the car took comes off the ram (`u −= Δp / M`). The head also meets the
   door and mirror colliders (`partContact`), and a head on the nose or tail
   reports the struck end (`noteContactEnd`), so front and rear fired together
   squeeze the car like the press. The first touch calls
@@ -58,7 +59,7 @@ the front-left corner, seen from above.
   (vertices within its width and height band) and the first particle
   sphere; the physics plane leads the visible face by the difference, so the
   head touches the paint, not the particle.
-- **Face size.** `projectOutOfBox` is planar, so face height only picks the
+- **Face size.** `holdOnFace` is planar (a push-out along the face normal), so face height only picks the
   paint the face meets. A face narrower than 2·0.52 − 0.28 = 0.76 m slips
   between the two bumper particles on a mid shot (the rig has no particle at
   the bumper centre) — the default is 1.2 m.

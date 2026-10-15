@@ -5,8 +5,7 @@ This file pins what "the same hit" means, measures each scene against the car-ca
 where the code paths differed, and records what is shared now (as built) and what is still open.
 
 Probes: `src/game/scenes/contact-parity.test-util.ts` (scenarios, `carState` measure),
-`src/game/scenes/contact-parity.test.ts` (matched-pair tests), scratch runners `.bench/parity/probe.ts`
-(table), `.bench/parity/micro.ts` (cost), `.bench/parity/shots.mjs` (screenshots).
+`src/game/scenes/contact-parity.test.ts` (matched-pair tests), (the scratch runners lived in the git-ignored `.bench/parity/` and were not kept).
 
 ## Matched pairs and what "equivalent" means
 
@@ -80,6 +79,8 @@ The piston's energy bookkeeping already matches car-car at the car-equivalent ha
 residual at 20 km/h is the mass-level contact (box projection vs sphere contact).
 
 ## Where the paths differ (before)
+
+The line numbers below are the pre-refactor tree's; the symbols have since moved (`hitMirror`/`hitDoor` to `contact/door-contact.ts`, `swingDoors`/`syncAttachedParts`/`partOnHit`/`evaluateBreakage` to `vehicle/car-parts.ts`, `stepCompactor` to `engine/engine-rigs.ts`, the deform contact to `deform/deform-contact.ts`).
 
 - Doors and mirrors: `door-rig.ts:213` `hitMirror` and `:255` `hitDoor` are the only door/mirror
   colliders and only the Doors ram calls them; car-car never touches a door or a mirror. The

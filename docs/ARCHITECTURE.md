@@ -54,7 +54,7 @@ flowchart BT
 | 11 | **ui** | React shell and HUD: `src/components/**`, `src/routes/**`, `src/router.tsx` | `crash-lab.tsx` |
 | - | **platform** | template server/client helpers: `src/lib/**` | `P2PRoom`, signaling, `qr`, `cn` |
 
-Deploy (`deploy/`, `server/`, `scripts/` build helpers) sits outside `src/` and is not part of the DAG.
+Deploy (`deploy/`, `scripts/` build helpers, `kernels/`, `migrations/`) sits outside `src/` and is not part of the DAG.
 
 ## 2. Boundary rules
 
@@ -71,7 +71,7 @@ Deploy (`deploy/`, `server/`, `scripts/` build helpers) sits outside `src/` and 
   API only tests use lives in a `*.test-util.ts` beside the suite. *Check C5.*
 - **B7.** No `implements` in `src/game` (tests included): it only re-declares a shape and lets each class re-implement the
   same logic. A family of classes extends one base class that holds what they share (`CopBrain`, `NetTransport`,
-  `RigLayer`). *Check C11*, capped at the 4 `Ground` implementers.
+  `RigLayer`). *Check C11*, cap 0: no `implements` remains.
 
 ## 3. Construction and ownership
 
@@ -159,10 +159,14 @@ scenarios at the engine's slices), `scenes/contact-parity.test-util.ts` (striker
 
 ## 8. Size
 
-- **S1.** Production files ≤ 800 lines, functions ≤ 150 lines. *Check C8*, report-only. Tests are not counted. The six rows it still
-  reports are hot-path solvers kept whole on purpose: splitting them would cut a hot loop or a kernel paired with its WASM build, and a
-  split is judged on measured inlining, not line count. They are `car-air.ts` `solveRows` and `stepFree`, `cage-mesh.ts` `decimate`,
-  `streamed-deform.ts` `skin`, `world/surfaces.ts` (one store for every surface query) and `kernel/shape-match-core.js` (mirrored by the skin kernel).
+- **S1.** Production files ≤ 800 lines, functions ≤ 150 lines. *Check C8*, report-only. Tests are not counted. It reports 20 rows. The hot-path solvers
+  among them stay whole on purpose: splitting them would cut a hot loop or a kernel paired with its WASM build, and a
+  split is judged on measured inlining, not line count (`car-air.ts` `solveRows` and `stepFree`, `cage-mesh.ts` `decimate`,
+  `streamed-deform.ts` `skin`, `kernel/shape-match-core.js`, mirrored by the skin kernel). The rest are docketed for a split pass.
+  Files over 800 lines: `engine-core`, `engine-input`, `engine-race-field`, `engine-record`, `engine`, `session`, `engine-ragdoll`,
+  `car-core`, `car-parts`, `car`, `surfaces`, `shape-match-core.js`. Functions over 150 lines: `streamed-deform` `skin`,
+  `world-step` `stepWorld`, `reel-codec` `readClip`, `track-ground` `buildTerrain`, `cage-mesh` `decimate`, `car-air` `solveRows` and `stepFree`,
+  `car-drive` `applyDrive`.
 
 ## 9. Code map
 

@@ -110,7 +110,7 @@ corkscrew `,`, stack `/`; the same key again goes back to the fleet. Range, Lab 
 
 ## Quick start
 
-Node 22.6 or newer on Linux, WSL2 or macOS; the browser needs WebGL2. Packages come from pnpm through corepack.
+Node 22.18 or newer on Linux, WSL2 or macOS; the browser needs WebGL2. Packages come from pnpm through corepack.
 
 ```bash
 git clone https://github.com/aphix/crash-deformer-test.git

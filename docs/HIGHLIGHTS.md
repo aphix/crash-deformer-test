@@ -132,7 +132,7 @@ there again from its keyframe; nothing else corrects the replay. It is the sim t
 and every step of it. The clip also carries its crumple settings (`squash`, `buckle`, `deformMode`), so every peer dents
 the same way.
 
-**Fidelity (`REPLAY_VERSION` 26; `engine/replay-fidelity.test.ts`, `engine/engine-replay.ai-long-run.ts` (the seeded-race sweep: `npm run test:ai-long-run`, not per commit), `engine/engine-replay-police.test.ts`).**
+**Fidelity** (held since `REPLAY_VERSION` 26; now 91; `engine/replay-fidelity.test.ts`, `engine/engine-replay.ai-long-run.ts` (the seeded-race sweep: `npm run test:ai-long-run`, not per commit), `engine/engine-replay-police.test.ts`).**
 A replay is held to the sim that recorded it, step by step over the whole clip and every car in it: position, velocity and
 crush errors are all exactly 0, and no car is a wreck in one run and not in the other. The rows are the race and derby
 crashes (head-on, offset, T-bone, pile-up and four spawn shifts of the pile-ups, 1e-9 to 1e-3 m; a clip that opens on wrecks in
