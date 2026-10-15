@@ -8,8 +8,8 @@ import { MIN_SIM_DT } from "./constants.ts";
 /**
  * Tyre marks on the GPU. Every slipping wheel stamps one short quad per frame into ONE ground-aligned render
  * target (the mark map); ground materials sample it by world xz (`applyMarkMap`). Draw cost is constant
- * however many marks exist: no per-mark meshes, an empty frame renders nothing, and a slow subtractive fade
- * pass ages old marks out.
+ * however many marks exist: no per-mark meshes, the stamps of two frames go in one draw, an empty frame renders
+ * nothing, and a slow subtractive fade pass ages old marks out.
  *
  * Channels: R rubber (asphalt, concrete, cobble), G rut / scrape groove (dirt, gravel, sand, a bare hub),
  * B torn turf (grass).
@@ -99,6 +99,8 @@ const DRIVE_SLIDE_START = 0.25;
 const DRIVE_SLIDE_FULL = 0.8;
 /** Subtract one 8-bit step from the whole map this often (s): a full-black mark is gone in ~2.5 min. */
 const FADE_EVERY = 0.6;
+/** Frames the stamps wait to go into the map in one draw (a wheel's mark is drawn at most this many frames late). */
+const DRAW_EVERY_FRAMES = 2;
 
 type WheelFx = {
   /** 0–1 slip this frame per wheel slot (car index × 4 + wheel). */
@@ -119,6 +121,9 @@ const _hit = new Float64Array(HIT_SIZE);
 const _pq = new Float64Array(PQ_SIZE);
 const _clear = new THREE.Color();
 
+/** What a draw into the mark map asks of the renderer. */
+export type MarkRenderer = Pick<THREE.WebGLRenderer, "autoClear" | "getRenderTarget" | "setRenderTarget" | "getClearColor" | "getClearAlpha" | "setClearColor" | "clear" | "render">;
+
 export class SkidMarks {
   /** Per-wheel results for smoke and sparks (`engine-cine.ts`). */
   readonly wheels: WheelFx;
@@ -133,18 +138,23 @@ export class SkidMarks {
   private readonly ink: Float32Array;
   private readonly stamp: THREE.Mesh;
   private readonly fade: THREE.Mesh;
+  /** Quads the stamp buffers hold: every wheel's stamp for `DRAW_EVERY_FRAMES` frames. */
   private readonly cap: number;
+  private readonly maxCars: number;
   private readonly hasPrev: Uint8Array;
   /** Per car: launch spin held and eased out, so a boost launch lays two tapering stripes, not a 1 m dab. */
   private readonly spinHold: Float32Array;
   private quads = 0;
+  /** `flush` calls since the last draw that found stamps waiting. */
+  private framesQueued = 0;
   private fadeAcc = 0;
   private needsClear = true;
   private any = false;
 
   constructor(maxCars: number) {
     const slots = maxCars * 4;
-    this.cap = slots;
+    this.maxCars = maxCars;
+    this.cap = slots * DRAW_EVERY_FRAMES;
     this.wheels = {
       slip: new Float32Array(slots),
       scrape: new Uint8Array(slots),
@@ -156,10 +166,10 @@ export class SkidMarks {
     };
     this.hasPrev = new Uint8Array(slots);
     this.spinHold = new Float32Array(maxCars);
-    this.pos = new Float32Array(slots * 4 * 3);
-    this.ink = new Float32Array(slots * 4 * 4);
-    const index = new Uint16Array(slots * 6);
-    for (let i = 0; i < slots; i++) index.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
+    this.pos = new Float32Array(this.cap * 4 * 3);
+    this.ink = new Float32Array(this.cap * 4 * 4);
+    const index = new Uint16Array(this.cap * 6);
+    for (let i = 0; i < this.cap; i++) index.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
     this.geo.setIndex(new THREE.BufferAttribute(index, 1));
     this.geo.setAttribute("position", new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute("aInk", new THREE.BufferAttribute(this.ink, 4).setUsage(THREE.DynamicDrawUsage));
@@ -217,6 +227,8 @@ export class SkidMarks {
   /** Wipe every mark (scene reset) and forget wheel history so nothing stamps across the teleport. */
   clear(): void {
     this.needsClear = true;
+    this.quads = 0;
+    this.framesQueued = 0;
     this.hasPrev.fill(0);
     this.spinHold.fill(0);
     this.wheels.slip.fill(0);
@@ -232,9 +244,8 @@ export class SkidMarks {
    */
   update(cars: readonly DeformableCar[], simDt: number): void {
     const w = this.wheels;
-    this.quads = 0;
     if (simDt <= MIN_SIM_DT) return;
-    const n = Math.min(cars.length, this.cap / 4);
+    const n = Math.min(cars.length, this.maxCars);
     let any = false;
     for (let c = 0; c < n; c++) {
       const car = cars[c]!;
@@ -316,13 +327,16 @@ export class SkidMarks {
     this.needsClear = true;
   }
 
-  /** Draw this frame's stamps and the periodic fade into the map. Call once per frame before the main render. */
-  flush(renderer: THREE.WebGLRenderer, wallDt: number): void {
+  /** Draw the queued stamps and the periodic fade into the map; call once per frame before the main render. Stamps wait up to `DRAW_EVERY_FRAMES` calls and go in one `render()`: a fade or a wipe never waits. */
+  flush(renderer: MarkRenderer, wallDt: number): void {
     const rt = this.rt;
     if (!rt || !this.on) return;
     this.fadeAcc += wallDt;
     const fade = this.fadeAcc >= FADE_EVERY;
-    if (!this.needsClear && this.quads === 0 && !fade) return;
+    const forced = this.needsClear || fade;
+    if (!forced && this.quads === 0) return;
+    if (!forced && ++this.framesQueued < DRAW_EVERY_FRAMES) return;
+    this.framesQueued = 0;
     const prevTarget = renderer.getRenderTarget();
     const ac = renderer.autoClear;
     renderer.autoClear = false;
