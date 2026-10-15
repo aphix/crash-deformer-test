@@ -7,8 +7,8 @@ import { agreement, recordField } from "./replay-fidelity.test-util.ts";
 
 /**
  * A recorded race crash replayed headless (docs/HIGHLIGHTS.md), over many seeded races: the harness of
- * `engine-replay.test.ts` (a race is ~10 s of headless sim, a seed with its clips 12-20 s: a sweep of 64 seeds is four
- * shards of 16, each `SEEDS=17,18,... node --experimental-strip-types --test engine-replay.test.ts`).
+ * `engine-replay.ai-long-run.ts` (a race is ~10 s of headless sim, a seed with its clips 12-20 s: a sweep of 64 seeds is four
+ * shards of 16, each `SEEDS=17,18,... node --experimental-strip-types --test engine-replay.ai-long-run.ts`).
  */
 
 /** A ramming field (aggression 1) of 12 on the city course: crashes come in the first lap. */

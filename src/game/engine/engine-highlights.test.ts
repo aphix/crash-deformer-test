@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { setGround } from "../world/ground.ts";
@@ -17,8 +17,8 @@ import { assertSameNumbers } from "../vehicle/test-support.ts";
 import { PoseBlend } from "../present/pose-blend.ts";
 import { CUTS } from "../present/engine-cine.ts";
 
-/** A ramming field on the city course: its first crash comes early in lap 1. */
-const FIELD = { trackId: "city", laps: 1, aiCount: 11, noReset: false, aggression: 1 };
+/** The city course with the staged head-on's cars (2 and 3) and the player's and car 1: no field around them to crash into. */
+const FIELD = { trackId: "city", laps: 1, aiCount: 3, noReset: false, aggression: 1 };
 const SEED = 5;
 /**
  * A deliberate first crash on intact cars, a second into the race: cars 2 and 3 put head-on 8 m apart on the city road at `aMps` and
@@ -111,105 +111,18 @@ async function recordedReel(w: World, clips = 1): Promise<Reel> {
   return (await unpackReel(msg, carLayout(w.cars[0]!))).reel;
 }
 
-describe("given two peers each playing the same recorded highlight reel on their own cars", () => {
-  it("when one peer draws at 60 Hz and the other at 45 Hz, then at every shared moment both frame the same shot, the camera and focus car really move, and a solo view's first frame does not play the hit early", async () => {
-    const a = makeWorld();
-    const b = makeWorld();
-    try {
-      race(a);
-      const reel = await recordedReel(a);
-      // The second peer has its own cars and its own history: a few frames of the same race.
-      race(b);
-      for (let n = 0; n < 30; n++) frame(b, { acc: 0 });
-      let hits = 0;
-      const da = new ReelDirector({ ...hostOf(a), impact: () => hits++ });
-      const db = new ReelDirector(hostOf(b));
-      // A loaded test box must not stop one peer's catch-up mid-frame (the browser's budget only defers it).
-      da.stepBudgetMs = Infinity;
-      db.stepBudgetMs = Infinity;
-      da.play(reel, 0);
-      db.play(reel, 0);
-      const ca = new THREE.PerspectiveCamera(50, 1.6, 0.1, 900);
-      const cb = new THREE.PerspectiveCamera(50, 1.6, 0.1, 900);
-      // Peer a draws at 60 Hz, peer b at 45 Hz; both draw every 1/15 s, where they are compared.
-      const end = FLIGHT_S + da["clips"][0]!.tl.wall;
-      let worst = 0;
-      let compared = 0;
-      // How far the camera and the focus car travel: a reel that never moved would compare equal for nothing.
-      let flown = 0;
-      const prev = new THREE.Vector3();
-      const kinds = new Set<string>();
-      for (let k = 1; k / 15 < end; k++) {
-        for (let i = 1; i <= 4; i++) da.frame(i === 4 ? k / 15 : (4 * (k - 1) + i) / 60);
-        for (let j = 1; j <= 3; j++) db.frame(j === 3 ? k / 15 : (3 * (k - 1) + j) / 45);
-        da.camera(ca);
-        db.camera(cb);
-        if (k > 1) flown += ca.position.distanceTo(prev);
-        prev.copy(ca.position);
-        kinds.add(da.focus() ? "clip" : "flight");
-        worst = Math.max(worst, ca.position.distanceTo(cb.position), ca.quaternion.angleTo(cb.quaternion));
-        compared++;
-      }
-      assert.ok(compared > 200, `${compared} moments compared`);
-      assert.ok(flown > 50 && kinds.size === 2, `the camera moved ${flown.toFixed(0)} m over ${[...kinds].join(", ")}`);
-      assert.ok(worst < 1e-6, `the peers' cameras differ by ${worst.toExponential(2)} (m or rad) at the same moment`);
-      // Watch: the first frame's timestamp precedes the click (rAF time is the frame's start): the clip starts at 0,
-      // it does not play its hit (crash cam, flash) before the car reaches it.
-      hits = 0;
-      da.view(0, 100);
-      da.frame(100 - 0.004);
-      da.frame(100 + 0.012);
-      assert.equal(hits, 0, "a solo view's first frame played the clip's hit");
-    } finally {
-      a.race.exit();
-      b.race.exit();
-      setGround(null);
-    }
+/** A scenario's world and the reel its crash recorded (`record`, run in `before`), the world exited in `after`: the tests of one describe replay the one reel, on the cars that recorded it. */
+function recorded(record: (w: World) => Promise<Reel>): { w: World; reel: Reel } {
+  const rec = { w: makeWorld() } as { w: World; reel: Reel };
+  before(async () => {
+    rec.reel = await record(rec.w);
   });
-});
-
-describe("given a recorded highlight clip playing in the reel at 60 Hz", () => {
-  it("when its slow-mo eases in, then the crash cam begins before it, sparks and dust are asked for at the clip's recorded impact point every FUDGE_GAP until the cars meet and never after, and the flash and burst go off once, as they meet", async () => {
-    const a = makeWorld();
-    try {
-      race(a);
-      const reel = await recordedReel(a);
-      const clip = reel.clips[0]!;
-      const seen = { crash: [] as number[], impact: [] as number[], fudge: [] as number[], off: 0 };
-      let wall = 0;
-      const host = hostOf(a);
-      const d = new ReelDirector({
-        ...host,
-        crash: () => seen.crash.push(wall),
-        impact: () => seen.impact.push(wall),
-        fudge: (at) => {
-          seen.fudge.push(wall);
-          seen.off = Math.max(seen.off, Math.hypot(at.x - clip.x, at.z - clip.z));
-        },
-      });
-      d.stepBudgetMs = Infinity;
-      d.play(reel, 0);
-      const tl = d["clips"][0]!.tl;
-      for (let n = 1; (wall = n / 60) < FLIGHT_S + tl.wall; n++) d.frame(wall);
-      const at = (s: number): number => s + FLIGHT_S;
-      const frame = 1 / 60 + 1e-9;
-      assert.equal(seen.crash.length, 1, "the crash cam began once");
-      assert.ok(seen.crash[0]! >= at(tl.impact) && seen.crash[0]! < at(tl.impact) + frame, `the crash cam began at ${seen.crash[0]!.toFixed(3)} s, not at ${at(tl.impact).toFixed(3)}`);
-      assert.equal(seen.impact.length, 1, "the flash and burst went off once");
-      assert.ok(seen.impact[0]! >= at(tl.contact) && seen.impact[0]! < at(tl.contact) + frame, `the flash and burst went off at ${seen.impact[0]!.toFixed(3)} s, not as the cars meet (${at(tl.contact).toFixed(3)})`);
-      assert.ok(seen.fudge.length >= 1, "no sparks or dust before the hit");
-      assert.ok(seen.fudge[0]! >= at(tl.onset) && seen.fudge[0]! < at(tl.onset) + frame, `the first sparks at ${seen.fudge[0]!.toFixed(3)} s, not as the slow-mo starts (${at(tl.onset).toFixed(3)})`);
-      assert.ok(seen.fudge.at(-1)! < at(tl.contact), `sparks and dust still asked for at ${seen.fudge.at(-1)!.toFixed(3)} s, after the cars met (${at(tl.contact).toFixed(3)})`);
-      for (let k = 1; k < seen.fudge.length; k++) assert.ok(seen.fudge[k]! - seen.fudge[k - 1]! >= FUDGE_GAP - 1e-9, `sparks ${k} came ${(seen.fudge[k]! - seen.fudge[k - 1]!).toFixed(3)} s after the last`);
-      assert.ok(seen.off < 1e-6, `sparks were asked for ${seen.off} m off the recorded impact point`);
-      const wanted = (tl.contact - tl.onset) / FUDGE_GAP;
-      assert.ok(Math.abs(seen.fudge.length - wanted) <= 2, `${seen.fudge.length} sparks calls over ${(tl.contact - tl.onset).toFixed(2)} s, one per ${FUDGE_GAP}`);
-    } finally {
-      a.race.exit();
-      setGround(null);
-    }
+  after(() => {
+    rec.w.race.exit();
+    setGround(null);
   });
-});
+  return rec;
+}
 
 describe("given a city race whose first crash is two cars put head-on a second in, and torn parts left on every car", () => {
   it("when a highlight reel plays and ends, then each clip's setup empties the scene (torn parts on hidden cars included), the reel ending empties what the clips left, and stopping with no reel up clears nothing", async () => {
@@ -289,77 +202,149 @@ function assertDrawingKeepsReplay(w: World, clip: Reel["clips"][number], hz: num
   assertSameNumbers(stateOf(cars), drawn, `${hz} Hz: the replay's final state with a drawn frame inside every step`);
 }
 
-describe("given a city race whose first crash is a 30 m/s car meeting a 10 m/s car head-on a second in, and its clip opens with its focus car driving", () => {
-  it("when it plays at 60 and at 240 Hz, then the car moving through the slow-motion is drawn moving on every frame, and drawing frames never changes the replay", async () => {
-    const a = makeWorld();
+describe("given a city race whose first crash is a 30 m/s car meeting a 10 m/s car head-on a second in, and its clip opens with its focus car driving, recorded as a highlight reel", () => {
+  const fast = recorded(async (a) => {
+    race(a, FIELD, SEED);
+    stageHeadOn(a, 30, 10);
+    return recordedReel(a);
+  });
+
+  it("when two peers play it, one drawing at 60 Hz and the other at 45 Hz, then at every shared moment both frame the same shot, the camera and focus car really move, and a solo view's first frame does not play the hit early", async () => {
+    const { w: a, reel } = fast;
+    const b = makeWorld();
     try {
-      race(a, FIELD, SEED);
-      stageHeadOn(a, 30, 10);
-      const reel = await recordedReel(a);
-      const clip = reel.clips[0]!;
-      for (const hz of [60, 240]) {
-        const d = new ReelDirector(hostOf(a));
-        d.stepBudgetMs = Infinity;
-        d.play(reel, 0);
-        const tl = d["clips"][0]!.tl;
-        const prev = new THREE.Vector3();
-        let frames = 0;
-        let still = 0;
-        for (let t = FLIGHT_S; t < FLIGHT_S + tl.wall; t += 1 / hz) {
-          if (d.frame(t) === null) continue;
-          const car = d.focus();
-          if (!car) continue;
-          // The slow-mo's first three wall seconds (a step is 4 ms of clip time there: 8 frames at 60 Hz).
-          const into = t - FLIGHT_S - tl.onset;
-          if (into > 0.3 && into < 3.3 && Math.hypot(car.velocity.x, car.velocity.z) > 1) {
-            frames++;
-            if (car.group.position.equals(prev)) still++;
-          }
-          prev.copy(car.group.position);
-        }
-        assert.ok(frames > 100, `${hz} Hz: ${frames} moving frames in the slow-mo`);
-        assert.ok(still <= frames * 0.02, `${hz} Hz: ${still} of ${frames} frames drew the car where the last frame had it, though it moves`);
+      // The second peer has its own cars and its own history: a few frames of the same race.
+      race(b);
+      for (let n = 0; n < 30; n++) frame(b, { acc: 0 });
+      let hits = 0;
+      const da = new ReelDirector({ ...hostOf(a), impact: () => hits++ });
+      const db = new ReelDirector(hostOf(b));
+      // A loaded test box must not stop one peer's catch-up mid-frame (the browser's budget only defers it).
+      da.stepBudgetMs = Infinity;
+      db.stepBudgetMs = Infinity;
+      da.play(reel, 0);
+      db.play(reel, 0);
+      const ca = new THREE.PerspectiveCamera(50, 1.6, 0.1, 900);
+      const cb = new THREE.PerspectiveCamera(50, 1.6, 0.1, 900);
+      // Peer a draws at 60 Hz, peer b at 45 Hz; both draw every 1/15 s, where they are compared.
+      const end = FLIGHT_S + da["clips"][0]!.tl.wall;
+      let worst = 0;
+      let compared = 0;
+      // How far the camera and the focus car travel: a reel that never moved would compare equal for nothing.
+      let flown = 0;
+      const prev = new THREE.Vector3();
+      const kinds = new Set<string>();
+      for (let k = 1; k / 15 < end; k++) {
+        for (let i = 1; i <= 4; i++) da.frame(i === 4 ? k / 15 : (4 * (k - 1) + i) / 60);
+        for (let j = 1; j <= 3; j++) db.frame(j === 3 ? k / 15 : (3 * (k - 1) + j) / 45);
+        da.camera(ca);
+        db.camera(cb);
+        if (k > 1) flown += ca.position.distanceTo(prev);
+        prev.copy(ca.position);
+        kinds.add(da.focus() ? "clip" : "flight");
+        worst = Math.max(worst, ca.position.distanceTo(cb.position), ca.quaternion.angleTo(cb.quaternion));
+        compared++;
       }
-      assertDrawingKeepsReplay(a, clip, 240);
+      assert.ok(compared > 200, `${compared} moments compared`);
+      assert.ok(flown > 50 && kinds.size === 2, `the camera moved ${flown.toFixed(0)} m over ${[...kinds].join(", ")}`);
+      assert.ok(worst < 1e-6, `the peers' cameras differ by ${worst.toExponential(2)} (m or rad) at the same moment`);
+      // Watch: the first frame's timestamp precedes the click (rAF time is the frame's start): the clip starts at 0,
+      // it does not play its hit (crash cam, flash) before the car reaches it.
+      hits = 0;
+      da.view(0, 100);
+      da.frame(100 - 0.004);
+      da.frame(100 + 0.012);
+      assert.equal(hits, 0, "a solo view's first frame played the clip's hit");
     } finally {
-      a.race.exit();
-      setGround(null);
+      b.race.exit();
     }
   });
-});
 
-describe("given a recorded clip played at 60 Hz through its slow-motion, where a recorded step is longer than a frame's share of clip time", () => {
-  it("when each frame asks the reel for its sim time, then it is the clip time the frame is drawn at less the last frame's, on every frame, so the dummies, debris and FX advance on most of them", async () => {
-    const a = makeWorld();
-    try {
-      race(a, FIELD, SEED);
-      stageHeadOn(a, 30, 10);
-      const reel = await recordedReel(a);
+  it("when its slow-mo eases in, then the crash cam begins before it, sparks and dust are asked for at the clip's recorded impact point every FUDGE_GAP until the cars meet and never after, and the flash and burst go off once, as they meet", () => {
+    const { w: a, reel } = fast;
+    const clip = reel.clips[0]!;
+    const seen = { crash: [] as number[], impact: [] as number[], fudge: [] as number[], off: 0 };
+    let wall = 0;
+    const d = new ReelDirector({
+      ...hostOf(a),
+      crash: () => seen.crash.push(wall),
+      impact: () => seen.impact.push(wall),
+      fudge: (at) => {
+        seen.fudge.push(wall);
+        seen.off = Math.max(seen.off, Math.hypot(at.x - clip.x, at.z - clip.z));
+      },
+    });
+    d.stepBudgetMs = Infinity;
+    d.play(reel, 0);
+    const tl = d["clips"][0]!.tl;
+    for (let n = 1; (wall = n / 60) < FLIGHT_S + tl.wall; n++) d.frame(wall);
+    const at = (s: number): number => s + FLIGHT_S;
+    const frame = 1 / 60 + 1e-9;
+    assert.equal(seen.crash.length, 1, "the crash cam began once");
+    assert.ok(seen.crash[0]! >= at(tl.impact) && seen.crash[0]! < at(tl.impact) + frame, `the crash cam began at ${seen.crash[0]!.toFixed(3)} s, not at ${at(tl.impact).toFixed(3)}`);
+    assert.equal(seen.impact.length, 1, "the flash and burst went off once");
+    assert.ok(seen.impact[0]! >= at(tl.contact) && seen.impact[0]! < at(tl.contact) + frame, `the flash and burst went off at ${seen.impact[0]!.toFixed(3)} s, not as the cars meet (${at(tl.contact).toFixed(3)})`);
+    assert.ok(seen.fudge.length >= 1, "no sparks or dust before the hit");
+    assert.ok(seen.fudge[0]! >= at(tl.onset) && seen.fudge[0]! < at(tl.onset) + frame, `the first sparks at ${seen.fudge[0]!.toFixed(3)} s, not as the slow-mo starts (${at(tl.onset).toFixed(3)})`);
+    assert.ok(seen.fudge.at(-1)! < at(tl.contact), `sparks and dust still asked for at ${seen.fudge.at(-1)!.toFixed(3)} s, after the cars met (${at(tl.contact).toFixed(3)})`);
+    for (let k = 1; k < seen.fudge.length; k++) assert.ok(seen.fudge[k]! - seen.fudge[k - 1]! >= FUDGE_GAP - 1e-9, `sparks ${k} came ${(seen.fudge[k]! - seen.fudge[k - 1]!).toFixed(3)} s after the last`);
+    assert.ok(seen.off < 1e-6, `sparks were asked for ${seen.off} m off the recorded impact point`);
+    const wanted = (tl.contact - tl.onset) / FUDGE_GAP;
+    assert.ok(Math.abs(seen.fudge.length - wanted) <= 2, `${seen.fudge.length} sparks calls over ${(tl.contact - tl.onset).toFixed(2)} s, one per ${FUDGE_GAP}`);
+  });
+
+  it("when it plays at 60 and at 240 Hz, then the car moving through the slow-motion is drawn moving on every frame, and drawing frames never changes the replay", () => {
+    const { w: a, reel } = fast;
+    const clip = reel.clips[0]!;
+    for (const hz of [60, 240]) {
       const d = new ReelDirector(hostOf(a));
       d.stepBudgetMs = Infinity;
       d.play(reel, 0);
       const tl = d["clips"][0]!.tl;
-      let last = 0;
-      let slowFrames = 0;
-      let advancing = 0;
-      let wrong = 0;
-      for (let w = 0; w < tl.wall; w += 1 / 60) {
-        const dt = d.frame(FLIGHT_S + w);
-        const drawnAt = simAt(tl, w);
-        if (dt === null || Math.abs(dt - (drawnAt - last)) > 1e-9) wrong++;
-        last = drawnAt;
-        if (w > tl.onset + 0.3 && w < tl.onset + 3.3) {
-          slowFrames++;
-          if (dt !== null && dt > 0) advancing++;
+      const prev = new THREE.Vector3();
+      let frames = 0;
+      let still = 0;
+      for (let t = FLIGHT_S; t < FLIGHT_S + tl.wall; t += 1 / hz) {
+        if (d.frame(t) === null) continue;
+        const car = d.focus();
+        if (!car) continue;
+        // The slow-mo's first three wall seconds (a step is 4 ms of clip time there: 8 frames at 60 Hz).
+        const into = t - FLIGHT_S - tl.onset;
+        if (into > 0.3 && into < 3.3 && Math.hypot(car.velocity.x, car.velocity.z) > 1) {
+          frames++;
+          if (car.group.position.equals(prev)) still++;
         }
+        prev.copy(car.group.position);
       }
-      assert.equal(wrong, 0, `${wrong} frames returned a sim time other than the clip time they drew less the last frame's`);
-      assert.ok(slowFrames > 100, `${slowFrames} frames in the slow-motion`);
-      assert.ok(advancing >= slowFrames * 0.95, `${advancing} of ${slowFrames} slow-motion frames advanced the dummies and FX`);
-    } finally {
-      a.race.exit();
-      setGround(null);
+      assert.ok(frames > 100, `${hz} Hz: ${frames} moving frames in the slow-mo`);
+      assert.ok(still <= frames * 0.02, `${hz} Hz: ${still} of ${frames} frames drew the car where the last frame had it, though it moves`);
     }
+    assertDrawingKeepsReplay(a, clip, 240);
+  });
+
+  it("when each frame asks the reel for its sim time on a recorded step longer than a frame's share of clip time, then it is the clip time the frame is drawn at less the last frame's, on every frame, so the dummies, debris and FX advance on most of them", () => {
+    const { w: a, reel } = fast;
+    const d = new ReelDirector(hostOf(a));
+    d.stepBudgetMs = Infinity;
+    d.play(reel, 0);
+    const tl = d["clips"][0]!.tl;
+    let last = 0;
+    let slowFrames = 0;
+    let advancing = 0;
+    let wrong = 0;
+    for (let w = 0; w < tl.wall; w += 1 / 60) {
+      const dt = d.frame(FLIGHT_S + w);
+      const drawnAt = simAt(tl, w);
+      if (dt === null || Math.abs(dt - (drawnAt - last)) > 1e-9) wrong++;
+      last = drawnAt;
+      if (w > tl.onset + 0.3 && w < tl.onset + 3.3) {
+        slowFrames++;
+        if (dt !== null && dt > 0) advancing++;
+      }
+    }
+    assert.equal(wrong, 0, `${wrong} frames returned a sim time other than the clip time they drew less the last frame's`);
+    assert.ok(slowFrames > 100, `${slowFrames} frames in the slow-motion`);
+    assert.ok(advancing >= slowFrames * 0.95, `${advancing} of ${slowFrames} slow-motion frames advanced the dummies and FX`);
   });
 });
 
@@ -369,7 +354,7 @@ describe("given a recorded clip played at 60 Hz through its slow-motion, where a
  * two laps: three head-on pairs, far apart on flat road, are wrecked on purpose a second into the race (cars 2-3, 4-5 and 6-7 at 2 x 20 m/s).
  */
 async function stuntReel(a: World): Promise<Reel> {
-  race(a, { ...FIELD, trackId: "stunt", laps: 2 });
+  race(a, { ...FIELD, trackId: "stunt", laps: 2, aiCount: 7 });
   const track = new Track(stunt);
   const pt = blankPoint();
   const state = { acc: 0 };
@@ -380,31 +365,24 @@ async function stuntReel(a: World): Promise<Reel> {
     track.pointAt(d + 8, pt);
     a.cars[3 + 2 * k]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz) + Math.PI, 20);
   }
-  const reel = await recordedReel(a, Infinity);
+  const reel = await recordedReel(a, 3);
   assert.ok(reel.clips.length >= 3, `${reel.clips.length} stunt clips`);
   return reel;
 }
 
-describe("given the stunt course with three head-on pairs wrecked on purpose a second into a two-lap race", () => {
-  it("when each clip is replayed at 60 and 240 Hz, then drawing frames never changes the replay, even of airborne clips over the jumps", async () => {
-    const a = makeWorld();
-    try {
-      const reel = await stuntReel(a);
-      const firsts = reel.clips.map((c) => [c.cars[c.firstA]?.slot, c.cars[c.firstB]?.slot].sort().join("-"));
-      for (const pair of ["2-3", "4-5", "6-7"]) assert.ok(firsts.includes(pair), `no clip opens on the head-on of cars ${pair}: ${firsts.join(", ")}`);
-      for (const clip of reel.clips) for (const hz of [60, 240]) assertDrawingKeepsReplay(a, clip, hz);
-    } finally {
-      a.race.exit();
-      setGround(null);
-    }
-  });
-});
+describe("given the stunt course with three head-on pairs wrecked on purpose a second into a two-lap race, recorded as a results reel of three clips", () => {
+  const stunts = recorded(stuntReel);
 
-describe("given a results reel of three clips playing on a loop, and a [!] button drawn for the clip on screen", () => {
-  it("when the reel plays through a loop and into the next, then the clip on screen keeps one id, the flights between clips show none, and an id still reaches its own clip after the reel has moved on", async () => {
-    const a = makeWorld();
-    try {
-      const reel = await stuntReel(a);
+  it("when each clip is replayed at 60 and 240 Hz, then drawing frames never changes the replay, even of airborne clips over the jumps", () => {
+    const { w: a, reel } = stunts;
+    const firsts = reel.clips.map((c) => [c.cars[c.firstA]?.slot, c.cars[c.firstB]?.slot].sort().join("-"));
+    for (const pair of ["2-3", "4-5", "6-7"]) assert.ok(firsts.includes(pair), `no clip opens on the head-on of cars ${pair}: ${firsts.join(", ")}`);
+    for (const clip of reel.clips) for (const hz of [60, 240]) assertDrawingKeepsReplay(a, clip, hz);
+  });
+
+  describe("given the reel playing on a loop, and a [!] button drawn for the clip on screen", () => {
+    it("when the reel plays through a loop and into the next, then the clip on screen keeps one id, the flights between clips show none, and an id still reaches its own clip after the reel has moved on", () => {
+      const { w: a, reel } = stunts;
       const d = new ReelDirector(hostOf(a));
       d.stepBudgetMs = Infinity;
       d.play(reel, 0);
@@ -431,16 +409,10 @@ describe("given a results reel of three clips playing on a loop, and a [!] butto
       // The reel has moved on from the first clip: the id a button drawn for it carries still reaches it, and no other.
       for (const [i, id] of idOf.entries()) assert.equal(d.clipById(id!)?.clip, reel.clips[i], `id ${id} reaches clip ${i}`);
       assert.equal(d.clipById(-1), null);
-    } finally {
-      a.race.exit();
-      setGround(null);
-    }
-  });
+    });
 
-  it("when a new reel replaces it, then the old ids reach nothing, so a late tap flags no clip of the new reel", async () => {
-    const a = makeWorld();
-    try {
-      const reel = await stuntReel(a);
+    it("when a new reel replaces it, then the old ids reach nothing, so a late tap flags no clip of the new reel", () => {
+      const { w: a, reel } = stunts;
       const d = new ReelDirector(hostOf(a));
       d.stepBudgetMs = Infinity;
       d.play(reel, 0);
@@ -453,16 +425,10 @@ describe("given a results reel of three clips playing on a loop, and a [!] butto
       d.frame(FLIGHT_S / 2);
       d.frame(FLIGHT_S + 0.2);
       assert.notEqual(d.hud().shown, shown, "the same clip in the new reel is a new id");
-    } finally {
-      a.race.exit();
-      setGround(null);
-    }
-  });
+    });
 
-  it("when a clip is watched alone from the reel and when a saved clip is watched alone, then the clip shown is the reel's own id or a saved one, and it ends with the view", async () => {
-    const a = makeWorld();
-    try {
-      const reel = await stuntReel(a);
+    it("when a clip is watched alone from the reel and when a saved clip is watched alone, then the clip shown is the reel's own id or a saved one, and it ends with the view", () => {
+      const { w: a, reel } = stunts;
       const d = new ReelDirector(hostOf(a));
       d.stepBudgetMs = Infinity;
       d.play(reel, 0);
@@ -486,9 +452,6 @@ describe("given a results reel of three clips playing on a loop, and a [!] butto
       assert.equal(d.hud().shown, null, "no clip on screen once the view has ended");
       assert.equal(d.clipById(saved!), null);
       assert.equal(back, 1);
-    } finally {
-      a.race.exit();
-      setGround(null);
-    }
+    });
   });
 });

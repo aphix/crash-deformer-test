@@ -667,7 +667,7 @@ export class StreamedDeformation extends DeformSolve {
    * beam's rest and set, each shape cluster's plastic rest (q0, cm0, AqqInv, plane normal, `planar`, Sp) and the fit's
    * carried `Rprev` and `rotQ`. Restored from the net
    * state alone, a wreck in the middle of a hit lost its masses' motion (up to 31 m/s about their mean) and its clocks:
-   * it shed 5.2 m/s in its first replayed step and was 2.8 m off the record 76 steps later (engine-replay.test.ts).
+   * it shed 5.2 m/s in its first replayed step and was 2.8 m off the record 76 steps later (engine-replay.ai-long-run.ts).
    * The net state's hit vectors are the last skin bake's, which comes after the frame and not after the step: a
    * keyframe cut the step after a first impact held the default `impactInward`, the replayed wreck pushed along the
    * wrong axis and a 2 x 20 m/s head-on played 2.6 m/s and 0.3 m off the live one (replay-fidelity.test.ts).

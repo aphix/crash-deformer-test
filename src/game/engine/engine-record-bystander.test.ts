@@ -19,7 +19,8 @@ import { PoseBlend } from "../present/pose-blend.ts";
 
 /** The engine's step is a float32 (`Math.fround`), which the recorder stores whole: the replay runs the very step the live sim ran. */
 const H = Math.fround(1 / 240);
-const STEPS = 9 * 240;
+/** The pair meets about 3.3 s in; the clip's post-roll (3 s) closes it before this. */
+const STEPS = 7 * 240;
 /** The respawn of `JUMPER`: 5 s in, after the first impact. */
 const JUMP_STEP = 5 * 240;
 /** `NEAR` touches `TOUCHER`: 2 s in, inside the clip. */
@@ -284,6 +285,8 @@ const PILE = [5, 6, 7, 8, 9, 10];
 const ARRIVE_X = 10;
 const PILE_Z = 300;
 const ARRIVE_STEP = 3 * 240;
+/** The pair meets about 4.2 s in; the clip's post-roll (3 s) closes it before this. */
+const ARRIVE_STEPS = 8 * 240;
 
 /** The head-on of `record`, but `A` waits in a wreck pile 300 m out and is put on the road a second before the impact (a respawn into a crash). */
 function recordArrival(): Recorded {
@@ -310,7 +313,7 @@ function recordArrival(): Recorded {
   world.pairHit = (a, b, hit) => rec.pairHit(a, b, hit);
   const trace: Float64Array[] = [];
   const input: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
-  for (let s = 0; s < STEPS; s++) {
+  for (let s = 0; s < ARRIVE_STEPS; s++) {
     if (s === ARRIVE_STEP) cars[A]!.spawnFacing(0, 0, Math.PI / 2, 15);
     rec.startStep(cars);
     for (const [i, car] of cars.entries()) {
@@ -331,8 +334,12 @@ function recordArrival(): Recorded {
 }
 
 describe("given a head-on whose car A was put on the road a second before the impact, out of a pile of six wrecks 300 m away that it stood in for the clip's first two seconds", () => {
+  let arrival: Recorded;
+  before(() => {
+    arrival = recordArrival();
+  });
   it("when the clip is read back and replayed, then the cars parked near the hit are in it, the pile 300 m from the hit is not, and every car is where the sim had it at every step", (t) => {
-    const run = recordArrival();
+    const run = arrival;
     const slots = run.clip.cars.map((c) => c.slot);
     t.diagnostic(`clip cars: ${slots.join(",")} (${(clipBytes(run.clip) / 1024).toFixed(0)} KB)`);
     assert.ok(PARKED.every((i) => slots.includes(i)), "the cars parked 30 to 45 m from the hit are in the clip");
@@ -343,7 +350,7 @@ describe("given a head-on whose car A was put on the road a second before the im
   });
 
   it("when the replay's scene knows where cars wait put away, then A is hidden there from the clip's start to the step its keyframe puts it on the road, and the shots frame a drawn car throughout", () => {
-    const { clip, cars, dress } = recordArrival();
+    const { clip, cars, dress } = arrival;
     const j = clip.cars.findIndex((c) => c.slot === A);
     const put = clip.keyStep.findIndex((s, i) => i > 0 && ((clip.keyCars[i]! >>> j) & 1) === 1);
     assert.ok(j >= 0 && put > 0, "A is in the clip and has a keyframe of its own: its respawn");

@@ -8,7 +8,7 @@ import { CAGES } from "../kernel/rig-spec.ts";
 import { CrashRecorder } from "./engine-record.ts";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { assignClass, HANDLING } from "../vehicle/vehicle-classes.ts";
-import { frame, makeWorld } from "../world/race-world.test-util.ts";
+import { makeWorld } from "../world/race-world.test-util.ts";
 import { setGround } from "../world/ground.ts";
 import { newWorld, settleStep, stepWorld } from "./world-step.ts";
 
@@ -87,12 +87,14 @@ const PAIRS: readonly (readonly [number, number])[] = [
 /** A racer (slot 0) crossing traffic car 6's way: a T-bone. Traffic car 5 drives alone and is told it hit a wall. */
 const TBONE = [0, 6] as const;
 const WALLER = 5;
+/** The second racer (slot 1) and a police car (slot 10) drive head-on at each other. */
+const RACER_HIT = [1, 10] as const;
 
-/** The slots of the first impact of each clip a 10-car flat-field field records, `racers` of them racers. */
-function firstImpacts(racers: number): number[][] {
+/** The slots of the first impact of each clip an 11-car flat-field field records, once for each count in `racers` (how many of the cars are racers). */
+function firstImpacts(racers: readonly number[]): number[][][] {
   const { dress } = makeWorld();
   const scene = new THREE.Scene();
-  const cars = Array.from({ length: 10 }, (_, i) => {
+  const cars = Array.from({ length: 11 }, (_, i) => {
     const car = new DeformableCar({ body: 0x808080, accent: 0, name: `c${i}` }, scene, null, fleetStyle(i));
     assignClass(car, fleetClass(i));
     dress(car);
@@ -106,86 +108,67 @@ function firstImpacts(racers: number): number[][] {
   cars[TBONE[0]]!.spawnFacing(0, z, Math.PI / 2, 15);
   cars[TBONE[1]]!.spawnFacing(20, z - 20, 0, 15);
   cars[WALLER]!.spawnFacing(0, z + LANE, Math.PI / 2, 15);
-  cars[1]!.spawnFacing(0, z + 2 * LANE, Math.PI / 2, 0);
-  const rec = new CrashRecorder();
-  rec.begin("flat", HANDLING.realism, false, racers, (i) => `c${i}`, 1);
+  cars[RACER_HIT[0]]!.spawnFacing(0, z + 2 * LANE, Math.PI / 2, 15);
+  cars[RACER_HIT[1]]!.spawnFacing(40, z + 2 * LANE, -Math.PI / 2, 15);
+  // One sim, a recorder for each count of racers: they see the same crashes.
+  const recs = racers.map((n) => {
+    const rec = new CrashRecorder();
+    rec.begin("flat", HANDLING.realism, false, n, (i) => `c${i}`, 1);
+    return rec;
+  });
   const world = newWorld(cars);
-  world.pairHit = (a, b, hit) => rec.pairHit(a, b, hit);
+  world.pairHit = (a, b, hit) => {
+    for (const rec of recs) rec.pairHit(a, b, hit);
+  };
   const input: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
   for (let s = 0; s < 6 * 240; s++) {
-    rec.startStep(cars);
-    if (s === 2 * 240) rec.wallHit(WALLER, 40, 30, z + LANE);
-    for (const [i, car] of cars.entries()) {
-      input.throttle = i === 1 ? 0 : 1;
-      applyDrive(car, input, H);
-    }
+    for (const rec of recs) rec.startStep(cars);
+    if (s === 2 * 240) for (const rec of recs) rec.wallHit(WALLER, 40, 30, z + LANE);
+    for (const car of cars) applyDrive(car, input, H);
     stepWorld(world, H);
-    rec.endStep(cars, H, world.shape);
+    for (const rec of recs) rec.endStep(cars, H, world.shape);
     settleStep(cars, H, false);
   }
-  rec.end();
-  return rec.ledger.kept.map((c) => [c.cars[c.firstA]!.slot, ...(c.firstB >= 0 ? [c.cars[c.firstB]!.slot] : [])]);
+  return recs.map((rec) => {
+    rec.end();
+    return rec.ledger.kept.map((c) => [c.cars[c.firstA]!.slot, ...(c.firstB >= 0 ? [c.cars[c.firstB]!.slot] : [])]);
+  });
 }
 
-describe("given a ten-car flat field where traffic and police cars crash among themselves and into a wall, and one racer T-bones a traffic car", () => {
-  it("when only the first two cars count as racers, then the T-bone is the only highlight moment, though with every car a racer the cop pair, traffic pair, cop-on-traffic and wall hits are moments too", () => {
+describe("given an eleven-car flat field where traffic and police cars crash among themselves and into a wall, one racer T-bones a traffic car and a cop hits another racer head-on", () => {
+  it("when only the first two cars count as racers, then the T-bone and the cop's hit are the only highlight moments, though with every car a racer the cop pair, traffic pair, cop-on-traffic and wall hits are moments too", () => {
     // Control: with every car a racer the same field records the cop pair, the traffic pair, a cop on traffic and a wall hit.
-    const every = firstImpacts(MAX_CARS);
+    const both = firstImpacts([MAX_CARS, RACERS]);
+    const every = both[0]!;
     assert.ok(every.some((c) => c.includes(7) && c.includes(8)), `the cop pair is no moment even with every car a racer: ${JSON.stringify(every)}`);
     assert.ok(every.some((c) => c.includes(2) && c.includes(3)), "the traffic pair is no moment even with every car a racer");
     assert.ok(every.some((c) => c.includes(9) && c.includes(4)), "the cop-on-traffic hit is no moment even with every car a racer");
     assert.ok(every.some((c) => c.length === 1 && c[0] === WALLER), "the traffic car's wall hit is no moment even with every car a racer");
-    const field = firstImpacts(RACERS);
-    assert.equal(field.length, 1, `the racer's T-bone alone is a moment: ${JSON.stringify(field)}`);
-    assert.ok(field[0]![0] === TBONE[0] && field[0]![1] === TBONE[1], `the one moment is the T-bone: ${JSON.stringify(field)}`);
+    assert.ok(every.some((c) => c.includes(RACER_HIT[0]) && c.includes(RACER_HIT[1])), "the cop's hit on the racer is no moment even with every car a racer");
+    const field = both[1]!;
+    assert.equal(field.length, 2, `the racer's T-bone and the cop's hit on the racer are the only moments: ${JSON.stringify(field)}`);
+    assert.ok(field.some((c) => c.includes(TBONE[0]) && c.includes(TBONE[1])), `the T-bone is a moment: ${JSON.stringify(field)}`);
+    assert.ok(field.some((c) => c.includes(RACER_HIT[0]) && c.includes(RACER_HIT[1])), `the cop's hit on the racer is a moment: ${JSON.stringify(field)}`);
   });
 });
 
-/** Seeds tried, in order, until the clips pooled reach `MIN_CLIPS`: how busy a seeded race is moves with every trajectory change, the bars below do not. */
-const SEEDS = [5, 6, 7, 8, 9, 10, 11, 12];
-const MIN_CLIPS = 3;
-
-/** A seeded 100 s city race with 8 AI, traffic and police, watched in follow mode: its racer count and the (first car, second car or -1) of each kept clip's first impact. */
-function cityClips(seed: number): { racers: number; firsts: (readonly [number, number])[] } {
-  const w = makeWorld();
-  w.race.enter();
-  try {
-    w.race.command({ type: "quit" });
-    w.race.command({ type: "options", options: { trackId: "city", laps: 2, aiCount: 8, police: true, noReset: false, aggression: 1 } });
-    w.race.reseed(seed);
-    w.race.command({ type: "start" });
-    w.seat.mode = "follow";
-    const racers = w.race.racers.length;
-    const state = { acc: 0 };
-    for (let n = 0; n / 60 < 100 && w.race.phase !== "finished"; n++) frame(w, state);
-    w.race.recorder.end();
-    return { racers, firsts: w.race.recorder.ledger.kept.map((c) => [c.cars[c.firstA]!.slot, c.firstB >= 0 ? c.cars[c.firstB]!.slot : -1] as const) };
-  } finally {
-    w.race.exit();
-    setGround(null);
-  }
-}
-
-describe("given seeded 100 s city races with 8 AI, traffic and police, watched in follow mode, until their clips reach three", () => {
-  it("when the highlight clips are listed, then at least 3 exist, every one has a racer in its first impact, and at least one is a racer hitting a cop or traffic car", () => {
-    const pooled: { seed: number; racers: number; firsts: (readonly [number, number])[] }[] = [];
-    for (const seed of SEEDS) {
-      pooled.push({ seed, ...cityClips(seed) });
-      if (pooled.reduce((n, r) => n + r.firsts.length, 0) >= MIN_CLIPS) break;
+describe("given a city race with 8 AI, traffic and police", () => {
+  it("when the race starts, then its recorder counts the entrants as the racers, so the traffic and police cars beyond them make a moment only against a racer", () => {
+    const w = makeWorld();
+    w.race.enter();
+    try {
+      w.race.command({ type: "quit" });
+      w.race.command({ type: "options", options: { trackId: "city", laps: 2, aiCount: 8, police: true, noReset: false, aggression: 1 } });
+      w.race.reseed(5);
+      w.race.command({ type: "start" });
+      const racers = w.race.racers.length;
+      assert.equal(racers, 9, "the player and the 8 AI are the entrants");
+      assert.ok(w.live().length > racers, `${w.live().length} cars on the road: no traffic or police beyond the ${racers} racers`);
+      assert.equal(w.race.recorder["racers"], racers);
+    } finally {
+      w.race.exit();
+      setGround(null);
     }
-    const total = pooled.reduce((n, r) => n + r.firsts.length, 0);
-    assert.ok(total >= MIN_CLIPS, `${total} clips in ${pooled.length} races of 100 s: the field is too quiet to test`);
-    for (const { seed, racers, firsts } of pooled) {
-      assert.deepEqual(
-        firsts.filter(([a, b]) => a >= racers && !(b >= 0 && b < racers)),
-        [],
-        `seed ${seed}, racers ${racers}: clips whose first impact has no racer: ${JSON.stringify(firsts)}`,
-      );
-    }
-    assert.ok(
-      pooled.some(({ racers, firsts }) => firsts.some(([a, b]) => a < racers && b >= racers)),
-      `a racer's hit on a cop or traffic car is no moment: ${JSON.stringify(pooled)}`,
-    );
   });
 });
 

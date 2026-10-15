@@ -5,7 +5,9 @@ import { makeWorld, type World } from "../world/race-world.test-util.ts";
 import { blankPoint, Track } from "../world/track.ts";
 import oval from "../world/tracks/oval.json" with { type: "json" };
 import { clipBytes } from "../net/reel-codec.ts";
-import { agreement, recordFlat, recordRace, type Agreement, type Recording, type Spawn } from "./replay-fidelity.test-util.ts";
+import { agreement, atClipStart, recordFlat, recordRace, type Agreement, type Recording, type Spawn } from "./replay-fidelity.test-util.ts";
+import { ClipSim } from "./engine-replay.ts";
+import { MEMORY } from "../match/highlights.ts";
 
 /**
  * The owner wants a replay or a highlight reel to show the crash as it happened. The recorder's clip (its first keyframe,
@@ -88,6 +90,20 @@ describe("given a highlight clip recorded from a crash and replayed from its key
       run("race T-bone", () => (put(0, 40, 0, 0, 20), put(1, 54, 0, Math.PI / 2, 0), drive()), 1));
     it("when two cars hit head-on and two more run into the wreck, then the clip's first impact is between the head-on pair and the replay matches the live sim at every step, to the bit", () => run("race pile-up", pile(0), 3));
     for (const s of SHIFTS) it(`when the same pile-up happens ${s} m further along the road, then the replay matches the live sim at every step, to the bit, just as for the unshifted pile-up`, () => run(`race pile-up shifted ${s} m`, pile(s), 3));
+    // Seeds 1 to 64 of `engine-replay.ai-long-run.ts` replayed up to 4.4 m off until the clip carried the course's road-segment hint: a car
+    // that forgot it projected itself onto the wrong road at the next wall.
+    it("when a clip of a race is restored over cars whose road-segment hint is somewhere else, then each clip car's hint is the one its first keyframe held", () => {
+      const rec = recordRace(w, () => (put(0, 40, 0, 0, 20), put(1, 48, 0, Math.PI, 20)), 9, 1);
+      const { clip } = rec;
+      const sim = new ClipSim(clip, clip.cars.map((c) => rec.cars[c.slot]!), rec.scene);
+      const seg: Int32Array = w.race["seg"];
+      const elsewhere = 7777;
+      for (const { slot } of clip.cars) seg[slot] = elsewhere;
+      sim.restart();
+      const held = clip.cars.map((_, j) => sim["memory"][0]![j * MEMORY]!);
+      assert.ok(held.some((h) => h >= 0 && h !== elsewhere), `no clip car's keyframe holds a hint: ${held.join(",")}`);
+      for (const [j, { slot }] of clip.cars.entries()) assert.equal(seg[slot], held[j], `car ${slot}'s road-segment hint after the restore`);
+    });
   });
 
   describe("given a flat derby field with no walls, where wear alone can destroy a car", () => {
@@ -121,7 +137,7 @@ describe("given a highlight clip recorded from a crash and replayed from its key
     // A bystander intact beside the head-on's wrecks, 1.9 m off their line (its hull touches theirs): a light touch from a wall or a prop
     // before the recording marked its contact clock, and the clock of a car whose masses are idle stands still, so it read "just touched"
     // for good and its masses met a settled wreck's in the live sim; the keyframe carries nothing of the clock for a car that is no wreck, so
-    // the replay's bystander was quiet and the wrecks' masses never met it (seed 30 of engine-replay.test.ts: 2.26 m off). Measured on 32bf18c:
+    // the replay's bystander was quiet and the wrecks' masses never met it (seed 30 of engine-replay.ai-long-run.ts: 2.26 m off). Measured on 32bf18c:
     // marked 0.17 mm / 1.7 cm/s / 7.6 mm off the live sim, unmarked exact.
     const BYSTANDER: Spawn[] = [
       { x: 0, z: 0, yaw: HEAD, speed: 20, throttle: 1 },
@@ -143,6 +159,45 @@ describe("given a highlight clip recorded from a crash and replayed from its key
       assert.equal(rec.cars[2]!.deform.drivetrainAlive, false, "the shot car's engine is dead");
       assert.ok(rec.clip.cars.some((c) => c.slot === 2), "the shot car is in the clip");
       check("derby shot car", rec, agreement(rec));
+    });
+    // Seeds 4-8 of `engine-replay.ai-long-run.ts`: a clip that opens on wrecks already in motion restored them from the keyframe's solver
+    // state, which left out each shape cluster's last rotation and warm start (a wreck 18 mm off after one step; a wall hit never reached).
+    it("when a harder head-on happens 3 s after another 40 m off, so its clip opens as the first pair's wrecks are in the middle of their hit, then the replay matches the live sim at every step, to the bit", () => {
+      // The first pair meets about 3.0 s in (the clip opens on the whole second, 3.0 s: the step of their impact); the harder pair 3.3 s into its clip.
+      const spawns: Spawn[] = [
+        { x: 0, z: 0, yaw: HEAD, speed: 20, throttle: 1 },
+        { x: 177, z: 0, yaw: -HEAD, speed: 20, throttle: 1 },
+        { x: -250, z: 40, yaw: HEAD, speed: 30, throttle: 1 },
+        { x: 285, z: 40, yaw: -HEAD, speed: 30, throttle: 1 },
+      ];
+      const rec = recordFlat(spawns, 10, true);
+      const second = [rec.clip.cars[rec.clip.firstA]!.slot, rec.clip.cars[rec.clip.firstB]!.slot].sort();
+      assert.deepEqual(second, [2, 3], "the clip is the harder head-on's");
+      for (const slot of [0, 1]) {
+        assert.ok(rec.clip.cars.some((c) => c.slot === slot), `car ${slot} of the first pair is in the clip`);
+        const start = atClipStart(rec, slot);
+        assert.ok(start.wreck && start.speed > 1, `car ${slot} of the first pair is a wreck moving at ${start.speed.toFixed(2)} m/s as the clip opens`);
+      }
+      check("derby wrecks in motion", rec, agreement(rec));
+    });
+    // Seeds 1 to 64 of `engine-replay.ai-long-run.ts` replayed up to 4.4 m off until the clip carried the world's step schedule: any pair in
+    // contact anywhere holds every step's slices up (at the pacer's coarse 1/80 s step), which a replay of the clip's few cars cannot work out.
+    // Which gap of the far pair makes a difference moves with the sim (220 and 260 m agree without the schedule, 240 m was 6 cm and 8.6 m/s off).
+    it("when a pair 300 m away wrecks while another head-on's clip runs on a slow device's 1/80 s steps, so the live steps are cut into contact slices the clip's cars alone would not ask for, then the replay matches the live sim at every step, to the bit", () => {
+      const spawns: Spawn[] = [
+        { x: 0, z: 0, yaw: HEAD, speed: 30, throttle: 1 },
+        { x: 160, z: 0, yaw: -HEAD, speed: 30, throttle: 1 },
+        { x: 0, z: 300, yaw: HEAD, speed: 20, throttle: 1 },
+        { x: 240, z: 300, yaw: -HEAD, speed: 20, throttle: 1 },
+      ];
+      const rec = recordFlat(spawns, 8, true, [], 1 / 80);
+      const inClip = rec.clip.cars.map((c) => c.slot);
+      assert.equal(inClip.length, 2, `the clip is of one head-on's two cars: ${inClip}`);
+      const away = inClip.includes(0) ? [2, 3] : [0, 1];
+      const last = rec.clip.h.length - 1;
+      assert.ok(away.every((slot) => atClipStart(rec, slot, last).wreck), `the other pair (${away}) is wrecked by the clip's end, its cars no part of it`);
+      assert.ok(rec.clip.shape.some((s) => s > 0), "some step of the clip ran in contact slices");
+      check("derby far pair wrecking, 1/80 s steps", rec, agreement(rec));
     });
   });
 

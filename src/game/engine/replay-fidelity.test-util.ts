@@ -78,6 +78,13 @@ function clipStart(clip: HighlightClip, times: Map<number, number>): number {
   return best;
 }
 
+/** Car `slot` as the live sim had it at the clip's step `step` (its first by default): a wreck or not, and its speed (m/s). */
+export function atClipStart(rec: Recording, slot: number, step = 0): { wreck: boolean; speed: number } {
+  const o = slot * STATE;
+  const live = rec.trace[rec.s0 + step]!;
+  return { wreck: live[o + 7] === 1, speed: Math.hypot(live[o + 3]!, live[o + 4]!, live[o + 5]!) };
+}
+
 /** One car of a flat-field crash: where it starts, which way it heads (yaw: heading is (sin, cos)), how fast, and its pedals. */
 export interface Spawn {
   x: number;

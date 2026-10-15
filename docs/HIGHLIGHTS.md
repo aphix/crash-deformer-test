@@ -132,11 +132,12 @@ there again from its keyframe; nothing else corrects the replay. It is the sim t
 and every step of it. The clip also carries its crumple settings (`squash`, `buckle`, `deformMode`), so every peer dents
 the same way.
 
-**Fidelity (`REPLAY_VERSION` 26; `engine/replay-fidelity.test.ts`, `engine/engine-replay.test.ts`, `engine/engine-replay-police.test.ts`).**
+**Fidelity (`REPLAY_VERSION` 26; `engine/replay-fidelity.test.ts`, `engine/engine-replay.ai-long-run.ts` (the seeded-race sweep: `npm run test:ai-long-run`, not per commit), `engine/engine-replay-police.test.ts`).**
 A replay is held to the sim that recorded it, step by step over the whole clip and every car in it: position, velocity and
 crush errors are all exactly 0, and no car is a wreck in one run and not in the other. The rows are the race and derby
-crashes (head-on, offset, T-bone, pile-up and four spawn shifts of the pile-ups, 1e-9 to 1e-3 m), 8 seeded city races of 12
-(1-8; `SEEDS=...` runs any others) and the oval race with police, where a cop is woken (parked at a stakeout: it was a
+crashes (head-on, offset, T-bone, pile-up and four spawn shifts of the pile-ups, 1e-9 to 1e-3 m; a clip that opens on wrecks in
+the middle of their hit; a far pair wrecking on 1/80 s steps; the road-segment hint), the seeded city races of 12 in the long-run suite
+(`engine-replay.ai-long-run.ts`; `SEEDS=...` runs any others) and the oval race with police, where a cop is woken (parked at a stakeout: it was a
 stored car 5.7 km away) and two racers are put head-on beside it (seeds 1-3). The owner's rule: a replay matches the live
 crash it recorded. What it takes, each found by the replay straying from the live sim where it was missing:
 
