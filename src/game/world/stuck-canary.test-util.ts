@@ -35,7 +35,7 @@ const SAMPLES = WINDOW / SAMPLE;
 type Sample = { t: number; x: number; z: number; drive: number; partners: number };
 
 /** One field's cars watched for stuck windows: feed `pair` for every contact and `step` after every physics step. */
-class StuckWatch {
+export class StuckWatch {
   readonly episodes: string[] = [];
   private readonly rings: Sample[][];
   private readonly driveSum: Float64Array;
@@ -182,7 +182,7 @@ const TITLE = `given the game's own AI-driven fields (police races on the campai
  * Measured on main 9b188a4d (Stage 1 landed): city seed 3, car 11 from race second 57.4 at (178.5, −52.0) moved 0.20 m in 10 s at mean
  * throttle 0.79 with one car touching. Measured on lane/uc2-solids (Stage 2, walls and props on the one top/side query): city seeds 1-8
  * 0 stuck windows, and every other course, the pursuit and the derby 0 as well.
- * The stuck-canary test files share these cases so each runs in a fraction of the whole sweep's time. Not a test file itself.
+ * The stuck-canary `ai-long-run` files share these cases so each runs in a fraction of the whole sweep's time (`npm run test:ai-long-run`; the gate pins the watch itself in `stuck-watch.test.ts`). Not a test file itself.
  */
 export function describeRaceCanary(course: string, seeds: readonly number[] = RACE_SEEDS): void {
   describe(TITLE, () => {
