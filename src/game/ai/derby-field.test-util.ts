@@ -13,6 +13,7 @@ import { armKill, assignClass, carClass, CLASSES, HANDLING, type VehicleClassId 
 import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { aggressive, ScootWatch, type ScootShare } from "./derby-scoot.test-util.ts";
 import { FRAME_HZ } from "../kernel/constants.ts";
+import { zipBound } from "../contact/zip-bound.test-util.ts";
 
 export type Field = {
   seed: number;
@@ -217,7 +218,7 @@ function runFieldHeat(n: number, seed: number, playerClass?: VehicleClassId, on?
       const b = centroid(c);
       const moved = Math.hypot(b.x - a.x, b.z - a.z);
       const vMax = Math.max(speed0[i]!, Math.hypot(c.velocity.x, c.velocity.z), shove[i]!);
-      if (moved > 3 * vMax * h + 0.05) {
+      if (moved > zipBound(vMax, h)) {
         out.zips.push(`t=${t.toFixed(2)} c${i} ${moved.toFixed(2)} m`);
         out.zipMax = Math.max(out.zipMax, moved);
       }

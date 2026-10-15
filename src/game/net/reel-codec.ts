@@ -168,9 +168,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * there; it threw every part the car had off before the clip's keyframe off the car afresh at the clip's first step (a car whose hood, doors and bumper lay on the road began the replay with them flying round it).
  * A saved clip's keyframes gain the block, so a clip of 91 or before does not decode. The same version: a clip lists the car the course's VIP rides in (the National Mall's Konami secret) at its start and each change
  * (`ClipVip`, after the squad), and a replay seats him in that car's passenger seat and throws him with its driver as the live race does (a clip recorded before had no VIP in a replay, whatever its race had).
+ * 93: a wreck leaves a free-standing solid (a rail, a container, a pad, a prop) round its end when the car's centre stands beyond that end (`ContactBox.openEnds`), so a corner
+ * that came in round a rail's end is pushed out a few millimetres, not the rail's whole width: a replayed derby of 92 or before moves its wrecks differently from the first such grind.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 92;
+const REPLAY_VERSION = 93;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

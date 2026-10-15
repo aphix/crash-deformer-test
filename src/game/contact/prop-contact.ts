@@ -181,6 +181,7 @@ function solidContact(car: DeformableCar, i: number, s: Surface, k: number, knoc
   if (role !== WALL) {
     const box = solidFace(_face, _hit[FF_FNX]!, _hit[FF_FNZ]!, _hit[FF_FX]!, _hit[FF_FZ]!, _hit[FF_FX]!, _hit[FF_FZ]!, _hit[FF_FW]!, _hit[FF_FD]!);
     box.hardness = hardness;
+    box.openEnds = true;
     wallBounce(car, box, nx, nz, pen, dt, false);
     if (closing > 1.5) hits.fx(_c, _n, closing);
     hits.wall(id, i, closing, _hit[FF_CX]!, _hit[FF_CZ]!, nx, nz);

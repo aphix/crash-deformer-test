@@ -6,7 +6,7 @@ import { MU_BODY, WALL_CRUSH } from "../vehicle/car-air-body.ts";
 import { leftoverCrumple, satPushCap, hypot2, CRASH } from "../deform/physics-util.ts";
 import { satCars } from "./sat.ts";
 import { bandsMeet, OUTLINE_REACH } from "./cage-outline.ts";
-import { strikeCar, faceDepth, carRow, takeRow, moveAsOneBody, type ContactBox } from "./external-contact.ts";
+import { strikeCar, faceDepth, faceExit, carRow, takeRow, moveAsOneBody, type ContactBox } from "./external-contact.ts";
 import { bodyContact, BODY_SIZE, BODY_VX, BODY_VZ, BODY_W, BODY_X, BODY_Z, CT_DEPTH, CT_E, CT_JMAX, CT_MU, CT_NX, CT_NZ, CT_SIZE, CT_X, CT_Z, OUT_EBS_A, OUT_EBS_B, OUT_PUSH_A, OUT_PUSH_B, OUT_SIZE } from "./body-contact.ts";
 import { ARM_CLOSING, PAIR_MU, SOLID_E } from "./constants.ts";
 import { CAR_HALF, FOOT_HALF_L } from "../vehicle/car-mesh.ts";
@@ -168,13 +168,16 @@ export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz:
       // in) and the solver's push-out speed (`PUSH_SPEED`) for the rest: the room falls to the skin the slice the car stops driving in,
       // and that whole depth pushed out at once moved a derby wreck 0.43 m in 6 ms at 6.6 m/s (zip bound 3·v·h + 5 cm). Held to the
       // centroid's speed alone, a swung car's corner went 0.11 m past a prop's far face.
-      const drive = Math.max(0, Math.min(1, (into - SOLID_AT_REST) / (WALL_CRUSH - SOLID_AT_REST)));
+      const deepest = faceDepth(car, face);
+      const exitX = faceExit.nx;
+      const exitZ = faceExit.nz;
+      const drive = Math.max(0, Math.min(1, (-(v.x * exitX + v.z * exitZ) - SOLID_AT_REST) / (WALL_CRUSH - SOLID_AT_REST)));
       const room = WALL_SKIN + (0.4 * leftoverCrumple(car.deform.faceTravel()) - WALL_SKIN) * drive;
-      const sunk = faceDepth(car, face) - room;
+      const sunk = deepest - room;
       // A hit armed this slice starts with what the car drove in before the face was met (a truck at 55 m/s: 0.39 m of its drawn body
       // in a 0.79 m deep footprint), pushed out as far as the footprint is in.
-      const reach = sinkReach(car, fx, fz, dt);
-      if (sunk > 0) shoveWreck(car, fx, fz, Math.min(sunk + 0.004, car.deform.sinceHit() <= 0 ? Math.max(pen, reach) : reach));
+      const reach = sinkReach(car, exitX, exitZ, dt);
+      if (sunk > 0) shoveWreck(car, exitX, exitZ, Math.min(sunk + 0.004, car.deform.sinceHit() <= 0 ? Math.max(pen, reach) : reach));
       return;
     }
     if (pen < WALL_HOLD) return;

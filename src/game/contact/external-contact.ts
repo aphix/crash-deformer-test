@@ -34,16 +34,21 @@ export type ContactBox = {
   hardness: number;
   /**
    * A solid fixed in the world (`solidFace`): a fresh hard touch re-arms a wreck's hit (`DeformableCar.applyImpact`, on quiet
-   * time and energy, as the barrier and car-car do), and a particle in it leaves by the car-side face, never round an end (a
-   * wall's end is the joint to its neighbour, so the particle would stay in the wall).
+   * time and energy, as the barrier and car-car do), and a particle in it leaves by the car-side face, never round an end unless the
+   * box has `openEnds` (a wall's end is the joint to its neighbour, so the particle would stay in the wall).
    */
   fixed: boolean;
+  /**
+   * The face's span ends are the solid's own ends (a rail, a container, a pad), not a joint to a neighbour (a wall's hold face): a body
+   * point nearer an end than the car-side face is out round that end (`faceDepth`).
+   */
+  openEnds: boolean;
   /** Whether the plan shape is a circle of radius `hx` (a palm, a lamp post) rather than a box (`partContact`, on a `fixed` box). */
   round: boolean;
 };
 
 export function makeBox(): ContactBox {
-  return { x: 0, y: 0, z: 0, hx: 0, hy: 0, hz: 0, yaw: 0, vx: 0, vz: 0, kg: Infinity, hardness: 1, fixed: false, round: false };
+  return { x: 0, y: 0, z: 0, hx: 0, hy: 0, hz: 0, yaw: 0, vx: 0, vz: 0, kg: Infinity, hardness: 1, fixed: false, openEnds: false, round: false };
 }
 
 /**
@@ -66,6 +71,7 @@ export function solidFace(out: ContactBox, nx: number, nz: number, fx: number, f
   out.kg = Infinity;
   out.hardness = 1;
   out.fixed = true;
+  out.openEnds = false;
   out.round = false;
   return out;
 }
@@ -139,10 +145,16 @@ function faceOverlap(car: DeformableCar, box: ContactBox, point: THREE.Vector3):
   return best;
 }
 
+/** What the last `faceDepth` found (reused): the unit normal (plan) the deepest vertex is out along, the face's or an open end's. */
+export const faceExit = { nx: 0, nz: 0 };
+
 /**
  * How far (m, ≤ 0 clear) the box's leading face has passed the deepest vertex of the car's cage across the face's span (the mesh's
- * triangles are convex combinations of them). A torn-off or shattered panel's vertices are no part of the body. The outline nodes
- * (`faceOverlap`) lose a thin tip (a fender's corner stood 15 cm beyond its nearest covered node).
+ * triangles are convex combinations of them), and where that vertex leaves (`faceExit`): through the face, or, on a box with
+ * `openEnds`, round the end it is nearer. Counted through the face, a corner that came in round a rail's end read the rail's whole
+ * width as its depth, and the push-out shoved the car that far (0.2-2.1 m on derby wrecks, for as long as the turn kept the corner
+ * in). A torn-off or shattered panel's vertices are no part of the body. The outline nodes (`faceOverlap`) lose a thin tip (a
+ * fender's corner stood 15 cm beyond its nearest covered node).
  */
 export function faceDepth(car: DeformableCar, box: ContactBox): number {
   const fx = detSin(box.yaw);
@@ -157,6 +169,8 @@ export function faceDepth(car: DeformableCar, box: ContactBox): number {
   const ox = p.x - box.x;
   const oz = p.z - box.z;
   let best = -Infinity;
+  let bestSide = 0;
+  let bestAtEnd = false;
   let inside = false;
   for (let k = 0; k < vertexCount; k++) {
     const g = vertexGroup[k]!;
@@ -165,11 +179,22 @@ export function faceDepth(car: DeformableCar, box: ContactBox): number {
     const z = pos[k * 3 + 2]!;
     const wx = ox + ax.x * x + az.x * z;
     const wz = oz + ax.z * x + az.z * z;
-    if (Math.abs(wx * rx + wz * rz) > box.hx) continue;
+    const side = wx * rx + wz * rz;
+    const endGap = box.hx - Math.abs(side);
+    if (endGap < 0) continue;
     const along = wx * fx + wz * fz;
     if (along >= -box.hz) inside = true;
-    if (box.hz - along > best) best = box.hz - along;
+    const throughFace = box.hz - along;
+    const atEnd = box.openEnds && endGap < throughFace;
+    const depth = atEnd ? endGap : throughFace;
+    if (depth <= best) continue;
+    best = depth;
+    bestSide = side;
+    bestAtEnd = atEnd;
   }
+  const endSign = bestSide < 0 ? -1 : 1;
+  faceExit.nx = bestAtEnd ? endSign * rx : fx;
+  faceExit.nz = bestAtEnd ? endSign * rz : fz;
   // A body with a point in the slab is as deep as its farthest point, however far past the back face (the pushed-through corner is
   // what the push-out must bring back); one wholly beyond the back face is on the slab's other side, no contact of this face.
   return inside ? best : -Infinity;
@@ -432,7 +457,7 @@ export function strikeCar(car: DeformableCar, box: ContactBox, dt: number, crush
     const ub = box.vx * fx + box.vz * fz;
     shiftVelocities(car, -fx * ub, -fz * ub);
     // The slab's thin axis (`holdOnFace` x) is the striker's travel.
-    taken = holdOnFace(d, box.x, box.z, box.hz, box.hx, box.yaw - Math.PI / 2, !box.fixed);
+    taken = holdOnFace(d, box.x, box.z, box.hz, box.hx, box.yaw - Math.PI / 2, !box.fixed || box.openEnds);
     // A fixed solid narrower than the car (a palm between the bumpers) meets the crush hulls before any particle: hulls on the face
     // are a contact all the same, and the hit stays open (the quiet clock ran out while the hulls held the wreck off: an 8 m/s tap
     // read 0.016 m of block travel against the slab's 0). The hulls crush the particles (`feedOverlap`) until they are on the face.
