@@ -111,7 +111,7 @@ spawn ring 5.2 m inside it (up to 8 m between neighbours; 32 cars keep 4.4 m rou
 a pit plateau and a scrap hump. Only what stands on the ground is a prism of the same store: the wall, two containers, three K-rails, two crash pads and
 three tyre berms (`DERBY_BOXES`); each is drawn from its own box, so what is drawn is what is met. A car's footprint meets the prisms through
 `propContact` (`DerbyGround.contact`); the rises are met by the one point query like any ground. `derby-containment.test.ts` drives every class flat out
-and boosting at the wall from all directions, across the arena and at each jump's far entry: no vertex passes the wall's outer face and the car touches
+and boosting at the wall from all directions on the open ring, across the arena from every fourth heading (every heading in the full-sanity suite, `derby-containment.ai-long-run.ts`) and at each jump's far entry: no vertex passes the wall's outer face and the car touches
 the wall at least 1 m under its top (at 8 m the monster touched at 8.6 m; at 5 m it cleared the wall).
 
 What the AI does not know: it steers by the ring radius (`DerbyBrain.radius` = `DERBY_RADIUS`) and its stuck recovery, not by the containers, rails, pads, tyre
