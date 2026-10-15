@@ -1,8 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { RESET_HOLD, ResetHold } from "./reset-hold.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 
 /** Press for `secs` (in frames) then release; every step's result in order, with the fill after each. */
 function press(h: ResetHold, secs: number): { acts: (string | null)[]; fills: number[] } {
