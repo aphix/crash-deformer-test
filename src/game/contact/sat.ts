@@ -4,6 +4,7 @@ import { SAMPLE, sampleAt, type CageStyle } from "../vehicle/car-cage.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
+import { FINE_HZ } from "../kernel/constants.ts";
 import { OUTLINE_REACH, outlineOf, VERTICAL_CLEAR } from "./cage-outline.ts";
 
 export const BARRIER_HALF = { x: 0.38, z: 1.96 };
@@ -18,8 +19,8 @@ const _band = new Float64Array(2);
 /** A pair's contact normal this near square to its centre line (cosine, 0.3 = 17° off square) is turned to it (`satCars`). */
 const PERPENDICULAR = 0.3;
 
-/** Max displacement per physics slice so a 30 m/s car cannot skip a 0.76 m wall; never shorter than `floor` (s, 1/240 unless the pacer is shedding load). */
-export function physicsSlice(dt: number, vmax: number, floor = 1 / 240): number {
+/** Max displacement per physics slice so a 30 m/s car cannot skip a 0.76 m wall; never shorter than `floor` (s, the fine floor unless the pacer is shedding load). */
+export function physicsSlice(dt: number, vmax: number, floor = 1 / FINE_HZ): number {
   const maxMove = 0.07;
   const cap = maxMove / Math.max(vmax, 4);
   return Math.min(dt, Math.max(floor, cap));

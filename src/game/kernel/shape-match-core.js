@@ -612,8 +612,10 @@ function matchCluster(c, particles, beta) {
   stabilizeMat(c.R, c.Rprev);
   blendStretchInto(c.R, c.S, beta, 8, c.M);
 }
-/** Slice rate the creep was tuned at (its old 1/120 s floor at the 1/240 s slice). */
+/** Slice rate the creep was tuned at (its old floor was `CREEP_OLD_FLOOR_SLICES` of these slices). */
 const CREEP_REF_HZ = 240;
+const CREEP_OLD_FLOOR_SLICES = 2;
+const CREEP_OLD_FLOOR_S = 1 / (CREEP_REF_HZ / CREEP_OLD_FLOOR_SLICES);
 /** A squash and buckle both below this leave the rig rigid: no plastic flow. */
 const PLASTIC_OFF = 0.03;
 /**
@@ -629,7 +631,7 @@ function applyPlasticity(c, particles) {
   const err = m3FrobeniusI(S);
   if (err < yieldC) return;
   // Tuned share per 1/240 s slice, compounded per sim second: the same flow whatever the slice.
-  const creepRef = Math.min(0.85, (0.35 + squash * 1.25 + buckle * 0.55) * (1 / 120) * 10);
+  const creepRef = Math.min(0.85, (0.35 + squash * 1.25 + buckle * 0.55) * CREEP_OLD_FLOOR_S * 10);
   const creep = 1 - Math.pow(1 - creepRef, dt * CREEP_REF_HZ);
   {
     const u = 1 - creep;

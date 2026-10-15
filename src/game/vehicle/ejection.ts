@@ -3,9 +3,10 @@ import type { DeformableCar } from "./car.ts";
 import type { ExitPane } from "./car-core.ts";
 import { CLASSES, killClass, killTravel } from "./vehicle-classes.ts";
 
-/** Velocity samples per car, one per 1/60 s of sim time (`SAMPLE`): 0.53 s, past `PRE`. */
+/** Velocity samples per car, one per `SAMPLE` s of sim time (`SAMPLE_HZ`): 0.53 s, past `PRE`. */
 const RING = 32;
-const SAMPLE = 1 / 60;
+const SAMPLE_HZ = 60;
+const SAMPLE = 1 / SAMPLE_HZ;
 /** How far back (s) "before the hit" is: the block dies 25-40 ms into a frontal hit, a derby kill up to 0.3 s after its last contact. */
 const PRE = 0.35;
 /** A car whose centre is within this (m) of the impact point is the one that hit; none: a wall. */

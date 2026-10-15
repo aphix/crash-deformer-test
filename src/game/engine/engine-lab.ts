@@ -15,14 +15,16 @@ import { solidsOf, type Placed, type PropCollider } from "../world/placements.ts
 import { armSolids, type Surface } from "../world/surfaces.ts";
 import { PREFABS } from "../world/catalog.ts";
 import { detSin, detCos, hypot2, hypot3 } from "../kernel/physics-core.js";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** Sim seconds after the first contact at which the throw's "after" speeds are read: the hit's pulse is over (crash pulses run 60–120 ms). */
 const AFTER_S = 0.3;
 /** A car moved this far (m) from where it stood when the throw left, or tipped past `UPRIGHT`, has fallen. */
 const FELL_M = 0.3;
-/** Path samples: one per `PATH_S` sim seconds, `PATH_N` of them (10 s). */
-const PATH_S = 1 / 60;
-const PATH_N = 600;
+/** Path samples: one per `PATH_S` sim seconds, `PATH_N` of them (`PATH_SECONDS` s). */
+const PATH_S = 1 / FRAME_HZ;
+const PATH_SECONDS = 10;
+const PATH_N = PATH_SECONDS * FRAME_HZ;
 /** What a throw met: `-1`, the wall the pegboard hangs on (`LabShot.hit`). */
 export const WALL = -1;
 /**
@@ -30,7 +32,7 @@ export const WALL = -1;
  * change past the hit his own skin counts (`HIT_DV`) off the ground is his first contact, with the item whose middle is
  * within `DOLL_REACH` m of his torso.
  */
-const DOLL_READ_S = 1 / 60;
+const DOLL_READ_S = 1 / FRAME_HZ;
 const DOLL_REACH = 3;
 /**
  * A thrown prop's change of velocity rising steeper than this sine (45° over level) is the ground pushing it up, its landing;

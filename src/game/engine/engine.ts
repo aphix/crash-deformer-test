@@ -46,10 +46,11 @@ import { TrackArt } from "../present/track-art.ts";
 import { EngineGarage } from "./engine-garage.ts";
 import { GARAGE } from "../present/garage-art.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
-import { SPARK_MIN_IMPULSE } from "./constants.ts";
+import { SMOKE_PUFF_HZ, SPARK_MIN_IMPULSE } from "./constants.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 import { firstMassContact } from "./car-contact-scan.ts";
 
-const FIXED = 1 / 60;
+const FIXED = 1 / FRAME_HZ;
 /** Deform LoD: sphere around a car — rest half-diagonal 2.5 m plus crumple slack and the
  *  ≈0.9 m the sun throws the roof's shadow, so an off-screen car's shadow is never stale either. */
 const LOD_RADIUS = 3.5;
@@ -474,9 +475,9 @@ export class CrashEngine extends EngineGarage {
             this.puffDeadEngine(car);
           }
         } else if (this.elapsedWall < (this.smokeUntil[i] ?? 0)) {
-          // 60 puffs per wall second whatever the refresh rate.
+          // One puff each 1/SMOKE_PUFF_HZ wall seconds, whatever the refresh rate.
           this.deadSmokeAcc[i] = (this.deadSmokeAcc[i] ?? 0) + wallDt;
-          for (; this.deadSmokeAcc[i]! >= 1 / 60; this.deadSmokeAcc[i]! -= 1 / 60) this.puffEngine(car);
+          for (; this.deadSmokeAcc[i]! >= 1 / SMOKE_PUFF_HZ; this.deadSmokeAcc[i]! -= 1 / SMOKE_PUFF_HZ) this.puffEngine(car);
         } else if (damageStage(car) === "limping") {
           // A limping engine trails a thin thread, half the dead engine's rate.
           this.deadSmokeAcc[i] = (this.deadSmokeAcc[i] ?? 0) + wallDt;

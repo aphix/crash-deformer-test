@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { strikeCar, bodyHit, makeBox, type ContactBox } from "../contact/external-contact.ts";
 import type { StreamedDeformation } from "../deform/streamed-deform.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * Hydraulic car-compactor: two kinematic plates, equal and opposite, square
@@ -145,7 +146,7 @@ export class CompactorRig {
   }
 
   /** Close to `targetFace` one `dt` frame at a time, the car's frame tail included. */
-  runTo(targetFace: number, dt = 1 / 60, cap = 2400): number {
+  runTo(targetFace: number, dt = 1 / FRAME_HZ, cap = 2400): number {
     const car = this.car!;
     let n = 0;
     while (this.face > targetFace + 1e-4 && n < cap) {

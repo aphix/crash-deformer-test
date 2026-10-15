@@ -16,8 +16,9 @@ export const SKIRT_RADIUS = 900;
 export const ROAD_LIFT = 0.015;
 export const MARK_LIFT = 0.045;
 export const KERB_LIFT = 0.06;
-/** Kerbs go on the inside of turns tighter than 60 m. */
-export const KERB_CURV = 1 / 60;
+/** Kerbs go on the inside of turns tighter than this radius (m). */
+const KERB_RADIUS = 60;
+export const KERB_CURV = 1 / KERB_RADIUS;
 /** A kerb takes the strongest curvature within this many samples (≈ m), so spline ripple never gaps it. */
 export const KERB_FILL = 6;
 /** Shadow depth materials for the instanced props (`forDraw`): three's own one draws the plain casters. */

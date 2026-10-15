@@ -10,6 +10,7 @@ import {
   type SensorSpec,
 } from "../kernel/rig-spec.ts";
 import { DEFAULT_BUCKLE, DEFAULT_SQUASH } from "./constants.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 import { DeformParticleHelper, DeformRigHelper } from "./deform-helper.ts";
 import { bindLattice, buildRunStructures, INF_K, restoreInto, runTemplate, wrinkleSeeds } from "./deform-build.ts";
 import { FACES, faceFollow, IMPRINT_NONE } from "./load-crush.ts";
@@ -290,7 +291,7 @@ export abstract class DeformRig {
    *  outside one. A double from the start: a Smi field's first double write changes the maps. */
   protected sliceAt = -1.5;
   /** The slice's length (s) and the faster of the touching cars in it (m/s): what the drift cap (`settleDrift`) grows with. */
-  protected sliceDt = 1 / 60;
+  protected sliceDt = 1 / FRAME_HZ;
   protected sliceTouch = -0;
   protected overlapFrame = false;
   /** Sim time (elapsed) of the last fed contact: the solver stays in contact mode CONTACT_HOLD past it. */
@@ -507,7 +508,7 @@ export abstract class DeformRig {
     this.frameVy = 0;
     this.push.reset();
     this.sliceAt = -1.5;
-    this.sliceDt = 1 / 60;
+    this.sliceDt = 1 / FRAME_HZ;
     this.sliceTouch = -0;
     this.overlapFrame = false;
     this.contactAt = -Infinity;

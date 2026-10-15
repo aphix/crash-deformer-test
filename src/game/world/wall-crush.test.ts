@@ -6,10 +6,11 @@ import { placeProps, propColliders } from "./placements.ts";
 import { Track } from "./track.ts";
 import oval from "./tracks/oval.json" with { type: "json" };
 import { SimPacer } from "../engine/sim-pace.ts";
+import { QUIET_HZ } from "../kernel/constants.ts";
 
 /**
  * Owner, 2026-10-05: "something seems much less likely to crush and eject correctly at higher speeds". A device whose 1/240 s
- * steps do not fit the frame steps at 1/80 s (`SimPacer`, adaptive), and a hit that falls between two steps of 0.69 m of
+ * steps do not fit the frame steps at the coarse step (`QUIET_HZ`, `SimPacer`, adaptive), and a hit that falls between two steps of 0.69 m of
  * travel at 55 m/s decided the crash: the same hit into the same wall killed the engine at one approach phase and spared it at
  * another (engine block 0.274 m to 0.484 m, the kill at 0.45 m). The whole stack headless (`race-world.test-util.ts`) with the
  * engine's own pacer holding each floor: a lone sedan, gas held, into the oval's straight wall.
@@ -53,7 +54,7 @@ const WALL = straightWall();
 /** What the sim does with the car in the 3 s after it is launched. */
 type Hit = { travel: number; killed: boolean; thrown: boolean };
 
-/** A sedan launched at `speed` from the road's far edge (`phase` of one 1/80 s step of travel closer), gas held, stepped by a pacer on the 1/80 s floor or the 1/240 s one. */
+/** A sedan launched at `speed` from the road's far edge (`phase` of one coarse step of travel closer), gas held, stepped by a pacer on the coarse floor or the 1/240 s one. */
 function hit(speed: number, coarse: boolean, phase: number): Hit {
   const w = makeWorld();
   try {
@@ -72,7 +73,7 @@ function hit(speed: number, coarse: boolean, phase: number): Hit {
     for (let n = 0; w.race.phase !== "racing" && n < 60 * 30; n++) frame(w, state, undefined, pace);
     assert.equal(w.race.phase, "racing");
     const car = w.cars[0]!;
-    const back = WALL.run - (phase * speed) / 80;
+    const back = WALL.run - (phase * speed) / QUIET_HZ;
     car.spawnFacing(WALL.fx - WALL.ox * back, WALL.fz - WALL.oz * back, Math.atan2(WALL.ox, WALL.oz), speed);
     for (let n = 0; n < 60 * 3; n++) frame(w, state, undefined, pace);
     return { travel: car.deform.engineTravel, killed: !car.deform.drivetrainAlive, thrown: car.driverOut !== null };
@@ -84,11 +85,11 @@ function hit(speed: number, coarse: boolean, phase: number): Hit {
 
 const SPEEDS = [30, 40, 55, 66];
 const PHASES = [0, 0.25, 0.5, 0.75];
-/** Calibration tolerance (m of engine block travel) between the two floors: 14 % of the 0.45 m that kills. The 1/80 s step's own grid leaves up to 0.061 m between them (measured, 30 m/s from half a step out; the 1/90 s step left 0.040 m, the 1/120 s step stayed under the 0.03 m bar it had). */
+/** Calibration tolerance (m of engine block travel) between the two floors: 14 % of the 0.45 m that kills. The coarse step's own grid leaves up to 0.061 m between them (measured at 1/80 s, 30 m/s from half a step out; the 1/90 s step left 0.040 m, the 1/120 s step stayed under the 0.03 m bar it had). */
 const SAME = 0.065;
 
 describe("given a sedan flat out into the oval's straight wall at 30 to 66 m/s, from four approach phases against the step grid", () => {
-  for (const [floor, coarse] of [["1/240 s", false], ["1/80 s", true]] as const) {
+  for (const [floor, coarse] of [["1/240 s", false], ["the coarse step", true]] as const) {
     it(`when the pacer steps at ${floor}, then every hit kills the engine and throws the driver`, () => {
       const missed: string[] = [];
       for (const speed of SPEEDS) {
@@ -101,13 +102,13 @@ describe("given a sedan flat out into the oval's straight wall at 30 to 66 m/s, 
     });
   }
 
-  it("when the pacer steps at 1/80 s instead of 1/240 s, then the engine block travels as far, hit for hit", () => {
+  it("when the pacer steps at the coarse step instead of 1/240 s, then the engine block travels as far, hit for hit", () => {
     const apart: string[] = [];
     for (const speed of SPEEDS) {
       for (const phase of PHASES) {
         const fine = hit(speed, false, phase);
         const coarse = hit(speed, true, phase);
-        if (Math.abs(coarse.travel - fine.travel) > SAME) apart.push(`${speed} m/s phase ${phase}: ${fine.travel.toFixed(3)} m at 1/240 s, ${coarse.travel.toFixed(3)} m at 1/80 s`);
+        if (Math.abs(coarse.travel - fine.travel) > SAME) apart.push(`${speed} m/s phase ${phase}: ${fine.travel.toFixed(3)} m at 1/240 s, ${coarse.travel.toFixed(3)} m at the coarse step`);
       }
     }
     assert.deepEqual(apart, []);

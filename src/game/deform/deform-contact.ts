@@ -10,7 +10,8 @@ import {
 import { DeformState, ENGINE_PACK_GAP, PLANT_QUIET, TYRE_R } from "./deform-state.ts";
 import { BodyFit } from "./body-fit.ts";
 import { detSin, detCos, detAtan2, sinCosAt } from "../kernel/physics-core.js";
-import { MIN_IMPACT_ZONE, MIN_INERTIA, MIN_MASS_SUM, SQUASH_REACH } from "./constants.ts";
+import { CONTACT_REF_SLICE, MIN_IMPACT_ZONE, MIN_INERTIA, MIN_MASS_SUM, SQUASH_REACH } from "./constants.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** Engine slack (m) a hit too slow to pack the nose still allows (mounts, not crush).
  *  This replaces the old first-hit ENGINE_LIGHT_CAP: the block's reach now
@@ -18,8 +19,6 @@ import { MIN_IMPACT_ZONE, MIN_INERTIA, MIN_MASS_SUM, SQUASH_REACH } from "./cons
 export const ENGINE_SLACK = 0.04;
 /** `stepStructure`'s frame when its caller gives none: level. */
 const LEVEL = new THREE.Quaternion();
-/** Physics slice (s) the per-call contact shares (feedOverlap nibble and inbound-speed kill) are tuned at. */
-const CONTACT_REF_SLICE = 1 / 240;
 export const TYRE_HALF_W = 0.11;
 /** Fastest (m/s) a wreck's body follows its cell's drift off its seat (`followGroup`): the nose's springback against a wall in 0.4 s, no faster than the pair pass's pushes. */
 const SEAT_SPEED = 1;
@@ -723,7 +722,7 @@ export abstract class DeformContact extends DeformState {
    * to it (its side crushes) rather than the bullet's nose stopping dead against a car that gets no momentum. `whole`: the overlap is
    * all of the crush (a fixed solid no particle reaches, so no particle held on its face takes the rest), not the 0.4 + 0.35·squash share.
    */
-  feedOverlap(worldPoint: THREE.Vector3, inward: THREE.Vector3, overlap: number, closing: number, dt = 1 / 60, refVn = 0, whole = false): number {
+  feedOverlap(worldPoint: THREE.Vector3, inward: THREE.Vector3, overlap: number, closing: number, dt = 1 / FRAME_HZ, refVn = 0, whole = false): number {
     if (!this.massActive) return closing;
     this.overlapFrame = true;
     const leftover = leftoverCrumple(this.crumpleTravel());

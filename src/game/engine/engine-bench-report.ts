@@ -2,6 +2,9 @@ import { describeDepthProbe, type DepthProbe } from "../present/depth-probe.ts";
 import { FX_TIER_ULTRA } from "../present/constants.ts";
 import type { SkyDetail, SkyMode } from "../present/sky-dome.ts";
 import { labLine, stripLines, type StripResult } from "./engine-bench-plan.ts";
+import { QUIET_HZ } from "../kernel/constants.ts";
+
+const COARSE_LABEL = `1/${QUIET_HZ} s`;
 
 /** The detail A/B's arms: no cuts at all, then the ladder's rungs for 75, 50 and 30 m (`DETAIL_LEVELS`). */
 export const DETAIL_ARMS: readonly { key: string; level: number | null }[] = [{ key: "off", level: null }, { key: "75 m", level: 0 }, { key: "50 m", level: 2 }, { key: "30 m", level: 4 }];
@@ -311,7 +314,7 @@ export function describeBench(r: BenchResult): string[] {
     `${f1(r.fps)} FPS   1% low ${f1(r.fpsLow1)}   by thirds ${r.fpsThirds.map(f1).join(" / ")}`,
     `fps each second: ${r.fpsPerSecond.join(" ")}`,
     `sim ms each second: ${r.simMsPerSecond.join(" ")}`,
-    `SIM SPEED ${Math.round(r.simSpeedPct)} %   pacer cut ${r.cutFrames} of ${r.frames} frames, gave up ${f1(r.lostSimS)} sim-s   1/80 s steps in ${Math.round(r.coarsePct)} % of frames   wrecks: mean ${f1(r.crashed.mean)}, end ${r.crashed.end}`,
+    `SIM SPEED ${Math.round(r.simSpeedPct)} %   pacer cut ${r.cutFrames} of ${r.frames} frames, gave up ${f1(r.lostSimS)} sim-s   ${COARSE_LABEL} steps in ${Math.round(r.coarsePct)} % of frames   wrecks: mean ${f1(r.crashed.mean)}, end ${r.crashed.end}`,
     ...leftPage(r.pageEvents),
     row("frame", r.frameMs),
     row("CPU", r.cpuMs),
@@ -326,7 +329,7 @@ export function describeBench(r: BenchResult): string[] {
     `night ${s.night ? "on" : "off"}, wet ${s.wet ? "on" : "off"}, realism ${f1(s.realism)}, squash ${f1(s.squash)}, buckle ${f1(s.buckle)}, deform ${s.deformMode}, sky ${s.sky} (${s.skyDetail} at the top tier)`,
     `depth: ${s.depth.bits} bits (drawing buffer${s.depth.contextDepth ? "" : ", none requested"}), subpixel ${s.depth.subpixelBits} bits, fragment highp ${s.depth.fragmentHighFloat ? `${s.depth.fragmentHighFloat.precision} bits, range 2^${s.depth.fragmentHighFloat.rangeMin}..2^${s.depth.fragmentHighFloat.rangeMax}` : "not supported"}, camera near ${s.depth.near} far ${s.depth.far}, log depth ${s.depth.logarithmicDepthBuffer ? "on" : "off"}, ${describeDepthProbe(s.depth.probe)}`,
     `A/B pacer pinned: ${arm("1/240 s", r.abPace.fine)}, ${f1(r.abPace.fine.fineCutsPerSimS)} fine-slice cuts/sim-s`,
-    `                  ${arm("1/80 s", r.abPace.coarse)}, ${f1(r.abPace.coarse.fineCutsPerSimS)} fine-slice cuts/sim-s`,
+    `                  ${arm(COARSE_LABEL, r.abPace.coarse)}, ${f1(r.abPace.coarse.fineCutsPerSimS)} fine-slice cuts/sim-s`,
     `A/B fx pinned: ${arm("minimal", r.abFx.minimal)}`,
     `               ${arm("low", r.abFx.low)}`,
     `               ${arm("high", r.abFx.high)}`,

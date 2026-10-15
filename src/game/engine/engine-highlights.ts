@@ -12,14 +12,14 @@ import { CINE, withCars, type Sight } from "../present/spectate-cam.ts";
 import { crashCamEnd, CUTS, hitAim, laterHits, type CrashCam, type CrashHold } from "../present/engine-cine.ts";
 import { contextEye, contextPose, overheadPose } from "../present/highlight-cam.ts";
 import { ClipSim, type ReplayScene } from "./engine-replay.ts";
-import { SPARK_MIN_IMPULSE } from "./constants.ts";
+import { SPARK_MIN_IMPULSE, TIMELINE_HZ } from "./constants.ts";
 
 /** Wall seconds of the far-overhead flight into each clip. */
 export const FLIGHT_S = 3;
 /** Solo view: wall seconds a clip's last frame holds before it plays again. */
 const SOLO_HOLD = 1.5;
-/** A clip's timeline steps the phase clock at this fixed wall rate: the same curve on every peer, whatever its frame rate. */
-const TL_DT = 1 / 120;
+/** A clip's timeline steps the phase clock at this fixed wall rate (`TIMELINE_HZ`): the same curve on every peer, whatever its frame rate. */
+const TL_DT = 1 / TIMELINE_HZ;
 /**
  * A peer that reaches a clip more than this far in (wall s: a late join, back from the solo view, a stalled tab)
  * hovers over it until the next flight rather than replaying seconds of it in one frame.

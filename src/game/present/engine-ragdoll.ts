@@ -68,8 +68,9 @@ const REST_SPEED = 0.4;
  * first hit 1–2 s after it.
  */
 const PENDING_MAX = 1;
-/** The step (sim s) while knocked props alone are out and none moves fast: rigid shapes with no joints to tear, with CCD (`PropBodies`) for the walls a coarser step would get wrong. */
-const PROP_STEP = 1 / 120;
+/** The step rate (Hz) while knocked props alone are out and none moves fast: rigid shapes with no joints to tear, with CCD (`PropBodies`) for the walls a coarser step would get wrong. */
+const PROP_STEP_HZ = 120;
+const PROP_STEP = 1 / PROP_STEP_HZ;
 /**
  * A knocked prop any point of whose shape moves faster than this (m/s: its middle's speed plus its turn times its reach)
  * keeps the world at `STEP`: at 1/120 a spinning cone flung at 31 m/s landed with its tip 110 mm in the ground. Deepest
@@ -77,8 +78,9 @@ const PROP_STEP = 1 / 120;
  * 23.0 at 1/480 throughout.
  */
 const PROP_FAST = 8;
-/** The skin's hits, the spin limit and the purses are judged at this interval (sim s) whatever `STEP` is: `HIT_DV` is a speed change per interval. */
-const WATCH = 1 / 120;
+/** The skin's hits, the spin limit and the purses are judged at this rate (Hz) whatever `STEP` is: `HIT_DV` is a speed change per interval. */
+const WATCH_HZ = 120;
+const WATCH = 1 / WATCH_HZ;
 const WATCH_EVERY = Math.round(WATCH / STEP);
 /** A car moving faster than this (m/s) and this near (m) to a dummy that lies asleep keeps the world stepping (a car moves 1.2 m a frame at 70 m/s; a wreck lying beside him does not); the barrier's reach is its half diagonal. A sleeping knocked prop is stirred only by such a car that can touch it this frame (`PropBodies.touches`). */
 const WAKE_SPEED = 0.5;

@@ -23,6 +23,7 @@ import type { BenchParts } from "./bench-measure.ts";
 import { DETAIL_LEVELS } from "../present/car-detail.ts";
 import { EngineRigs } from "./engine-rigs.ts";
 import { SETTING_KEY } from "./constants.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** A press that misses every hull still follows the car whose centre shows this near it (share of the canvas width): the derby's far, small cars. */
 const PICK_NEAR = 0.03;
@@ -42,7 +43,7 @@ export abstract class EngineInput extends EngineRigs {
    * cannot interleave). Only the last frame (or every frame with `render`) draws, so a screenshot after it shows the state.
    */
   advance(seconds: number, opts: { frameDt?: number; render?: boolean } = {}): void {
-    const dt = (opts.frameDt ?? 1 / 60) * 1000;
+    const dt = (opts.frameDt ?? 1 / FRAME_HZ) * 1000;
     const frames = Math.max(1, Math.round((seconds * 1000) / dt));
     const real = this.last;
     let t = real;

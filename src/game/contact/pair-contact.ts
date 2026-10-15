@@ -12,6 +12,7 @@ import { ARM_CLOSING, PAIR_MU, SOLID_E } from "./constants.ts";
 import { CAR_HALF, FOOT_HALF_L } from "../vehicle/car-mesh.ts";
 import { SOLID_AT_REST } from "../world/constants.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
+import { FINE_HZ, QUIET_HZ } from "../kernel/constants.ts";
 import { PUSH_SPEED } from "../deform/push-budget.ts";
 
 const _v = new THREE.Vector3();
@@ -76,10 +77,10 @@ const WALL_REACH = 1.2;
 const WALL_SKIN = 0.015;
 
 /**
- * Seconds of travel ahead of a car driving hard into a fixed solid or another car at which its step is a hit step (`nearHit`): a step
- * and a third of `SimPacer`'s 1/80 s floor, so no step carries it from clear of the face to inside it (0.69 m a step at 55 m/s).
+ * Seconds of travel ahead of a car driving hard into a fixed solid or another car at which its step is a hit step (`nearHit`): a quiet
+ * step and a fine slice more, so no step carries it from clear of the face to inside it (0.69 m a step at 55 m/s and 80 Hz).
  */
-export const HIT_AHEAD = 1 / 60;
+export const HIT_AHEAD = 1 / QUIET_HZ + 1 / FINE_HZ;
 /**
  * A car `gap` m from a face (a fixed solid's or another car's; negative: in it) and closing on it at `closing` m/s is about to
  * land a hard hit (`WALL_CRUSH`) when the face is within `HIT_AHEAD` s of travel: whether the crush then kills the engine no longer

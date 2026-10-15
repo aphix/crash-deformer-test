@@ -10,6 +10,7 @@ import { contactHz } from "../vehicle/car-air-points.ts";
 import { CarSurfaces } from "../vehicle/car-surfaces.ts";
 import { armTops } from "../world/surfaces.ts";
 import { STOCK_PAINT } from "../vehicle/constants.ts";
+import { FINE_HZ, SLICES_PER_STEP } from "../kernel/constants.ts";
 import { FINE_SLICE } from "./sim-pace.ts";
 
 /**
@@ -63,7 +64,7 @@ export type World = {
   partStirs: number[];
   /** The slice (s) the pacer's 1/240 s floor takes now (`SimPacer.fine`), which a step in contact is cut to; 0 where no pacer steps the world (a harness: contact is cut to `FINE_SLICE`; a replay: the recorded `shape` decides). */
   fine: number;
-  /** Steps in contact that `stepWorld` ran in more slices than a step of that length out of contact takes (1, or 2 above 13 ms), counted up for ever where `fine` is set (the bench reads differences). */
+  /** Steps in contact that `stepWorld` ran in more slices than a step of that length out of contact takes (1, or 2 for a step longer than the quiet step), counted up for ever where `fine` is set (the bench reads differences). */
   fineCuts: number;
 };
 
@@ -155,7 +156,7 @@ export function stepWorld(w: World, dt: number): void {
   let slices: number;
   if (w.plan >= 0) slices = (w.plan & 7) + 1;
   else {
-    // Contact (the barrier's reach, a car in reach, a hit about to land: the pairs are marked here, the solids by the course's collide pass of the step before) is solved in slices of the pacer's fine floor (`fine`, `FINE_SLICE` where none is set), whatever the step: one law for a hit at the 1/120 s step and at the 1/240 s one. A step is solved at the rate a car in it asks for (`contactHz`): a body in flight touching something.
+    // Contact (the barrier's reach, a car in reach, a hit about to land: the pairs are marked here, the solids by the course's collide pass of the step before) is solved in slices of the pacer's fine floor (`fine`, `FINE_SLICE` where none is set), whatever the step: one law for a hit at the quiet step and at the 1/240 s one. A step is solved at the rate a car in it asks for (`contactHz`): a body in flight touching something.
     if (w.fine > 0) {
       const count = collectNear(cars);
       markApproaches(cars, near.pairs, count);
@@ -167,7 +168,7 @@ export function stepWorld(w: World, dt: number): void {
       hz = Math.max(hz, contactHz(car));
       hit = hit || car.nearHit;
     }
-    const quiet = dt > 0.013 ? 2 : 1;
+    const quiet = Math.ceil(dt * FINE_HZ - 1e-6) > SLICES_PER_STEP ? 2 : 1;
     const cut = Math.min(8, Math.ceil(dt / (w.fine > 0 ? w.fine : FINE_SLICE) - 1e-6));
     const contact = cut !== quiet && (hit || nearWall || carsInReach(cars));
     slices = contact ? cut : quiet;
@@ -328,7 +329,7 @@ export function warmCrashPath(): boolean {
     a.spawnFacing(x, z, yaw, 14);
     b.spawnFacing(0, 0, yawB, vB);
     const w = newWorld([a, b]);
-    for (let i = 0; i < 240; i++) stepWorld(w, 1 / 240);
+    for (let i = 0; i < FINE_HZ; i++) stepWorld(w, 1 / FINE_HZ);
     crashed &&= a.crashed && b.crashed && a.deform.massActive && b.deform.massActive;
     a.dispose();
     b.dispose();

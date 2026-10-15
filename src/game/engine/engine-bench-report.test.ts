@@ -3,6 +3,9 @@ import { describe, test } from "node:test";
 import { browserName, describeBench, perSecond, stat, type Block, type BenchResult, type RagdollCost, type ReplayResult, type ReplayTier } from "./engine-bench-report.ts";
 import { MAX_JSON_BYTES } from "../../lib/submissions/kinds.ts";
 import { benchPlan } from "./engine-bench-plan.ts";
+import { QUIET_HZ } from "../kernel/constants.ts";
+
+const COARSE_LABEL = `1/${QUIET_HZ} s`;
 
 const S = (p50: number) => ({ mean: p50, p50, p95: p50 * 2, p99: p50 * 3, max: p50 * 4 });
 const B = (fps: number, gpuMs: number | null, fineCutsPerSimS = 0): Block => ({ frames: 270, wallS: 9, fps, simSpeedPct: 99, simMsPerSimS: 212, msPerStep: 0.9, stepsPerFrame: 2.7, cpuMs: 7.5, drawMs: 2.1, gpuMs, fineCutsPerSimS, calls: 640, triangles: 410000 });
@@ -117,7 +120,8 @@ describe("given the bench result of a phone running the city course (describeBen
     assert.match(lines[1]!, /^90\.0 FPS {3}1% low 41\.7 {3}by thirds 90\.0 \/ 90\.0 \/ 89\.0$/);
     assert.equal(lines[2], "fps each second: 90 91 89 90");
     assert.equal(lines[3], "sim ms each second: 212 230 640 205");
-    assert.match(lines[4]!, /^SIM SPEED 98 % .*1\/80 s steps in 62 % of frames {3}wrecks: mean 3\.4, end 5$/);
+    assert.match(lines[4]!, /^SIM SPEED 98 % /);
+    assert.ok(lines[4]!.endsWith(`${COARSE_LABEL} steps in 62 % of frames   wrecks: mean 3.4, end 5`));
     assert.ok(lines.some((l) => /^GPU {7}no timer query/.test(l)));
     assert.ok(lines.some((l) => l.endsWith("2.7 steps/frame, 1.56 ms/step, 212 ms per sim-second, 3.4 fine-slice cuts/sim-s")));
     assert.ok(lines.some((l) => l.startsWith("fx tier: high 97 %, minimal 3 % (auto)") && l.includes("radial blur, grain 0.03")));
@@ -125,7 +129,7 @@ describe("given the bench result of a phone running the city course (describeBen
     assert.ok(lines.some((l) => l === "depth: 24 bits (drawing buffer), subpixel 8 bits, fragment highp 23 bits, range 2^127..2^127, camera near 0.1 far 180, log depth off, coplanar layer shows at 0.063 px of slope or 62 steps"));
     const noDepth = describeBench({ ...RESULT, settings: { ...RESULT.settings, depth: { ...RESULT.settings.depth, bits: 16, contextDepth: false, fragmentHighFloat: null, logarithmicDepthBuffer: true } } });
     assert.ok(noDepth.some((l) => l === "depth: 16 bits (drawing buffer, none requested), subpixel 8 bits, fragment highp not supported, camera near 0.1 far 180, log depth on, coplanar layer shows at 0.063 px of slope or 62 steps"));
-    assert.ok(lines.some((l) => l.startsWith("A/B pacer pinned: 1/240 s 41.0 fps") && l.endsWith(", 12.5 fine-slice cuts/sim-s")) && lines.some((l) => l.includes("1/80 s 58.0 fps") && l.endsWith(", 0.0 fine-slice cuts/sim-s")));
+    assert.ok(lines.some((l) => l.startsWith("A/B pacer pinned: 1/240 s 41.0 fps") && l.endsWith(", 12.5 fine-slice cuts/sim-s")) && lines.some((l) => l.includes(`${COARSE_LABEL} 58.0 fps`) && l.endsWith(", 0.0 fine-slice cuts/sim-s")));
     assert.ok(lines.some((l) => l.includes("minimal 60.0 fps") && l.includes("gpu 1.1")) && lines.some((l) => l.includes("high 48.0 fps") && l.includes("gpu n/a")));
     assert.ok(lines.some((l) => l === "detail: only the body drawn beyond 50 m for 80 %, 40 m for 20 % of the window"));
     assert.ok(lines.some((l) => l.startsWith("A/B detail pinned: no cuts 44.0 fps")) && lines.some((l) => l.includes("body beyond 30 m 59.0 fps")));

@@ -1,4 +1,5 @@
 import { physicsSlice } from "../contact/sat.ts";
+import { FINE_HZ, QUIET_HZ } from "../kernel/constants.ts";
 
 /** Steps one frame may run before it gives up catching the sim up to its time. */
 const MAX_STEPS = 8;
@@ -9,9 +10,9 @@ const MIN_SCALE = 1 / 64;
 /** Wall ms a frame may spend stepping (the engine's deadline is this far from the frame's first step). */
 export const PACE_BUDGET_MS = 8;
 /** The shortest step (s) the pacer takes on a device that keeps up, and the one it falls back to when it doesn't. */
-export const FINE_SLICE = 1 / 240;
-/** The coarse floor: one step per 1/80 s, three slices of the 1/240 s floor (and six of `CONTACT_HZ`'s 1/480 s) exactly, so a step cut for contact never takes shorter slices than the fine floor's. Handling is authored at it (`vehicle-classes.test.ts`). */
-const COARSE_SLICE = 1 / 80;
+export const FINE_SLICE = 1 / FINE_HZ;
+/** The coarse floor: one step per `QUIET_HZ`, a whole number of fine slices, so a step cut for contact never takes shorter slices than the fine floor's. Handling is authored at it (`vehicle-classes.test.ts`). */
+const COARSE_SLICE = 1 / QUIET_HZ;
 /** Go coarse when a frame's fine steps are predicted to take more than this share of the budget; come back under this share. */
 const COARSE_ABOVE = 0.9;
 const FINE_BELOW = 0.5;

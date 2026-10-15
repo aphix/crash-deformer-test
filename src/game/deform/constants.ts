@@ -16,6 +16,8 @@ export const MIN_SLIDE = 1e-6;
 export const FAR_SIDE_DOT = 0.18;
 /** The crush reach (m) a hit's stroke gains per unit of the squash setting (on top of its 0.5 m base). */
 export const SQUASH_REACH = 1.15;
+/** Physics slice (s) the per-call contact shares (feedOverlap nibble and inbound-speed kill) were tuned at: a calibration reference, kept when the sim's own fine floor moves. */
+export const CONTACT_REF_SLICE = 1 / 240;
 /** The squash and buckle settings a fresh rig starts at, and the HUD starts its sliders at. */
 export const DEFAULT_SQUASH = 0.32;
 export const DEFAULT_BUCKLE = 0.45;

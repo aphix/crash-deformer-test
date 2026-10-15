@@ -141,6 +141,10 @@ scenarios at the engine's slices), `scenes/contact-parity.test-util.ts` (striker
   tuned; it says so. *Check C7.*
 - **K3.** Knobs the player can move go through `KNOB_RANGES` with defaults in `INITIAL_HUD`; `knob-defaults.test.ts` pins the
   calibrated defaults.
+- **K4.** A sim step or frame rate is written once, in a `constants.ts`, and every other site imports it and writes `1 / QUIET_HZ`:
+  `FINE_HZ`, `SLICES_PER_STEP` and `FRAME_HZ` in `kernel/constants.ts` (the quiet step, `QUIET_HZ`, is `FINE_HZ / SLICES_PER_STEP`), or a
+  named rate beside the knob it tunes. What follows from a rate (a slice count, a threshold, a label, a phase grid) is computed from
+  it in code, never retyped as a second number. *Check C14.*
 
 ## 7. Wobbly allowances (explicitly allowed)
 

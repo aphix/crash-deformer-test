@@ -7,6 +7,7 @@ import { PoseBlend } from "../present/pose-blend.ts";
 import { assertSameNumbers, paint } from "../vehicle/test-support.ts";
 import { newWorld, settleStep, stepWorld } from "./world-step.ts";
 import { PACE_BUDGET_MS, SimPacer } from "./sim-pace.ts";
+import { QUIET_HZ } from "../kernel/constants.ts";
 
 const V = 30;
 const SPIN = 1.2;
@@ -365,9 +366,9 @@ function device(adaptive: boolean, stepMs: (t: number, n: number) => number, dra
   return { pace, log, speed: stepped / scale / (t / 1000) };
 }
 
-describe("given the adaptive pacer, which steps the sim at 1/80 s on a device that cannot keep up with 1/240 s steps", () => {
+describe("given the adaptive pacer, which steps the sim at the coarse step on a device that cannot keep up with 1/240 s steps", () => {
   const fine = Math.fround(1 / 240);
-  const coarse = Math.fround(1 / 80);
+  const coarse = Math.fround(1 / QUIET_HZ);
 
   it("when the device keeps up (0.8 ms a step, 4 ms of draw, a 90 Hz screen), then it steps at 1/240 s throughout, at the very times the fixed pacer steps", () => {
     const on = device(true, () => 0.8, 4, 90, 8);
@@ -378,12 +379,12 @@ describe("given the adaptive pacer, which steps the sim at 1/80 s on a device th
     assert.ok(on.log.every((e, i) => e.h === off.log[i]!.h && e.at === off.log[i]!.at), "the same steps at the same times");
   });
 
-  it("when the device cannot afford 1/240 s steps (4.7 ms each, 9.4 ms of draw, a 90 Hz screen), then the fixed pacer runs under 0.45 of real time while the adaptive one settles at 1/80 s and gets its sim speed back", () => {
+  it("when the device cannot afford 1/240 s steps (4.7 ms each, 9.4 ms of draw, a 90 Hz screen), then the fixed pacer runs under 0.45 of real time while the adaptive one settles at the coarse step and gets its sim speed back", () => {
     const off = device(false, () => 4.7, 9.4, 90, 20);
     const on = device(true, () => 4.7, 9.4, 90, 20);
     assert.ok(off.speed < 0.45, `the fixed pacer runs at ${off.speed}`);
     assert.ok(on.speed > 0.7 && on.speed > 1.8 * off.speed, `adaptive ${on.speed} vs fixed ${off.speed}`);
-    assert.ok(on.log.slice(-200).every((e) => e.h === coarse), "settled at 1/80 s");
+    assert.ok(on.log.slice(-200).every((e) => e.h === coarse), "settled at the coarse step");
     assert.ok(on.pace.coarseSteps > 0.8 * on.pace.total);
   });
 
@@ -412,7 +413,7 @@ describe("given the adaptive pacer, which steps the sim at 1/80 s on a device th
     assert.equal(d.pace.coarseSteps, 0);
   });
 
-  it("when the load is heavy in slow motion at a quarter of real time, then the coarse step is the scaled 1/80 s step and the wait before the first change counts wall seconds", () => {
+  it("when the load is heavy in slow motion at a quarter of real time, then the coarse step is the scaled coarse step and the wait before the first change counts wall seconds", () => {
     const d = device(true, () => 6, 4, 90, 12, 0.25);
     assert.ok(d.log.slice(-100).every((e) => e.h === Math.fround(coarse * 0.25)));
     const first = d.log.findIndex((e) => e.h !== d.log[0]!.h);
@@ -435,7 +436,7 @@ describe("given the adaptive pacer, which steps the sim at 1/80 s on a device th
 
 describe("given the pacer's fine-slice need (a crush window open on some car)", () => {
   const fine = Math.fround(1 / 240);
-  const coarse = Math.fround(1 / 80);
+  const coarse = Math.fround(1 / QUIET_HZ);
   /** The slices one 1/60 s frame runs under `pin` and `fineNeeded` on a pacer with no load. */
   function slices(pin: boolean | null, fineNeeded: boolean): number[] {
     const pace = new SimPacer();
@@ -445,7 +446,7 @@ describe("given the pacer's fine-slice need (a crush window open on some car)", 
     return hs;
   }
 
-  it("when no crush window is open and nothing is pinned, then every step is the 1/80 s slice", () => {
+  it("when no crush window is open and nothing is pinned, then every step is the coarse slice", () => {
     const hs = slices(null, false);
     assert.ok(hs.length > 0 && hs.every((h) => h === coarse), `slices ${hs.join(",")}`);
   });
@@ -465,19 +466,19 @@ describe("given the pacer's fine-slice need (a crush window open on some car)", 
 });
 
 describe("given the engine's pacer in a browser whose clock reads only in coarse ticks (privacy-hardened Firefox, Tor), so a step cannot be timed", () => {
-  const coarse = Math.fround(1 / 80);
+  const coarse = Math.fround(1 / QUIET_HZ);
   const coarseClockCases = [
-    { it: "when the clock ticks every 16.7 ms and a step costs 1 ms, then the sim keeps real time in 1/80 s steps and no frame is cut short", tickMs: 1000 / 60, stepMs: 1 },
-    { it: "when the clock ticks every 16.7 ms and a step costs 3 ms, then the sim keeps real time in 1/80 s steps and no frame is cut short", tickMs: 1000 / 60, stepMs: 3 },
-    { it: "when the clock ticks every 4 ms and a step costs 1 ms, then the sim keeps real time in 1/80 s steps and no frame is cut short", tickMs: 4, stepMs: 1 },
-    { it: "when the clock ticks every 4 ms and a step costs 3 ms, then the sim keeps real time in 1/80 s steps and no frame is cut short", tickMs: 4, stepMs: 3 },
+    { it: "when the clock ticks every 16.7 ms and a step costs 1 ms, then the sim keeps real time in coarse steps and no frame is cut short", tickMs: 1000 / 60, stepMs: 1 },
+    { it: "when the clock ticks every 16.7 ms and a step costs 3 ms, then the sim keeps real time in coarse steps and no frame is cut short", tickMs: 1000 / 60, stepMs: 3 },
+    { it: "when the clock ticks every 4 ms and a step costs 1 ms, then the sim keeps real time in coarse steps and no frame is cut short", tickMs: 4, stepMs: 1 },
+    { it: "when the clock ticks every 4 ms and a step costs 3 ms, then the sim keeps real time in coarse steps and no frame is cut short", tickMs: 4, stepMs: 3 },
   ] as const;
   for (const testCase of coarseClockCases) {
     it(`${testCase.it} (4 ms of draw, a 90 Hz screen)`, () => {
       const d = device(true, () => testCase.stepMs, 4, 90, 8, 1, null, testCase.tickMs);
       assert.ok(d.speed > 0.99, `sim speed ${d.speed}`);
       assert.equal(d.pace.cut, 0, `${d.pace.cut} frames cut short`);
-      assert.ok(d.log.slice(-200).every((e) => e.h === coarse), "settled at 1/80 s");
+      assert.ok(d.log.slice(-200).every((e) => e.h === coarse), "settled at the coarse step");
     });
   }
 
