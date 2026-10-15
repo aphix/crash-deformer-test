@@ -21,6 +21,7 @@ import { useSpeedUnit } from "@/components/use-speed-unit";
 import { useStoredString } from "@/components/use-stored-string";
 import { Button } from "@/components/ui/button";
 import type { CrashEngine } from "@/game/engine/engine";
+import { SCENE_KEY_BINDINGS } from "@/game/engine/engine-keys";
 import { audioLevels } from "@/game/hud/audio-levels";
 import { resetGlow, resetInput } from "@/game/hud/reset-prompt";
 import { PAD_BUTTON } from "@/game/vehicle/gamepad";
@@ -77,21 +78,16 @@ const SCENES: SceneDef[] = [
   { id: "stack", label: "Stack", aria: "Roof-crush stack scene", quiet: true },
 ];
 
+const sceneLabel = (id: Scene): string => SCENES.find((scene) => scene.id === id)?.label ?? id;
+
 const SCENE_KEYS: [string, string][] = [
   ["Space", "Pause / play"],
   ["R", "Reset"],
   ["L", "Loop"],
-  ["D", "Derby"],
-  ["Z", "Race"],
-  ["S", "Survival (whole-field view)"],
+  ...SCENE_KEY_BINDINGS.map((binding): [string, string] => [binding.label, sceneLabel(binding.scene)]),
   ["H", "In a race: race view · full menu"],
-  ["C", "Press"],
-  ["I", "Pistons"],
   ["1–8 · 0", "Fire ram · all"],
-  ["N", "Doors"],
   ["1–3 · 4 · 5", "Door ram A–C · open · side"],
-  [",", "Corkscrew"],
-  ["/", "Stack"],
   ["B", "Wall"],
   ["K", "Balls"],
   [".", "Ramps"],
@@ -111,7 +107,7 @@ const CAMERA_KEYS: [string, string][] = [
   ["` (hold)", "Look back"],
   ["Drag · scroll", "Orbit camera"],
   [";", "Mouse look (Esc ends it)"],
-  ["V", "Camera view: chase, trackside, wheel, orbit, auto"],
+  ["V", "Camera view (also C, T): chase, trackside, wheel, orbit, auto"],
 ];
 
 function seatHint(state: CrashHudState): { title: string; keys: string } {

@@ -5,8 +5,8 @@ stopwatch that is the score. Survive as long as possible while more and more cop
 
 ## The mode
 
-- **Entry:** the scene bar's **Survival** button (desktop dock and phone picker), the **S** key from the whole-field view
-  (S is the brake once a car is driven) open **Survival's own setup menu** first ("Pick a course", `RaceMenu` `"survival"`, `components/survival-hud.tsx`
+- **Entry:** the scene bar's **Survival** button (desktop dock and phone picker) or the **-** (minus) key (no driving key picks a scene)
+  open **Survival's own setup menu** first ("Pick a course", `RaceMenu` `"survival"`, `components/survival-hud.tsx`
   `SurvivalMenu`): the Survival courses as cards (`RaceField.survivalCourses`, every course with `survival` anchors: Havana, Washington DC; the same
   `CourseCard` as Race's menu), the rows that apply to a run (the car and driver, the time of day, the sound; nothing race-only: no laps, AI cars, wrecks
   or police), **Start survival** and **Back** to the fleet. The field is parked on the picked course's start behind it and nothing runs until Start

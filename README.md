@@ -105,7 +105,7 @@ Every key, controller button and touch control is in [`docs/CONTROLS.md`](docs/C
 | Pause / full menu | Esc / H | Start |
 | FX tier / night / wet | F / H / X | |
 
-Scenes from the bottom bar or a key (whole-field view): derby D, Survival S, race Z, press C, pistons I, doors N,
+Scenes from the bottom bar or a key (none of them a driving key): derby `=`, Survival `-`, race Z, press `[`, pistons I, doors N,
 corkscrew `,`, stack `/`; the same key again goes back to the fleet. Range, Lab and Garage are on the bar.
 
 ## Quick start

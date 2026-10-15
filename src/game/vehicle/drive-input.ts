@@ -36,6 +36,21 @@ export function blankIntent(): DriveIntent {
   };
 }
 
+/** Every key `readIntent` reads (`KeyboardEvent.code`), by control: no key here may also switch scenes (`engine-keys.ts`). */
+export const DRIVE_KEYS = {
+  gas: ["KeyW", "ArrowUp"],
+  brake: ["KeyS", "ArrowDown"],
+  left: ["KeyA", "ArrowLeft"],
+  right: ["KeyD", "ArrowRight"],
+  handbrake: ["Space"],
+  boost: ["ShiftLeft", "ShiftRight"],
+};
+
+function anyHeld(keys: ReadonlySet<string>, codes: readonly string[]): boolean {
+  for (let i = 0; i < codes.length; i++) if (keys.has(codes[i]!)) return true;
+  return false;
+}
+
 /** Ramped wheel and pedals carried between physics slices, plus the brake-tap drift pulse (`brakeHeld` s down, `pulse` s left). */
 export type DriveFeel = { wheel: number; gas: number; brake: number; brakeHeld: number; pulse: number };
 
@@ -78,10 +93,10 @@ export function gameKey(e: Pick<KeyboardEvent, "defaultPrevented" | "ctrlKey" | 
 
 /** Merge keyboard and pad per axis: the larger magnitude wins, so either can drive at any time. */
 export function readIntent(keys: ReadonlySet<string>, pad: PadState | null, out: DriveIntent): DriveIntent {
-  const kGas = keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0;
-  const kBrake = keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0;
-  const left = keys.has("KeyA") || keys.has("ArrowLeft");
-  const right = keys.has("KeyD") || keys.has("ArrowRight");
+  const kGas = anyHeld(keys, DRIVE_KEYS.gas) ? 1 : 0;
+  const kBrake = anyHeld(keys, DRIVE_KEYS.brake) ? 1 : 0;
+  const left = anyHeld(keys, DRIVE_KEYS.left);
+  const right = anyHeld(keys, DRIVE_KEYS.right);
   const kWheel = (left ? 1 : 0) - (right ? 1 : 0);
   out.wheelLock = left && right;
   const p = pad && pad.connected ? pad : null;
@@ -95,8 +110,8 @@ export function readIntent(keys: ReadonlySet<string>, pad: PadState | null, out:
   out.analogBrake = pBrake > kBrake;
   out.brake = Math.max(kBrake, pBrake);
   const held = p ? p.held : 0;
-  out.handbrake = keys.has("Space") || (held & (1 << PAD_BUTTON.south)) !== 0;
-  out.boost = keys.has("ShiftLeft") || keys.has("ShiftRight") || (held & (1 << PAD_BUTTON.west)) !== 0;
+  out.handbrake = anyHeld(keys, DRIVE_KEYS.handbrake) || (held & (1 << PAD_BUTTON.south)) !== 0;
+  out.boost = anyHeld(keys, DRIVE_KEYS.boost) || (held & (1 << PAD_BUTTON.west)) !== 0;
   return out;
 }
 

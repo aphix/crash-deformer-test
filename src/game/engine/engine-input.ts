@@ -15,6 +15,7 @@ import { CHASE_KNOBS, type ChaseKnobId } from "../present/drive-cam.ts";
 import { loadUltra as fetchUltra } from "../present/ultra/load.ts";
 import { gameKey } from "../vehicle/drive-input.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
+import { SCENE_KEY_SCENES, SEAT_KEYS } from "./engine-keys.ts";
 import { MouseLook } from "./mouse-look.ts";
 import { PAD_BUTTON, type TouchPad } from "../vehicle/gamepad.ts";
 import { ResetHold } from "../hud/reset-hold.ts";
@@ -564,7 +565,7 @@ export abstract class EngineInput extends EngineRigs {
     // A race menu owns the keyboard (and the pad) through the HUD.
     if (this.race.menuOpen) return;
     // Not a game key (no chord, no seat action): only ever asks for the lock, inside this keydown (the user gesture).
-    if (e.code === "Semicolon") {
+    if (e.code === SEAT_KEYS.mouseLook) {
       e.preventDefault();
       if (!e.repeat) this.toggleMouseLook();
       return;
@@ -578,17 +579,21 @@ export abstract class EngineInput extends EngineRigs {
     // The Konami code in a race brings out its course's secret (the keys still do their own jobs).
     if (this.race.active && this.konami.press(e.code)) this.race.revealSecret(this.canvas.parentElement ?? this.canvas);
     if (this.race.active && this.raceKey(e.code)) return;
-    if (e.code === "Space") {
+    const scene = SCENE_KEY_SCENES[e.code];
+    if (scene !== undefined) {
+      e.preventDefault(); // Slash would open Firefox's quick find
+      this.setScene(scene);
+    } else if (e.code === "Space") {
       if (!driving) this.togglePlay();
-    } else if (e.code === "Escape") {
+    } else if (e.code === SEAT_KEYS.stepOut) {
       this.seat.esc();
       this.emitHud();
-    } else if (e.code === "KeyV" || e.code === "KeyT" || (e.code === "KeyC" && driving)) {
+    } else if (SEAT_KEYS.camera.includes(e.code)) {
       this.cycleCamera();
-    } else if (e.code === "KeyQ" || e.code === "KeyE") {
-      this.seat.cycle(e.code === "KeyE" ? 1 : -1, this.carCount);
+    } else if (e.code === SEAT_KEYS.previousCar || e.code === SEAT_KEYS.nextCar) {
+      this.seat.cycle(e.code === SEAT_KEYS.nextCar ? 1 : -1, this.carCount);
       this.emitHud();
-    } else if (e.code === "KeyR") {
+    } else if (e.code === SEAT_KEYS.reset) {
       e.preventDefault();
       if (driving) this.recoverDriven();
       else this.reset();
@@ -602,22 +607,6 @@ export abstract class EngineInput extends EngineRigs {
       this.toggleBarrier();
     } else if (e.code === "KeyK") {
       this.toggleBalls();
-    } else if (e.code === "KeyD") {
-      if (this.seat.mode === "global") this.toggleDerby();
-    } else if (e.code === "KeyS") {
-      // The scene key, like D: S is the brake once a car is driven, so only from the whole-field view.
-      if (this.seat.mode === "global") this.toggleSurvival();
-    } else if (e.code === "KeyC") {
-      this.toggleCompactor();
-    } else if (e.code === "KeyI") {
-      this.togglePistons();
-    } else if (e.code === "KeyN") {
-      this.toggleDoors();
-    } else if (e.code === "Comma") {
-      this.toggleCorkscrew();
-    } else if (e.code === "Slash") {
-      e.preventDefault(); // Firefox's quick find
-      this.toggleStack();
     } else if (e.code === "Period") {
       this.toggleRamps();
     } else if (this.showDoors && /^Digit[1-7]$/.test(e.code)) {
@@ -647,8 +636,6 @@ export abstract class EngineInput extends EngineRigs {
       this.setNight(!this.stage.night);
     } else if (e.code === "KeyX") {
       this.setWet(!this.stage.wet);
-    } else if (e.code === "KeyZ") {
-      this.toggleRace();
     }
   };
 
@@ -657,33 +644,33 @@ export abstract class EngineInput extends EngineRigs {
    * only in the full view (H), so the focus view can't be knocked out of the race by a stray key.
    */
   private raceKey(code: string): boolean {
-    switch (code) {
-      case "Escape":
-        this.raceCommand({ type: "pause" });
-        return true;
-      case "KeyR":
-        // Acts on the release of a tap or the end of a hold (`stepReset`); the edge covers a press shorter than a frame.
-        this.resetKeyed = true;
-        return true;
-      case "KeyQ":
-      case "KeyE":
-        this.race.cycle(code === "KeyE" ? 1 : -1);
-        this.emitHud();
-        return true;
-      case "KeyV":
-      case "KeyT":
-      case "KeyC":
-        this.cycleCamera();
-        return true;
-      case "KeyH":
-        this.raceCommand({ type: "fullUi", on: !this.race.fullUi });
-        return true;
-      case "Backslash":
-        this.toggleStats();
-        return true;
-      default:
-        return !this.race.fullUi;
+    if (code === SEAT_KEYS.stepOut) {
+      this.raceCommand({ type: "pause" });
+      return true;
     }
+    if (code === SEAT_KEYS.reset) {
+      // Acts on the release of a tap or the end of a hold (`stepReset`); the edge covers a press shorter than a frame.
+      this.resetKeyed = true;
+      return true;
+    }
+    if (code === SEAT_KEYS.previousCar || code === SEAT_KEYS.nextCar) {
+      this.race.cycle(code === SEAT_KEYS.nextCar ? 1 : -1);
+      this.emitHud();
+      return true;
+    }
+    if (SEAT_KEYS.camera.includes(code)) {
+      this.cycleCamera();
+      return true;
+    }
+    if (code === SEAT_KEYS.raceView) {
+      this.raceCommand({ type: "fullUi", on: !this.race.fullUi });
+      return true;
+    }
+    if (code === "Backslash") {
+      this.toggleStats();
+      return true;
+    }
+    return !this.race.fullUi;
   }
 
   protected onKeyUp = (e: KeyboardEvent): void => {
@@ -706,7 +693,7 @@ export abstract class EngineInput extends EngineRigs {
     // A menu or a scene switch ends mouse look cleanly (the pointer comes back).
     if (this.mouseLook.on && (this.race.menuOpen || this.sceneFade.pending !== null || this.sceneId !== this.lookScene)) this.mouseLook.exit();
     // Held, not toggled: Backquote, R3 or the touch button looks back until released.
-    this.view.rear = !this.race.menuOpen && (this.keys.has("Backquote") || (pad.held & (1 << PAD_BUTTON.r3)) !== 0);
+    this.view.rear = !this.race.menuOpen && (this.keys.has(SEAT_KEYS.lookBack) || (pad.held & (1 << PAD_BUTTON.r3)) !== 0);
     // Polled every frame so button edges stay fresh; a race menu reads the pad itself through the HUD.
     if (this.race.menuOpen) {
       this.stepReset(false, false, wallDt);
@@ -741,7 +728,7 @@ export abstract class EngineInput extends EngineRigs {
     if (!race) {
       this.resetHold.cancel();
     } else {
-      const act = this.resetHold.step(this.keys.has("KeyR") || keyed || padDown, wallDt);
+      const act = this.resetHold.step(this.keys.has(SEAT_KEYS.reset) || keyed || padDown, wallDt);
       if (act === "tap") this.requestRespawn();
       else if (act === "hold") this.requestHoldReset();
       else if (edge && !padDown) this.requestRespawn();
