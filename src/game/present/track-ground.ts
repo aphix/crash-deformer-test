@@ -176,12 +176,21 @@ function isLevel(g: TerrainGrid, bi: number, bj: number): boolean {
 /** Rectangles of cells drawn as one quad: `width` / `depth` (cells) set at a rectangle's first cell, `covered` on the others (indexed like the grid's vertices). */
 type MergedCells = { width: Uint8Array; depth: Uint8Array; covered: Uint8Array };
 
+/** A mesh's quads as runs of (cell i, cell j, cells wide, cells deep), per chunk, and the lattice points that are a corner of any of them (`wanted`, indexed like the grid's vertices). */
+type TileLayer = { tiles: number[][]; wanted: Uint8Array };
+
+/** What a block means to `mergeFlatCells`: not joinable, joinable off the chunk rims, or joinable on a chunk rim. */
+const NOT_JOINABLE = 0;
+const JOINABLE_INTERIOR = 1;
+const JOINABLE_RIM = 2;
+
 /**
- * Level cells in one vertex colour (`colours`), inside one chunk, merged greedily into rectangles: a flat lawn or road verge
- * is a few quads, and only the cells on a colour's edge stay cells. Only level blocks of kind 1 or 2 (`kinds`) take
- * part; a rectangle is flat to MERGE_TOL, so the blocks beside it as `kinds` draws them meet it without a crack.
+ * Level cells in one vertex colour merged greedily into rectangles: a flat lawn or road verge is a few quads, and only the cells
+ * on a colour's edge stay cells. Only level blocks of kind 1 or 2 (`kinds`) take part, a rectangle is flat to MERGE_TOL, and one
+ * stays inside one chunk and on the rims or off them. The cells on a rim are told apart by `rimColours` (the near and far meshes'
+ * colours in one number), so both meshes merge a rim alike and a near chunk and a far neighbour meet in the same corners.
  */
-function mergeFlatCells(g: TerrainGrid, kinds: Uint8Array, colours: Uint8Array): MergedCells {
+function mergeFlatCells(g: TerrainGrid, kinds: Uint8Array, colours: Uint8Array, rimColours: Uint16Array): MergedCells {
   const { bx, bz, per, nx, h } = g;
   const cellsX = bx * per;
   const cellsZ = bz * per;
@@ -190,25 +199,33 @@ function mergeFlatCells(g: TerrainGrid, kinds: Uint8Array, colours: Uint8Array):
   const covered = new Uint8Array(nx * (cellsZ + 1));
   const joinable = new Uint8Array(bx * bz);
   for (let bj = 0; bj < bz; bj++) {
-    for (let bi = 0; bi < bx; bi++) joinable[bj * bx + bi] = (kinds[bj * bx + bi] === 1 || kinds[bj * bx + bi] === 2) && isLevel(g, bi, bj) ? 1 : 0;
+    for (let bi = 0; bi < bx; bi++) {
+      const flat = (kinds[bj * bx + bi] === 1 || kinds[bj * bx + bi] === 2) && isLevel(g, bi, bj);
+      joinable[bj * bx + bi] = !flat ? NOT_JOINABLE : isChunkEdge(bi, bj) ? JOINABLE_RIM : JOINABLE_INTERIOR;
+    }
   }
-  const free = (i: number, j: number) => i < cellsX && j < cellsZ && joinable[Math.floor(j / per) * bx + Math.floor(i / per)] === 1 && covered[j * nx + i] === 0;
-  const alike = (i: number, j: number, colour: number, level: number) => colours[j * nx + i] === colour && Math.abs(h[j * nx + i]! - level) <= MERGE_TOL;
+  /** The joinable kind of the cell at (i, j), NOT_JOINABLE when a rectangle already covers it. */
+  const freeAt = (i: number, j: number) => (i < cellsX && j < cellsZ && covered[j * nx + i] === 0 ? joinable[Math.floor(j / per) * bx + Math.floor(i / per)]! : NOT_JOINABLE);
+  const colourAt = (i: number, j: number, region: number) => (region === JOINABLE_RIM ? rimColours : colours)[j * nx + i]!;
+  const alike = (i: number, j: number, region: number, colour: number, level: number) => colourAt(i, j, region) === colour && Math.abs(h[j * nx + i]! - level) <= MERGE_TOL;
+  const mergeCells = MERGE_BLOCKS * per;
   const chunkCells = CHUNK * per;
   for (let j = 0; j < cellsZ; j++) {
     for (let i = 0; i < cellsX; i++) {
-      const colour = colours[j * nx + i]!;
+      const region = freeAt(i, j);
+      if (region === NOT_JOINABLE) continue;
+      const colour = colourAt(i, j, region);
       const level = h[j * nx + i]!;
-      if (!free(i, j) || !alike(i, j, colour, level) || !alike(i + 1, j, colour, level) || !alike(i, j + 1, colour, level) || !alike(i + 1, j + 1, colour, level)) continue;
-      const widthLimit = Math.min(MERGE_BLOCKS * per, (Math.floor(i / chunkCells) + 1) * chunkCells - i);
-      const depthLimit = Math.min(MERGE_BLOCKS * per, (Math.floor(j / chunkCells) + 1) * chunkCells - j);
+      if (!alike(i, j, region, colour, level) || !alike(i + 1, j, region, colour, level) || !alike(i, j + 1, region, colour, level) || !alike(i + 1, j + 1, region, colour, level)) continue;
+      const widthLimit = Math.min(mergeCells, chunkCells - (i % chunkCells));
+      const depthLimit = Math.min(mergeCells, chunkCells - (j % chunkCells));
       let w = 1;
-      while (w < widthLimit && free(i + w, j) && alike(i + w + 1, j, colour, level) && alike(i + w + 1, j + 1, colour, level)) w++;
+      while (w < widthLimit && freeAt(i + w, j) === region && alike(i + w + 1, j, region, colour, level) && alike(i + w + 1, j + 1, region, colour, level)) w++;
       let d = 1;
       for (; d < depthLimit; d++) {
         let row = true;
-        for (let u = 0; u < w && row; u++) row = free(i + u, j + d) && alike(i + u, j + d + 1, colour, level);
-        if (row) row = alike(i + w, j + d + 1, colour, level);
+        for (let u = 0; u < w && row; u++) row = freeAt(i + u, j + d) === region && alike(i + u, j + d + 1, region, colour, level);
+        if (row) row = alike(i + w, j + d + 1, region, colour, level);
         if (!row) break;
       }
       if (w * d === 1) continue;
@@ -301,65 +318,124 @@ function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): { m:
     out.normal(id, n.x, n.y, n.z);
     return id;
   };
-  const ids = new Int32Array((per + 1) * (per + 1));
-  /** Block (bi, bj) into `out` as `kinds` has it: hidden, or quads STEP cells wide (a split block leaves out its dropped cells). */
-  const addBlock = (out: Mesher, colours: Uint8Array, kinds: Uint8Array, bi: number, bj: number) => {
-    const s = STEP[kinds[bj * bx + bi]!]!;
-    if (s === 0) return;
-    const i0 = bi * per;
-    const j0 = bj * per;
-    const row = per / s + 1;
-    for (let v = 0; v <= per; v += s) {
-      for (let u = 0; u <= per; u += s) ids[(v / s) * row + u / s] = vert(out, colours, i0 + u, j0 + v, vertexY(kinds, bi, bj, u, v));
-    }
-    for (let v = 0; v < per; v += s) {
-      for (let u = 0; u < per; u += s) {
-        if (dropped(g, i0 + u, j0 + v)) continue;
-        const a = (v / s) * row + u / s;
-        // Rows run +z (ahead), columns +x: +x is left of +z, so the +x vertex is the left one.
-        out.quad(ids[a]!, ids[a + 1]!, ids[a + row]!, ids[a + row + 1]!);
+  const coarse = new Mesher();
+  const rimColours = Uint16Array.from(col, (colour, k) => colour | (farCol[k]! << 8));
+  const nearMerged = mergeFlatCells(g, kind, col, rimColours);
+  const farMerged = mergeFlatCells(g, farKind, farCol, rimColours);
+  /** Height of lattice point (i, j) as `kinds` draws the blocks around it: the finest block decides, since its edge follows the coarser block beside it. */
+  const pointY = (kinds: Uint8Array, i: number, j: number) => {
+    let finest = -1;
+    let finestStep = Infinity;
+    for (let bj = Math.max(0, Math.ceil(j / per) - 1); bj <= Math.min(bz - 1, Math.floor(j / per)); bj++) {
+      for (let bi = Math.max(0, Math.ceil(i / per) - 1); bi <= Math.min(bx - 1, Math.floor(i / per)); bi++) {
+        const step = STEP[kinds[bj * bx + bi]!]!;
+        if (step === 0 || step >= finestStep) continue;
+        finest = bj * bx + bi;
+        finestStep = step;
       }
     }
+    if (finest < 0) return h[j * nx + i]!;
+    const bi = finest % bx;
+    const bj = Math.floor(finest / bx);
+    return vertexY(kinds, bi, bj, i - bi * per, j - bj * per);
   };
-  const coarse = new Mesher();
-  const nearMerged = mergeFlatCells(g, kind, col);
-  const farMerged = mergeFlatCells(g, farKind, farCol);
-  /** Block (bi, bj) into `out` as `kinds` has it, but each rectangle `merged` starts in it as one quad and the cells one covers left out. */
-  const addMergedBlock = (out: Mesher, colours: Uint8Array, kinds: Uint8Array, merged: MergedCells, bi: number, bj: number) => {
-    const i0 = bi * per;
-    const j0 = bj * per;
-    let touched = false;
-    for (let v = 0; v < per && !touched; v++) {
-      for (let u = 0; u < per; u++) touched ||= merged.width[(j0 + v) * nx + i0 + u]! > 0 || merged.covered[(j0 + v) * nx + i0 + u] === 1;
-    }
-    if (!touched) {
-      addBlock(out, colours, kinds, bi, bj);
-      return;
-    }
-    ids.fill(-1);
-    const vertexAt = (u: number, v: number) => {
-      const k = v * (per + 1) + u;
-      if (ids[k]! < 0) ids[k] = vert(out, colours, i0 + u, j0 + v, vertexY(kinds, bi, bj, u, v));
-      return ids[k]!;
-    };
-    for (let v = 0; v < per; v++) {
-      for (let u = 0; u < per; u++) {
-        const c = (j0 + v) * nx + i0 + u;
-        if (merged.covered[c]) continue;
-        const w = merged.width[c]!;
-        if (w > 0) {
-          const i1 = i0 + u + w;
-          const j1 = j0 + v + merged.depth[c]!;
-          const y = h[c]!;
-          out.quad(vert(out, colours, i0 + u, j0 + v, y), vert(out, colours, i1, j0 + v, y), vert(out, colours, i0 + u, j1, y), vert(out, colours, i1, j1, y));
-        } else if (!dropped(g, i0 + u, j0 + v)) {
-          out.quad(vertexAt(u, v), vertexAt(u + 1, v), vertexAt(u, v + 1), vertexAt(u + 1, v + 1));
+  /** The quads of blocks [bi0, bi1) x [bj0, bj1) as `kinds` and `merged` have them, as runs of (cell i, cell j, cells wide, cells deep): an untouched block in quads STEP wide, a block a merge touched in cells and merged rectangles. */
+  const chunkTiles = (kinds: Uint8Array, merged: MergedCells, bi0: number, bj0: number, bi1: number, bj1: number) => {
+    const tiles: number[] = [];
+    for (let bj = bj0; bj < bj1; bj++) {
+      for (let bi = bi0; bi < bi1; bi++) {
+        const blockStep = STEP[kinds[bj * bx + bi]!]!;
+        if (blockStep === 0) continue;
+        const i0 = bi * per;
+        const j0 = bj * per;
+        let touched = false;
+        for (let v = 0; v < per && !touched; v++) {
+          for (let u = 0; u < per; u++) touched ||= merged.width[(j0 + v) * nx + i0 + u]! > 0 || merged.covered[(j0 + v) * nx + i0 + u] === 1;
         }
+        const step = touched ? 1 : blockStep;
+        for (let v = 0; v < per; v += step) {
+          for (let u = 0; u < per; u += step) {
+            const c = (j0 + v) * nx + i0 + u;
+            if (merged.covered[c]) continue;
+            if (merged.width[c]! > 0) tiles.push(i0 + u, j0 + v, merged.width[c]!, merged.depth[c]!);
+            else if (!dropped(g, i0 + u, j0 + v)) tiles.push(i0 + u, j0 + v, step, step);
+          }
+        }
+      }
+    }
+    return tiles;
+  };
+  /**
+   * Triangles between two edge chains that run out from `apex` (vertex ids, nearest first), each point meeting the other chain
+   * at the nearest rung. Wound as `Mesher.quad` winds a corner's triangle when `along` runs +z and `across` +x (or both turned half a circle).
+   */
+  const addStrip = (out: Mesher, apex: number, along: number[], across: number[]) => {
+    out.idx.push(apex, along[0]!, across[0]!);
+    let a = 1;
+    let b = 1;
+    while (a < along.length || b < across.length) {
+      if (b === across.length || (a < along.length && a * across.length <= b * along.length)) {
+        out.idx.push(along[a - 1]!, along[a]!, across[b - 1]!);
+        a++;
+      } else {
+        out.idx.push(along[a - 1]!, across[b]!, across[b - 1]!);
+        b++;
       }
     }
   };
   const cx = Math.ceil(bx / CHUNK);
   const cz = Math.ceil(bz / CHUNK);
+  /** Blocks [bi0, bi1) x [bj0, bj1) of chunk c. */
+  const chunkBlocks = (c: number) => {
+    const bi0 = (c % cx) * CHUNK;
+    const bj0 = Math.floor(c / cx) * CHUNK;
+    return [bi0, bj0, Math.min(bx, bi0 + CHUNK), Math.min(bz, bj0 + CHUNK)] as const;
+  };
+  /** Every chunk's tiles as `kinds` and `merged` have them, and `wanted`: 1 on each lattice point that is a corner of any tile. */
+  const layerTiles = (kinds: Uint8Array, merged: MergedCells) => {
+    const wanted = new Uint8Array(nx * (bz * per + 1));
+    const tiles = Array.from({ length: cx * cz }, (_, c) => chunkTiles(kinds, merged, ...chunkBlocks(c)));
+    for (const run of tiles) {
+      for (let k = 0; k < run.length; k += 4) {
+        const first = run[k + 1]! * nx + run[k]!;
+        const last = first + run[k + 3]! * nx + run[k + 2]!;
+        wanted[first] = wanted[first + run[k + 2]!] = wanted[last - run[k + 2]!] = wanted[last] = 1;
+      }
+    }
+    return { tiles, wanted };
+  };
+  const ids = new Int32Array((CHUNK * per + 1) ** 2);
+  /**
+   * Chunk c's tiles into `out`, with no T-junction: a tile's edge runs through every lattice point that is a corner of a tile
+   * beside it, so both sides draw the same segments and a point has one height. A chunk's rim tiles are the same in the near and
+   * far meshes (`mergeFlatCells`), so a near chunk and a far neighbour have the same corners along their seam.
+   */
+  const addChunk = (out: Mesher, colours: Uint8Array, kinds: Uint8Array, layer: TileLayer, c: number) => {
+    const [bi0, bj0] = chunkBlocks(c);
+    const tiles = layer.tiles[c]!;
+    const i0 = bi0 * per;
+    const j0 = bj0 * per;
+    ids.fill(-1);
+    const vertexAt = (i: number, j: number) => {
+      const k = (j - j0) * (CHUNK * per + 1) + i - i0;
+      if (ids[k]! < 0) ids[k] = vert(out, colours, i, j, pointY(kinds, i, j));
+      return ids[k]!;
+    };
+    /** The vertex ids from (i, j) `cells` cells on towards (di, dj): every corner of a tile beside the edge on the way, then the end. */
+    const chain = (i: number, j: number, di: number, dj: number, cells: number) => {
+      const run: number[] = [];
+      for (let s = 1; s <= cells; s++) if (s === cells || layer.wanted[(j + dj * s) * nx + i + di * s]) run.push(vertexAt(i + di * s, j + dj * s));
+      return run;
+    };
+    for (let k = 0; k < tiles.length; k += 4) {
+      const [i, j, w, d] = [tiles[k]!, tiles[k + 1]!, tiles[k + 2]!, tiles[k + 3]!];
+      // Rows run +z (ahead), columns +x: +x is left of +z. The quad splits along its (+x, +z) diagonal, a corner's triangle each side of it.
+      addStrip(out, vertexAt(i, j), chain(i, j, 0, 1, d), chain(i, j, 1, 0, w));
+      addStrip(out, vertexAt(i + w, j + d), chain(i + w, j + d, 0, -1, d), chain(i + w, j + d, -1, 0, w));
+    }
+  };
+  const nearLayer = layerTiles(kind, nearMerged);
+  const farLayer = layerTiles(farKind, farMerged);
   const box = new Float32Array(cx * cz * 4);
   const fineAt = new Int32Array(cx * cz * 2 + 2);
   const coarseAt = new Int32Array(cx * cz * 2 + 2);
@@ -371,17 +447,10 @@ function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): { m:
   };
   for (let c = 0; c < cx * cz; c++) {
     mark(c);
-    const ci = c % cx;
-    const cj = Math.floor(c / cx);
-    const bi1 = Math.min(bx, (ci + 1) * CHUNK);
-    const bj1 = Math.min(bz, (cj + 1) * CHUNK);
-    box.set([x0 + ci * CHUNK * BLOCK, z0 + cj * CHUNK * BLOCK, x0 + bi1 * BLOCK, z0 + bj1 * BLOCK], c * 4);
-    for (let bj = cj * CHUNK; bj < bj1; bj++) {
-      for (let bi = ci * CHUNK; bi < bi1; bi++) {
-        addMergedBlock(m, col, kind, nearMerged, bi, bj);
-        addMergedBlock(coarse, farCol, farKind, farMerged, bi, bj);
-      }
-    }
+    const [bi0, bj0, bi1, bj1] = chunkBlocks(c);
+    box.set([x0 + bi0 * BLOCK, z0 + bj0 * BLOCK, x0 + bi1 * BLOCK, z0 + bj1 * BLOCK], c * 4);
+    addChunk(m, col, kind, nearLayer, c);
+    addChunk(coarse, farCol, farKind, farLayer, c);
   }
   mark(cx * cz);
   addSkirt(m, ground, x0, z0, bx, bz, surfaceHex(terrain), tile);

@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { Track } from "../world/track.ts";
-import { TRACKS } from "../world/tracks/index.ts";
+import { OFF_MENU, TRACKS } from "../world/tracks/index.ts";
 import { type Mesher, RoadIndex } from "./track-mesh.ts";
 import { sections } from "../world/track-sections.ts";
 import { buildGroundLayers, TerrainBatch } from "./track-ground.ts";
@@ -11,7 +11,7 @@ import { buildGroundLayers, TerrainBatch } from "./track-ground.ts";
 type Terrain = { near: Mesher; chunks: { coarse: Mesher; box: Float32Array; fineAt: Int32Array; coarseAt: Int32Array }; roads: RoadIndex };
 
 function terrainOf(course: string): Terrain {
-  const track = TRACKS.map((raw) => new Track(raw)).find((t) => t.id === course)!;
+  const track = [...TRACKS, ...OFF_MENU].map((raw) => new Track(raw)).find((t) => t.id === course)!;
   const paths = track.paths();
   const roads = new RoadIndex(paths);
   const terrain = buildGroundLayers(track, track.ground(), roads, paths, paths.map((p) => sections(p, 0)))[0]!;
@@ -104,8 +104,8 @@ const courseCases = [
   { it: "the hilliest course", course: "dam-spine", fewerFarTrianglesPct: 20 },
   { it: "the second hilliest course", course: "four-count", fewerFarTrianglesPct: 30 },
   { it: "a course of cliff shelves", course: "razor-shelf", fewerFarTrianglesPct: 30 },
-  { it: "a course with paved yards painted on its ground", course: "breaker-yard", fewerFarTrianglesPct: 25 },
-  { it: "the National Mall, flat lawns and streets over concrete", course: "national-mall", fewerFarTrianglesPct: 30 },
+  { it: "a course with paved yards painted on its ground", course: "breaker-yard", fewerFarTrianglesPct: 20 },
+  { it: "the National Mall, flat lawns and streets over concrete", course: "national-mall", fewerFarTrianglesPct: 28 },
 ] as const;
 
 describe("given a course's terrain drawn in chunks, each with a near mesh and a coarser far mesh", () => {
@@ -162,13 +162,90 @@ describe("given the National Mall's terrain, its lawns painted over a flat concr
   const nearTriangles = t.chunks.fineAt[(t.chunks.box.length / 4) * 2 + 1]! / 3;
   const farTriangles = t.chunks.coarseAt[(t.chunks.box.length / 4) * 2 + 1]! / 3;
 
-  it("when the chunks are built, then flat lawn and road verge are merged into large quads: the near mesh stays under 120 000 triangles", () => {
-    assert.ok(nearTriangles < 120_000, `${nearTriangles} near triangles`);
+  it("when the chunks are built, then flat lawn and road verge are merged into large quads: the near mesh stays under 180 000 triangles", () => {
+    assert.ok(nearTriangles < 180_000, `${nearTriangles} near triangles`);
   });
 
-  it("when the chunks are built, then the far mesh stays under 80 000 triangles", () => {
-    assert.ok(farTriangles < 80_000, `${farTriangles} far triangles`);
+  it("when the chunks are built, then the far mesh stays under 130 000 triangles", () => {
+    assert.ok(farTriangles < 130_000, `${farTriangles} far triangles`);
   });
+});
+
+/** What stops a terrain being watertight: its triangles' count, those not facing up, and the seams the rasteriser can open into a line of sky. */
+type Seams = { triangles: number; notFacingUp: number; tJunctions: number; splitHeights: number };
+
+/** Triangle indices [from, to) of `mesh`. */
+type Drawn = { mesh: Mesher; from: number; to: number };
+
+const lattice = (x: number, z: number) => `${Math.round(x * 1000)},${Math.round(z * 1000)}`;
+
+/**
+ * The seams of the triangles `drawn` together: `tJunctions` counts the lattice points where a vertex lies inside another
+ * triangle's edge instead of ending it (the two sides then rasterise the line apart); `splitHeights` the lattice points drawn at
+ * more than one height (a step between neighbours, open to the sky from a low camera).
+ */
+function seamsOf(drawn: readonly Drawn[]): Seams {
+  const heightAt = new Map<string, number>();
+  let splitHeights = 0;
+  for (const { mesh, from, to } of drawn) {
+    for (let k = from; k < to; k++) {
+      const v = mesh.idx[k]! * 3;
+      const key = lattice(mesh.pos[v]!, mesh.pos[v + 2]!);
+      const known = heightAt.get(key);
+      if (known === undefined) heightAt.set(key, mesh.pos[v + 1]!);
+      else if (Math.abs(known - mesh.pos[v + 1]!) > 1e-4) splitHeights++;
+    }
+  }
+  const edges = new Set<string>();
+  let triangles = 0;
+  let tJunctions = 0;
+  let notFacingUp = 0;
+  for (const { mesh, from, to } of drawn) {
+    const { pos, idx } = mesh;
+    for (let k = from; k < to; k += 3) {
+      triangles++;
+      const [a, b, c] = [idx[k]! * 3, idx[k + 1]! * 3, idx[k + 2]! * 3];
+      if ((pos[b]! - pos[a]!) * (pos[c + 2]! - pos[a + 2]!) - (pos[b + 2]! - pos[a + 2]!) * (pos[c]! - pos[a]!) >= -1e-9) notFacingUp++;
+      for (const [p, q] of [[a, b], [b, c], [c, a]] as const) {
+        const dx = pos[q]! - pos[p]!;
+        const dz = pos[q + 2]! - pos[p + 2]!;
+        const cells = Math.round(Math.max(Math.abs(dx), Math.abs(dz)) / CELL);
+        if (cells < 2 || (Math.abs(dx) > 1e-6 && Math.abs(dz) > 1e-6)) continue;
+        const edge = `${lattice(pos[p]!, pos[p + 2]!)}|${lattice(pos[q]!, pos[q + 2]!)}`;
+        if (edges.has(edge)) continue;
+        edges.add(edge);
+        for (let s = 1; s < cells; s++) if (heightAt.has(lattice(pos[p]! + (dx * s) / cells, pos[p + 2]! + (dz * s) / cells))) tJunctions++;
+      }
+    }
+  }
+  return { triangles, notFacingUp, tJunctions, splitHeights };
+}
+
+describe("given every course's terrain, drawn near, far, or a checkerboard of both", () => {
+  for (const raw of [...TRACKS, ...OFF_MENU]) {
+    const course = new Track(raw).id;
+    describe(`given ${course}`, () => {
+      const t = terrainOf(course);
+      const { box, fineAt, coarseAt } = t.chunks;
+      const chunks = box.length / 4;
+      const columns = Math.ceil((box[(chunks - 1) * 4 + 2]! - box[0]!) / (box[2]! - box[0]!) - 1e-6);
+      const near = (c: number): Drawn => ({ mesh: t.near, from: fineAt[c * 2 + 1]!, to: fineAt[c * 2 + 3]! });
+      const far = (c: number): Drawn => ({ mesh: t.chunks.coarse, from: coarseAt[c * 2 + 1]!, to: coarseAt[c * 2 + 3]! });
+      const chunkNumbers = Array.from({ length: chunks }, (_, c) => c);
+      const cases = [
+        { name: "every chunk near", drawn: chunkNumbers.map(near) },
+        { name: "every chunk far", drawn: chunkNumbers.map(far) },
+        ...[0, 1].map((parity) => ({ name: `a checkerboard of near and far chunks (${parity})`, drawn: chunkNumbers.map((c) => ((Math.floor(c / columns) + (c % columns)) % 2 === parity ? far(c) : near(c))) })),
+      ];
+      for (const testCase of cases) {
+        it(`when ${testCase.name} are drawn, then no vertex lies inside another triangle's edge, no lattice point is drawn at two heights, and every triangle faces up`, () => {
+          const { triangles, ...seams } = seamsOf(testCase.drawn);
+          assert.ok(triangles > 0, "something is drawn");
+          assert.deepEqual(seams, { notFacingUp: 0, tJunctions: 0, splitHeights: 0 }, `${triangles} triangles`);
+        });
+      }
+    });
+  }
 });
 
 describe("given a course's terrain batch (four-count)", () => {
