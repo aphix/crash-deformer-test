@@ -10,6 +10,7 @@ import { fleetStyle, layoutDerby } from "../scenes/fleet.ts";
 import { resolveCarPair } from "./pair-contact.ts";
 import { partContactPair } from "./external-contact.ts";
 import { physicsSlice, sliceSpeed } from "./sat.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * docs/PERF_HITCH.md "GC during races": physics garbage is what drives the race GC pauses. A warmed 24-car
@@ -35,7 +36,7 @@ function pileUp(): { cars: DeformableCar[]; step: () => void } {
   const inputs: DriveInput[] = cars.map(() => ({ ...idleDrive(), throttle: 1 }));
   const { world } = arenaWorld(cars);
   const step = () => {
-    const h = physicsSlice(1 / 60, sliceSpeed(cars));
+    const h = physicsSlice(1 / FRAME_HZ, sliceSpeed(cars));
     for (let i = 0; i < CARS; i++) {
       const c = cars[i]!;
       // Steer at the centre: +1 swings the nose left, toward a centre on the left of the heading.

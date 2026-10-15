@@ -14,6 +14,7 @@ import { EjectionWatch, type Ejection } from "../vehicle/ejection.ts";
 import { applyDrive, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { layOnGround } from "../vehicle/car-air-points.ts";
 import type { SimPacer } from "../engine/sim-pace.ts";
+import { FINE_HZ, FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * Headless crash scenarios through the engine's own step (`stepWorld`) and phase clock, at
@@ -21,7 +22,7 @@ import type { SimPacer } from "../engine/sim-pace.ts";
  * `JerseyBarrier`, held fixed (no slide, no dent). Not a test file itself.
  */
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const CELL_SPAN = CAGES.find((c) => c.name === "chassisCell")!;
 
 export type CrashResult = {
@@ -145,9 +146,9 @@ export function relaunchDamaged(car: DeformableCar, x: number, z: number, yaw: n
   }
   car.velocity.set(0, 0, 0);
   car.angular.set(0, 0, 0);
-  for (let t = 0; t < 0.35; t += 1 / 240) {
-    car.deform.stepStructure(1 / 240);
-    car.syncPose(1 / 240);
+  for (let t = 0; t < 0.35; t += 1 / FINE_HZ) {
+    car.deform.stepStructure(1 / FINE_HZ);
+    car.syncPose(1 / FINE_HZ);
   }
   for (const m of car.deform.masses) m.vel.set(vx, 0, vz);
   car.velocity.set(vx, 0, vz);

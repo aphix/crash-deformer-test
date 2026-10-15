@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SimPacer } from "../engine/sim-pace.ts";
-import { QUIET_HZ } from "../kernel/constants.ts";
+import { FINE_HZ, FRAME_HZ, QUIET_HZ } from "../kernel/constants.ts";
 import { stepWorld } from "../engine/world-step.ts";
 import { FREEWHEEL, launch, makeWorld, tickWorld } from "./crash-scenarios.test-util.ts";
 import { classCar } from "../vehicle/ejection.test-util.ts";
@@ -24,7 +24,7 @@ function tbone(speed: number, coarse: boolean, phase: number): Hit {
   const w = makeWorld([striker, struck], false, false);
   const pace = new SimPacer();
   pace.pin = coarse;
-  for (let f = 0; f < 60 * 2.5; f++) tickWorld(w, 1 / 60, pace);
+  for (let f = 0; f < FRAME_HZ * 2.5; f++) tickWorld(w, 1 / FRAME_HZ, pace);
   const hit: Hit = {
     strikerNose: striker.deform.crushAmount,
     struckDoor: struck.deform.crushAmount,
@@ -75,10 +75,13 @@ function wallNose(fine: number): number {
   return nose;
 }
 
+// A slice rate finer than the shipped fine floor: the cross-check that the crush does not depend on where the floor sits.
+const FINER_HZ = 320;
+
 describe("given a sedan driving into the rigid wall at 56 km/h in coarse steps", () => {
-  it("when the hit is cut into slices of 1/240 s or of 1/320 s, then the nose crumples the same to within 1 cm", () => {
-    const coarse = wallNose(1 / 240);
-    const fine = wallNose(1 / 320);
-    assert.ok(Math.abs(coarse - fine) <= 0.01, `nose ${coarse.toFixed(3)} m in 1/240 s slices, ${fine.toFixed(3)} m in 1/320 s ones`);
+  it("when the hit is cut into the fine slice or into slices finer still, then the nose crumples the same to within 1 cm", () => {
+    const coarse = wallNose(1 / FINE_HZ);
+    const fine = wallNose(1 / FINER_HZ);
+    assert.ok(Math.abs(coarse - fine) <= 0.01, `nose ${coarse.toFixed(3)} m in 1/${FINE_HZ} s slices, ${fine.toFixed(3)} m in 1/${FINER_HZ} s ones`);
   });
 });

@@ -5,9 +5,10 @@ import { stepWorld } from "../engine/world-step.ts";
 import { PUSH_SPEED, PushBudget } from "../deform/push-budget.ts";
 import { satPushCap } from "../deform/physics-util.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { FRAME_HZ, QUIET_HZ } from "../kernel/constants.ts";
 
 /** The slice a slow field steps at (`physicsSlice(1/60, 4)`): the longest, so the loosest per-slice cap. */
-const H = 1 / 60;
+const H = 1 / FRAME_HZ;
 
 function centroid(c: DeformableCar): [number, number] {
   let x = 0;
@@ -31,7 +32,7 @@ function wedged(depth: number): { wreck: DeformableCar; world: CrashWorld } {
   launch(wreck, 0, 0, 0, 0, 0);
   launch(bullet, 0, 9, Math.PI, 0, -9);
   const settle = makeWorld([wreck, bullet], false, false, FREEWHEEL);
-  for (let t = 0; t < 2.5; t += 1 / 80) stepWorld(settle.world, 1 / 80);
+  for (let t = 0; t < 2.5; t += 1 / QUIET_HZ) stepWorld(settle.world, 1 / QUIET_HZ);
   assert.ok(wreck.deform.massActive && wreck.deform.quietTime() > 1, "no settled wreck to wedge");
   const [wx, wz] = centroid(wreck);
   const yaw = wreck.yaw;

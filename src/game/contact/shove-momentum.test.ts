@@ -5,8 +5,9 @@ import { physicsSlice, sliceSpeed } from "./sat.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { applyDrive } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 /** The pusher's drive speed (m/s): a derby AI's, 8 m/s (29 km/h). */
 const DRIVE = 8;
 

@@ -8,6 +8,7 @@ import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { physicsSlice, satCars, sliceSpeed } from "./sat.ts";
 import { tyreOverlap } from "./crash-scenarios.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * Hooked cars: two cars locked together while one drives away (the owner's cop cars "hooked" onto the cars they chase, the
@@ -15,7 +16,7 @@ import { tyreOverlap } from "./crash-scenarios.test-util.ts";
  * its partner's midplane used to read "out" the way that drives the whole cars deeper in, and the next SAT pass picked the
  * opposite side's row and undid the push.
  */
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const scene = new THREE.Scene();
 
 /** A car as the race builds it: its class's body, the HUD's default crush knobs and the class's kill travel. */

@@ -4,8 +4,9 @@ import * as THREE from "three";
 import { CLASSES } from "../vehicle/vehicle-classes.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { FREEWHEEL, holdThrottle, launch, makeCar, makeWorld, Probe, run, tickWorld, type CrashWorld } from "./crash-scenarios.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 
 /** Mass-weighted centroid (x, z) of a car's masses: what they have done. */
 function centroid(c: DeformableCar): [number, number] {

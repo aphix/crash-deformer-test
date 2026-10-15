@@ -4,6 +4,7 @@ import { armKill, assignClass, killClass, type VehicleClassId } from "../vehicle
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { launch } from "./crash-scenarios.test-util.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /**
  * Not a test file itself. The owner's saved clip of 2026-10-07 (docs/UNIFIED_CONTACT.md): a hatchback driving at 98 km/h
@@ -11,7 +12,7 @@ import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
  * speeds, each car starting half a second back on its own path).
  */
 
-const SLICE = Math.fround(1 / 240);
+const SLICE = Math.fround(1 / FINE_HZ);
 /** Slices (1/240 s) of the world after the first touch that the cars are read at: the touch itself is over (it lasts 4 slices), the tyres' grip has had 0.1 s. */
 export const READ_AFTER = 24;
 
@@ -97,7 +98,7 @@ export function ownerHit(aim: number, speedA = 27.301): OwnerHit {
   };
   let before: [Motion, Motion] = [motionOf(a), motionOf(b)];
   const normal = new THREE.Vector3();
-  for (; step < 240 * 3; step++) {
+  for (; step < FINE_HZ * 3; step++) {
     const last: [Motion, Motion] = [motionOf(a), motionOf(b)];
     stepWorld(world, SLICE);
     settleStep(cars, SLICE, false);

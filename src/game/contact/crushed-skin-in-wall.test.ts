@@ -5,6 +5,7 @@ import { launch, makeCar, makeWorld, strikeReach, tickWorld, type WallApproach }
 import { BARRIER_HALF, BARRIER_TOP } from "./sat.ts";
 import { drawnTriangles } from "../vehicle/drawn-body.test-util.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * docs/UNIFIED_CONTACT.md stage 3: what the player sees of a crushed car stays out of the solid it hit. The owner's clip
@@ -45,8 +46,8 @@ for (const testCase of wallHits) {
       launch(car, SLAB_FACE_X + 2 + strikeReach(car, testCase.approach), 0, yaw, -testCase.kph / 3.6, 0);
       const w = makeWorld([car], true, false);
       let deepest = 0;
-      for (let f = 0; f < RUN_SECONDS * 60; f++) {
-        tickWorld(w, 1 / 60);
+      for (let f = 0; f < RUN_SECONDS * FRAME_HZ; f++) {
+        tickWorld(w, 1 / FRAME_HZ);
         deepest = Math.max(deepest, deepestInside(car));
       }
       t.diagnostic(`deepest drawn vertex inside the slab ${deepest.toFixed(3)} m`);
