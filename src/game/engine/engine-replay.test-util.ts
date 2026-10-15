@@ -23,6 +23,8 @@ const CLIPS = 5;
  * (every hit under `MIN_SCORE`) would leave nothing to replay: seed 14 of 1-64, and seed 7 once a trajectory changed.
  */
 const SCRIPTED_AT = 12;
+/** The speed (m/s) the scripted car is set going: queued behind a spun car it would have no run-up to hit a wall hard enough to make a clip. */
+const SCRIPTED_SPEED = 20;
 
 /**
  * One test per seed: its race's crashes recorded, then each clip replayed and held to the live sim: every car of it, every
@@ -43,6 +45,8 @@ export function sweepSeeds(list: readonly number[]): void {
           seed,
           before: () => {
             if (w.race.recorder.now >= SCRIPTED_AT && w.race.recorder.ledger.kept.length === 0 && w.seat.mode !== "drive") {
+              const player = w.cars[0]!;
+              player.spawnFacing(player.group.position.x, player.group.position.z, player.yaw, SCRIPTED_SPEED);
               w.seat.mode = "drive";
               w.seat.carIndex = 0;
               w.seat.intent.gas = 1;
