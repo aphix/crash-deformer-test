@@ -4,8 +4,9 @@ import { launch, makeCar, makeWorld, tickWorld } from "../contact/crash-scenario
 import { carLayout } from "../net/car-pose.ts";
 import { makeCarFrame } from "../net/codec.ts";
 import type { DeformableCar } from "./car.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 
 /** `from`'s wreck section (what a highlight keyframe and a netplay snapshot carry of a wreck) laid on `to`, as a replay restores it. */
 function restoreWreck(from: DeformableCar, to: DeformableCar): void {

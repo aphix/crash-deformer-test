@@ -6,10 +6,11 @@ import type { CarPaint } from "./car-core.ts";
 import type { DriveInput } from "./car-drive.ts";
 import { blankAiCar, type AiCar, type DerbyBrain } from "../ai/derby-ai.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** Shared fixtures for the physics/deform suites; not a test file itself. */
 
-export const DT = 1 / 60;
+export const DT = 1 / FRAME_HZ;
 export const MODES: DeformMode[] = ["lattice", "shape"];
 
 export function forModes(title: string, fn: (mode: DeformMode) => void): void {

@@ -9,6 +9,7 @@ import { DOOR_AJAR, DOOR_OPEN_MAX } from "./car-core.ts";
 import { applyDrive, type DriveInput } from "./car-drive.ts";
 import { swingAccel } from "./car-wear.ts";
 import { DT, paint } from "./test-support.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /**
  * An unlatched door is a pendulum on its hinge, driven by the car's own acceleration in the car frame (docs/PANEL_FLAP.md):
@@ -17,7 +18,7 @@ import { DT, paint } from "./test-support.ts";
  */
 
 const D2R = Math.PI / 180;
-const H = 1 / 240;
+const H = 1 / FINE_HZ;
 
 /** Open `deg` on `side`, then `steps` of `H` with the car-frame acceleration (`ax` right, `az` forward, m/s²). */
 function push(car: DeformableCar, ax: number, az: number, seconds: number): void {

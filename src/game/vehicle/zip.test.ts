@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
 import { FREEWHEEL, makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { leftoverCrumple } from "../deform/physics-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** Exact spawn from the 2026-09-22 setup JSON. */
 const SETUP = {
@@ -52,7 +53,7 @@ describe("given the captured two-car spawn (a 28 m/s Titanium sedan and a 5 m/s 
     let kphAt10 = 0;
     const closing0 = a.velocity.clone().sub(b.velocity).length() * 3.6;
 
-    const wallDt = 1 / 60;
+    const wallDt = 1 / FRAME_HZ;
     while (wall < 10.02) {
       wall += wallDt;
       tickWorld(w, wallDt);
@@ -101,7 +102,7 @@ describe("given an offset two-car spawn (a 14 m/s and a 28 m/s sedan closing on 
     let latAt89 = 0;
     let peakAfter6 = 0;
     let speedAt6 = 0;
-    const wallDt = 1 / 60;
+    const wallDt = 1 / FRAME_HZ;
     const samples: string[] = [];
 
     while (wall < 10.02) {
@@ -171,7 +172,7 @@ describe("given an offset two-car spawn (a 16 m/s and a 20 m/s sedan closing on 
     let crashedAt = -1;
     let posA2: { x: number; z: number } | null = null;
     let posB2: { x: number; z: number } | null = null;
-    const wallDt = 1 / 60;
+    const wallDt = 1 / FRAME_HZ;
     const samples: string[] = [];
 
     while (wall < 11.05) {
@@ -226,7 +227,7 @@ describe("given an offset two-car spawn (a 9 m/s and a 16 m/s sedan closing on e
 
     const w = makeWorld([a, b], false, false, FREEWHEEL);
     let wall = 0;
-    const wallDt = 1 / 60;
+    const wallDt = 1 / FRAME_HZ;
     const pos = a.body.geometry.getAttribute("position") as THREE.BufferAttribute;
     const arr = pos.array as Float32Array;
     const prev = new Float32Array(arr.length);

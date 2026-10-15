@@ -5,8 +5,9 @@ import { applyDrive, BOOST, DriverSeat, driftPay, idleDrive, type SeatView } fro
 import { blankIntent, FEEL, gameKey, readIntent, shapeDrive } from "./drive-input.ts";
 import { CHASE, DriveCam } from "../present/drive-cam.ts";
 import { DeformableCar } from "./car.ts";
+import { FINE_HZ, FRAME_HZ, QUIET_HZ } from "../kernel/constants.ts";
 
-const H = 1 / 60;
+const H = 1 / FRAME_HZ;
 const PAINT = { body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" };
 
 /** Shaped output after holding `keys` for `seconds` at a fixed forward speed. */
@@ -14,7 +15,7 @@ function shaped(keys: string[], along: number, seconds: number) {
   const intent = readIntent(new Set(keys), null, blankIntent());
   const feel = { wheel: 0, gas: 0, brake: 0, brakeHeld: 0, pulse: 0 };
   const out = idleDrive();
-  for (let t = 0; t < seconds - 1e-9; t += 1 / 80) shapeDrive(intent, feel, along, 1 / 80, out);
+  for (let t = 0; t < seconds - 1e-9; t += 1 / QUIET_HZ) shapeDrive(intent, feel, along, 1 / QUIET_HZ, out);
   return { out, feel, intent };
 }
 
@@ -72,7 +73,7 @@ describe("given a driver steering with the keyboard", () => {
     const out = idleDrive();
     const run = (k: string[], s: number) => {
       const intent = readIntent(new Set(k), null, blankIntent());
-      for (let t = 0; t < s - 1e-9; t += 1 / 80) shapeDrive(intent, feel, 5, 1 / 80, out);
+      for (let t = 0; t < s - 1e-9; t += 1 / QUIET_HZ) shapeDrive(intent, feel, 5, 1 / QUIET_HZ, out);
     };
     run(["KeyA"], 0.4);
     const held = feel.wheel;
@@ -89,8 +90,8 @@ describe("given a driver steering with the keyboard", () => {
     const out = idleDrive();
     let t = 0;
     while (feel.wheel > 0 && t < 1) {
-      shapeDrive(intent, feel, 5, 1 / 80, out);
-      t += 1 / 80;
+      shapeDrive(intent, feel, 5, 1 / QUIET_HZ, out);
+      t += 1 / QUIET_HZ;
     }
     assert.ok(t < 0.2, `took ${t.toFixed(3)} s to centre`);
   });
@@ -141,12 +142,12 @@ describe("given a driver using the keyboard pedals (brake, reverse, handbrake)",
     const out = idleDrive();
     const run = (k: string[], s: number) => {
       const intent = keys(k);
-      for (let t = 0; t < s - 1e-9; t += 1 / 80) shapeDrive(intent, feel, 15, 1 / 80, out);
+      for (let t = 0; t < s - 1e-9; t += 1 / QUIET_HZ) shapeDrive(intent, feel, 15, 1 / QUIET_HZ, out);
     };
     run(["KeyW", "KeyA"], 0.4);
     run(["KeyW", "KeyA", "KeyS"], 0.15);
     assert.equal(out.ebrake, false);
-    run(["KeyW", "KeyA"], 1 / 80);
+    run(["KeyW", "KeyA"], 1 / QUIET_HZ);
     assert.equal(out.ebrake, true);
     run(["KeyW", "KeyA"], 0.15);
     assert.equal(out.ebrake, false);
@@ -157,8 +158,8 @@ describe("given a driver using the keyboard pedals (brake, reverse, handbrake)",
     const feel = { wheel: 0, gas: 0, brake: 0, brakeHeld: 0, pulse: 0 };
     const drive = (k: string[], s: number, out = centred) => {
       const intent = readIntent(new Set(k), null, blankIntent());
-      for (let t = 0; t < s - 1e-9; t += 1 / 80) {
-        shapeDrive(intent, feel, 15, 1 / 80, out);
+      for (let t = 0; t < s - 1e-9; t += 1 / QUIET_HZ) {
+        shapeDrive(intent, feel, 15, 1 / QUIET_HZ, out);
         assert.equal(out.ebrake, false);
       }
     };
@@ -181,8 +182,8 @@ describe("given a driver using the keyboard pedals (brake, reverse, handbrake)",
     const run = (gas: number, brake: number, s: number) => {
       intent.gas = gas;
       intent.brake = brake;
-      for (let t = 0; t < s - 1e-9; t += 1 / 80) {
-        shapeDrive(intent, feel, 15, 1 / 80, out);
+      for (let t = 0; t < s - 1e-9; t += 1 / QUIET_HZ) {
+        shapeDrive(intent, feel, 15, 1 / QUIET_HZ, out);
         assert.equal(out.ebrake, false, `handbrake pulsed with the wheel at ${feel.wheel.toFixed(2)}`);
       }
     };
@@ -206,7 +207,7 @@ describe("given a driver using the keyboard pedals (brake, reverse, handbrake)",
     assert.ok(speeds.at(-1)! < -5, `ended at ${speeds.at(-1)}`);
   });
 
-  it("when a 10 m/s car brakes fully in 1/30 s physics steps and again in 1/240 s steps, then it takes the same time to stop, to within one 1/30 s step", () => {
+  it(`when a 10 m/s car brakes fully in 1/30 s physics steps and again in 1/${FINE_HZ} s steps, then it takes the same time to stop, to within one 1/30 s step`, () => {
     const stopTime = (h: number) => {
       const car = new DeformableCar(PAINT, new THREE.Scene());
       car.spawnFacing(0, 0, 0, 10);
@@ -219,8 +220,8 @@ describe("given a driver using the keyboard pedals (brake, reverse, handbrake)",
       return t;
     };
     const coarse = stopTime(1 / 30);
-    const fine = stopTime(1 / 240);
-    assert.ok(Math.abs(coarse - fine) < 1 / 30 + 1e-9, `1/30: ${coarse} 1/240: ${fine}`);
+    const fine = stopTime(1 / FINE_HZ);
+    assert.ok(Math.abs(coarse - fine) < 1 / 30 + 1e-9, `1/30: ${coarse} 1/${FINE_HZ}: ${fine}`);
   });
 });
 

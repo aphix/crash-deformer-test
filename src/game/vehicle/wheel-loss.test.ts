@@ -10,13 +10,14 @@ import { RaceBrain } from "../ai/race-ai.ts";
 import { Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import { aiCar, decide, mass, paint } from "./test-support.ts";
+import { FRAME_HZ, QUIET_HZ } from "../kernel/constants.ts";
 
 /**
  * A car missing wheels drives like it: no front wheel, no steering; no wheel on a corner, a body scraping the road there;
  * thrust and brakes only from the wheels still on. One rule for the player and the AI (both go through `applyDrive`).
  */
 
-const H = 1 / 80;
+const H = 1 / QUIET_HZ;
 const HUBS = ["hubFL", "hubFR", "hubRL", "hubRR"] as const;
 const CLASS_IDS = Object.keys(CLASSES) as VehicleClassId[];
 
@@ -91,7 +92,7 @@ describe("given a car missing wheels (their hubs popped off)", () => {
     const brain = new RaceBrain(oval, 2);
     brain.setAggression(0, 0.5);
     let input = idleDrive();
-    for (let k = 0; k < 40; k++) input = { ...brain.think(me, [me, rival], { next: 1, lap: 0 }, 1 / 60) };
+    for (let k = 0; k < 40; k++) input = { ...brain.think(me, [me, rival], { next: 1, lap: 0 }, 1 / FRAME_HZ) };
     assert.ok(Math.abs(input.steer) > 0.3, `the brain does not steer here: ${JSON.stringify(input)}`);
     const turned = (lost: number[]) => {
       const c = car(lost, "sedan", 15);

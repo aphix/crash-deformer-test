@@ -5,11 +5,12 @@ import { firePiston } from "../scenes/piston-rig.test-util.ts";
 import type { PistonId } from "../scenes/piston-rig.ts";
 import { applyDrive } from "./car-drive.ts";
 import { FUEL_CUTOFF_G, STALL_S } from "./constants.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 // docs/UNIFIED_CONTACT.md stage 4, T-bone fuel cut-off: a side hit hard enough to trip the crash sensor cuts the fuel for a few
 // seconds and the engine restarts; a head-on hit of the same speed, or a side tap under the sensor, does not.
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 
 function struck(id: PistonId, kph: number) {
   const car = makeCar("shape");

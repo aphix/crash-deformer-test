@@ -7,13 +7,14 @@ import { assignClass, CLASSES } from "./vehicle-classes.ts";
 import { paint } from "./test-support.ts";
 import { runWall } from "../contact/crash-scenarios.test-util.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
+import { QUIET_HZ } from "../kernel/constants.ts";
 
 /**
  * A wreck under power turns its masses as the driver steers (`applyDrive`'s `driveMasses`). Turning positions alone left
  * the masses' velocities where they were, so a spinning wreck that was steered lost (or, counter-steered, gained)
  * angular momentum with no torque behind it: derby seed 39 c1 went 3.3 → 8.7 rad/s over 0.45 s, ΔL −6394.
  */
-const H = 1 / 80;
+const H = 1 / QUIET_HZ;
 
 /** A sedan, masses live at 8 m/s along +z, every mass turning rigidly at `w` rad/s about the masses' centroid (v = w (z, −x)). */
 function spinning(w: number): DeformableCar {

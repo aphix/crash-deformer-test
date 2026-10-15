@@ -10,6 +10,7 @@ import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
 import { setGround, type Ground } from "../world/ground.ts";
 import { blankPoint, blankProjection, pointOn, type Track } from "../world/track.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * How a car sits on ANY `Ground`, read straight off its drawn pose, for the drop matrix (`ground-fit.test.ts`) and the
@@ -17,7 +18,7 @@ import { blankPoint, blankProjection, pointOn, type Track } from "../world/track
  * underside is in the ground. All of it asks `Ground.heightAt` (the one door wheels, hull and FX use); there is no
  * ramp, bank or crest path. Not a test file itself.
  */
-export const FRAME = 1 / 60;
+export const FRAME = 1 / FRAME_HZ;
 export const DEG = 180 / Math.PI;
 
 /** The tyre's tread as `TYRE_PROFILE` draws it (wheel-local, axle along x): crown and shoulders, [axle offset, radius]. */

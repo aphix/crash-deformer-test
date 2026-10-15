@@ -5,6 +5,7 @@ import { DeformableCar } from "./car.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import { forModes, paint } from "./test-support.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /**
  * Tearing a part off, breaking a lamp and cracking glass are decided by the sim's steps, never by how often the
@@ -12,7 +13,7 @@ import type { DeformMode } from "../deform/deform-rig.ts";
  * step. Before `stepBreakage` they ran in `updateDeform`, once per rendered frame (a replay drew at another rate than
  * the live sim it re-ran, and a player's frame cadence moved a hinge's tear by whole frames).
  */
-const STEP = 1 / 240;
+const STEP = 1 / FINE_HZ;
 const STEPS = 420;
 const HEAD = Math.PI / 2;
 
@@ -61,7 +62,7 @@ const firstChange = (t: string[]): number => {
   return k < 0 ? STEPS : k;
 };
 
-forModes("given a 20 m/s head-on between two cars, simulated for 420 steps of 1/240 s", (mode) => {
+forModes(`given a 20 m/s head-on between two cars, simulated for ${STEPS} steps of 1/${FINE_HZ} s`, (mode) => {
   it("when the crash is drawn at 60, 144 or 240 Hz or never drawn, then the same parts are torn off, lamps broken and glass cracked at every step, and at least one part does come off", () => {
     const never = crash(mode, 0);
     const changes = firstChange(never);

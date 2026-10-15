@@ -11,6 +11,7 @@ import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { setGround } from "../world/ground.ts";
 import { Track, blankPoint, blankProjection, pointOn, type TrackPath } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * Tyres on banked road. Bound 2 cm: a loaded tyre's sidewall squats about that much and the drawn road sits
@@ -18,7 +19,7 @@ import { TRACKS } from "../world/tracks/index.ts";
  * (stunt) where the 1 m ground grid rounded the road's edge into the runoff.
  */
 const BOUND = 0.02;
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const DEG = 180 / Math.PI;
 
 const courses = TRACKS.map((j) => new Track(j));

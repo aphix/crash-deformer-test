@@ -6,8 +6,9 @@ import { applyDrive, type DriveInput } from "./car-drive.ts";
 import { assignClass, type VehicleClassId } from "./vehicle-classes.ts";
 import { paint } from "./test-support.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
+import { QUIET_HZ } from "../kernel/constants.ts";
 
-const SLICE = 1 / 80;
+const SLICE = 1 / QUIET_HZ;
 const FULL: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
 
 /** A car of `cls` at rest on flat ground, `crashed` or fresh, its masses not armed, driven at full throttle for 0.5 s with the engine's wreck-slide rule on: its speed (m/s). */

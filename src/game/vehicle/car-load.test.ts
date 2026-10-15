@@ -11,8 +11,9 @@ import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { DriveCam } from "../present/drive-cam.ts";
 import { Ground, setGround } from "../world/ground.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const DEG = 180 / Math.PI;
 const IDLE: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
 
@@ -130,7 +131,7 @@ describe("given a car driven on the road, whose drawn body squats, dives and lea
 });
 
 describe("given a chase camera that rides the car's drawn body, next to one that does not", () => {
-  const H = 1 / 60;
+  const H = 1 / FRAME_HZ;
   function rig(ride: boolean) {
     const cam = new THREE.PerspectiveCamera(56, 16 / 9, 0.1, 180);
     const drive = new DriveCam();

@@ -11,6 +11,7 @@ import { BARRIER_TOP } from "../contact/sat.ts";
 import { FleetRamps, RAMP } from "../scenes/fleet-ramps.ts";
 import { Ground, setGround } from "../world/ground.ts";
 import { armSolids, RIG, Surface, WALL } from "../world/surfaces.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * Owner, 2026-10-08: "a driver should be able to drive on a box prop, a jersey barrier, a ramp, or a roof, all the same". A sedan
@@ -22,7 +23,7 @@ import { armSolids, RIG, Surface, WALL } from "../world/surfaces.ts";
  * long as it needs (a slab 0.76 m wide, `BARRIER_HALF`, carries no sedan on its top), at the jersey slab's own height. A ramp's deck
  * rises, so its reference is a height-field ramp of the same slope and height, and the car is on it for the first part of its run.
  */
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const FULL: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
 /** The speed is read after this many seconds of full throttle; on the ramp, whose deck the car leaves sooner, after these. */
 const TIMES = [0.5, 1, 1.5] as const;

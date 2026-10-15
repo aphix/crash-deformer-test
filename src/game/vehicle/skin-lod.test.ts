@@ -2,9 +2,10 @@ import * as THREE from "three";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DeformableCar } from "./car.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 const PAINT = { body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" };
-const DT = 1 / 60;
+const DT = 1 / FRAME_HZ;
 /** Mid-window (still crushing) and well after the crush window closes. */
 const CONTACT = 24;
 const SETTLED = 80;

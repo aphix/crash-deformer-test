@@ -8,6 +8,7 @@ import { DeformableCar } from "./car.ts";
 import type { CarStyleId } from "./car-variants.ts";
 import { paint } from "./test-support.ts";
 import { armKill, assignClass, killClass, type VehicleClassId } from "./vehicle-classes.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * The drawn body as the player sees it, for the tests that hold a collider against it (docs/UNIFIED_CONTACT.md stage 3: "the
@@ -282,7 +283,7 @@ export function topGaps(car: DeformableCar, field: DrawnField, region: Region): 
 
 /** Steps `world` in 1/60 s frames for `seconds`. */
 export function stepFrames(world: CrashWorld, seconds: number): void {
-  for (let f = 0; f < seconds * 60; f++) tickWorld(world, 1 / 60);
+  for (let f = 0; f < seconds * FRAME_HZ; f++) tickWorld(world, 1 / FRAME_HZ);
 }
 
 /** A uniform grid over a point cloud: the distance from a point to the nearest one. */

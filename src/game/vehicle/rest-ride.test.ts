@@ -6,6 +6,7 @@ import { SPRINGS } from "./car-suspension.ts";
 import { makeCar } from "./ground-probe.test-util.ts";
 import { layOnWedge, RAD, stepSlices, Wedge } from "./wedge.test-util.ts";
 import { setGround } from "../world/ground.ts";
+import { QUIET_HZ } from "../kernel/constants.ts";
 
 /**
  * A body on its tyre springs rests where they hold it: parked, rolling, or let down from a little above, it comes to its rest ride
@@ -39,7 +40,7 @@ describe("given a car standing still on flat ground with the drive's throttle he
     it(`when the drive pushes a ${cls} every slice for 0.5 s from rest, then its speed grows slice after slice instead of being held at rest`, () => {
       const car = makeCar(cls);
       car.spawnFacing(0, 0, 0, 0);
-      const slice = 1 / 80;
+      const slice = 1 / QUIET_HZ;
       let speedBefore = 0;
       for (let s = 0; s < 60; s++) {
         applyDrive(car, FULL_THROTTLE, slice);

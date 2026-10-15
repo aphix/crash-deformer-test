@@ -10,6 +10,7 @@ import { runWall } from "../contact/crash-scenarios.test-util.ts";
 import { fleetStyle } from "../scenes/fleet.ts";
 import { StreamedDeformation } from "../deform/streamed-deform.ts";
 import { assertSameDigest, assertSameNumbers } from "./test-support.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 const PAINT = { body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" };
 const scene = new THREE.Scene();
@@ -63,7 +64,7 @@ function roofSkinDrift(style: BodyStyle): number {
   const attr = geo.getAttribute("position") as THREE.BufferAttribute;
   const rest = new Float32Array(attr.array as Float32Array);
   d.applyImpact(new THREE.Vector3(0, 0.4, 2), new THREE.Vector3(0, 0, -1), 4);
-  d.stepCrush(1 / 60);
+  d.stepCrush(1 / FRAME_HZ);
   d.update(geo);
   let drift = 0;
   for (let i = 0; i < attr.count; i++) {
@@ -160,10 +161,10 @@ describe("given every body style's rig cage (the soft-body frame that wraps the 
       const z0 = rl.local.z;
       for (let i = 0; i < 24; i++) {
         d.notifyContact();
-        d.feedOverlap(rl.world, new THREE.Vector3(0, 0, 1), 0.1, 14, 1 / 60);
-        d.stepStructure(1 / 60);
-        d.followGroup(c.group, vel, new THREE.Vector3(), 1 / 60);
-        d.stepCrush(1 / 60);
+        d.feedOverlap(rl.world, new THREE.Vector3(0, 0, 1), 0.1, 14, 1 / FRAME_HZ);
+        d.stepStructure(1 / FRAME_HZ);
+        d.followGroup(c.group, vel, new THREE.Vector3(), 1 / FRAME_HZ);
+        d.stepCrush(1 / FRAME_HZ);
         d.update(geo);
       }
       assert.ok(rl.local.z - z0 > 0.05, `${id} tail did not crush ${z0} → ${rl.local.z}`);

@@ -5,6 +5,7 @@ import type { DeformableCar } from "./car.ts";
 import { FLIGHT } from "./car-flight.ts";
 import { makeCar } from "./ground-probe.test-util.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
+import { QUIET_HZ } from "../kernel/constants.ts";
 
 /**
  * A highlight keyframe holds a car as its flight block (`DeformableCar.flight`) and the replay drives on from it: a car rebuilt from
@@ -12,7 +13,7 @@ import { newWorld, stepWorld } from "../engine/world-step.ts";
  * quaternion before it sets it from the Euler angles, and each is the other's derived copy only up to rounding).
  * The pair is one car and its twin, both driven with the same pedals on the same flat road, one slice at a time.
  */
-const SLICE_S = 1 / 80;
+const SLICE_S = 1 / QUIET_HZ;
 const SLICES = 60;
 const WARM_SLICES = 20;
 const SPAWN_SPEED = 20;

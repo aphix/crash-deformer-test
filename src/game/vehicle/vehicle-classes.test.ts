@@ -22,8 +22,9 @@ import {
   type Drivability,
   type VehicleClassId,
 } from "./vehicle-classes.ts";
+import { FINE_HZ, FRAME_HZ, QUIET_HZ } from "../kernel/constants.ts";
 
-const RATES = [1 / 80, 1 / 240] as const;
+const RATES = [1 / QUIET_HZ, 1 / FINE_HZ] as const;
 const PAINT = { body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" };
 const DEFAULT_REALISM = HANDLING.realism;
 
@@ -259,10 +260,10 @@ for (const H of RATES) {
             const cam = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
             const rig = new DriveCam();
             const hold = (keys: string[], seconds: number) => {
-              for (let t = 0; t < seconds - 1e-9; t += 1 / 60) {
+              for (let t = 0; t < seconds - 1e-9; t += 1 / FRAME_HZ) {
                 seat.sample(new Set(keys), null);
-                step(car, seat.input(car, 1 / 60), 1 / 60);
-                rig.update(cam, car, "third", 1 / 60, 0, 0);
+                step(car, seat.input(car, 1 / FRAME_HZ), 1 / FRAME_HZ);
+                rig.update(cam, car, "third", 1 / FRAME_HZ, 0, 0);
               }
               cam.updateMatrixWorld();
             };

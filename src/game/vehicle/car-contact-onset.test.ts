@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import * as THREE from "three";
 import { FREEWHEEL, launch, makeWorld, relaunchDamaged, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { buildCar, skinGap, stepFrames } from "./drawn-body.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * docs/UNIFIED_CONTACT.md stage 3: two cars meet where their drawn bodies meet. A parked sedan and a second one that rolls at
@@ -56,18 +57,18 @@ for (const testCase of meetings) {
       const alone = scene(testCase.damaged, testCase.meeting, false);
       const free: THREE.Vector3[] = [];
       for (let f = 0; f < FRAMES; f++) {
-        tickWorld(alone.world, 1 / 60);
+        tickWorld(alone.world, 1 / FRAME_HZ);
         free.push(alone.second.velocity.clone());
       }
       const met = scene(testCase.damaged, testCase.meeting, true);
       let onset = -1;
       for (let f = 0; f < FRAMES && onset < 0; f++) {
-        tickWorld(met.world, 1 / 60);
+        tickWorld(met.world, 1 / FRAME_HZ);
         if (met.second.velocity.distanceTo(free[f]!) > FIRST_CONTACT_MPS || met.parked.velocity.length() > FIRST_CONTACT_MPS) onset = f;
       }
       assert.ok(onset > 0, `the cars never touched in ${FRAMES / 60} s`);
       const before = scene(testCase.damaged, testCase.meeting, true);
-      for (let f = 0; f < onset; f++) tickWorld(before.world, 1 / 60);
+      for (let f = 0; f < onset; f++) tickWorld(before.world, 1 / FRAME_HZ);
       const gap = skinGap(before.parked, before.second);
       t.diagnostic(`contact first acts in frame ${onset}, with the drawn bodies ${gap.toFixed(3)} m apart (negative: overlapping)`);
       assert.ok(Math.abs(gap) <= GAP_M, `contact first acts with the drawn bodies ${gap.toFixed(3)} m apart`);

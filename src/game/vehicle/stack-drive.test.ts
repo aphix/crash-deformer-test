@@ -7,6 +7,7 @@ import { assignClass } from "./vehicle-classes.ts";
 import { paint } from "./test-support.ts";
 import { makeWorld, tickWorld, type CrashWorld } from "../contact/crash-scenarios.test-util.ts";
 import { Ground, setGround } from "../world/ground.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * E2 of docs/UNIFIED_CONTACT.md (7.2), as measured on main 5ad7839 (section 10): a settled sedan stack leaves the top car's
@@ -14,7 +15,7 @@ import { Ground, setGround } from "../world/ground.ts";
  * a monster's belly rides 0.48 m over its tyre plane, so on a sedan's roof its tyres stand on the hood and trunk. A car
  * touching only with its belly is resting, not flying, and has no drive (its wheels are free).
  */
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const FULL: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
 
 /** A flat asphalt platform at height `y`, under everything. */

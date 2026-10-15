@@ -6,6 +6,7 @@ import { applyDrive, type DriveInput } from "./car-drive.ts";
 import { assignClass, CLASSES, HANDLING, type VehicleClassId } from "./vehicle-classes.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { DT, paint } from "./test-support.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /**
  * The drawn wheels turn with the ground: the rate is the car's travel along its nose over the tyre's drawn radius
@@ -129,7 +130,7 @@ describe("given a netplay client's sedan, whose velocity comes from a snapshot",
 
 /** Each wheel's drawn roll (m) and the ground its own contact point covered along the nose, over a driven run at the 240 Hz step. */
 function driveRun(cls: VehicleClassId, v0: number, secs: number, input: Partial<DriveInput>): { rolled: number[]; travel: number[]; car: DeformableCar } {
-  const h = 1 / 240;
+  const h = 1 / FINE_HZ;
   const car = makeCar(cls);
   car.velocity.set(0, 0, v0);
   const R = radius(cls);

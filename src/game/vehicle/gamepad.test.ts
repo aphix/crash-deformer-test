@@ -4,6 +4,7 @@ import { blankPad, mergeTouch, PAD_BUTTON, PAD_DEAD, padLabel, readPad, stickSca
 import { blankIntent, readIntent, shapeDrive } from "./drive-input.ts";
 import { idleDrive } from "./car-drive.ts";
 import { assertSameDigest } from "./test-support.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /** A connected standard-mapping pad: `down` lists held button indices. */
 function pad(axes: number[], down: number[] = [], lt = 0, rt = 0): PadSource {
@@ -89,12 +90,12 @@ describe("given a gamepad driving a car", () => {
     assert.equal(intent.gas, 1);
     const feel = { wheel: 0, gas: 0, brake: 0, brakeHeld: 0, pulse: 0 };
     const out = idleDrive();
-    for (let i = 0; i < 30; i++) shapeDrive(intent, feel, 6, 1 / 60, out);
+    for (let i = 0; i < 30; i++) shapeDrive(intent, feel, 6, 1 / FRAME_HZ, out);
     assert.ok(out.steer > 0.5, `steer ${out.steer}`);
     assert.equal(out.throttle, 1);
     readPad(pad([1, 0, 0, 0], [], 0, 1), s);
     readIntent(new Set(), s, intent);
-    for (let i = 0; i < 30; i++) shapeDrive(intent, feel, 6, 1 / 60, out);
+    for (let i = 0; i < 30; i++) shapeDrive(intent, feel, 6, 1 / FRAME_HZ, out);
     assert.ok(out.steer < -0.5, `stick right steer ${out.steer}`);
   });
 
@@ -104,9 +105,9 @@ describe("given a gamepad driving a car", () => {
     const intent = readIntent(new Set(), s, blankIntent());
     const feel = { wheel: 0, gas: 0, brake: 0, brakeHeld: 0, pulse: 0 };
     const out = idleDrive();
-    shapeDrive(intent, feel, 8, 1 / 60, out);
+    shapeDrive(intent, feel, 8, 1 / FRAME_HZ, out);
     assert.ok(Math.abs(out.brake - triggerValue(0.6)) < 1e-9 && out.throttle === 0, "partial pull = partial brake, no ramp");
-    shapeDrive(intent, feel, 0, 1 / 60, out);
+    shapeDrive(intent, feel, 0, 1 / FRAME_HZ, out);
     assert.ok(out.throttle < 0 && out.brake === 0);
   });
 

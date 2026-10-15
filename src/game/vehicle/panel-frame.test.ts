@@ -7,6 +7,7 @@ import { assignClass, CLASSES, type VehicleClassId } from "./vehicle-classes.ts"
 import { PANEL_NAMES } from "./car-panels.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { assertSameNumbers, DT, paint } from "./test-support.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * A hinged panel's shell is drawn where its patch of body is: in the body's own frame, which carries the class lift,
@@ -112,17 +113,17 @@ describe("given a settled wreck's hinged panel shells, a shell is rebuilt when i
     const car = wreck("sedan", null);
     const open = ["quarterR", "archRL"].map((n) => car.hang(n, 0.5));
     for (let f = 0; f < 30; f++) {
-      car.stepBreakage(1 / 60);
+      car.stepBreakage(1 / FRAME_HZ);
       car.updateSkin();
     }
     const before = open.map(uploads);
     for (let f = 0; f < 30; f++) {
-      car.stepBreakage(1 / 60);
+      car.stepBreakage(1 / FRAME_HZ);
       car.updateSkin();
     }
     assertSameNumbers(open.map(uploads), before, "shell uploads over 30 settled frames");
     open[0]!.hingeT = 0.8;
-    car.stepBreakage(1 / 60);
+    car.stepBreakage(1 / FRAME_HZ);
     car.updateSkin();
     assert.ok(uploads(open[0]!) > before[0]!, "a shell whose hinge moved stayed as it was");
     assert.equal(uploads(open[1]!), before[1], "the other shell was rebuilt");

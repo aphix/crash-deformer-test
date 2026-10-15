@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { CRASH } from "../deform/physics-util.ts";
-import { GRAVITY } from "../kernel/constants.ts";
+import { GRAVITY, FINE_HZ, FRAME_HZ, QUIET_HZ } from "../kernel/constants.ts";
 import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
 import { activeGround, Ground, setGround } from "../world/ground.ts";
 import { armSolids, Surface } from "../world/surfaces.ts";
@@ -16,7 +16,7 @@ import { newLooseShape, stepLoose } from "./loose-step.ts";
 import { corner, LIES_FLAT, lowest, RESTS, thinAxisUp } from "./loose-step.test-util.ts";
 import { assertSameDigest, paint } from "./test-support.ts";
 
-const H = 1 / 80;
+const H = 1 / QUIET_HZ;
 
 /** A flat road at height `raise`, under everything. */
 class RaisedRoad extends Ground {
@@ -77,7 +77,7 @@ function lot(withB: boolean): Lot {
     cars.push(b);
   }
   const w = newWorld(cars);
-  // The three slices a step takes with two cars in reach, on open road too: the stop's last slice (v0 h / 2 moved, v0² / 2a owed) differs with the slice, so only one cut compares the two lots.
+  // The slices a step takes with two cars in reach, on open road too: the stop's last slice (v0 h / 2 moved, v0² / 2a owed) differs with the slice, so only one cut compares the two lots.
   w.plan = 2;
   const part = a["parts"].find((p) => p.name === "bumperF")!;
   a["detachPart"](part, 0, new THREE.Vector3());
@@ -192,15 +192,15 @@ describe("given a torn hood let go a metre over the road, spinning", () => {
     assert.ok(low >= -1e-9 && low <= RESTS, `its lowest point is ${low.toFixed(4)} m over the road`);
   });
 
-  it("when a slab slides at 8 m/s along the road at steps of 1/60 s and of 1/240 s, then the two slide as far as each other to within 5 %", () => {
+  it(`when a slab slides at 8 m/s along the road at steps of 1/${FRAME_HZ} s and of 1/${FINE_HZ} s, then the two slide as far as each other to within 5 %`, () => {
     const far = (dt: number): number => {
       const part = slab(0.15, new THREE.Vector3(0, 0, SLIDE_V));
       for (let t = 0; t < (2 * SLIDE_V) / (CRASH.muSlide * GRAVITY); t += dt) stepLoose(part, dt, -1);
       return part.object.position.z;
     };
-    const coarse = far(1 / 60);
-    const fine = far(1 / 240);
-    assert.ok(Math.abs(coarse - fine) <= 0.05 * fine, `${coarse.toFixed(3)} m at 1/60 s, ${fine.toFixed(3)} m at 1/240 s`);
+    const coarse = far(1 / FRAME_HZ);
+    const fine = far(1 / FINE_HZ);
+    assert.ok(Math.abs(coarse - fine) <= 0.05 * fine, `${coarse.toFixed(3)} m at 1/${FRAME_HZ} s, ${fine.toFixed(3)} m at 1/${FINE_HZ} s`);
   });
 });
 

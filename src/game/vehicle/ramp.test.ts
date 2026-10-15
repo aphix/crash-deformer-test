@@ -9,6 +9,7 @@ import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "./test-support.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { useStiffSprings } from "./stiff-springs.test-util.ts";
+import { FRAME_HZ } from "../kernel/constants.ts";
 
 /**
  * The owner's ramp test: a car dropped 0.5 m onto a wedge, brake and handbrake held, must settle with all
@@ -17,7 +18,7 @@ import { useStiffSprings } from "./stiff-springs.test-util.ts";
  */
 const FOOT = -10;
 const RUN = 20;
-const FRAME = 1 / 60;
+const FRAME = 1 / FRAME_HZ;
 const SETTLE_S = 3;
 const BRAKE: DriveInput = { throttle: 0, steer: 0, brake: 1, ebrake: true, boost: false };
 const DEG = Math.PI / 180;
