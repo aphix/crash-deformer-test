@@ -103,11 +103,9 @@ describe("given the real engine in a running derby, and a canvas that carries po
         frameCamera();
         pointer("pointerup", spot.x, spot.y);
         const view = engine["view"];
-        assert.deepEqual(
-          [engine["seat"].mode, engine["seat"].carIndex],
-          ["follow", index],
-          `press on car ${index} (${speed.toFixed(1)} m/s) at ${Math.round(spot.x)},${Math.round(spot.y)}: dragId ${view["dragId"]}, take ${view.take === null ? "null" : "set"}, locked ${view.locked}`,
-        );
+        const why = `press on car ${index} (${speed.toFixed(1)} m/s) at ${Math.round(spot.x)},${Math.round(spot.y)}: dragId ${view["dragId"]}, take ${view.take === null ? "null" : "set"}, locked ${view.locked}`;
+        assert.equal(engine["seat"].mode, "follow", why);
+        assert.equal(engine["seat"].carIndex, index, why);
         clicked++;
       }
       assert.ok(clicked >= 2, `at least two cars clear of each other on screen (saw ${clicked})`);
