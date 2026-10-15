@@ -70,7 +70,7 @@ function worldGame(w: World, name: string) {
 }
 
 /** A host and one guest in room R, both in the lobby, on one clock. */
-function lobby(opts: { minPlayers?: number } = {}) {
+function lobby(opts: { minPlayers?: number; course?: string } = {}) {
   const hub = new Hub();
   let now = 1000;
   const hw = makeWorld();
@@ -82,9 +82,11 @@ function lobby(opts: { minPlayers?: number } = {}) {
   open.push(host, guest);
   host.host("R", "bc");
   if (opts.minPlayers !== undefined) host.setMinPlayers(opts.minPlayers);
+  if (opts.course !== undefined) host.setLobbyCourse(opts.course);
   guest.join("R", "bc");
   const state = { acc: 0 };
   const s = {
+    now: () => now,
     hub,
     hw,
     gw,
@@ -247,5 +249,70 @@ describe("given a host and a guest waiting in the Havana lobby", () => {
       assert.equal(w.race.courseId, "havana", `${who}: the course`);
     }
     assert.equal(s.host.status().gate?.kind, "race", "the Go switch is up again");
+  });
+});
+
+const mall = new Track(TRACKS.find((j) => parseTrack(j).id === "national-mall"));
+const mallStart = mall.survival!.start;
+/** Whether car `car` of world `w` stands on the Mall's Survival start anchor, abreast with the others (`humanSlot`: within 16 m of it). */
+const atMallStart = (w: World, car: number): boolean => Math.hypot(w.live()[car]!.group.position.x - mallStart.x, w.live()[car]!.group.position.z - mallStart.z) < 16;
+
+describe("given a host and a guest in the lobby of a private room, Survival chosen as the game", () => {
+  it("when the host reads the Survival courses, then it is offered Havana and Washington DC, and a guest cannot pick one", () => {
+    const s = lobby();
+    s.host.setLobbyKind("survival");
+    s.step(10);
+    assert.deepEqual(s.host.status().survivalCourse.courses.map((c) => c.id), ["havana", "national-mall"]);
+    assert.equal(s.host.status().survivalCourse.id, "havana", "Havana until the host picks");
+    s.guest.setLobbyCourse("national-mall");
+    s.step(10);
+    assert.equal(s.hw.race.courseId, "havana", "a guest's pick is nobody's");
+  });
+
+  it("when the host picks the Mall, then the lobby on both worlds moves to the Mall's start, and Go starts a team Survival run there for both humans", () => {
+    const s = lobby();
+    s.host.setLobbyKind("survival");
+    s.host.setLobbyCourse("national-mall");
+    s.step(30);
+    for (const [who, w] of [["host", s.hw], ["guest", s.gw]] as const) {
+      assert.equal(w.race.courseId, "national-mall", `${who}: the lobby's course`);
+      assert.equal(w.race.free, true, `${who}: free drive`);
+      for (const car of [0, 1]) assert.ok(atMallStart(w, car), `${who}: car ${car} is at the Mall's start`);
+    }
+    assert.equal(s.guest.status().survivalCourse.id, "national-mall", "the guest's panel shows the host's course");
+    assert.equal(s.host.go(), true);
+    s.step(60);
+    for (const [who, w] of [["host", s.hw], ["guest", s.gw]] as const) {
+      assert.equal(w.race.courseId, "national-mall", `${who}: the run's course`);
+      assert.equal(w.race.survival, true, `${who}: Survival`);
+      assert.equal(w.race.free, false, `${who}: not the lobby any more`);
+      assert.ok(atMallStart(w, 0) && atMallStart(w, 1), `${who}: both humans at the Mall's start`);
+    }
+    assert.equal(s.hw.race.hud().team?.humans, 2, "a team of two");
+  });
+
+  it("when the host picked the Mall before the guest joined, then the guest's lobby opens on the Mall", () => {
+    const s = lobby({ course: "national-mall" });
+    s.step(30);
+    assert.equal(s.gw.race.courseId, "national-mall");
+    assert.ok(atMallStart(s.gw, 1), "the guest's car is at the Mall's start");
+  });
+
+  it("when a third player joins while the Mall's run is on, then its world shows that run on the Mall", () => {
+    const s = lobby();
+    s.host.setLobbyKind("survival");
+    s.host.setLobbyCourse("national-mall");
+    assert.equal(s.host.go(), true);
+    s.step(30);
+    const lw = makeWorld();
+    const late = new NetPlay(worldGame(lw, "Yan").game, { connect: s.hub.connect, now: s.now });
+    open.push(late);
+    late.join("R", "bc");
+    for (let k = 0; k < 60; k++) {
+      s.step(1);
+      late.frame(FRAME_MS / 1000);
+    }
+    assert.equal(lw.race.courseId, "national-mall", "the course");
+    assert.equal(lw.race.survival, true, "a Survival run");
   });
 });

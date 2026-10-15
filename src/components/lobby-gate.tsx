@@ -26,6 +26,8 @@ export function LobbyGate({ engine, status }: { engine: RefObject<CrashEngine | 
   /** Steps the wanted players from what the host holds now, not from the panel's last redraw. */
   const step = (by: number): void => net?.setMinPlayers((net.status().gate?.min ?? gate.min) + by);
   const waiting = need > 0 ? `Waiting for ${need} more player${need === 1 ? "" : "s"}…` : host ? "Ready: press Go to start." : "Waiting for the host to press Go…";
+  const { id: course, courses } = status.survivalCourse;
+  const courseName = courses.find((c) => c.id === course)?.name;
   return (
     <div className="space-y-1.5" data-testid="lobby-gate">
       <p className="font-display" role="status">
@@ -33,7 +35,8 @@ export function LobbyGate({ engine, status }: { engine: RefObject<CrashEngine | 
         {need <= 0 && status.lobby != null ? ` Starts in ${status.lobby} s.` : ""}
       </p>
       <p className="text-subtle">
-        {gate.players} here · {GAME_LABEL[gate.kind]} starts
+        {gate.players} here · {GAME_LABEL[gate.kind]}
+        {gate.kind === "survival" && courseName ? ` on ${courseName}` : ""} starts
       </p>
       {host ? (
         <>
@@ -58,6 +61,15 @@ export function LobbyGate({ engine, status }: { engine: RefObject<CrashEngine | 
               ))}
             </div>
           )}
+          {gate.kind === "survival" && courses.length > 1 ? (
+            <div className="flex gap-1" role="group" aria-label="Survival course">
+              {courses.map((c) => (
+                <Button key={c.id} className={cn(TAP, "flex-1 px-2 text-xs")} variant={course === c.id ? "default" : "secondary"} aria-pressed={course === c.id} onMouseDown={keepFocus} onClick={() => net?.setLobbyCourse(c.id)}>
+                  {c.name}
+                </Button>
+              ))}
+            </div>
+          ) : null}
           <div className="flex gap-1">
             <Button className={cn(TAP, "flex-1 gap-1.5 px-3 text-xs")} disabled={need > 0} onMouseDown={keepFocus} onClick={() => net?.go()}>
               <Play />

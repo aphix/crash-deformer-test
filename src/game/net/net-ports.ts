@@ -19,6 +19,8 @@ export interface NetRace {
   readonly phase: RacePhase | null;
   /** The course the director shows. */
   readonly courseId: string;
+  /** The courses Survival is played on (the lobby is on one of them). */
+  readonly survivalCourses: readonly { id: string; name: string }[];
   setRemoteInput(carId: number, input: DriveInput): void;
   requestRespawn(id?: number): void;
   holdReset(id?: number): void;
@@ -122,8 +124,10 @@ export interface NetStatus {
   car: number;
   /** Seconds until a public match starts (host lobby, mirrored to clients), null otherwise. */
   lobby: number | null;
-  /** The Havana lobby's start gate (players needed, players here, the game Go starts); null once a game runs or outside a lobby. */
+  /** The lobby's start gate (players needed, players here, the game Go starts); null once a game runs or outside a lobby. */
   gate: (LobbyGate & { players: number }) | null;
+  /** The course the lobby shows (the one a Survival run starts on) and the Survival courses a host's panel picks from; empty outside race mode. */
+  survivalCourse: { id: string; courses: readonly { id: string; name: string }[] };
   peers: readonly NetPeer[];
   /** Snapshots per second sent (host) or taken (client) over the last second, and their payload. */
   snapHz: number;

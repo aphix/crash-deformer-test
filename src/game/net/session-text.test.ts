@@ -13,6 +13,7 @@ const guestInPrivateRoom: NetStatus = {
   car: 1,
   lobby: null,
   gate: null,
+  survivalCourse: { id: "", courses: [] },
   peers: [{ id: "host", rttMs: 30 }],
   snapHz: 30,
   bytesPerSec: 1024,

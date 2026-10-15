@@ -243,6 +243,11 @@ export class NetPlay extends NetPlayClient {
     if (this.role === "host" && this.lobbyOn && !this.publicKind) this.lobbyKind = kind;
   }
 
+  /** Host, lobby: the Survival course the lobby shows and Go's Survival run is on (`RaceDirector`'s `survivalCourse` pick); every guest's lobby follows. */
+  setLobbyCourse(id: string): void {
+    if (this.role === "host" && this.lobbyOn) this.game.race()?.command({ type: "survivalCourse", id });
+  }
+
   /** Host, lobby: every car back at its spawn and repaired, every prop and piece of debris back (replicated to the guests through `clearGen`). */
   resetScene(): void {
     if (this.role === "host" && this.lobbyOn) this.game.resetLobbyScene();
@@ -264,6 +269,12 @@ export class NetPlay extends NetPlayClient {
   private currentGate(): (LobbyGate & { players: number }) | null {
     if (this.role === "host") return this.lobbyOn ? { min: this.minPlayers, kind: this.publicKind ?? this.lobbyKind, players: this.slots.size + 1 } : null;
     return this.heardGate && { ...this.heardGate, players: (this.transport?.peers().length ?? 0) + 1 };
+  }
+
+  /** The course the director shows and the Survival courses to pick from, as the lobby panel reads them. */
+  private currentSurvivalCourse(): NetStatus["survivalCourse"] {
+    const race = this.game.race();
+    return { id: race?.courseId ?? "", courses: race?.survivalCourses ?? [] };
   }
 
   /** The player leaves, or the page closes: the session is over, so its dead rooms are forgotten. */
@@ -349,6 +360,7 @@ export class NetPlay extends NetPlayClient {
       car: this.car,
       lobby: this.lobbyLeft == null ? null : Math.max(0, Math.ceil(this.lobbyLeft)),
       gate: this.currentGate(),
+      survivalCourse: this.currentSurvivalCourse(),
       peers: this.transport?.peers() ?? [],
       snapHz: this.snapHz,
       bytesPerSec: this.bytesPerSec,

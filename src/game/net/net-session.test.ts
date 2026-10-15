@@ -55,6 +55,7 @@ function fakeGame(raceApplied?: number[], playerName = "") {
         },
         showLobby(_trackId: string): void {},
         courseId: "havana",
+        survivalCourses: [{ id: "havana", name: "Havana" }],
         seatLobby(_self: number): void {},
       }
     : null;

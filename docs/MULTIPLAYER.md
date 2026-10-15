@@ -346,7 +346,7 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
 
 ## Lobby
 
-From the moment a player hosts (public or private) or joins, until the host starts a game, everyone shares one free-drive scene on the Havana course (the Survival course, `HAVANA`): their own cars on the course, proximity voice as in "Voice", no race rules, no hunters, no setup menu.
+From the moment a player hosts (public or private) or joins, until the host starts a game, everyone shares one free-drive scene on the Survival course (Havana until the host picks another, the National Mall: `setLobbyCourse`): their own cars on the course, proximity voice as in "Voice", no race rules, no hunters, no setup menu.
 
 - **Built on the race director, not the fleet.** `RaceDirector.enter(false, true)` loads the course (`showLobby`) with no `RaceSession`; `RaceDirector.free` is the lobby flag. Race mode already carries peers' cars in the host's snapshots (`drive` applies each seat's remote input, the walls and props are the race's `courseHit`), and the Fleet scene has no Havana, so the lobby reuses that path and its course loading instead of a new scene id. The host's car is car 0, each peer's its roster car; cars stand abreast on the course's start anchor (`humanSlot`, as a hosted Survival run's humans). A guest adopts the lobby from the host's race message (`MSG.race` `gate` non-null) and seats its own car (`RaceDirector.seatLobby`).
 - **Start gate.** The host's **Go** switch (session panel) calls `NetPlay.go()`: it starts the room's game and works once players (the host and the seated peers) ≥ `minPlayers`. `minPlayers` defaults to 2 (`DEFAULT_MIN_PLAYERS`: the host and one), the host sets it with the panel's stepper (`setMinPlayers`, 1 to `ROOM_MAX`), and it travels to every peer in `RaceNetState.gate = { min, kind }` (5 Hz and with every keyframe), so guests read "Waiting for N more players". What Go starts: a private room's host picks Race, Survival or Derby in the panel (`setLobbyKind`; a race runs on the race options' course, as the host last set it), a public room's game is the one its name says. The host cannot switch scenes from the HUD while the lobby is up.
@@ -400,8 +400,8 @@ two agree. With one human there is no team (`RaceHud.team` is null) and every ru
 
 - **Race:** each player keeps its own place. The team's place is the best human place; the team won when a human finished first.
   Nobody has to finish: the finish and DNF rules end the race as ever.
-- **Survival:** a private room's host picks the Survival scene and every peer seated at that moment starts it (`setSeats` before
-  `enter`), abreast on the start anchor (`humanSlot`). Each cop hunts the nearest human still free (`HunterBrain`), each human is
+- **Survival:** a private room's host picks Survival as the lobby's game and its course in the panel (`setLobbyCourse`: the lobby moves to that course on every peer, through the lobby message's `trackId`), and every peer seated at that moment starts the run there (`setSeats` before
+  `enter`), abreast on the start anchor (`humanSlot`). A guest that joins after the pick, or mid-run, loads the course from the same `trackId`. Each cop hunts the nearest human still free (`HunterBrain`), each human is
   busted or wrecked by the per-car rules, a fallen human spectates, and the run ends when none is free: its time is the team's.
   The pack scales with the humans (`HUNT.perHuman`, [`SURVIVAL.md`](SURVIVAL.md)). A peer who joins mid-run spectates; Retry seats the peers
   the room has now.
