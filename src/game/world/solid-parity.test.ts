@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { strike, strikeSink, type Outcome, type Target } from "./solid-parity.test-util.ts";
+import { restSink, strike, strikeSink, type Outcome, type Target } from "./solid-parity.test-util.ts";
 import { PREFABS } from "./catalog.ts";
 import type { VehicleClassId } from "../vehicle/vehicle-classes.ts";
 
@@ -128,8 +128,8 @@ describe("given a sedan hitting a flat solid at the clip's 113 km/h and the jers
   for (const target of ["stucco", "wall", "oval"] as const) {
     for (const before of [0, 1, 2]) {
       it(`when a sedan hits the ${target}${before ? ` as a wreck sent back ${before} time${before > 1 ? "s" : ""}` : ""}, then, when the hit has played out, its drawn body stands no further inside than the barrier leaves it plus ${REST_SLACK} m`, () => {
-        const solid = strikeSink(target, "sedan", CLIP_SPEED, before).rest.mesh;
-        const ref = strikeSink("barrier", "sedan", CLIP_SPEED, before).rest.mesh;
+        const solid = restSink(target, "sedan", CLIP_SPEED, before).rest.mesh;
+        const ref = restSink("barrier", "sedan", CLIP_SPEED, before).rest.mesh;
         // No further inside than the barrier leaves it, or than the wall suite's own allowance past a face (`LEFT_IN`): the strike now
         // leaves a car resting 0.25 m clear of the face where the slab's rebound leaves it 0.57 m clear (mesh past the face -0.247 against
         // -0.570, stucco), which is outside the face and so inside the allowance. A car left 0.10 m inside the face fails both.
@@ -138,7 +138,7 @@ describe("given a sedan hitting a flat solid at the clip's 113 km/h and the jers
     }
   }
   it(`when a sedan hits the stucco for the first time, then it stands at most ${LEFT_IN} m inside it when the hit has played out`, () => {
-    const { rest } = strikeSink("stucco", "sedan", CLIP_SPEED);
+    const { rest } = restSink("stucco", "sedan", CLIP_SPEED);
     assert.ok(rest.mesh <= LEFT_IN, `${rest.mesh.toFixed(3)} m`);
   });
   // Measured (sedan, stucco, second hit): the drawn body's deepest reach past the face is 0.164 m since the wreck split (0.279 m before it, 0.58 m when
@@ -150,7 +150,7 @@ describe("given a sedan hitting a flat solid at the clip's 113 km/h and the jers
   });
   // After a tap at 8 m/s (the drawn nose 0.111 m short of the face) the rigid hull points stand within 1 cm of the face: the hull points are the drawn body's cage.
   it("when a sedan taps the stucco at 8 m/s, then its rigid hull points stand no further than 1 cm past the face", () => {
-    const { rest } = strikeSink("stucco", "sedan", SURVIVABLE);
+    const { rest } = restSink("stucco", "sedan", SURVIVABLE);
     assert.ok(rest.hull <= 0.01, `${rest.hull.toFixed(3)} m`);
   });
 });

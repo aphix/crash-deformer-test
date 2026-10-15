@@ -210,11 +210,16 @@ function rigFor(target: Target, car: DeformableCar): Rig {
   return courseRig(car, "havana", (_t, cols) => propFace(cols, target));
 }
 
+const outcomes = new Map<string, Outcome[]>();
+
 /**
  * `class` at `speed` m/s square into `target`, `hits` times (a wreck sent back at the same speed, its damage kept):
- * what each hit left of it.
+ * what each hit left of it. A run is deterministic, so the barrier reference every cell is held to is played once.
  */
 export function strike(target: Target, cls: VehicleClassId, speed: number, hits = 1, offset = 0): Outcome[] {
+  const key = `${target} ${cls} ${speed} ${hits} ${offset}`;
+  const known = outcomes.get(key);
+  if (known) return known;
   const car = armedCar(cls);
   const rig = rigFor(target, car);
   const out: Outcome[] = [];
@@ -229,6 +234,7 @@ export function strike(target: Target, cls: VehicleClassId, speed: number, hits 
   } finally {
     rig.done();
   }
+  outcomes.set(key, out);
   return out;
 }
 
@@ -291,6 +297,37 @@ export function strikeSink(target: Target, cls: VehicleClassId, speed: number, b
       }
     }
     return { peak, rest, speed: car.velocity.length() };
+  } finally {
+    rig.done();
+  }
+}
+
+const rests = new Map<string, { rest: Sink; speed: number }>();
+
+/**
+ * `strikeSink`'s `rest` and `speed` alone: the car is drawn every frame of the last hit as `strikeSink` draws it (the drawn body follows the
+ * frames it was skinned on), but its points are scanned once, when the hit has played out. A run is deterministic, so a reference is played once.
+ */
+export function restSink(target: Target, cls: VehicleClassId, speed: number, before = 0): { rest: Sink; speed: number } {
+  const key = `${target} ${cls} ${speed} ${before}`;
+  const known = rests.get(key);
+  if (known) return known;
+  const car = armedCar(cls);
+  const rig = rigFor(target, car);
+  try {
+    for (let hit = 0; hit <= before; hit++) {
+      rig.aim(car, speed, 0);
+      for (let f = 0; f < SETTLE / FRAME; f++) {
+        rig.frame();
+        if (hit < before) continue;
+        car.refitCage();
+        car.updateSkin();
+        car.group.updateMatrixWorld(true);
+      }
+    }
+    const out = { rest: sinkPast(car, rig.face), speed: car.velocity.length() };
+    rests.set(key, out);
+    return out;
   } finally {
     rig.done();
   }
