@@ -19,7 +19,7 @@ const CLOUD_SCALE = 0.65;
 /** Clip-space depth the panel is drawn at, as a share of w: past every surface the far plane keeps. */
 const FAR_DEPTH = 0.999999;
 
-type Backdrop = NonNullable<TrackJson["environment"]["backdrop"]>;
+export type Backdrop = NonNullable<TrackJson["environment"]["backdrop"]>;
 
 /** The panel round `bearing` (degrees from −z toward +x): a unit-sphere patch, u running with the bearing, v up. */
 export function backdropGeometry(bearing: number): THREE.BufferGeometry {
@@ -60,7 +60,8 @@ export function backdropMesh(spec: Backdrop): THREE.Mesh {
   // Premultiplied, so the filtering never pulls the clear canvas's black into the cloud's edge.
   map.premultiplyAlpha = true;
   map.anisotropy = 4;
-  const mat = new THREE.MeshBasicMaterial({ map, transparent: true, premultipliedAlpha: true, depthWrite: false, fog: false, toneMapped: false, side: THREE.DoubleSide });
+  // A panel seen from inside the sky sphere shows one face to a pixel: three's back-then-front two-pass draw of a see-through double-sided material only bumped its version twice a frame.
+  const mat = new THREE.MeshBasicMaterial({ map, transparent: true, premultipliedAlpha: true, depthWrite: false, fog: false, toneMapped: false, side: THREE.DoubleSide, forceSinglePass: true });
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader.replace(
       "#include <project_vertex>",

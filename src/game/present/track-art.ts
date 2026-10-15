@@ -17,7 +17,7 @@ import { buildGroundLayers, TerrainBatch } from "./track-ground.ts";
 import { depthProxy, groundMaterial, groundMesh, levelOrder } from "../scenes/ground-stack.ts";
 import { addDecks, addTunnels, addWalls, pillarPieces } from "./track-structures.ts";
 import { PropTumble } from "./prop-tumble.ts";
-import { backdropMesh, disposeBackdrop } from "./sky-backdrop.ts";
+import { backdropMesh, disposeBackdrop, type Backdrop } from "./sky-backdrop.ts";
 import { nukeFlash } from "./people.ts";
 import { GroundsArt } from "./grounds-art.ts";
 
@@ -49,12 +49,11 @@ export class TrackArt {
   private readonly m4 = new THREE.Matrix4();
   private readonly col = new THREE.Color();
   private readonly stage: Pick<WorldStage, "look">;
-  /** The picture on the course's sky (`environment.backdrop`), if it has one. */
-  private readonly backdrop: THREE.Mesh | null;
+  /** The picture on the course's sky (`environment.backdrop`), once built: at once unless it is a secret, which waits for `reveal`. */
+  private backdrop: THREE.Mesh | null = null;
+  private readonly backdropSpec: Backdrop | null;
   /** The running secret flash's stop (`reveal`), null when none runs. */
   private cancelFlash: (() => void) | null = null;
-  /** The course's sky picture is a secret (`environment.backdrop.secret`): hidden until `reveal`. */
-  private readonly secretSky: boolean;
   /** A guarded course's guards and VIP (`TrackJson.guards`), none on a course without. */
   readonly grounds: GroundsArt | null;
 
@@ -63,13 +62,8 @@ export class TrackArt {
     this.group.name = "track-art";
     this.stage = stage;
     stage.look(track.json.environment.light ?? null, track.json.environment.sky);
-    const sky = track.json.environment.backdrop;
-    this.backdrop = sky ? backdropMesh(sky) : null;
-    this.secretSky = sky?.secret ?? false;
-    if (this.backdrop) {
-      this.backdrop.visible = !this.secretSky;
-      this.group.add(this.backdrop);
-    }
+    this.backdropSpec = track.json.environment.backdrop ?? null;
+    if (this.backdropSpec && !this.backdropSpec.secret) this.standBackdrop(this.backdropSpec);
     const ground = track.ground();
     this.grounds = track.json.guards ? new GroundsArt(track.json.guards, ground, this.group) : null;
     const tex = makeRaceTextures();
@@ -185,18 +179,32 @@ export class TrackArt {
     );
   }
 
-  /** The Konami code on a course with a secret sky picture: a slow flash over `over`, and at its height the picture stands. */
+  /** The Konami code on a course with a secret sky picture: a slow flash over `over`, and at its height (the white-out) the picture is painted and stands. */
   reveal(over: Pick<HTMLElement, "appendChild">): void {
-    const b = this.backdrop;
-    if (!b) return;
-    this.cancelFlash = nukeFlash(over, () => void (b.visible = true));
+    const spec = this.backdropSpec;
+    if (!spec) return;
+    this.cancelFlash = nukeFlash(over, () => this.standBackdrop(spec));
   }
 
-  /** The secret sky picture back out of sight (and any flash still running gone), as before the code. */
+  /** The secret sky picture back out of sight (and any flash still running gone), as before the code: a secret picture's canvas and texture are freed, painted again by the next `reveal`. */
   resetSecret(): void {
     this.cancelFlash?.();
     this.cancelFlash = null;
-    if (this.backdrop) this.backdrop.visible = !this.secretSky;
+    if (this.backdropSpec?.secret) this.dropBackdrop();
+  }
+
+  /** The picture's mesh built (its canvas painted) on first need and added to the art. */
+  private standBackdrop(spec: Backdrop): void {
+    if (this.backdrop) return;
+    this.backdrop = backdropMesh(spec);
+    this.group.add(this.backdrop);
+  }
+
+  private dropBackdrop(): void {
+    if (!this.backdrop) return;
+    disposeBackdrop(this.backdrop);
+    this.backdrop.removeFromParent();
+    this.backdrop = null;
   }
 
   /** Start gantry: 0 off, 1 red, 2 yellow, 3 green. Cheap to call every frame (no-op when unchanged). */
@@ -216,10 +224,7 @@ export class TrackArt {
     this.cancelFlash?.();
     this.stage.look(null);
     this.grounds?.dispose();
-    if (this.backdrop) {
-      disposeBackdrop(this.backdrop);
-      this.backdrop.removeFromParent();
-    }
+    this.dropBackdrop();
     const geos = new Set<THREE.BufferGeometry>();
     const mats = new Set<THREE.Material>();
     this.group.traverse((o) => {
