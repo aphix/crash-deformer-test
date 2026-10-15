@@ -165,10 +165,16 @@ describe("given each vehicle class driven at 20 m/s with half throttle and the s
 });
 
 describe("given a sedan driven at 20 m/s with the handbrake held", () => {
-  it("when it drives for 0.5 s, then it is still moving (over 5 m/s), the rear wheels stop turning (under 5 % of the distance their contact points travel) and the front wheels keep rolling (within 2 %)", () => {
+  it("when it drives for 0.5 s, then it is still moving (over 5 m/s), the rear wheels stop turning once the grip is on (under 5 % of their contact points' travel after the 0.08 s grip-in) and the front wheels keep rolling (within 2 %)", () => {
+    // The grip ramps in over `DRIVE.ebrakeIn` (0.08 s): at 20 m/s the rears roll about 0.8 m before it is full, so the lock is judged over the window after it.
+    const ramp = driveRun("sedan", 20, 0.08, { ebrake: true });
     const r = driveRun("sedan", 20, 0.5, { ebrake: true });
     assert.ok(r.car.speed > 5, `stopped: ${r.car.speed.toFixed(1)} m/s`);
-    assert.ok(Math.abs(r.rolled[2]!) < 0.05 * r.travel[2]! && Math.abs(r.rolled[3]!) < 0.05 * r.travel[3]!, `rear rolled ${r.rolled[2]!.toFixed(2)}, ${r.rolled[3]!.toFixed(2)} of ${r.travel[2]!.toFixed(2)} m`);
+    for (const i of [2, 3]) {
+      const rolled = Math.abs(r.rolled[i]! - ramp.rolled[i]!);
+      const travel = r.travel[i]! - ramp.travel[i]!;
+      assert.ok(rolled < 0.05 * travel, `rear ${i} rolled ${rolled.toFixed(2)} of ${travel.toFixed(2)} m after the grip-in`);
+    }
     assert.ok(Math.abs(r.rolled[0]! / r.travel[0]! - 1) < 0.02, `front rolled ${r.rolled[0]!.toFixed(2)} of ${r.travel[0]!.toFixed(2)} m`);
   });
 });

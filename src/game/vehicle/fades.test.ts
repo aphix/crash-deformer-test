@@ -5,7 +5,7 @@ import { applyDrive, BOOST, DRIVE, DriverSeat, driftPay, idleDrive, type DriveIn
 import { blankIntent, FEEL, readIntent, shapeDrive } from "./drive-input.ts";
 import { DeformableCar } from "./car.ts";
 import { DT } from "./test-support.ts";
-import { HANDLING } from "./vehicle-classes.ts";
+import { CLASSES, HANDLING } from "./vehicle-classes.ts";
 
 /** The gameplay assists fade in and out over time and over how far the inputs are past a gate (masterclass 23:34): none is a switch. */
 
@@ -119,37 +119,16 @@ for (const dt of RATES) {
     });
   });
 
-  describe(`given boost on at a sedan's speed, stepping at ${hz} Hz`, () => {
-    it("when Shift goes down and later up, then the thrust applied rises and falls over BOOST.ramp at no more than 1/ramp per second, and the push it adds to the car's acceleration rises and falls with it", () => {
-      const run = (boost: boolean) => {
-        const car = carAt(15);
-        const thrust: number[] = [];
-        const accel: number[] = [];
-        let prev = 15;
-        const steps = Math.round(1.2 / dt);
-        for (let i = 0; i < steps; i++) {
-          const on = boost && i * dt < 0.6;
-          applyDrive(car, { ...idleDrive(), throttle: 1, boost: on }, dt);
-          const v = Math.hypot(car.velocity.x, car.velocity.z);
-          accel.push((v - prev) / dt);
-          prev = v;
-          thrust.push(car.drive.boostK);
-        }
-        return { thrust, accel };
-      };
-      const on = run(true);
-      const off = run(false);
-      let prev = 0;
-      for (const k of on.thrust) {
-        assert.ok(Math.abs(k - prev) <= dt / BOOST.ramp + 1e-9, `thrust stepped ${(k - prev).toFixed(4)}`);
-        prev = k;
-      }
-      assert.ok(on.thrust[Math.round(0.3 / dt)]! > 0.99, "full by 0.3 s");
-      assert.equal(on.thrust[on.thrust.length - 1], 0, "gone after the release");
-      const push = on.accel.map((a, i) => a - off.accel[i]!);
-      const steady = push[Math.round(0.4 / dt)]!;
-      assert.ok(steady > 0, `steady push ${steady}`);
-      assert.ok(push[0]! < 0.2 * steady, `first step's push ${push[0]} vs steady ${steady}`);
+  describe(`given a sedan boosting over its unboosted top speed that touches down from a jump, stepping at ${hz} Hz`, () => {
+    it("when its first grounded slices run with boost held, then it keeps its speed (the thrust is on at once, so the drive never brakes it to the unboosted top)", () => {
+      const k = CLASSES.sedan;
+      const speed = k.topSpeed * (1 + (k.boostTop - 1) / 2);
+      const car = carAt(speed);
+      // In the air the boost is not applied: what a ramp would have drained to 0 by touchdown.
+      car.drive.boostK = 0;
+      for (let t = 0; t < 0.1 - 1e-9; t += dt) applyDrive(car, { ...idleDrive(), throttle: 1, boost: true }, dt);
+      const v = Math.hypot(car.velocity.x, car.velocity.z);
+      assert.ok(v > speed - 0.2, `${speed.toFixed(1)} m/s fell to ${v.toFixed(1)} m/s in 0.1 s`);
     });
   });
 }

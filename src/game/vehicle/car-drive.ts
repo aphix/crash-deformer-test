@@ -244,9 +244,10 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   wheelLoss(car.deform.wheelsOnMask, _loss);
   const steer = command * _loss[0]!;
   const boosting = !!input.boost && throttle > 0;
-  // Both push in and out over a time, not at once: the handbrake grips over `DRIVE.ebrakeIn` s (a tap's short window never gets it to full) and lets go over `ebrakeOut`, the boost's thrust over `BOOST.ramp`. The handbrake locks the rear wheels: with none left it holds nothing.
+  // The handbrake grips over `DRIVE.ebrakeIn` s (a tap's short window never gets it to full) and lets go over `ebrakeOut`; it locks the rear wheels, so with none left it holds nothing.
+  // The boost's thrust is on with the button, not ramped: a ramp drained it in the air, and a boosted car landing over its unboosted top speed was braked down to it while it came back.
   d.ebrakeK = input.ebrake && _loss[6]! > 0 ? Math.min(1, d.ebrakeK + dt / DRIVE.ebrakeIn) : Math.max(0, d.ebrakeK - dt / DRIVE.ebrakeOut);
-  d.boostK = boosting ? Math.min(1, d.boostK + dt / BOOST.ramp) : Math.max(0, d.boostK - dt / BOOST.ramp);
+  d.boostK = boosting ? 1 : 0;
   const ebrake = d.ebrakeK;
   const boost = d.boostK;
   // The pedals as commanded (a replay re-applies them to the same wheels): what the wheels do with them is `wheelLoss`'s.
@@ -439,8 +440,8 @@ function driveMasses(masses: readonly DriveMass[], turn: Float64Array): boolean 
   return true;
 }
 
-/** `drift`: a clean slide pays this share of the meter per second of drift, up to `driftCap` s, when no contact fell inside `driftClean` s of it (a nearer contact docks the payout by its age over `driftClean`). `ramp`: seconds the boost's push takes to come in and go out (`drive.boostK`, linear in time). */
-export const BOOST = { full: 1.6, recharge: 4.5, takedown: 0.4, drift: 0.12, driftCap: 2.5, driftClean: 0.5, ramp: 0.15 };
+/** `drift`: a clean slide pays this share of the meter per second of drift, up to `driftCap` s, when no contact fell inside `driftClean` s of it (a nearer contact docks the payout by its age over `driftClean`). */
+export const BOOST = { full: 1.6, recharge: 4.5, takedown: 0.4, drift: 0.12, driftCap: 2.5, driftClean: 0.5 };
 
 /** The meter share (0–1) a slide of `s` seconds pays when it ends clean: what the seat pays out and what the HUD shows charging. */
 export function driftPay(s: number): number {
