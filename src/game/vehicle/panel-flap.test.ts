@@ -326,4 +326,18 @@ describe("given a front bumper hung by one corner on a car standing on the road 
     const p = car.tear("bumperF");
     assert.ok(lowest(p) >= -1e-6, `the torn bumper starts ${(-lowest(p)).toFixed(3)} m under the road`);
   });
+
+  it("when the hanging bumper searches for its roll on the road, then the car's ancestors are brought up to date once, not once per probe", () => {
+    const car = cornerCrashed();
+    const parent = car.part("bumperF").object.parent!;
+    const walk = parent.updateWorldMatrix.bind(parent);
+    let walks = 0;
+    parent.updateWorldMatrix = (up, down) => {
+      walks++;
+      walk(up, down);
+    };
+    const p = car.hang("bumperF", 1);
+    assert.ok(Math.abs(p.object.rotation.z) > 0.05, "the bumper did not hang by a corner, so no roll was searched");
+    assert.equal(walks, 1);
+  });
 });

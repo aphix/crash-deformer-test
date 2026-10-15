@@ -257,7 +257,7 @@ export abstract class CarParts extends CarGlass {
       p.object.updateWorldMatrix(true, false);
       _box.setFromObject(p.object);
       // Keep the door's bottom off the ground under it (not where there is none: off the fleet disc's rim).
-      const g = p.object.getWorldPosition(_doorW);
+      const g = _doorW.setFromMatrixPosition(p.object.matrixWorld);
       const gy = activeGround().heightAt(g.x, g.z, g.y);
       if (gy !== NO_FLOOR && _box.min.y < gy + 0.04) p.object.position.y += gy + 0.04 - _box.min.y;
     } else if (p.region) {
@@ -279,6 +279,8 @@ export abstract class CarParts extends CarGlass {
     const o = p.object;
     const x0 = o.position.x;
     const y0 = o.position.y - p.hingeT * BUMPER_SAG;
+    // The ancestors' matrices do not change while the roll is searched: brought up to date once, each probe then poses `o` alone.
+    o.parent?.updateWorldMatrix(true, false);
     if (this.hungLack(o, x0, y0, px, roll) <= 0) return;
     const flat = this.hungLack(o, x0, y0, px, 0);
     if (flat > 0) {
@@ -300,9 +302,9 @@ export abstract class CarParts extends CarGlass {
     o.rotation.z = r;
     o.position.x = x0 + px * (1 - detCos(r));
     o.position.y = y0 - px * detSin(r);
-    o.updateWorldMatrix(true, false);
+    o.updateWorldMatrix(false, false);
     _box.setFromObject(o);
-    o.getWorldPosition(_bumpW);
+    _bumpW.setFromMatrixPosition(o.matrixWorld);
     const gy = activeGround().heightAt(_bumpW.x, _bumpW.z, _bumpW.y);
     return gy === NO_FLOOR ? 0 : gy + BUMPER_CLEAR - _box.min.y;
   }
