@@ -1,8 +1,11 @@
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
+import { launch, makeCar } from "../contact/crash-scenarios.test-util.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
+import { arenaWorld, leaveArena } from "./derby-arena.test-util.ts";
 import { plateauHeight } from "../world/terrain.ts";
-import { MAX_CARS, layoutDerby } from "./fleet.ts";
+import { FAKE_DEPTH, MAX_CARS, layoutDerby } from "./fleet.ts";
 import { DERBY_ARENA } from "./constants.ts";
 import { DERBY_BOXES, DERBY_FREE_PROPS, DERBY_PLATEAUS, DERBY_PROP, DERBY_RAMPS, DERBY_TABLE_TOP, DerbyGround, SPAWN_CLEARANCE, type DerbyBox } from "./derby-ground.ts";
 import { DERBY_RADIUS } from "./derby-arena.ts";
@@ -20,6 +23,15 @@ const SAMPLE_STEP = 0.5;
 /** The foot of a rise is a parabola that dies out over its last metres: under this (m) the floor counts as level. */
 const LEVEL = 0.01;
 
+/** A sunk wreck is driven at a solid: the depth (m) its origin lies under the floor (a car leaves the sim past `FAKE_DEPTH`), the speed (m/s) and the slice (s). */
+const SUNK_DEPTH = FAKE_DEPTH;
+const DRIVE_MPS = 8;
+const SLICE_SECONDS = 1 / FINE_HZ;
+/** How far (m) behind the solid's face the car's origin starts: its nose (`CAR_HALF.z`) is then inside the face. */
+const NOSE_BEHIND_FACE = 1.5;
+/** A stretch of the ring wall with no prop or ramp at it: its bearing (degrees round from +z) and a point on it at the wall's face. */
+const BARE_WALL_DEGREES = 128;
+const BARE_WALL = { x: Math.sin((BARE_WALL_DEGREES * Math.PI) / 180) * radius, z: Math.cos((BARE_WALL_DEGREES * Math.PI) / 180) * radius };
 /** The design (`local://pasted-image` and the plan's table): the four ramps' heights and long-run lengths, the table-top and the setbacks. */
 const DESIGN_RAMPS = [
   { name: "north", height: 2.8, length: 14 },
@@ -292,4 +304,28 @@ describe("given each prop of the arena", () => {
       assert.ok(isWithin(next, end.x, end.z, 0), `wall piece ${index} ends in a gap`);
     }
   });
+});
+
+describe("given a wreck that has sunk wholly below the floor beside a solid of the arena", () => {
+  afterEach(leaveArena);
+  const wallPiece = DERBY_BOXES.filter((box) => box.kind === DERBY_PROP.wall).reduce((nearest, piece) => (Math.hypot(piece.x - BARE_WALL.x, piece.z - BARE_WALL.z) < Math.hypot(nearest.x - BARE_WALL.x, nearest.z - BARE_WALL.z) ? piece : nearest));
+  const solidCases = [
+    { label: "the ring wall", box: wallPiece },
+    { label: "a container", box: DERBY_BOXES.find((box) => box.kind === DERBY_PROP.container)! },
+    { label: "a crash pad", box: DERBY_BOXES.find((box) => box.kind === DERBY_PROP.pad)! },
+  ];
+  for (const { label, box } of solidCases) {
+    it(`when it is driven into ${label} for one slice, then the solid meets it and its speed into the solid is cut`, () => {
+      const outward = { x: Math.sin(Math.atan2(box.x, box.z)), z: Math.cos(Math.atan2(box.x, box.z)) };
+      const startRadius = Math.hypot(box.x, box.z) - box.hx - NOSE_BEHIND_FACE;
+      const car = makeCar("shape");
+      launch(car, outward.x * startRadius, outward.z * startRadius, Math.atan2(outward.x, outward.z), outward.x * DRIVE_MPS, outward.z * DRIVE_MPS);
+      car.group.position.y = -SUNK_DEPTH;
+      let meetings = 0;
+      const hits = { knock() {}, fx() {}, wall: () => (meetings += 1) };
+      arenaWorld([car], hits).ground.contact(car, 0, hits, SLICE_SECONDS);
+      assert.ok(meetings > 0, `the sunk car met nothing of ${label}`);
+      assert.ok(car.velocity.x * outward.x + car.velocity.z * outward.z < DRIVE_MPS, "its speed into the solid was not cut");
+    });
+  }
 });
