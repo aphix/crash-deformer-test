@@ -37,15 +37,26 @@ export const THROW_YAW = Math.PI / 2;
 export const DEGREES_TO_RADIANS = Math.PI / 180;
 
 /**
- * Every station starts the same: a flat pad (length along the throw), then a hill that falls `drop` m over `length` m (a
+ * Every station starts the same: a flat pad (length along the throw), then a hill that falls `drop` m over `START_HILL_LENGTH` m (a
  * cosine ease, so it starts and ends level and the parked car sees at most 1.5 * drop / length of slope) into the flat run-up.
  * The long jump's drop is the rise of its incline instead (its floor is level with the pad at the barrier).
  */
-export const START_HILL = { padLength: 6, drop: 3, length: 24 } as const;
+export const START_HILL = { padLength: 6, drop: 3 } as const;
+
+/**
+ * Horizontal length (m) of each station's start hill. The long jump's is short, and its run-up none: the jersey barrier throws a driver
+ * reliably only up to about 31 m/s (a faster hit can rebound without ejecting), so the best class must reach it under 28.4 m/s at full throttle,
+ * and the car's speed there is set by the distance it covers from the pad (measured in `minigame-profile.test.ts`).
+ */
+export const START_HILL_LENGTH: Readonly<Record<MinigameMode, number>> = {
+  longJump: 11,
+  highJump: 24,
+  ringFling: 24,
+};
 
 /** Flat run-up (m) between the start hill's foot and the climb's foot, per mode. */
 export const RUN_UP_LENGTH: Readonly<Record<MinigameMode, number>> = {
-  longJump: 36,
+  longJump: 0,
   highJump: 40,
   ringFling: 30,
 };
@@ -55,10 +66,10 @@ export const INCLINE_FOOT_RADIUS = 40;
 
 /**
  * Long jump: the straight incline's pitch (deg) and horizontal length (m), then a crest arc of `crestRadius` m easing it into the level
- * (a car stays on a crest only while its speed squared over the radius is under gravity: 40 m/s needs more than 163 m), then the level
+ * (a car stays on a crest only while its speed squared over the radius is under gravity: 28.4 m/s needs more than 84 m), then the level
  * run of `flatTail` m (the car is flat when it meets the barrier).
  */
-export const LONG_JUMP_INCLINE = { pitchDegrees: 7, length: 24, crestRadius: 180, flatTail: 5 } as const;
+export const LONG_JUMP_INCLINE = { pitchDegrees: 7, length: 2, crestRadius: 100, flatTail: 5 } as const;
 
 /**
  * High jump: the kicker is one circular arc of `radius` m, tangent to the run-up, curving up to `lipPitchDegrees` at the lip: it looks

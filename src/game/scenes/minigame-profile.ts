@@ -9,6 +9,7 @@ import {
   RING_FLING_LANE,
   RUN_UP_LENGTH,
   START_HILL,
+  START_HILL_LENGTH,
   THROW_YAW,
   type MinigameMode,
 } from "./minigame-constants.ts";
@@ -92,7 +93,7 @@ function runUpDrop(mode: MinigameMode): number {
 
 /** x of the start hill's top, where the pad ends. */
 function hillTopX(mode: MinigameMode): number {
-  return -climbRun(mode) - RUN_UP_LENGTH[mode] - START_HILL.length;
+  return -climbRun(mode) - RUN_UP_LENGTH[mode] - START_HILL_LENGTH[mode];
 }
 
 /** x of the pad's back end: the station's far edge behind the parked car. */
@@ -120,7 +121,7 @@ export function floorHeightAt(mode: MinigameMode, localX: number, _localZ: numbe
   if (localX >= 0) return mode === "longJump" ? LANDING_HEIGHT : Math.max(LANDING_HEIGHT, lipHeight(mode) - localX * LIP_BACK_FACE_SLOPE);
   const hillTop = hillTopX(mode);
   if (localX <= hillTop) return 0;
-  const hillShare = (localX - hillTop) / START_HILL.length;
+  const hillShare = (localX - hillTop) / START_HILL_LENGTH[mode];
   const drop = runUpDrop(mode);
   if (hillShare < 1) return (-drop * (1 - detCos(Math.PI * hillShare))) / 2;
   const climbFoot = -climbRun(mode);
