@@ -12,6 +12,7 @@ import { Spring, Spring3 } from "./spring.ts";
 import { CHASE, DriveCam } from "./drive-cam.ts";
 import { LANDING } from "./landing.ts";
 import { type CarPicker, ChaseCamera, RIDE_PAUSE, type SpecScene } from "./engine-camera.ts";
+import { blankFreeInput, DRAG_PITCH_PER_PX, DRAG_YAW_PER_PX } from "./free-cam.ts";
 import { occluder, solid, type Sight } from "./spectate-cam.ts";
 import { FINE_HZ, FRAME_HZ } from "../kernel/constants.ts";
 
@@ -666,5 +667,103 @@ describe("given a canvas press and release (a click) over a world that moves whi
     pointer(canvas, "pointermove", 140, 50);
     pointer(canvas, "pointerup", 140, 50);
     assert.deepEqual(chosen, []);
+  });
+});
+
+describe("given the spectator cam cycle with the free view in it", () => {
+  const blankInput = blankFreeInput();
+
+  it("when View is pressed from Auto, then the free view holds the camera, and View from it goes back to Auto", () => {
+    const { view } = rig("global");
+    view.spec = "auto";
+    view.cycleSpec(false);
+    assert.equal(view.specView(false), "free", "the free view follows Auto in the ring");
+    assert.equal(view.flying, true, "and flies");
+    view.cycleSpec(false);
+    assert.equal(view.specView(false), "auto", "View again is back where it came from");
+    assert.equal(view.flying, false, "and no longer flies");
+  });
+
+  it("when View is pressed again after coming back from the free view, then the ring carries on to the chase and Auto's next press reaches the free view again", () => {
+    const { view } = rig("global");
+    view.spec = "auto";
+    const seen: string[] = [];
+    for (let press = 0; press < 3; press++) {
+      view.cycleSpec(false);
+      seen.push(view.specView(false));
+    }
+    assert.deepEqual(seen, ["free", "auto", "third"], "Auto, free, back to Auto, then past it");
+    for (let press = 0; press < 6; press++) view.cycleSpec(false);
+    assert.equal(view.specView(false), "auto", "round the ring to Auto");
+    view.cycleSpec(false);
+    assert.equal(view.specView(false), "free", "and the free view is in the ring again");
+  });
+
+  it("when the view before it was the scene's own (none picked), then leaving the free view puts that back", () => {
+    const { view } = rig("global");
+    view.enterFree();
+    assert.equal(view.spec, "free");
+    assert.equal(view.leaveFree(), true, "it was on");
+    assert.equal(view.spec, null, "the scene's own view again");
+    assert.equal(view.leaveFree(), false, "leaving again is nothing");
+  });
+
+  it("when the free view begins and nothing is held, then the camera keeps the pose it had", () => {
+    const { camera, view } = rig("global");
+    camera.position.set(4, 2, 6);
+    camera.lookAt(10, 2, -30);
+    const before = camera.getWorldDirection(new THREE.Vector3());
+    view.enterFree();
+    view.frameFree(blankInput, DT);
+    assert.ok(camera.position.distanceTo(new THREE.Vector3(4, 2, 6)) < 1e-9, `the eye is at ${camera.position.toArray().join(", ")}`);
+    assert.ok(camera.getWorldDirection(new THREE.Vector3()).distanceTo(before) < 1e-6, "the view is the one it had");
+  });
+
+  it("when the free view frames, then the shot counts as the viewer's own, and leaving gives back what it was", () => {
+    const { view } = rig("global");
+    view.userFramed = false;
+    view.enterFree();
+    view.frameFree(blankInput, DT);
+    assert.equal(view.userFramed, true, "the cinematic and the auto cuts stand down");
+    view.leaveFree();
+    assert.equal(view.userFramed, false, "the view before it was not framed");
+  });
+
+  it("when a pointer drags in the free view, then the view turns by the drag and the orbit's bearing does not move", () => {
+    const { canvas, view } = rig("global");
+    view.enterFree();
+    view.frameFree(blankInput, DT);
+    const bearing = view.bearing;
+    pointer(canvas, "pointerdown", 100, 100);
+    pointer(canvas, "pointermove", 150, 140);
+    pointer(canvas, "pointerup", 150, 140);
+    assert.ok(Math.abs(view.free.yaw + 50 * DRAG_YAW_PER_PX) < 1e-9, `yaw ${view.free.yaw}`);
+    assert.ok(Math.abs(view.free.pitch + 40 * DRAG_PITCH_PER_PX) < 1e-9, `pitch ${view.free.pitch}`);
+    assert.equal(view.bearing, bearing, "the orbit stayed");
+  });
+
+  it("when the wheel turns in the free view, then it sets the flight speed", () => {
+    const { canvas, view } = rig("global");
+    view.enterFree();
+    view.frameFree(blankInput, DT);
+    canvas.dispatchEvent(Object.assign(new Event("wheel"), { deltaY: -100, preventDefault() {} }));
+    assert.ok(Math.abs(view.free.speedScale - Math.exp(0.15)) < 1e-9, `speed scale ${view.free.speedScale}`);
+  });
+
+  it("when two fingers spread 40 px apart while their middle moves 20 px right, then the eye flies 40 px of the reach forward and slides 20 px of it left", () => {
+    const { canvas, camera, view } = rig("global");
+    camera.position.set(4, 2, 6);
+    view.enterFree();
+    view.frameFree(blankInput, DT);
+    const touch = (type: "pointerdown" | "pointermove", id: number, x: number, y: number): void => {
+      canvas.dispatchEvent(Object.assign(new Event(type), { button: 0, pointerId: id, clientX: x, clientY: y }));
+    };
+    touch("pointerdown", 1, 100, 100);
+    touch("pointerdown", 2, 300, 100);
+    touch("pointermove", 2, 340, 100);
+    view.frameFree(blankInput, DT);
+    const pxToMetres = view.free.reach / 400;
+    assert.ok(Math.abs(camera.position.z - (6 - 40 * pxToMetres)) < 1e-6, `z ${camera.position.z}: 40 px of spread ahead of 6`);
+    assert.ok(Math.abs(camera.position.x - (4 - 20 * pxToMetres)) < 1e-6, `x ${camera.position.x}: 20 px of slide left of 4`);
   });
 });

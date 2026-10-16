@@ -13,6 +13,9 @@ export const SEAT_KEYS = {
   lookBack: "Backquote",
   mouseLook: "Semicolon",
   raceView: "KeyH",
+  /** The free view's up and down: every letter already has a job, so the page keys (the WASD and arrow keys fly it, Shift is fast). */
+  flyUp: "PageUp",
+  flyDown: "PageDown",
 };
 
 /** The scene picks by key: the code, the label the key list shows, and the scene. The same key again goes back to the fleet. */

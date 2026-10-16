@@ -162,6 +162,7 @@ export function TouchControls({ state, engine }: HudProps) {
   if (race && race.menu !== null) return null;
   const driving = state.seat === "drive";
   const watching = state.seat !== "global";
+  const flying = state.cam === "free";
   // A spectated race car is never this player's to drive.
   const canDrive = driving || (state.seat === "follow" && !race?.spectating);
   // Whole field, no stick: the Prev / Next pair is the only thing here. Landscape puts it in the stick's corner, not mid-screen over the action.
@@ -186,15 +187,15 @@ export function TouchControls({ state, engine }: HudProps) {
           <PadButton
             engine={engine}
             button={PAD_BUTTON.back}
-            label={race ? "Pause race" : driving ? "Step out of the car" : "Free camera"}
-            caption={race ? "Pause" : driving ? "Exit" : "Free"}
+            label={race ? "Pause race" : flying ? "Leave free fly" : driving ? "Step out of the car" : "Free camera"}
+            caption={race ? "Pause" : flying ? "Back" : driving ? "Exit" : "Free"}
             className="col-start-3 row-start-1"
           >
             {race ? <Pause /> : driving ? <LogOut /> : <LockOpen />}
           </PadButton>
         ) : null}
-        {/* Following: View cycles the spectator cam; a spectated race car has it on the Spectating bar. */}
-        {watching && !race?.spectating ? (
+        {/* View cycles the spectator cam (the whole field's: orbit and free fly); a spectated race car has it on the Spectating bar. */}
+        {!race?.spectating ? (
           <PadButton engine={engine} button={PAD_BUTTON.north} label="Camera view" caption="View" className="col-start-1 row-start-2">
             <Video />
           </PadButton>

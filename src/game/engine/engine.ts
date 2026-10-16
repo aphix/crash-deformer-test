@@ -30,6 +30,8 @@ import { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { VIP_LOOK } from "../present/people.ts";
 import { throwComing } from "../present/ragdoll-trigger.ts";
 import { ChaseCamera, centroid, SHAKE_DECAY_PER_S, type SpecScene } from "../present/engine-camera.ts";
+import { blankFreeInput, sceneExtent } from "../present/free-cam.ts";
+import { readFreeInput } from "./engine-free.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { armTops } from "../world/surfaces.ts";
 import { CompactorPress, JerseyBarrier, type ContactHit } from "../scenes/engine-props.ts";
@@ -744,6 +746,7 @@ export class CrashEngine extends EngineGarage {
 
   /** `aimRigs`'s derby centroid set, refilled per frame. */
   private readonly aliveBuf: DeformableCar[] = [];
+  private readonly freeInput = blankFreeInput();
 
   /**
    * What the spectator cams read from the scene: the solids and the rival racers when they pick a shot, the course's own
@@ -768,21 +771,35 @@ export class CrashEngine extends EngineGarage {
     this.aimRigs(wallDt);
     this.ragdolls.fadeRide(this.camera, wallDt, !this.highlights.playing);
     if (this.highlights.playing) return;
-    const back = this.view.rear ? this.followedCar() : null;
+    const back = this.view.rear && !this.view.flying ? this.followedCar() : null;
     if (back?.group.visible) this.view.lookBack(back, this.chaseSight(true), wallDt);
   }
 
+  /** The free view's frame: the held keys and sticks (none under a menu), over the scene's footprint. */
+  private flyFree(wallDt: number): void {
+    sceneExtent(this.view.free.extent, this.derbyMode, this.race.active ? this.race.courseBounds() : null);
+    this.view.frameFree(readFreeInput(this.keys, this.pad.state, this.race.menuOpen, this.freeInput), wallDt);
+  }
+
   private aimRigs(wallDt: number): void {
+    // Driving is not spectating: the free view ends where a seat takes the wheel.
+    if (this.seat.mode === "drive") this.view.leaveFree();
     if (this.highlights.playing) {
       // The reel frames its own shots: the crash cam over the hit while its window is open, then the subject's thrown driver's ride-along.
       this.reelFov ??= this.camera.fov;
       this.highlights.aim(this.camera, wallDt, this.cine);
+      // The free view flies over the reel: its cuts still run underneath, and the eye is the viewer's.
+      if (this.view.flying) this.flyFree(wallDt);
       return;
     }
     // The crash cam plays its cuts first (letterbox, bars and clock too); a thrown driver's ride-along, which opens on his
     // exit's windshield and then frames the dummy, waits for its window to close (the range's own dummy cam rides at once).
     // A drag hands the ride to the orbit around the dummy, the ride's cuts waiting; the ride then picks up from the user's view.
-    const cut = this.cine.direct(this.camera, wallDt, !this.view.userFramed && this.seat.mode !== "drive");
+    const cut = this.cine.direct(this.camera, wallDt, !this.view.flying && !this.view.userFramed && this.seat.mode !== "drive");
+    if (this.view.flying) {
+      this.flyFree(wallDt);
+      return;
+    }
     const watched = this.followedCar() ? this.seat.carIndex : -1;
     const held = this.view.rideHeld(this.ragdolls.rideAlong, wallDt);
     const waits = this.cine.holding && !this.showRange;
@@ -807,7 +824,7 @@ export class CrashEngine extends EngineGarage {
       return;
     }
     // Following (spectating): the chosen spectator cam, on the rigs too (their default is the orbit, which falls through).
-    if (this.seat.mode === "global") this.view.spec = null;
+    if (this.seat.mode === "global" && !this.view.flying) this.view.spec = null;
     const spec = this.view.specView(this.race.chase);
     if (followed && followed.group.visible && this.view.frameSpectate(followed, spec, this.specScene, wallDt, this.playing)) return;
     const look = this.view.look;

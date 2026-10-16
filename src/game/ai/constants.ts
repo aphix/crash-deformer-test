@@ -30,12 +30,14 @@ type Range = readonly [number, number];
  * `calm` (m): another car this close makes it drive as `hard` until the road is open again (0: only a car it follows or swerves for does). Medium keeps
  * its errors to an open road, so a gentle medium field never touches; easy errs in traffic too and may bump.
  * Every `push` stays at or under 1: the tiers corner no faster than `hard` except inside a mistake. `hard` is exactly 1 / 0 everywhere: today's AI, bit for bit.
- * Easy's `push` is set where its oval winner is at least 8 % behind hard's (`race-ai.test.ts`): the constant-power pull launches every car harder in the mid
- * range, so easy's mistakes cost it less in seconds than under the stepped gears, and its corners carry the difference (0.82–0.9 read 6.7 %, 0.78–0.86 reads 9.7 %).
+ * Easy's `push` is set where its oval winner runs about 10 % behind hard's, with room over the 8 % floor (`race-ai.test.ts`): the owner asked for easy a little less easy.
+ * The AI plans its stops at the guard's 0.72 of the class brake (`BRAKE_SHARE`; it was 0.5), which took 1.7 s off hard's oval (52.1 to 50.4 s). Oval easy, each car planning
+ * with its class: 0.76–0.84 reads 57.0 s (13.2 % behind hard), 0.78–0.86 reads 55.6 s (10.4 %; four-count 304 s, 12.8 %), 0.79–0.87 reads 54.9 s (9.0 %).
+ * Easy's `slipBrake` keeps a mistake's planned braking where it was, 1.25 x the class brake, past what the car sheds (2.5 x 0.5 then, 1.75 x 0.72 now; at 2.5 x 0.72 four-count's easy mean lap read 116 s against 106 s).
  */
 type AiSkill = { push: Range; brake: Range; steer: Range; look: Range; apex: Range; wobble: Range; slipP: Range; slipPush: number; slipBrake: number; shaken: number; calm: number };
 export const AI_SKILL: Record<AiDifficulty, AiSkill> = {
-  easy: { push: [0.78, 0.86], brake: [0.6, 0.9], steer: [0.85, 0.95], look: [0.75, 0.95], apex: [0.5, 0.9], wobble: [0.4, 0.9], slipP: [0.3, 0.5], slipPush: 1.3, slipBrake: 2.5, shaken: 0.65, calm: 0 },
+  easy: { push: [0.78, 0.86], brake: [0.6, 0.9], steer: [0.85, 0.95], look: [0.75, 0.95], apex: [0.5, 0.9], wobble: [0.4, 0.9], slipP: [0.3, 0.5], slipPush: 1.3, slipBrake: 1.75, shaken: 0.65, calm: 0 },
   medium: { push: [0.97, 1.0], brake: [0.95, 1.0], steer: [0.97, 1.0], look: [0.95, 1.0], apex: [0.9, 1.0], wobble: [0.05, 0.2], slipP: [0.05, 0.1], slipPush: 1.1, slipBrake: 1.5, shaken: 0.93, calm: 40 },
   hard: { push: [1, 1], brake: [1, 1], steer: [1, 1], look: [1, 1], apex: [1, 1], wobble: [0, 0], slipP: [0, 0], slipPush: 1, slipBrake: 1, shaken: 1, calm: 0 },
 };

@@ -46,7 +46,7 @@ export const DRIVE_KEYS = {
   boost: ["ShiftLeft", "ShiftRight"],
 };
 
-function anyHeld(keys: ReadonlySet<string>, codes: readonly string[]): boolean {
+export function anyHeld(keys: ReadonlySet<string>, codes: readonly string[]): boolean {
   for (let i = 0; i < codes.length; i++) if (keys.has(codes[i]!)) return true;
   return false;
 }

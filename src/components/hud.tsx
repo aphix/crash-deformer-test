@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import type { CrashEngine } from "@/game/engine/engine";
 import { SCENE_KEY_BINDINGS } from "@/game/engine/engine-keys";
 import { audioLevels } from "@/game/hud/audio-levels";
+import { freeHelp } from "@/game/hud/free-help";
 import { resetGlow, resetInput } from "@/game/hud/reset-prompt";
 import { PAD_BUTTON } from "@/game/vehicle/gamepad";
 import type { CrashHudState } from "@/game/hud/hud-store";
@@ -56,7 +57,7 @@ const STAGE: Record<CrashHudState["compactStage"], string> = {
 };
 
 /** Camera names: the drive views and the spectator cams. */
-const CAM_LABEL: Record<NonNullable<CrashHudState["cam"]>, string> = { third: "Chase cam", far: "Far chase", first: "Hood cam", cine: "Trackside", dutch: "Wheel cam", orbit: "Orbit", auto: "Auto" };
+const CAM_LABEL: Record<NonNullable<CrashHudState["cam"]>, string> = { third: "Chase cam", far: "Far chase", first: "Hood cam", cine: "Trackside", dutch: "Wheel cam", orbit: "Orbit", auto: "Auto", free: "Free fly" };
 
 /** Fleet is "none of the others": the engine keeps derby, race, press, pistons, doors, corkscrew, stack, range, the Lab and the garage mutually exclusive. */
 type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "corkscrew" | "stack" | "range" | "survival" | "lab" | "garage";
@@ -108,10 +109,11 @@ const CAMERA_KEYS: [string, string][] = [
   ["` (hold)", "Look back"],
   ["Drag · scroll", "Orbit camera"],
   [";", "Mouse look (Esc ends it)"],
-  ["V", "Camera view (also C, T): chase, far, hood / trackside, wheel, orbit, auto"],
+  ["V", "Camera view (also C, T): chase, far, hood / trackside, wheel, orbit, auto, free fly"],
+  ["Free fly · V", "Detached camera: W A S D · PgUp / PgDn up, down · Shift fast · wheel speed · drag look · V or Esc back"],
 ];
 
-function seatHint(state: CrashHudState): { title: string; keys: string } {
+function seatHint(state: CrashHudState, touch: boolean): { title: string; keys: string } {
   if (state.race && state.seat === "drive") {
     return {
       title: `Racing · ${CAM_LABEL[state.view]}`,
@@ -128,6 +130,7 @@ function seatHint(state: CrashHudState): { title: string; keys: string } {
         : "W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · drag look · V view · ` look back · R recover · Esc watch",
     };
   }
+  if (state.cam === "free") return { title: `${state.seat === "global" ? "Whole field" : "Watching"} · ${CAM_LABEL.free}`, keys: freeHelp(state.pad !== null, touch) };
   if (state.seat === "follow") {
     return {
       title: state.cam ? `Watching · ${CAM_LABEL[state.cam]}` : "Watching",
@@ -205,9 +208,9 @@ export function Hud(props: HudProps) {
 
       <div className={cn("flex min-w-0 flex-col items-start gap-2 self-end", focus && state.race?.spectating != null && "phone-landscape:flex-row phone-landscape:items-end")} style={{ gridArea: "dock" }}>
         {state.race ? (
-          <SpectateBar race={state.race} pad={state.pad !== null} cam={state.cam && CAM_LABEL[state.cam]} onCommand={raceCommand} onCam={() => engine.current?.cycleCamera()} />
+          <SpectateBar race={state.race} pad={state.pad !== null} cam={state.cam && CAM_LABEL[state.cam]} freeHelp={state.cam === "free" ? freeHelp(state.pad !== null, touch) : null} onCommand={raceCommand} onCam={() => engine.current?.cycleCamera()} />
         ) : null}
-        {!focus && (state.seat !== "global" || state.pad) && !state.race?.spectating ? <DriveHint state={state} touch={touch} engine={engine} /> : null}
+        {!focus && (state.seat !== "global" || state.pad || state.cam) && !state.race?.spectating ? <DriveHint state={state} touch={touch} engine={engine} /> : null}
         {/* The Lab's control is the flick on the view itself, the garage's the pickers and the can: no stick, no car buttons. */}
         {touch && !state.lab && !state.garage ? <TouchControls {...props} /> : null}
         {focus && state.race ? (
@@ -324,9 +327,9 @@ function Readout({ label, value, unit, className }: { label: string; value: stri
 /** The reset entry of a seat hint's key list ("R respawn", "D-pad ↓ recover"): what glows while the car needs a reset. */
 const RESET_KEY = /^(R|D-pad ↓) (respawn|recover)$/;
 
-/** Seat keys and the controller label, inked straight onto the view above the dock so it never covers a control. Touch screens drop the key list: their buttons carry captions (the View one is on the thumb pad). Watching shows the View button: the camera cycle, named for the view it shows. */
+/** Seat keys and the controller label, inked straight onto the view above the dock so it never covers a control. Touch screens drop the key list: their buttons carry captions (the View one is on the thumb pad); the free view alone keeps its line, its gestures having no button. Watching shows the View button: the camera cycle, named for the view it shows. */
 function DriveHint({ state, touch, engine }: { state: CrashHudState; touch: boolean; engine: HudProps["engine"] }) {
-  const { title, keys } = seatHint(state);
+  const { title, keys } = seatHint(state, touch);
   const glow = resetGlow(state);
   return (
     <div className="hud-ink w-full max-w-md" role="status">
@@ -340,7 +343,7 @@ function DriveHint({ state, touch, engine }: { state: CrashHudState; touch: bool
           <span className="text-xs">View · {CAM_LABEL[state.cam]}</span>
         </Button>
       ) : null}
-      {touch ? null : (
+      {touch && state.cam !== "free" ? null : (
         <p className="text-xs leading-snug text-fg/80">
           {keys.split(" · ").map((key, i) => (
             <Fragment key={key}>

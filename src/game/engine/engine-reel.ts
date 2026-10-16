@@ -182,6 +182,7 @@ export abstract class EngineReel extends EngineInput {
 
   /** Which rig holds the camera, mirroring `aimRigs`' and `updateCamera`'s precedence from the state they read (the trace's `camera.rig`). */
   protected cameraRig(): string {
+    if (this.view.flying) return "free";
     if (this.highlights.playing) return this.cine.cutting ? CRASH_CAM_RIG : "reel";
     const followed = this.followedCar();
     const shown = followed?.group.visible === true;

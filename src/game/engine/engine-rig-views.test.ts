@@ -54,17 +54,17 @@ describe("given the real engine in a rig scene, watching its car", () => {
     setGround(null);
   });
 
-  it("when V is pressed in each rig scene, then the HUD names the next spectator view, and the orbit is where it starts and where seven presses end", () => {
+  it("when V is pressed in each rig scene, then the HUD names the next spectator view, and the orbit is where it starts and where nine presses end", () => {
     for (const id of ["press", "pistons", "doors", "corkscrew"] as const) {
       watch(id);
       assert.equal(engine["sceneId"], id);
       assert.equal(hud.get().cam, "orbit", `${id}: the rig's default view is the orbit`);
       const seen: unknown[] = [];
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 9; i++) {
         engine.cycleCamera();
         seen.push(hud.get().cam);
       }
-      assert.deepEqual(seen, ["auto", "third", "far", "first", "cine", "dutch", "orbit"], `${id}: the views V cycles from the orbit, round to it`);
+      assert.deepEqual(seen, ["auto", "free", "auto", "third", "far", "first", "cine", "dutch", "orbit"], `${id}: the views V cycles from the orbit (the free view after Auto, and V from it back to Auto), round to it`);
       engine.cycleCamera();
       assert.equal(hud.get().cam, "auto", `${id}: and round again`);
     }
@@ -74,9 +74,8 @@ describe("given the real engine in a rig scene, watching its car", () => {
     watch("corkscrew");
     const car = engine["carA"];
     run(0.5);
-    // The orbit's next is Auto, then the chase.
-    engine.cycleCamera();
-    engine.cycleCamera();
+    // The orbit's next is Auto, then the free view (V from it comes back to Auto), then the chase.
+    for (let presses = 0; presses < 4; presses++) engine.cycleCamera();
     assert.equal(engine["view"].specView(false), "third");
     run(0.7);
     const cam = engine["camera"].position;

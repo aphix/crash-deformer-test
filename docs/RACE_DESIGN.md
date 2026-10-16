@@ -151,7 +151,8 @@ into `fight = clamp(mood, 0, 1)` and `shy = clamp(−mood, 0, 1)`. The derby AI 
   (not police) except the rivals it means to hit (`fight > 0`), the soonest contact within 1.5 s is found by following the
   guarded car round the arc its steer asks for and every other car on the line it drives, each a car-shaped zone (2.4 × 6 m
   half-axes). The contact is steered clear of (at most 0.35 of full lock) and every contact ahead that sideways room
-  cannot clear is braked for, down to a nudge (1.5 m/s) on 0.72 of the class brake. It keeps no state.
+  cannot clear is braked for, down to a nudge (1.5 m/s) on 0.72 of the class brake (`BRAKE_SHARE`, the share the race plan brakes at too); a car
+  ahead is taken to shed the whole class brake, the most it can, so the closing speed is never under-counted. It keeps no state.
 - **Aggression 0.5: aggressive only when safe** (`RaceBrain.safeShove`): a driver up to 0.5 (`CAREFUL`) fights a rival
   only while the shove is safe (adds `SAFE_SHOVE` 0.25 to its mood): the rival within reach, the cars' speeds along the road
   and the sideways closing speed under the derby's `hitSpeed` 2 m/s, at least 2.5 m of road beyond the rival, and not over a
@@ -203,7 +204,7 @@ its output is bit for bit unchanged (`race-ai.test.ts` pins checkpoints of it). 
 
 | Tier | Think (Hz) | Corner speed | Braking | Steer gain | Look-ahead | Apex share | Sway (m) | Slip chance per corner | Slip: speed / braking | Shaken (× top) |
 |---|---|---|---|---|---|---|---|---|---|---|
-| easy | 8–20 | ×0.82–0.90 | ×0.6–0.9 | ×0.85–0.95 | ×0.75–0.95 | ×0.5–0.9 | 0.4–0.9 | 0.30–0.50 | ×1.3 / ×2.5 | 0.65 |
+| easy | 8–20 | ×0.78–0.86 | ×0.6–0.9 | ×0.85–0.95 | ×0.75–0.95 | ×0.5–0.9 | 0.4–0.9 | 0.30–0.50 | ×1.3 / ×1.75 | 0.65 |
 | medium | 96–192 | ×0.97–1 | ×0.95–1 | ×0.97–1 | ×0.95–1 | ×0.9–1 | 0.05–0.2 | 0.05–0.10 | ×1.1 / ×1.5 | 0.93 |
 | hard | 192–240 (every slice) | ×1 | ×1 | ×1 | ×1 | ×1 | 0 | 0 | ×1 / ×1 | 1 |
 
@@ -260,13 +261,16 @@ tuned at 18 m/s and stretch × `pace = v / 18`.
 - Following: behind a car on our line at our own pace a driver keeps a gap of `9 m × pace × (0.4 + 0.6·shy)`.
 - Pursuit: a point `Ld = clamp(5 + 0.5 v, 7, 18)` m ahead; `w = 2 v sin α / Ld`; steer = w / (class full-lock yaw ×
   `0.35 + 0.65·min(1, v/8)` × steer grip), the same yaw model as `applyDrive`.
-- Speed: over braking reach + 12 m, `√(v_corner² + 2·a·d)`, `a` = half the class brake, `v_corner = cornerSpeed(class,
+- Speed: over braking reach + 12 m, `√(v_corner² + 2·a·d)`, `a` = 0.72 of the class brake (`BRAKE_SHARE`, the contact guard's share: the plan counted on half of it while the cars really brake at 26–28 m/s², so every stop began twice too early and undershot; × the tier's braking factor), `v_corner = cornerSpeed(class,
   0.8 / |κ|, surface grip)`. Over a crest the speed is also capped at `√(g/κ_v)` (`crestSpeed`).
 - Junctions: a shortcut's mouth is planned as a corner turning its angle over an 18 m look-ahead.
 - Boost: a burst starts on a half-full meter on a clear run, pointed down the line; the plan at the boosted top still wants
   2 m/s more than the car has.
 - A slower car on our line: pass on the side with room, closing sideways no faster than 0.8 m/s per m beyond 7 m
-  (`PASS_NOSE`). A stopped or crawling car (< 3 m/s) is driven round. A car met head-on is seen sooner.
+  (`PASS_NOSE`). A stopped or crawling car (< 3 m/s) or one met head-on (an oncoming traffic car brakes to a stop as the
+  racer closes, so its speed along the road is 0 by the end) is driven round on the side with more road beside the passing line, not the
+  side nearest the planned lane (which carries a 2 m yield nudge for a faster car behind, and put a racer on the narrow side of an
+  oncoming car, where it stopped and crept into it); only a car moving with us is passed on the side nearest the planned lane. A car met head-on is seen sooner.
 - Abreast: two rolling racers within 6.5 m lengthwise (`ABREAST`) keep their lanes 3.3 m apart.
 - Shortcuts: a seeded coin per car, lap and shortcut (0.3 + 0.4·aggression). A car with another racer within 12 m when the
   coin is tossed stays on the loop.

@@ -105,7 +105,9 @@ monster quickest, truck slowest off the line). Time to top is the law's.
   - *Drift payout*: a slide that ends with a contact inside the last `BOOST.driftClean` (0.5 s) pays `min(1, quiet / 0.5)` of its charge (it paid all or nothing at 0.5 s). The talk does not ask for the payout to be spread over time, so it still lands in one step.
 - **Draft** (race mode only): in the wake of another racer (a 36° cone up to 3 car lengths behind its rear bumper, [`RACE_DESIGN.md`](RACE_DESIGN.md) "Drafting") the top speed is ×1.02, the thrust unchanged.
 - **Recovery**: a driven car stuck on its roof or side rights itself after 1.2 s at the arcade end, slower toward mid
-  slider; past 0.6 only R rights it.
+  slider; past 0.6 only R rights it. While it lies on its side or roof (`FLIPPED_UP_Y`, the body's up·world-up) its tyres give it
+  no drive whatever they touch: a truck lying against the arena wall with its wheels on the wall drove itself through the 1 m
+  wall at 0.5 m/s (`vehicle/traction.test.ts`).
 - **Surface grip** comes from the active `Ground` (`frictionAt`) under each axle: low front grip loses steering, and low grip under
   the driven axles caps the launch and spins the wheels (§ Acceleration). Tyre FX read `car.drive.spin`, `lock` and `slide`, each 0–1.
 - **Speed readouts** read mph when the browser's locale region is the US, km/h everywhere else (`speed-units.ts`); physics
