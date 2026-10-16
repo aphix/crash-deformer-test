@@ -154,7 +154,7 @@ describe("given the High jump's art built from a layout", () => {
       const plateHeights = trim
         .filter((point) => point.x > layout.postsX - thickness / 2 - PLATE_WINDOW && point.x < layout.postsX - thickness / 2 + POSITION_TOLERANCE && point.z > 0)
         .map((point) => point.y)
-        .toSorted((lower, higher) => lower - higher)
+        .sort((lower, higher) => lower - higher)
         .reduce<number[][]>((plates, y, vertexIndex) => {
           if (vertexIndex % VERTICES_PER_BOX === 0) plates.push([]);
           plates.at(-1)!.push(y);
@@ -183,7 +183,7 @@ describe("given the High jump's art built from a layout", () => {
       assert.equal(weave.generateMipmaps, false, "no mipmaps: a mipped thin line falls under the alpha cut and the far net vanishes");
       assert.equal(weave.minFilter, THREE.LinearFilter);
       assert.ok(material.color.r >= 0.9 && material.color.g >= 0.9 && material.color.b >= 0.9, "a light net, readable against the dark");
-      const weaveCanvas = recordedCanvases.findLast((canvas) => canvas.width === canvas.height && canvas.fills.length === 2)!;
+      const weaveCanvas = recordedCanvases.filter((canvas) => canvas.width === canvas.height && canvas.fills.length === 2).at(-1)!;
       const linePixels = Math.min(...weaveCanvas.fills.map((fill) => Math.min(fill.width, fill.height)));
       const meshMetres = box.getSize(new THREE.Vector3()).y / weave.repeat.y;
       assert.ok((meshMetres * linePixels) / weaveCanvas.width >= MIN_NET_LINE_METRES - POSITION_TOLERANCE, `net line ${(meshMetres * linePixels) / weaveCanvas.width} m`);
