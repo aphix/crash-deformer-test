@@ -8,8 +8,6 @@ import { blankAiCar, type AiCar } from "./derby-ai.ts";
 import { snapshotAiCar } from "../match/derby.ts";
 import { BLOCKABLE, copsWanted, HUNT, HunterBrain, SETTLE } from "./hunter.ts";
 import { ATTACK, attackTarget, type HunterWorld } from "./cop-brain.ts";
-import { onSurface } from "./race-ai.ts";
-import { SURFACES } from "../world/catalog.ts";
 import { setGround } from "../world/ground.ts";
 import type { PropCollider } from "../world/placements.ts";
 import { blankProjection, projectPath, Track } from "../world/track.ts";
@@ -364,15 +362,13 @@ describe("given a hunter at 35 m/s heading at a stopped player car 40 m away, dr
     const fz = Math.cos(yaw);
     car.spawnFacing(x + fz * side, z - fx * side, yaw, START);
     Object.assign(r.cars[0]!, { x: x + fx * GAP, z: z + fz * GAP, yaw, vx: 0, vz: 0 });
-    const scratch = idleDrive();
     const cop = r.cars[1]!;
     let at: number | null = null;
     for (let step = 0; step < 6 * 60; step++) {
       snapshotAiCar(cop, 1, car, true);
       const dist = Math.hypot(r.cars[0]!.x - cop.x, r.cars[0]!.z - cop.z);
       if (at === null && dist < SETTLE) at = Math.hypot(cop.vx, cop.vz);
-      const p = car.group.position;
-      applyDrive(car, onSurface(r.brain.think(cop, r.cars, 1 / FRAME_HZ), SURFACES[ground.surfaceAt(p.x, p.z, p.y)], scratch), 1 / FRAME_HZ);
+      applyDrive(car, r.brain.think(cop, r.cars, 1 / FRAME_HZ), 1 / FRAME_HZ);
       car.integrate(1 / FRAME_HZ);
     }
     setGround(null);

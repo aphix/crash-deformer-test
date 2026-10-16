@@ -3,7 +3,6 @@ import { frame, fit, FRAME, makeCar, worldOf } from "./ground-probe.test-util.ts
 import { EjectionWatch } from "./ejection.ts";
 import { armKill, HANDLING, killClass, type VehicleClassId } from "./vehicle-classes.ts";
 import type { DriveInput } from "./car-drive.ts";
-import { SURFACES } from "../world/catalog.ts";
 import type { Ground } from "../world/ground.ts";
 import { setGround } from "../world/ground.ts";
 
@@ -88,8 +87,8 @@ export function runLine(
     const tz = line.z + fz * (along + 10 + car.speed * 0.4);
     const err = Math.atan2(tx - p.x, tz - p.z) - car.yaw;
     input.steer = Math.max(-1, Math.min(1, 2.5 * Math.atan2(Math.sin(err), Math.cos(err))));
-    // The race's own rule (`onSurface`): the throttle is the surface's share of top speed.
-    input.throttle = o.speed === "top" || car.speed < o.speed ? SURFACES[ground.surfaceAt(p.x, p.z, p.y)].speed : 0;
+    // Full throttle (the surface's traction and rolling resistance are the drive's own).
+    input.throttle = o.speed === "top" || car.speed < o.speed ? 1 : 0;
     const slice = (): void => {
       if (n < SETTLE) return;
       const g = fit(car, ground, true);

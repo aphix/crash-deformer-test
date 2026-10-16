@@ -4,8 +4,7 @@ import { DeformableCar } from "../vehicle/car.ts";
 import { blankAiCar, type AiCar } from "./derby-ai.ts";
 import { snapshotAiCar } from "../match/derby.ts";
 import { fleetStyle } from "../scenes/fleet.ts";
-import { SURFACES } from "../world/catalog.ts";
-import { RaceBrain, copyDrive, onSurface } from "./race-ai.ts";
+import { RaceBrain, copyDrive } from "./race-ai.ts";
 import { AI_EVERY_SLICE, type AiDifficulty } from "./constants.ts";
 import { RaceSession } from "../match/session.ts";
 import { Track, blankProjection, projectPath } from "../world/track.ts";
@@ -38,7 +37,6 @@ export function race(track: Track, n: number, aggression: number, laps: number, 
   const poses: CarPose[] = cars.map(() => ({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true }));
   const hold = { ...idleDrive(), brake: 1 };
   const held = cars.map(() => idleDrive());
-  const scratch = idleDrive();
   const p = blankProjection();
   let onRoad = 0;
   let samples = 0;
@@ -47,7 +45,6 @@ export function race(track: Track, n: number, aggression: number, laps: number, 
     for (const [i, c] of cars.entries()) snapshotAiCar(snaps[i]!, i, c, true);
     for (const [i, c] of cars.entries()) {
       const rec = session.cars[i]!;
-      const surf = SURFACES[ground.surfaceAt(c.group.position.x, c.group.position.z)];
       let input = hold;
       if (session.phase === "racing" && rec.status === "racing") {
         if (brain.due(i, DT)) {
@@ -57,7 +54,7 @@ export function race(track: Track, n: number, aggression: number, laps: number, 
         }
         input = brain.guard(snaps[i]!, snaps, held[i]!);
       }
-      applyDrive(c, onSurface(input, surf, scratch), DT);
+      applyDrive(c, input, DT);
       c.integrate(DT);
     }
     for (const [i, c] of cars.entries()) {

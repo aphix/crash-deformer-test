@@ -8,23 +8,12 @@ import { personality, type Personality } from "./personality.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { SURFACE_IDS, SURFACES, type Surface } from "../world/catalog.ts";
 import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath, type TrackPoint } from "../world/track.ts";
-import { classStats, cornerSpeed, type ClassStats } from "../vehicle/vehicle-classes.ts";
+import { classStats, cornerSpeed, rollingOver, terminalSpeed, type ClassStats } from "../vehicle/vehicle-classes.ts";
 import { clamp, hash01, wrapPi } from "../kernel/scalar.ts";
 
 /** Steering authority on a surface: `applyDrive` scales the yaw rate by this (front-axle grip). */
 export function steerGrip(grip: number): number {
   return 0.45 + 0.55 * grip;
-}
-
-/** A car's drive input on `surf`: forward throttle × the surface's top-speed share (grip itself is `applyDrive`'s, per axle). */
-export function onSurface(input: DriveInput, surf: Surface, out: DriveInput): DriveInput {
-  out.throttle = input.throttle > 0 ? input.throttle * surf.speed : input.throttle;
-  out.steer = input.steer;
-  out.brake = input.brake;
-  out.ebrake = input.ebrake;
-  out.boost = input.boost;
-  out.neutral = input.neutral;
-  return out;
 }
 
 /** `from`'s six fields into `to` (a brain's scratch output kept as a held input between thinks). */
@@ -467,8 +456,9 @@ export class RaceBrain {
       out.throttle = TURN_ROUND_THROTTLE;
       out.steer = Math.sign(alpha) || p.side;
     } else if (err >= -1.5) {
-      // `applyDrive` runs to throttle × top at full rate: ask for the target itself (proportional-to-error settles ~10% short).
-      out.throttle = clamp(target / (top * surf.speed * (out.boost ? cls.boostTop : 1)), err > 0.4 ? 0.35 : 0, 1);
+      // `applyDrive` runs to throttle × top at full rate: ask for the target itself (proportional-to-error settles ~10% short). On a soft
+      // surface the road's drag holds the car under the class top (`terminalSpeed`): asking past it is full throttle and no more.
+      out.throttle = clamp(target / Math.min(top * (out.boost ? cls.boostTop : 1), terminalSpeed(cls, rollingOver(surf.roll), out.boost ? cls.boostAccel : 1)), err > 0.4 ? 0.35 : 0, 1);
     } else {
       out.brake = clamp(-err / 6, 0.2, 1);
     }
@@ -629,8 +619,8 @@ export class RaceBrain {
       const k = sampleAt(pp, ss);
       const surf = surfaceAt(pp, k);
       const curv = Math.abs(pp.curv[k]!);
-      // The AI lifts over a crest it would fly, like a driver over a blind crest (`crestSpeed`).
-      const corner = Math.min(top * surf.speed, curv > STRAIGHT_CURV ? cornerSpeed(cls, CORNER_MARGIN / curv, surf.grip) * push : Infinity, crestSpeed(pp, ss));
+      // The AI lifts over a crest it would fly, like a driver over a blind crest (`crestSpeed`); a soft surface's drag caps the straight at `terminalSpeed`.
+      const corner = Math.min(top, terminalSpeed(cls, rollingOver(surf.roll)), curv > STRAIGHT_CURV ? cornerSpeed(cls, CORNER_MARGIN / curv, surf.grip) * push : Infinity, crestSpeed(pp, ss));
       const allow = Math.sqrt(corner * corner + 2 * decel * d);
       if (allow < best) best = allow;
     }

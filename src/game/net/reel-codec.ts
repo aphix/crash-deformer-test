@@ -184,7 +184,9 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * sideways bite, not the arcade grip, the arcade grip fading back over `CONTACT_WINDOW` after the last contact, for every car: a replay of a clip of 97 or before moves a side-hit car, and any car struck
  * sideways or glancingly, differently from its hit on.
  * 99: the engine's pull is the class's launch pull, then constant power tailing off through every gear (`enginePull`, `ClassStats.launch`/`power`; it was a fixed thrust per gear bucket stepping
- * down at each shift), so every launch and every pull past the first gear's top runs differently: a replay of a clip of 98 or before drives every car off its recorded line.
+ * down at each shift); the road takes it through the driven axles' traction for the class's driveline (`tractionLimit`), the excess spinning the wheels (`drive.spinSpeed`, state in the flight
+ * block) and fading their sideways grip; each surface drags by its rolling resistance (`Surface.roll`) and the flat off-road speed cap (`Surface.speed`, `onSurface`) is gone: a replay of a clip of
+ * 98 or before drives every car off its recorded line, off the road most of all.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
 const REPLAY_VERSION = 99;

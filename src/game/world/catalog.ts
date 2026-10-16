@@ -12,8 +12,6 @@ export type SurfaceId = (typeof SURFACE_IDS)[number];
 export type Surface = {
   /** Steering authority, traction and crashed-slide μ multiplier (1 = dry asphalt). */
   grip: number;
-  /** Top-speed fraction while on it. */
-  speed: number;
   /**
    * Rolling-resistance coefficient Crr (the deceleration is Crr · g). A driven car feels only the excess over asphalt's: the sourced figures
    * behind `ClassStats.launch` / `power` were taken on asphalt, so its share is inside them; a freewheeling car (`neutral`) feels the whole.
@@ -27,13 +25,13 @@ export type Surface = {
 };
 
 export const SURFACES: Record<SurfaceId, Surface> = {
-  asphalt: { grip: 1, speed: 1, roll: 0.015, color: 0x2b2d33 }, // ToolBox: ordinary car tyres on concrete / new asphalt 0.01–0.015
-  concrete: { grip: 1, speed: 1, roll: 0.015, color: 0x8d8a84 }, // the same row
-  cobble: { grip: 0.85, speed: 0.92, roll: 0.03, color: 0x5d5a56 }, // ToolBox: cobbles, large worn 0.03
-  dirt: { grip: 0.72, speed: 0.84, roll: 0.05, color: 0x6e5640 }, // Bosch: unpaved road 0.05
-  gravel: { grip: 0.62, speed: 0.72, roll: 0.06, color: 0x8a7d68 }, // ToolBox: gravel loose worn 0.04–0.08 (mid)
-  grass: { grip: 0.5, speed: 0.6, roll: 0.35, color: 0x3f5a34 }, // Bosch: field 0.1–0.35 (the top of the range)
-  sand: { grip: 0.45, speed: 0.5, roll: 0.4, color: 0xc2ad84 }, // ToolBox: car tyre on loose sand 0.2–0.4 (the top of the range)
+  asphalt: { grip: 1, roll: 0.015, color: 0x2b2d33 }, // ToolBox: ordinary car tyres on concrete / new asphalt 0.01–0.015
+  concrete: { grip: 1, roll: 0.015, color: 0x8d8a84 }, // the same row
+  cobble: { grip: 0.85, roll: 0.03, color: 0x5d5a56 }, // ToolBox: cobbles, large worn 0.03
+  dirt: { grip: 0.72, roll: 0.05, color: 0x6e5640 }, // Bosch: unpaved road 0.05
+  gravel: { grip: 0.62, roll: 0.06, color: 0x8a7d68 }, // ToolBox: gravel loose worn 0.04–0.08 (mid)
+  grass: { grip: 0.5, roll: 0.35, color: 0x3f5a34 }, // Bosch: field 0.1–0.35 (the top of the range)
+  sand: { grip: 0.45, roll: 0.4, color: 0xc2ad84 }, // ToolBox: car tyre on loose sand 0.2–0.4 (the top of the range)
 };
 
 export const PREFAB_IDS = [

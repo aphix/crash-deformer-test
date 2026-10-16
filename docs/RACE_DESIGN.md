@@ -9,7 +9,7 @@ HUD with a focus view, controller-driven menus, and a campaign over every course
 | Module | Owns |
 |---|---|
 | `world/ground.ts` | `Ground` (height, normal, grip, surface at x,z on a layer), `FLAT_GROUND`, `activeGround()`, `setGround()` |
-| `world/catalog.ts` | surfaces (grip, top-speed share, colour), prefab specs |
+| `world/catalog.ts` | surfaces (grip, rolling resistance, colour), prefab specs |
 | `world/track-schema.ts` | zod schema of the track JSON, `parseTrack`, `TrackFile` |
 | `world/track.ts` | `Track`: arc-length samples, gates, grid, projection, wall clip, routes, crossing checks; `TrackGround` heightfield + bridge decks |
 | `world/tracks/*.json`, `tracks/index.ts` | the courses; `TRACKS` (menu order), `CAMPAIGN`, `OFF_MENU` |
@@ -360,17 +360,19 @@ bridge and the road under it coexist. On the main loop's road + runoff `world/ro
 meets the flat runoff sharp. Driven cars ride it pitched and rolled onto its normal; where it falls away faster than gravity
 follows they fly and land on whatever layer is below. Car pairs more than 2.5 m apart in height never touch.
 
-| Surface | grip | top speed |
+| Surface | grip | rolling resistance (Crr) |
 |---|---|---|
-| asphalt, concrete | 1 | 1 |
-| cobble | 0.85 | 0.92 |
-| dirt | 0.72 | 0.84 |
-| gravel | 0.62 | 0.72 |
-| grass | 0.5 | 0.6 |
-| sand | 0.45 | 0.5 |
+| asphalt, concrete | 1 | 0.015 |
+| cobble | 0.85 | 0.03 |
+| dirt | 0.72 | 0.05 |
+| gravel | 0.62 | 0.06 |
+| grass | 0.5 | 0.35 |
+| sand | 0.45 | 0.4 |
 
-Grip is applied per axle in `applyDrive`; the race glue (`onSurface`) only scales forward throttle by the surface's
-top-speed share.
+There is no speed cap per surface: grip is applied per axle in `applyDrive` (steering, the driven axles' traction, the sideways
+hold), and the surface's rolling resistance over asphalt's drags a driven car to where its power meets it
+(`terminalSpeed`; [`HANDLING.md`](HANDLING.md) § Acceleration). The AI plans with the same terminal and asks for its target
+as a share of the lesser of the class top and it.
 
 **Ground layers** (`scenes/ground-stack.ts` `GROUND_STACK`) order every flat layer: terrain, bridge top (`deck`), run-off,
 concrete, asphalt, cobble, marking, kerb, dirt, gravel, grass, sand, then the scenes' decals and glow; `groundMesh` sets a

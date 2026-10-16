@@ -1,9 +1,7 @@
-import { onSurface } from "../ai/race-ai.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import { applyDrive, idleDrive } from "../vehicle/car-drive.ts";
 import { EjectionWatch } from "../vehicle/ejection.ts";
-import { SURFACES } from "./catalog.ts";
 import { activeGround, setGround } from "./ground.ts";
 import { FRAME, makeWorld } from "./race-world.test-util.ts";
 import { armedCar } from "./solid-parity.test-util.ts";
@@ -18,7 +16,6 @@ import { armedCar } from "./solid-parity.test-util.ts";
 export type Launch = { name: string; x: number; z: number; yaw: number };
 
 const FLAT_OUT = { ...idleDrive(), throttle: 1 };
-const SCRATCH = idleDrive();
 /** The speed (m/s) a launch starts at, and the seconds it plays (from 45 m out the car is at the rim in under a second). */
 export const LAUNCH_SPEED = 60;
 const SECONDS = 2;
@@ -40,7 +37,6 @@ export function rimReach(course: string, launches: readonly Launch[], past: (x: 
       const world = newWorld([car]);
       world.ejection = new EjectionWatch();
       world.collide = (c, i, h) => w.race.courseHit(c, i, h);
-      const ground = activeGround();
       let far = -Infinity;
       let acc = 0;
       for (let n = 0; n < SECONDS / FRAME; n++) {
@@ -48,8 +44,7 @@ export function rimReach(course: string, launches: readonly Launch[], past: (x: 
         acc = Math.min(0.05, acc + FRAME);
         for (let steps = 0; acc > 1e-5 && steps < 8; steps++) {
           const h = Math.fround(physicsSlice(acc, vmax));
-          const p = car.group.position;
-          applyDrive(car, onSurface(FLAT_OUT, SURFACES[ground.surfaceAt(p.x, p.z, p.y)], SCRATCH), h);
+          applyDrive(car, FLAT_OUT, h);
           stepWorld(world, h);
           settleStep(world.cars, h, false);
           acc -= h;

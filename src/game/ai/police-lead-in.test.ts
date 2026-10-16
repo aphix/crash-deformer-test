@@ -2,13 +2,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { snapshotAiCar } from "../match/derby.ts";
-import { SURFACES } from "../world/catalog.ts";
 import { setGround } from "../world/ground.ts";
 import { blankPoint, blankProjection } from "../world/track.ts";
 import { applyDrive, idleDrive } from "../vehicle/car-drive.ts";
 import { DeformableCar } from "../vehicle/car.ts";
 import { fleetStyle } from "../scenes/fleet.ts";
-import { onSurface } from "./race-ai.ts";
 import { BEAT, rig, track } from "./police-rig.test-util.ts";
 import { FRAME_HZ } from "../kernel/constants.ts";
 
@@ -68,7 +66,6 @@ function runPair(leadShare: number): { pulled: boolean[]; bad: string[]; touched
     const spotS = [1, 2].map((i) => track.project(r.cars[i]!.x, r.cars[i]!.z, -1, proj).s);
     const racerS0 = track.project(r.cars[0]!.x, r.cars[0]!.z, -1, proj).s;
     const park = { ...idleDrive(), brake: 1 };
-    const scratch = idleDrive();
     const pulled = [false, false];
     const touched: string[] = [];
     const bad: string[] = [];
@@ -87,8 +84,7 @@ function runPair(leadShare: number): { pulled: boolean[]; bad: string[]; touched
           if (ahead < 0) bad.push(`cop ${id} pulled away at ${(f * DT).toFixed(2)} s with the racer ${(-ahead).toFixed(0)} m short of its spot`);
         }
         const input = driving ? r.police.think(r.cars[id]!, r.cars, DT) : park;
-        const surf = SURFACES[ground.surfaceAt(car.group.position.x, car.group.position.z)];
-        applyDrive(car, onSurface(input, surf, scratch), DT);
+        applyDrive(car, input, DT);
         car.integrate(DT);
       }
       closest = Math.min(closest, fleet[1]!.group.position.distanceTo(fleet[2]!.group.position));

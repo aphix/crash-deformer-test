@@ -7,11 +7,10 @@ import { snapshotAiCar } from "../match/derby.ts";
 import { clamp } from "../kernel/scalar.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { Campaign } from "../match/campaign.ts";
-import { SURFACES } from "../world/catalog.ts";
 import { PoliceBrain } from "../ai/police.ts";
 import { HunterBrain } from "../ai/hunter.ts";
 import type { AiCar } from "../ai/derby-ai.ts";
-import { copyDrive, onSurface } from "../ai/race-ai.ts";
+import { copyDrive } from "../ai/race-ai.ts";
 import { AI_DIFFICULTIES } from "../ai/constants.ts";
 import { DRAFT, RaceSession } from "../match/session.ts";
 import { cleanName, RACE_MODES, TIMES_OF_DAY, type Entrant, type RaceCommand, type RacePhase, type RaceSnapshot } from "../match/types.ts";
@@ -551,11 +550,9 @@ export class RaceDirector extends RaceHudLayer {
     if (this.free && ground) {
       for (let i = 0; i < cars.length; i++) {
         const car = cars[i]!;
-        const p = car.group.position;
-        const surf = SURFACES[ground.surfaceAt(p.x, p.z, p.y)];
         const own = i === this.self && this.host.seat.mode === "drive" && this.host.seat.carIndex === i;
         const input = car.driverOut !== null ? this.coast : own ? this.host.seat.input(car, dt) : this.seats.has(i) ? this.remote[i]! : this.hold;
-        applyDrive(car, onSurface(input, surf, this.scratch), dt);
+        applyDrive(car, input, dt);
       }
       return;
     }
@@ -575,8 +572,6 @@ export class RaceDirector extends RaceHudLayer {
     const police = s.phase === "finished" ? null : this.police;
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
-      const p = car.group.position;
-      const surf = SURFACES[ground.surfaceAt(p.x, p.z, p.y)];
       if (i >= racers) {
         // A thrown-out driver is nobody's input: the car coasts (`coast`), police and traffic units too.
         const input =
@@ -589,7 +584,7 @@ export class RaceDirector extends RaceHudLayer {
                 : traffic
                   ? traffic.think(snaps[i]!, snaps, dt)
                   : this.hold;
-        applyDrive(car, onSurface(input, surf, this.scratch), dt);
+        applyDrive(car, input, dt);
         continue;
       }
       const rec = s.cars[this.rowOf[i]!]!;
@@ -613,7 +608,7 @@ export class RaceDirector extends RaceHudLayer {
         input = this.cruise;
       }
       const top = rec.draft > 0 ? DRAFT.top : 1;
-      applyDrive(car, onSurface(input, surf, this.scratch), dt, top);
+      applyDrive(car, input, dt, top);
       if (top !== 1) this.recorder.drafting(i);
     }
   }

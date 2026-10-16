@@ -40,12 +40,13 @@ function hardMarks(track: Track): string[] {
 }
 /**
  * `hardMarks` of the hard brain driving the 8 cars from the grid: the tiers must leave hard's outputs bit for bit as they were. The marks hash those
- * outputs along a real drive, so a change to the drive under the brain re-pins them; the oval's are still the marks pinned before the tiers existed.
+ * outputs along a real drive, so a change to the drive under the brain re-pins them; these are the marks on the constant-power drive with the
+ * traction cap and rolling resistance (the brain was not touched by it beyond planning with the surface's terminal).
  */
 const HARD_MARKS: Record<string, string[]> = {
-  oval: ["84661866", "2ceaf5e5", "f225d9a0", "9d8034b2", "606b507d", "2a1bf232", "5d2d531e", "f77a5910", "2687c2ae", "40a3ab55", "6144f51e", "1f15c162", "51530d1d", "57b0d8a3", "42dc4706", "8de13631"],
-  rally: ["bb4cb28b", "682d5f14", "ba47a3a5", "dcb17bee", "aa31d2a5", "b8285287", "3d1d0992", "bb4adf8f", "f93df60c", "8f1ab300", "f003b310", "eb8fc120", "cb64df49", "974e71ab", "45f61a11", "b372f58e"],
-  stunt: ["cfe9223e", "7c29ef0c", "9c71538e", "c480fff", "9ecf007", "adae4797", "5e321814", "bc384445", "d370c5a0", "27ceee7f", "bf7e66de", "46a9ede0", "f72a6dae", "110e9fac", "17e6868", "53f5522a"],
+  oval: ["8fb26064", "302afb49", "abd58732", "92841856", "e8f6a97b", "fda268a7", "f26d6dc8", "a590baff", "af913771", "ea5221a6", "f1eabf64", "54ca3c3", "667e3bc8", "a7d0ed49", "c72b5336", "93a6cff5"],
+  rally: ["bc67c326", "ec0c586a", "7e310642", "2a4b13d2", "74ad060c", "62c11cc3", "41efd12", "c7bf5f55", "59173ecc", "109540e", "14342064", "a90660f9", "6edb8286", "706310e3", "7fb66e94", "bb27bb93"],
+  stunt: ["df4c4768", "fcfa854f", "8f11bb5a", "a90c48a8", "7a4065a0", "804ae828", "d65424fb", "e1d86419", "4b9ae89f", "62a27747", "715d842f", "bfbc3d9a", "ffc082b0", "16893bc3", "dd3a5764", "4ff1ac65"],
 };
 
 describe("given 8 clean AI cars (aggression 0) on the grid of the oval", () => {

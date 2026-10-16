@@ -261,7 +261,6 @@ export abstract class RaceField {
   private readonly copZ = new Float64Array(MAX_CARS);
   protected readonly snaps: AiCar[] = [];
   protected readonly poses: CarPose[] = [];
-  protected readonly scratch: DriveInput = idleDrive();
   /** Per car id: last input received for a remote slot. */
   protected readonly remote: DriveInput[] = Array.from({ length: MAX_CARS }, () => idleDrive());
   /** Per car id: the AI racer's last think, held between thinks (`RaceBrain.due`). */
