@@ -9,7 +9,7 @@ import { paint } from "../vehicle/test-support.ts";
 import { armKill, assignClass, HANDLING, killClass } from "../vehicle/vehicle-classes.ts";
 import { Ground, setGround, STEP_UP } from "../world/ground.ts";
 import { FREEWHEEL, makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
-import { DEGREES_TO_RADIANS, LANDING_HEIGHT, LIP_BACK_FACE_PITCH_DEGREES, RUN_UP_LENGTH, START_HILL, THROW_YAW, type MinigameMode } from "./minigame-constants.ts";
+import { DEGREES_TO_RADIANS, INCLINE_FOOT_RADIUS, LANDING_HEIGHT, LIP_BACK_FACE_PITCH_DEGREES, LONG_JUMP_INCLINE, RUN_UP_LENGTH, START_HILL, THROW_YAW, type MinigameMode } from "./minigame-constants.ts";
 import { climbFootX, floorHeightAt, stationBackX, stationFrontX, stationStartPose } from "./minigame-profile.ts";
 import { holdForThrow, PRE_IMPACT_LEAD, preImpact, type PhaseClock } from "../match/phase.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
@@ -238,6 +238,47 @@ export function highJumpVariant(radius: number, pitchDegrees: number, runUp: num
   };
 }
 
+/** The numbers a long jump's approach is made of: the start hill's length, the flat run-up, the straight incline's length and the crest arc's radius (all m). */
+export type LongJumpDesign = { hillLength: number; runUp: number; inclineLength: number; crestRadius: number };
+
+/**
+ * The long jump built from `design` (the pad, the incline's pitch, the foot arc's radius and the flat tail as shipped), the floor
+ * level with the pad at the barrier: the start hill drops by the climb's whole rise. With the shipped numbers it is the shipped station.
+ */
+export function longJumpVariant(design: LongJumpDesign): DriveProfile {
+  const pitch = LONG_JUMP_INCLINE.pitchDegrees * DEGREES_TO_RADIANS;
+  const footArcRun = INCLINE_FOOT_RADIUS * Math.sin(pitch);
+  const footArcRise = INCLINE_FOOT_RADIUS * (1 - Math.cos(pitch));
+  const straightEnd = footArcRun + design.inclineLength;
+  const crestStartRise = footArcRise + design.inclineLength * Math.tan(pitch);
+  const crestEnd = straightEnd + design.crestRadius * Math.sin(pitch);
+  const climbRun = crestEnd + LONG_JUMP_INCLINE.flatTail;
+  const rise = crestStartRise + design.crestRadius * (1 - Math.cos(pitch));
+  const footX = -climbRun;
+  const hillTopX = footX - design.runUp - design.hillLength;
+  const climbRise = (run: number): number => {
+    if (run >= crestEnd) return rise;
+    if (run < footArcRun) return INCLINE_FOOT_RADIUS - Math.sqrt(INCLINE_FOOT_RADIUS * INCLINE_FOOT_RADIUS - run * run);
+    if (run <= straightEnd) return footArcRise + (run - footArcRun) * Math.tan(pitch);
+    const sinHere = Math.sin(pitch) - (run - straightEnd) / design.crestRadius;
+    return crestStartRise + design.crestRadius * (Math.sqrt(1 - sinHere * sinHere) - Math.cos(pitch));
+  };
+  return {
+    heightAtX: (localX) => {
+      if (localX >= 0) return LANDING_HEIGHT;
+      if (localX <= hillTopX) return 0;
+      const hillShare = (localX - hillTopX) / design.hillLength;
+      if (hillShare < 1) return (-rise * (1 - Math.cos(Math.PI * hillShare))) / 2;
+      if (localX <= footX) return -rise;
+      return -rise + climbRise(localX - footX);
+    },
+    backX: hillTopX - START_HILL.padLength,
+    frontX: 0,
+    startX: hillTopX - START_HILL.padLength / 2,
+    footX,
+  };
+}
+
 /** Wall seconds a throw run may last, and wall seconds after the hit with nobody thrown before it is called a no-throw. */
 const THROW_WALL_MAX = 60;
 const NO_THROW_AFTER = 8;
@@ -333,4 +374,78 @@ export async function driveIntoBarrier(type: DriverCar, ground: Ground | null, s
   car.dispose();
   setGround(null);
   return out;
+}
+
+/** What one drive into the jersey barrier gave, without the ragdoll: whether and how often the sim threw the driver. */
+export type BarrierHit = {
+  /** Drivers the sim threw out of the car, over the hit and the second after it. */
+  ejections: number;
+  /** The car's speed (m/s) and vertical speed (m/s) in the last frame before its first contact with the barrier. */
+  arrivalSpeed: number;
+  arrivalVertical: number;
+  /** The car's centre went back (m) from its furthest x after the hit: a rebound. */
+  reboundDistance: number;
+};
+
+/** Sim seconds the car is watched after its first contact, and the wall seconds a run may last. */
+const HIT_WATCH_SECONDS = 1;
+const HIT_WALL_MAX = 40;
+
+/**
+ * One car of `type` parked `startOffset` m further down the long jump's pad than the shipped start (a different slice phase at the
+ * barrier), released and steered down +x with its pedals holding its horizontal speed to `horizontalSpeedCap` m/s (Infinity: full
+ * throttle), into the jersey barrier at the world origin, as `driveIntoBarrier` drives it but with no ragdoll: the sim's own ejection is what is counted.
+ */
+export function driveToBarrier(type: DriverCar, profile: DriveProfile, startOffset: number, horizontalSpeedCap: number): BarrierHit {
+  const ground = new ProfileGround(profile, FINE_CELL);
+  setGround(ground);
+  const car = rangeCar(type);
+  try {
+    const startX = profile.startX + startOffset;
+    car.spawnFacing(startX, 0, THROW_YAW, 0);
+    car.group.position.y = ground.heightAt(startX, 0, 0.5);
+    layOnGround(car);
+    const barrier = new JerseyBarrier(new THREE.Scene(), new THREE.Group());
+    barrier.orient(car.group.position, false);
+    const world = makeWorld([car], false, true, FREEWHEEL);
+    world.world.barrier = barrier;
+    const input: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
+    const inner = world.world.beforeSlice!;
+    world.world.beforeSlice = (slice) => {
+      const aheadX = car.group.position.x + STEER_LOOK_AHEAD + car.speed * STEER_LOOK_PER_SPEED;
+      const error = Math.atan2(aheadX - car.group.position.x, -car.group.position.z) - car.yaw;
+      input.steer = Math.max(-1, Math.min(1, STEER_GAIN * Math.atan2(Math.sin(error), Math.cos(error))));
+      const horizontalSpeed = Math.hypot(car.velocity.x, car.velocity.z);
+      input.throttle = Math.max(0, Math.min(1, GOVERNOR_GAIN * (horizontalSpeedCap - horizontalSpeed)));
+      input.brake = Math.max(0, Math.min(1, GOVERNOR_GAIN * (horizontalSpeed - horizontalSpeedCap)));
+      world.pedals.set(car, input);
+      return inner(slice);
+    };
+    const out: BarrierHit = { ejections: 0, arrivalSpeed: 0, arrivalVertical: 0, reboundDistance: 0 };
+    world.onEject = () => {
+      out.ejections++;
+    };
+    let simulated = 0;
+    let hitAt = Infinity;
+    let furthestX = -Infinity;
+    for (let wall = 0; wall < HIT_WALL_MAX && simulated < hitAt + HIT_WATCH_SECONDS; wall += FRAME) {
+      if (!car.crashed) {
+        out.arrivalSpeed = car.speed;
+        out.arrivalVertical = car.velocity.y;
+      } else if (hitAt === Infinity) hitAt = simulated;
+      slowMotionBeforeImpact(world.clock, car, barrier, FRAME, simulated);
+      tickWorld(world, FRAME);
+      const simulatedDt = FRAME * world.clock.timeScale;
+      simulated += simulatedDt;
+      barrier.step(simulatedDt);
+      if (hitAt !== Infinity) {
+        furthestX = Math.max(furthestX, car.group.position.x);
+        out.reboundDistance = Math.max(out.reboundDistance, furthestX - car.group.position.x);
+      }
+    }
+    return out;
+  } finally {
+    car.dispose();
+    setGround(null);
+  }
 }

@@ -10,6 +10,7 @@ import {
   MINIGAME_MODES,
   RING_FLING_LANE,
   RUN_UP_LENGTH,
+  START_HILL_LENGTH,
   START_HILL,
   STATION_ANCHORS,
   STATION_HALF_WIDTH,
@@ -20,16 +21,20 @@ import { climbFootX, floorHeightAt, lipHeight, lipPitch, stationBackX, stationFr
 import {
   capForLipSpeed,
   driveIntoBarrier,
+  driveToBarrier,
   driveToLip,
   FINE_CELL,
   highJumpVariant,
   lipFlight,
+  longJumpVariant,
   ProfileGround,
   stationDriveProfile,
   type BarrierRun,
+  type BarrierHit,
   type ClimbRun,
   type DriveProfile,
   type LipFlight,
+  type LongJumpDesign,
 } from "./minigame-profile.test-util.ts";
 import { RANGE } from "./range.ts";
 
@@ -47,13 +52,13 @@ const CLIMB_STALL_ALLOWANCE = 1;
 /** Per station and car type: the least speed (m/s) its centre may have at the climb's foot and as it reaches the lip, measured with 0.5 m/s of room. */
 const MINIMUM_SPEED: Readonly<Record<MinigameMode, Readonly<Record<string, { foot: number; lip: number }>>>> = {
   longJump: {
-    sedan: { foot: 30.5, lip: 36 },
-    muscle: { foot: 33, lip: 38 },
-    truck: { foot: 30, lip: 35.5 },
-    monster: { foot: 32.5, lip: 39 },
-    police: { foot: 30.5, lip: 36.5 },
-    hatchback: { foot: 30.5, lip: 36 },
-    wagon: { foot: 30.5, lip: 36 },
+    sedan: { foot: 17.5, lip: 25 },
+    muscle: { foot: 18, lip: 27 },
+    truck: { foot: 17.5, lip: 24.5 },
+    monster: { foot: 19, lip: 26.5 },
+    police: { foot: 17.5, lip: 24.5 },
+    hatchback: { foot: 17.5, lip: 25 },
+    wagon: { foot: 17.5, lip: 25 },
   },
   highJump: {
     sedan: { foot: 31, lip: 26.5 },
@@ -97,7 +102,7 @@ describe("given each station's floor read every 5 cm from the back of its pad to
       const allowed = READ_STEP * Math.tan(testCase.steepestDegrees * DEGREES_TO_RADIANS) * 1.001;
       let tallest = 0;
       for (let i = 1; i < heights.length; i++) tallest = Math.max(tallest, Math.abs(heights[i]! - heights[i - 1]!));
-      assert.ok(heights.length > 1000, `${heights.length} samples`);
+      assert.ok(heights.length >= Math.floor((stationFrontX(testCase.mode) - stationBackX(testCase.mode)) / READ_STEP), `${heights.length} samples`);
       assert.ok(tallest <= allowed, `tallest step ${tallest} m against ${allowed} m`);
       assert.ok(tallest >= allowed * 0.1, `tallest step ${tallest} m: the floor is not flat`);
     });
@@ -387,7 +392,9 @@ describe("given the long jump's thrown driver, the best car type (the monster tr
     return best;
   };
 
-  it("when he is thrown from the flat range and from the incline, then the incline throws him past the 50 sign, the flat range does not, and with the ejection carrying the car's climb he is past the 80 sign", async (t) => {
+  /** The farthest sign (m) the incline's throw with the vertical carry reaches: the retuned approach holds the barrier hit under the speed (28.4 m/s) it throws reliably at, which cost the 80 sign (the pre-retune approach reached the 100 sign: 122.6 m at 36 to 39 m/s). The throw's own forward boost is a later lane's. */
+  const FARTHEST_SIGN_WITH_CARRY = 70;
+  it("when he is thrown from the flat range and from the incline, then the incline throws him past the 50 sign, the flat range does not, and with the ejection carrying the car's climb he is past the 70 sign", async (t) => {
     const flat = await bestDistance(false, false);
     const incline = await bestDistance(true, false);
     const inclineWithCarry = await bestDistance(true, true);
@@ -395,6 +402,79 @@ describe("given the long jump's thrown driver, the best car type (the monster tr
     assert.ok(farthestSign(flat) <= 40, `flat sign ${farthestSign(flat)}`);
     assert.ok(farthestSign(incline) >= 50, `incline sign ${farthestSign(incline)}`);
     assert.ok(incline > flat + 3, `incline ${incline} against flat ${flat}`);
-    assert.ok(farthestSign(inclineWithCarry) >= 80, `incline with carry sign ${farthestSign(inclineWithCarry)}`);
+    assert.ok(farthestSign(inclineWithCarry) >= FARTHEST_SIGN_WITH_CARRY, `incline with carry sign ${farthestSign(inclineWithCarry)}`);
+  });
+});
+
+describe("given each of the 7 car types released at full throttle from the long jump's hilltop into the jersey barrier, from 5 start phases (the pad's start moved 0 to 0.55 m, so each slice meets the barrier differently)", () => {
+  /** The barrier throws a driver only up to a speed: the lowest arrival speed (m/s) at which any class was not thrown, in a sweep of 20 start phases over speed caps 24 to 34 m/s on the pre-retune long jump (the truck, 31.4; nothing below failed, and the 5-phase sweep of caps 20 to 45 over all 7 classes agrees). A kernel property (`contact/`, `ejection.ts`), not changed here. */
+  const LOWEST_FAILING_ARRIVAL = 31.4;
+  /** The slowest arrival speed (m/s) every class is thrown at, at every start phase: at 19.6 the monster is not thrown, at 20.57 it is (the sweep's other classes were thrown at 19.6 already). */
+  const MINIMUM_EJECTING_ARRIVAL = 20.5;
+  /** The arrival speeds are kept this far (m/s) inside that window, on each side. */
+  const SAFETY_MARGIN = 3;
+  const ARRIVAL_FLOOR = MINIMUM_EJECTING_ARRIVAL + SAFETY_MARGIN;
+  const ARRIVAL_CEILING = LOWEST_FAILING_ARRIVAL - SAFETY_MARGIN;
+  const START_PHASES = [0, 0.13, 0.27, 0.41, 0.55];
+  /** The speed caps (m/s) the minimum-ejecting pin holds the monster to: under, and over, `MINIMUM_EJECTING_ARRIVAL`. */
+  const SLOW_CAP = 20;
+  const FAST_ENOUGH_CAP = 21;
+  /** The pre-retune approach: the start hill 24 m, the run-up 36 m, the incline 24 m and the crest's radius 180 m. */
+  const PRE_RETUNE: LongJumpDesign = { hillLength: 24, runUp: 36, inclineLength: 24, crestRadius: 180 };
+  const shipped: LongJumpDesign = { hillLength: START_HILL_LENGTH.longJump, runUp: RUN_UP_LENGTH.longJump, inclineLength: LONG_JUMP_INCLINE.length, crestRadius: LONG_JUMP_INCLINE.crestRadius };
+  const monsterCar = DRIVER_CARS.find((type) => type.id === "monster")!;
+  const truck = DRIVER_CARS.find((type) => type.id === "truck")!;
+
+  /** One car type's barrier hits, one per start phase. */
+  type ClassHits = { id: string; hits: BarrierHit[] };
+  const hitsOf = (profile: DriveProfile, speedCap: number): ClassHits[] =>
+    DRIVER_CARS.map((type) => ({ id: type.id, hits: START_PHASES.map((phase) => driveToBarrier(type, profile, phase, speedCap)) }));
+  const hitTable = (rows: readonly ClassHits[]): string =>
+    rows
+      .map(({ id, hits }) => `${id.padEnd(9)} arrival ${Math.min(...hits.map((hit) => hit.arrivalSpeed)).toFixed(2)} to ${Math.max(...hits.map((hit) => hit.arrivalSpeed)).toFixed(2)} m/s, vertical ${hits[0]!.arrivalVertical.toFixed(2)} m/s, thrown once ${hits.filter((hit) => hit.ejections === 1).length} of ${hits.length}`)
+      .join("\n");
+  const allThrownOnce = (rows: readonly ClassHits[]): boolean => rows.every(({ hits }) => hits.every((hit) => hit.ejections === 1));
+  const fastest = (rows: readonly ClassHits[]): number => Math.max(...rows.flatMap(({ hits }) => hits.map((hit) => hit.arrivalSpeed)));
+  const slowest = (rows: readonly ClassHits[]): number => Math.min(...rows.flatMap(({ hits }) => hits.map((hit) => hit.arrivalSpeed)));
+  const shippedHits = hitsOf(longJumpVariant(shipped), Infinity);
+
+  it("when each is released at full throttle on the shipped approach, then every class is thrown exactly once at every phase, the slowest arrives at least 3 m/s over the slowest speed it throws at and the fastest at least 3 m/s under the lowest it fails at", (t) => {
+    t.diagnostic(`shipped approach (hill ${shipped.hillLength} m, run-up ${shipped.runUp} m, incline ${shipped.inclineLength} m, crest radius ${shipped.crestRadius} m), window ${ARRIVAL_FLOOR} to ${ARRIVAL_CEILING.toFixed(1)} m/s:\n${hitTable(shippedHits)}`);
+    for (const { id, hits } of shippedHits) {
+      for (const [index, hit] of hits.entries()) {
+        assert.equal(hit.ejections, 1, `${id} at phase ${START_PHASES[index]}: ${hit.ejections} throws (arrival ${hit.arrivalSpeed})`);
+        assert.ok(hit.arrivalSpeed >= ARRIVAL_FLOOR, `${id} arrives at ${hit.arrivalSpeed}, under ${ARRIVAL_FLOOR}`);
+        assert.ok(hit.arrivalSpeed <= ARRIVAL_CEILING, `${id} arrives at ${hit.arrivalSpeed}, over ${ARRIVAL_CEILING}`);
+      }
+    }
+  });
+
+  it("when the approach is the pre-retune one, then a class is not thrown at some phase and the fastest arrives over the ceiling: the rows can fail", (t) => {
+    const old = hitsOf(longJumpVariant(PRE_RETUNE), Infinity);
+    t.diagnostic(`pre-retune approach:\n${hitTable(old)}`);
+    assert.ok(!allThrownOnce(old), "every class thrown once on the old approach");
+    assert.ok(fastest(old) > ARRIVAL_CEILING, `the old fastest arrival ${fastest(old)}`);
+  });
+
+  it("when the monster is held to 20 m/s and to 21 m/s on the shipped approach, then it is not thrown at any phase under the slowest ejecting speed and is thrown once at every phase over it", () => {
+    const slow = START_PHASES.map((phase) => driveToBarrier(monsterCar, longJumpVariant(shipped), phase, SLOW_CAP));
+    const fast = START_PHASES.map((phase) => driveToBarrier(monsterCar, longJumpVariant(shipped), phase, FAST_ENOUGH_CAP));
+    assert.ok(slow.every((hit) => hit.arrivalSpeed < MINIMUM_EJECTING_ARRIVAL && hit.ejections === 0), `held to ${SLOW_CAP}: ${slow.map((hit) => `${hit.arrivalSpeed.toFixed(2)}/${hit.ejections}`).join(" ")}`);
+    assert.ok(fast.every((hit) => hit.arrivalSpeed >= MINIMUM_EJECTING_ARRIVAL && hit.ejections === 1), `held to ${FAST_ENOUGH_CAP}: ${fast.map((hit) => `${hit.arrivalSpeed.toFixed(2)}/${hit.ejections}`).join(" ")}`);
+    assert.ok(slowest(shippedHits) >= ARRIVAL_FLOOR, "the slowest class on the shipped approach is over the floor");
+  });
+
+  it("when the truck is held to 32 m/s at start phase 0.55 on the pre-retune approach, then it arrives at the lowest failing speed and is not thrown: the failing speed is a real one", () => {
+    const FAILING_CAP = 32;
+    const FAILING_PHASE = 0.55;
+    const hit = driveToBarrier(truck, longJumpVariant(PRE_RETUNE), FAILING_PHASE, FAILING_CAP);
+    assert.ok(Math.abs(hit.arrivalSpeed - LOWEST_FAILING_ARRIVAL) <= 0.1 && hit.ejections === 0, `arrival ${hit.arrivalSpeed}, ${hit.ejections} throws`);
+  });
+
+  it("when the builder is given the shipped numbers, then its floor is the shipped floor", () => {
+    const built = longJumpVariant(shipped);
+    const station = stationDriveProfile("longJump");
+    assert.ok(Math.abs(built.backX - station.backX) < 1e-9 && Math.abs(built.startX - station.startX) < 1e-9 && Math.abs(built.footX - station.footX) < 1e-9, "same station extent");
+    for (let localX = station.backX; localX <= station.frontX + 1; localX += 0.37) assert.ok(Math.abs(built.heightAtX(localX) - station.heightAtX(localX)) < 1e-9, `x = ${localX}`);
   });
 });
