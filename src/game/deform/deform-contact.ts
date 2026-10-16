@@ -21,7 +21,7 @@ export const ENGINE_SLACK = 0.04;
 const LEVEL = new THREE.Quaternion();
 export const TYRE_HALF_W = 0.11;
 /** Fastest (m/s) a wreck's body follows its cell's drift off its seat (`followGroup`): the nose's springback against a wall in 0.4 s, no faster than the pair pass's pushes. */
-const SEAT_SPEED = 1;
+export const SEAT_SPEED = 1;
 /** A mass this close (m) to a rigid face still counts as resting on it. */
 const FACE_SKIN = 0.02;
 /** A rear hit's stroke over the front's, beyond the cages' chassisRear / chassisFront ratio: 50 km/h reverse into the wall crushes the tail 0.6–1.0× the nose's 50 km/h front hit (barrier.test.ts), 0.57× at the bare 0.69 ratio. */
@@ -251,6 +251,8 @@ export abstract class DeformContact extends DeformState {
     const off = _a.length();
     if (dt > 0 && off > 1e-9) {
       _a.multiplyScalar(Math.min(1, (dt * SEAT_SPEED) / off)).applyQuaternion(group.quaternion);
+      // Seat along the ground, never up or down: a wreck on its side has a body axis for world vertical, and the step moved it through the ground.
+      _a.y = 0;
       group.position.add(_a);
       group.updateWorldMatrix(false, false);
       _toLocal.copy(group.matrixWorld).invert();
