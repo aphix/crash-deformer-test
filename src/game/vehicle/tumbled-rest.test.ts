@@ -34,8 +34,6 @@ const DROP_SECONDS = 5;
 const BODY_SINK_M = 0.04;
 /** A mirror or lamp lies out of the ground to within the drawn parts' own tolerance (m). */
 const PART_SINK_M = 0.02;
-/** A door's window frame stands out of a crushed roof by the crush, so a roof-down wreck's door reaches this far (m) into the ground at worst (measured 0.102). */
-const DOOR_ON_ROOF_SINK_M = 0.12;
 /** The crown is the drawn cabin's vertices within this (m) of its highest. */
 const CROWN_DEPTH_M = 0.15;
 /** Where along the car's nose (m from its middle) the hit that makes a wreck of it lands. */
@@ -85,7 +83,10 @@ function lowestDrawn(car: DeformableCar, crown: ReadonlySet<number>): Lowest {
     door.object.updateWorldMatrix(true, false);
     door.object.traverse((o) => {
       if (!(o instanceof THREE.Mesh) || mirrors.includes(o)) return;
-      low = { ...low, doors: Math.min(low.doors, lowestY(o.geometry, o.matrixWorld)) };
+      // Only what is drawn: a shattered side pane is hidden on its rest seat and is no part of the door the eye sees.
+      let shown = o.visible;
+      o.traverseAncestors((a) => (shown &&= a.visible));
+      if (shown) low = { ...low, doors: Math.min(low.doors, lowestY(o.geometry, o.matrixWorld)) };
     });
   }
   for (const lamp of car.lamps) {
@@ -130,9 +131,10 @@ describe("given a car dropped onto its roof on the flat pad, from 0.5 and from 2
     });
   }
 
-  it("when a sedan rests on its roof from 0.5 m, then its doors are not lowered into the ground by more than the window frame stands out of the crushed roof", () => {
+  it("when a sedan rests on its roof from 0.5 m, then its drawn doors are out of the ground", () => {
     const { lowest } = dropped("sedan", "sedan", "roof", 0.5);
-    assert.ok(lowest.doors > -DOOR_ON_ROOF_SINK_M, `a door ${cm(-lowest.doors)} into the ground`);
+    // A 0.12 m allowance here was the shattered side pane, hidden on its rest seat, counted as door: the drawn door stands 0.29 m clear.
+    assert.ok(lowest.doors > 0, `a door ${cm(-lowest.doors)} into the ground`);
   });
 });
 
@@ -167,5 +169,8 @@ describe("given a car dropped on its wheels on the flat pad", () => {
 });
 
 describe("given a car lying on its roof, with its doors drawn on their rest seats", () => {
-  it.todo("when it rests after a 2 m drop, then each door's window frame is out of the ground (today 0.19 m into it: the doors stay on their rest seats while the roof crushes)");
+  it("when it rests after a 2 m drop, then each drawn door is out of the ground (the 0.19 m it read was the hidden shattered pane)", () => {
+    const { lowest } = dropped("sedan", "sedan", "roof", 2);
+    assert.ok(lowest.doors > 0, `a door ${cm(-lowest.doors)} into the ground`);
+  });
 });
