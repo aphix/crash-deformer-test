@@ -571,25 +571,39 @@ describe("given the user's drag holding the ride-along camera, while the cut to 
   });
 });
 
+/** The ride cam's aim eases to its target at 12/s: after a frame of `FRAME` s a mover's aim trails him by his velocity × `AIM_LAG_SECONDS`. */
+const AIM_EASE_SHARE = 1 - Math.exp(-12 * FRAME);
+const AIM_LAG_SECONDS = (FRAME * (1 - AIM_EASE_SHARE)) / AIM_EASE_SHARE;
+const AIM_CASES = [
+  { it: "when no lead is passed, then the first frame rides him and the aim trails his head by his shown velocity's share of the ease", lead: 0, simShare: 1 },
+  { it: "when a lead of 0.1 s is passed, then the aim runs ahead of the trail by that much of his shown velocity", lead: 0.1, simShare: 1 },
+  { it: "when a lead of 0.1 s is passed in a slow-mo showing a tenth of his speed, then the aim leads by what the slow-mo shows, not by his sim speed", lead: 0.1, simShare: 0.1 },
+] as const;
+const AIM_FRAMES = 40;
+const AIM_TOLERANCE = 0.15;
+
 describe("given the ride-along camera following a dummy thrown straight up at 50 m/s", () => {
-  it("when the frame passes a lead of 0.1 s, then the aim runs 0.1 s of his velocity above his head, and with none passed it sits on his head", async () => {
-    const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
-    await ragdolls.preload();
-    ragdolls.update(FRAME, [], true, true, null);
-    ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1.2, 0), q: new THREE.Quaternion(), v: new THREE.Vector3(0, 50, 0), w: new THREE.Vector3(), age: 0, cop: false, rides: true });
-    ragdolls.follow();
-    const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
-    ragdolls.update(FRAME, [], true, true, null);
-    const settleSeconds = 1;
-    const lead = 0.1;
-    assert.equal(ragdolls.frameCamera(camera, settleSeconds, true, -1, false, 50, OPEN), "shot");
-    const head = ragdolls["ride"].cam.framing.c;
-    assert.ok(ragdolls.rideLook.distanceTo(head) < 1e-3, "no lead passed: the aim is on his head");
-    const climb = ragdolls["dolls"][0]!.vel[1]!;
-    assert.ok(climb > 40, `he climbs at ${climb} m/s`);
-    assert.equal(ragdolls.frameCamera(camera, settleSeconds, true, -1, false, 50, OPEN, lead), "shot");
-    const aimAbove = ragdolls.rideLook.y - head.y;
-    assert.ok(Math.abs(aimAbove - climb * lead) < 1e-3, `the aim is ${aimAbove.toFixed(3)} m above his head, ${climb * lead} wanted`);
-    ragdolls.dispose();
-  });
+  for (const testCase of AIM_CASES) {
+    it(testCase.it, async () => {
+      const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
+      await ragdolls.preload();
+      ragdolls.update(FRAME, [], true, true, null);
+      ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1.2, 0), q: new THREE.Quaternion(), v: new THREE.Vector3(0, 50, 0), w: new THREE.Vector3(), age: 0, cop: false, rides: true });
+      ragdolls.follow();
+      const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
+      const head = ragdolls["ride"].cam.framing.c;
+      const previousHead = new THREE.Vector3();
+      for (let frame = 0; frame < AIM_FRAMES; frame++) {
+        ragdolls.update(FRAME * testCase.simShare, [], true, true, null);
+        previousHead.copy(head);
+        assert.equal(ragdolls.frameCamera(camera, FRAME, true, -1, false, 50, OPEN, testCase.lead), "shot", `frame ${frame} rides him`);
+      }
+      const shownClimb = (head.y - previousHead.y) / FRAME;
+      assert.ok(shownClimb > 0.5 * 50 * testCase.simShare, `he is shown climbing at ${shownClimb} m/s`);
+      const expected = shownClimb * (testCase.lead - AIM_LAG_SECONDS);
+      const aimAbove = ragdolls.rideLook.y - head.y;
+      assert.ok(Math.abs(aimAbove - expected) < AIM_TOLERANCE, `the aim is ${aimAbove.toFixed(3)} m above his head, ${expected.toFixed(3)} wanted`);
+      ragdolls.dispose();
+    });
+  }
 });

@@ -74,7 +74,8 @@ export class RideAlong {
    * once they lie still, always from behind (the range: its signs read down the throw, and it shows where its driver
    * came to rest). `lens`: the scene's lens (deg); `sight`: the scene's solids (the windshield and trackside eyes
    * stand clear of them). The dummies are drawn `alpha` of the way between their last two steps. `lead` (s, the minigames
-   * pass it): the aim runs that much of the dummies' velocity ahead of their heads, so a fast climber stays framed (`RideCam`).
+   * pass it): the aim runs that much of the dummies' shown velocity ahead of their heads, so a fast climber stays framed, and
+   * the ride opens on the follow shot, eased up over roofs and rims (`RideCam`, `Framing.lead`).
    */
   frame(dolls: readonly Doll[], alpha: number, camera: THREE.PerspectiveCamera, wallDt: number, hold: boolean, watched: number, held: boolean, lens: number, sight: () => Sight, lead = 0): RideFrame {
     if (!this.riding) return "none";
