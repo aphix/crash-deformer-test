@@ -37,7 +37,7 @@ import type { PersonPick } from "../match/look-data.ts";
 import type { SprayBitmap } from "./spray.ts";
 import { Purses } from "./ragdoll-purse.ts";
 import { CAR_BOX, type PropDraw, PropBodies } from "./ragdoll-props.ts";
-import { type BoxPlacement, BoxPile } from "./ragdoll-boxes.ts";
+import { type BoxPlacement, BoxPile, NO_RELEASE_SCALE, type ReleaseScale } from "./ragdoll-boxes.ts";
 import { CarProxies, DOLL_REACH, NEAR_HOLD, NEAR_MARGIN, PROP_BAND_HIGH, PROP_BAND_LOW, PURSE_REACH } from "./ragdoll-cars.ts";
 import type { RagCar } from "./ragdoll-car-view.ts";
 import { dollGroups, FIXED_GROUPS, knockedGroups, MAX_ACC, propGroups, SLOTS, STEP, thrownGroups } from "./ragdoll-config.ts";
@@ -660,9 +660,9 @@ export class RagdollSystem {
    * dummy flies now or (Rapier still loading) once it is in. The sim's own event (`EjectionWatch`), a netplay host's
    * message or a highlight clip's record: the dummy starts from the event's numbers alone, so the same event is the
    * same throw wherever it is launched. `rides` false: the ride-along never frames him (a reel's throw from another
-   * crash than its own, `ownThrow`). `releaseSpeedScale` multiplies his launch velocity (the range minigames' boost; 1: the event's own).
+   * crash than its own, `ownThrow`). `releaseScale` scales his launch velocity (the range minigames' boost: `forward` the horizontal, `upward` the vertical; unset: the event's own).
    */
-  launch(e: Ejection, cars: readonly DeformableCar[], rides = true, releaseSpeedScale = 1): void {
+  launch(e: Ejection, cars: readonly DeformableCar[], rides = true, releaseScale: ReleaseScale = NO_RELEASE_SCALE): void {
     this.cars = cars;
     const car = cars[e.car]!;
     if (this.authority) car.smashGlass(e.exit);
@@ -674,7 +674,8 @@ export class RagdollSystem {
     t.p.copy(e.pos);
     t.q.copy(e.quat);
     t.w.copy(e.spin);
-    ejectionVelocity(e, t.v).multiplyScalar(releaseSpeedScale);
+    ejectionVelocity(e, t.v);
+    t.v.set(t.v.x * releaseScale.forward, t.v.y * releaseScale.upward, t.v.z * releaseScale.forward);
     t.car = e.car;
     t.age = 0;
     t.cop = e.cop;

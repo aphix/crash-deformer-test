@@ -88,3 +88,14 @@ export const LIP_BACK_FACE_PITCH_DEGREES = 60;
 
 /** High jump and Ring Fling: the share of its speed (and so of every velocity component) the car keeps as its driver is thrown at the lip. Measured in `minigame-lip.test.ts`. */
 export const LIP_CAR_SPEED_KEEP = 0.3;
+
+/**
+ * Per minigame, the release multipliers on the thrown driver's launch velocity: `forward` scales its horizontal (x, z) components, `upward`
+ * its vertical (y) one. Applied only to a minigame's throw, in the ragdoll's launch (the sim's Ejection event stays physical); the Sizing lane
+ * sets them from measurements. Identity (1, 1) is today's throw.
+ */
+export const THROW_BOOST: Readonly<Record<MinigameMode, { forward: number; upward: number }>> = {
+  longJump: { forward: 1, upward: 1 },
+  highJump: { forward: 1, upward: 1 },
+  ringFling: { forward: 1, upward: 1 },
+};
