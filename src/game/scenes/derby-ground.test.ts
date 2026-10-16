@@ -42,6 +42,16 @@ const RUN_PROBE_INSET = 3;
 const RAMP_PROBE = 4;
 /** A crest rounds over `round` m, so its peak may sit this far (m) under the design height. */
 const PEAK_SLACK = 0.1;
+/**
+ * A ramp's cross-section at its crest (design: a 4 m wide deck, side planes of 3 m run): heights as shares of the design height at
+ * `across` m from its axis, read on both sides. The deck's edge rounds over 1.5 m, so its share falls to about 0.9 there; the side plane's middle is half.
+ */
+const DECK_SECTION_CASES = [
+  { label: "on the deck's edge, 1.9 m from its axis", across: 1.9, atLeast: 0.8, atMost: 1 },
+  { label: "at the middle of a side plane, 3.5 m from its axis", across: 3.5, atLeast: 0.4, atMost: 0.6 },
+  { label: "on the foot of a side plane, 5 m from its axis", across: 5, atLeast: 0.05, atMost: 0.25 },
+  { label: "beyond a side plane's end, 7.5 m from its axis", across: 7.5, atLeast: 0, atMost: 0.002 },
+];
 /** Table-top edge: within this (m) of its design height at the edge line; further out than the rounding, it has fallen by at least this much. */
 const EDGE_DROP_MAX = 0.15;
 const OUTSIDE_DROP_MIN = 0.2;
@@ -184,6 +194,17 @@ describe("given the design's rises", () => {
         const run = (design.height * (design.length - 2 * RUN_PROBE_INSET)) / (near - far);
         assert.ok(Math.abs(run - design.length) < 0.1, `the long run is ${run.toFixed(2)} m`);
       });
+
+      for (const { label, across, atLeast, atMost } of DECK_SECTION_CASES) {
+        it(`when the floor is read ${label}, then it is the 4 m wide deck with 3 m side planes`, () => {
+          const { plateau, toward } = rampNamed(design.name);
+          for (const side of [-1, 1]) {
+            const height = ground.heightAt(plateau.x - toward.z * side * across, plateau.z + toward.x * side * across, 0);
+            assert.ok(height >= atLeast * design.height, `${height} is under ${atLeast} of the design height`);
+            assert.ok(height <= atMost * design.height, `${height} is over ${atMost} of the design height`);
+          }
+        });
+      }
 
       it("when the floor is read either side of its crest, then it rises toward the wall: level beyond the lip, climbing on the middle side, the deck farther out than the foot", () => {
         const { plateau, toward } = rampNamed(design.name);
