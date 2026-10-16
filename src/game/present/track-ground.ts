@@ -38,7 +38,7 @@ const FAR_HOLD = 16;
 /** A far-mesh block's two triangles stay this close (m) to every cell height they cover: about a pixel at FAR_RING on a phone. */
 const FAR_TOL = 0.2;
 
-/** A merged rectangle is one plane: its vertices stay within this (m) of its height, well under the lift of a road laid over it. */
+/** A merged rectangle is one plane: its vertices under a ribbon stay within this (m) of it, well under the lift of a road laid over it (`planeTol`), and a level block's within this of its first corner's height (`planeOf`). */
 const MERGE_TOL = 0.002;
 /** Most blocks a side of a merged rectangle: bounds a quad's size (32 m) so a camera on the ground never stands under a 100 m triangle. */
 const MERGE_BLOCKS = 4;
@@ -163,14 +163,30 @@ function isChunkEdge(bi: number, bj: number): boolean {
   return bi % CHUNK === 0 || bj % CHUNK === 0 || bi % CHUNK === CHUNK - 1 || bj % CHUNK === CHUNK - 1;
 }
 
-/** Whether every vertex of block (bi, bj) is within MERGE_TOL of its first corner's height. */
-function isLevel(g: TerrainGrid, bi: number, bj: number): boolean {
+/** How far (m) vertex (i, j) may lie from a merged rectangle's plane: FLAT_TOL on open ground, MERGE_TOL under a ribbon, where a road laid ROAD_LIFT over the ground must not be buried. */
+function planeTol(g: TerrainGrid, i: number, j: number): number {
+  return g.cov[j * g.nx + i]! < 0 ? FLAT_TOL : MERGE_TOL;
+}
+
+/**
+ * The plane of block (bi, bj): its first corner's height and the rise per cell along i and along j, flat when every vertex is
+ * within MERGE_TOL of the first corner's height, else the plane through the first, the i-side and the j-side corners. Null when
+ * a vertex of the block lies further from it than `planeTol`.
+ */
+function planeOf(g: TerrainGrid, bi: number, bj: number): readonly [number, number, number] | null {
   const { per, nx, h } = g;
   const first = bj * per * nx + bi * per;
-  for (let v = 0; v <= per; v++) {
-    for (let u = 0; u <= per; u++) if (Math.abs(h[first + v * nx + u]! - h[first]!) > MERGE_TOL) return false;
+  let level = true;
+  for (let v = 0; v <= per && level; v++) {
+    for (let u = 0; u <= per; u++) if (Math.abs(h[first + v * nx + u]! - h[first]!) > MERGE_TOL) level = false;
   }
-  return true;
+  const plane = level ? ([h[first]!, 0, 0] as const) : ([h[first]!, (h[first + per]! - h[first]!) / per, (h[first + per * nx]! - h[first]!) / per] as const);
+  for (let v = 0; v <= per; v++) {
+    for (let u = 0; u <= per; u++) {
+      if (Math.abs(h[first + v * nx + u]! - (plane[0] + plane[1] * u + plane[2] * v)) > planeTol(g, bi * per + u, bj * per + v)) return null;
+    }
+  }
+  return plane;
 }
 
 /** Rectangles of cells drawn as one quad: `width` / `depth` (cells) set at a rectangle's first cell, `covered` on the others (indexed like the grid's vertices). */
@@ -185,9 +201,10 @@ const JOINABLE_INTERIOR = 1;
 const JOINABLE_RIM = 2;
 
 /**
- * Level cells in one vertex colour merged greedily into rectangles: a flat lawn or road verge is a few quads, and only the cells
- * on a colour's edge stay cells. Only level blocks of kind 1 or 2 (`kinds`) take part, a rectangle is flat to MERGE_TOL, and one
- * stays inside one chunk and on the rims or off them. The cells on a rim are told apart by `rimColours` (the near and far meshes'
+ * Cells in one vertex colour merged greedily into rectangles: a flat lawn or road verge, or a gentle slope, is a few quads, and
+ * only the cells on a colour's edge stay cells. Only blocks of kind 1 or 2 (`kinds`) that `planeOf` finds a plane for take part;
+ * a rectangle lies on the plane of the block holding its first cell, every vertex within `planeTol` of it, and one stays inside
+ * one chunk and on the rims or off them. The cells on a rim are told apart by `rimColours` (the near and far meshes'
  * colours in one number), so both meshes merge a rim alike and a near chunk and a far neighbour meet in the same corners.
  */
 function mergeFlatCells(g: TerrainGrid, kinds: Uint8Array, colours: Uint8Array, rimColours: Uint16Array): MergedCells {
@@ -198,35 +215,73 @@ function mergeFlatCells(g: TerrainGrid, kinds: Uint8Array, colours: Uint8Array, 
   const depth = new Uint8Array(nx * (cellsZ + 1));
   const covered = new Uint8Array(nx * (cellsZ + 1));
   const joinable = new Uint8Array(bx * bz);
+  /** Per block, its plane (`planeOf`) as three numbers: first corner's height, rise per cell along i, along j. */
+  const planes = new Float64Array(bx * bz * 3);
   for (let bj = 0; bj < bz; bj++) {
     for (let bi = 0; bi < bx; bi++) {
-      const flat = (kinds[bj * bx + bi] === 1 || kinds[bj * bx + bi] === 2) && isLevel(g, bi, bj);
-      joinable[bj * bx + bi] = !flat ? NOT_JOINABLE : isChunkEdge(bi, bj) ? JOINABLE_RIM : JOINABLE_INTERIOR;
+      const b = bj * bx + bi;
+      const plane = kinds[b] === 1 || kinds[b] === 2 ? planeOf(g, bi, bj) : null;
+      if (!plane) continue;
+      planes.set(plane, b * 3);
+      joinable[b] = isChunkEdge(bi, bj) ? JOINABLE_RIM : JOINABLE_INTERIOR;
     }
   }
   /** The joinable kind of the cell at (i, j), NOT_JOINABLE when a rectangle already covers it. */
   const freeAt = (i: number, j: number) => (i < cellsX && j < cellsZ && covered[j * nx + i] === 0 ? joinable[Math.floor(j / per) * bx + Math.floor(i / per)]! : NOT_JOINABLE);
   const colourAt = (i: number, j: number, region: number) => (region === JOINABLE_RIM ? rimColours : colours)[j * nx + i]!;
-  const alike = (i: number, j: number, region: number, colour: number, level: number) => colourAt(i, j, region) === colour && Math.abs(h[j * nx + i]! - level) <= MERGE_TOL;
+  /** Whether vertex (i, j) lies on the plane of block `b`. */
+  const onPlane = (i: number, j: number, b: number) => {
+    const y = planes[b * 3]! + planes[b * 3 + 1]! * (i - (b % bx) * per) + planes[b * 3 + 2]! * (j - Math.floor(b / bx) * per);
+    return Math.abs(h[j * nx + i]! - y) <= planeTol(g, i, j);
+  };
+  const alike = (i: number, j: number, region: number, colour: number, b: number) => colourAt(i, j, region) === colour && onPlane(i, j, b);
+  /** Per block, the rectangle (its first cell + 1) that last asked whether the block lies wholly on its plane, and the answer. */
+  const askedBy = new Int32Array(bx * bz);
+  const wholly = new Uint8Array(bx * bz);
+  /**
+   * Whether the cell at (i, j) can join the rectangle of block `b`'s plane started at cell `start`: free, and a block drawn as one
+   * quad (kind 1) lies wholly on that plane, so a rectangle never takes only part of one and leaves the rest in cells.
+   */
+  const joins = (i: number, j: number, region: number, b: number, start: number) => {
+    if (freeAt(i, j) !== region) return false;
+    const cb = Math.floor(j / per) * bx + Math.floor(i / per);
+    if (cb === b || kinds[cb] === 2) return true;
+    if (askedBy[cb] !== start) {
+      askedBy[cb] = start;
+      wholly[cb] = 1;
+      for (let v = 0; v <= per && wholly[cb]; v++) {
+        for (let u = 0; u <= per; u++) if (!onPlane((cb % bx) * per + u, Math.floor(cb / bx) * per + v, b)) wholly[cb] = 0;
+      }
+    }
+    return wholly[cb] === 1;
+  };
   const mergeCells = MERGE_BLOCKS * per;
   const chunkCells = CHUNK * per;
   for (let j = 0; j < cellsZ; j++) {
     for (let i = 0; i < cellsX; i++) {
       const region = freeAt(i, j);
       if (region === NOT_JOINABLE) continue;
-      const colour = colourAt(i, j, region);
-      const level = h[j * nx + i]!;
-      if (!alike(i, j, region, colour, level) || !alike(i + 1, j, region, colour, level) || !alike(i, j + 1, region, colour, level) || !alike(i + 1, j + 1, region, colour, level)) continue;
+      const [tl, tr, bl, br] = [colourAt(i, j, region), colourAt(i + 1, j, region), colourAt(i, j + 1, region), colourAt(i + 1, j + 1, region)];
+      const b = Math.floor(j / per) * bx + Math.floor(i / per);
+      if (!alike(i, j, region, tl, b) || !alike(i + 1, j, region, tr, b) || !alike(i, j + 1, region, bl, b) || !alike(i + 1, j + 1, region, br, b)) continue;
+      const start = j * cellsX + i + 1;
       const widthLimit = Math.min(mergeCells, chunkCells - (i % chunkCells));
       const depthLimit = Math.min(mergeCells, chunkCells - (j % chunkCells));
       let w = 1;
-      while (w < widthLimit && freeAt(i + w, j) === region && alike(i + w + 1, j, region, colour, level) && alike(i + w + 1, j + 1, region, colour, level)) w++;
       let d = 1;
-      for (; d < depthLimit; d++) {
-        let row = true;
-        for (let u = 0; u < w && row; u++) row = freeAt(i + u, j + d) === region && alike(i + u, j + d + 1, region, colour, level);
-        if (row) row = alike(i + w, j + d + 1, region, colour, level);
-        if (!row) break;
+      if ((tl !== tr || tl !== bl) && dropped(g, i, j)) continue;
+      if (tl === tr && bl === br) {
+        // A row of cells under one colour along its top edge and one along its bottom edge (a colour's straight edge, or all one colour).
+        while (w < widthLimit && joins(i + w, j, region, b, start) && alike(i + w + 1, j, region, tl, b) && alike(i + w + 1, j + 1, region, bl, b) && (tl === bl || !dropped(g, i + w, j))) w++;
+        // Only a single colour all over grows deeper: a second row would need a vertex colour between the two.
+        for (; tl === bl && d < depthLimit; d++) {
+          let row = true;
+          for (let u = 0; u < w && row; u++) row = joins(i + u, j + d, region, b, start) && alike(i + u, j + d + 1, region, tl, b);
+          if (row) row = alike(i + w, j + d + 1, region, tl, b);
+          if (!row) break;
+        }
+      } else if (tl === bl && tr === br) {
+        while (d < depthLimit && joins(i, j + d, region, b, start) && alike(i, j + d + 1, region, tl, b) && alike(i + 1, j + d + 1, region, tr, b) && !dropped(g, i, j + d)) d++;
       }
       if (w * d === 1) continue;
       width[j * nx + i] = w;

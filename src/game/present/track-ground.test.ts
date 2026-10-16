@@ -105,7 +105,7 @@ const courseCases = [
   { it: "the second hilliest course", course: "four-count", fewerFarTrianglesPct: 30 },
   { it: "a course of cliff shelves", course: "razor-shelf", fewerFarTrianglesPct: 30 },
   { it: "a course with paved yards painted on its ground", course: "breaker-yard", fewerFarTrianglesPct: 20 },
-  { it: "the National Mall, flat lawns and streets over concrete", course: "national-mall", fewerFarTrianglesPct: 28 },
+  { it: "the National Mall, flat lawns and streets over concrete", course: "national-mall", fewerFarTrianglesPct: 18 },
 ] as const;
 
 describe("given a course's terrain drawn in chunks, each with a near mesh and a coarser far mesh", () => {
@@ -162,12 +162,12 @@ describe("given the National Mall's terrain, its lawns painted over a flat concr
   const nearTriangles = t.chunks.fineAt[(t.chunks.box.length / 4) * 2 + 1]! / 3;
   const farTriangles = t.chunks.coarseAt[(t.chunks.box.length / 4) * 2 + 1]! / 3;
 
-  it("when the chunks are built, then flat lawn and road verge are merged into large quads: the near mesh stays under 180 000 triangles", () => {
-    assert.ok(nearTriangles < 180_000, `${nearTriangles} near triangles`);
+  it("when the chunks are built, then flat and gently sloping lawn and road verge are merged into large quads and a colour's straight edge into strips: the near mesh stays under 76 000 triangles", () => {
+    assert.ok(nearTriangles < 76_000, `${nearTriangles} near triangles`);
   });
 
-  it("when the chunks are built, then the far mesh stays under 130 000 triangles", () => {
-    assert.ok(farTriangles < 130_000, `${farTriangles} far triangles`);
+  it("when the chunks are built, then the far mesh stays under 62 000 triangles", () => {
+    assert.ok(farTriangles < 62_000, `${farTriangles} far triangles`);
   });
 });
 
