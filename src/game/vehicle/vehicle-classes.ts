@@ -184,7 +184,7 @@ export const STYLE_CLASS: Readonly<Record<CarStyleId, VehicleClassId>> = {
 };
 
 /** Wheel radius of the shared mesh (m); a scaled wheel is lifted to keep its tyre on the ground (`assignClass`) and its tread speed is the hub's × its scale (`rotatingShare`). */
-export const WHEEL_RADIUS = 0.32;
+const WHEEL_RADIUS = 0.32;
 
 export function classStats(id: VehicleClassId): ClassStats {
   return CLASSES[id];
