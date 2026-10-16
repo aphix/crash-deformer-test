@@ -22,6 +22,8 @@ const DIRT_TEXTURE_SIZE = 1024;
 const EDGE_REACH = 1e-6;
 /** At least this share of the floor's vertices must be compared: a test that skipped them all would prove nothing. */
 const LEAST_COMPARED_SHARE = 0.9;
+/** Every prism's base is at most this deep (m): a car sunk to `FAKE_DEPTH` (1.5 m) with its body (2 x CAR_HALF.y, 1.86 m) below it is still not wholly under the prism, so it meets the wall (`prop-contact.ts` skips a prism a body is wholly under). */
+const DEEPEST_REACHED_BASE = -3;
 
 type Placement = { x: number; z: number; base: number; yaw: number; hx: number; hz: number; height: number };
 
@@ -130,8 +132,13 @@ describe("derby arena", () => {
     });
   }
 
-  it("given the ground built from the list, when its prism patches are read, then each is a listed box and each box is a prism", () => {
-    const { missing, extra } = leftOvers(listedBoxes, prismPlacements());
+  it("given the ground built from the list, when its prism patches are read, then each is sunk deep enough, each is a listed box and each box is a prism", () => {
+    const prisms = prismPlacements();
+    for (const prism of prisms) assert.ok(prism.base <= DEEPEST_REACHED_BASE, `prism at (${prism.x}, ${prism.z}) has base ${prism.base}, above ${DEEPEST_REACHED_BASE}`);
+    const { missing, extra } = leftOvers(
+      listedBoxes,
+      prisms.map((prism) => ({ ...prism, base: 0 })),
+    );
     assert.deepEqual(extra, [], "prisms that are no listed box");
     assert.deepEqual(missing, [], "boxes that are no prism");
   });
