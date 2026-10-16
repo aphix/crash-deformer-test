@@ -16,12 +16,13 @@ import {
   type LobbyRoom,
   type MatchDeps,
 } from "./matchmaking.ts";
+import type { PublicKind } from "./net-ports.ts";
 
 /** A room name without its kind and build: "A" for `publicRoomName("race", "A")`, so expectations read as literals. */
-const codeOf = (name: string): string => name.replace(/^pub-(race|derby)-v\d+-/, "");
+const codeOf = (name: string): string => name.replace(/^pub-(race|campaign|survival|derby)-v\d+-/, "");
 
 /** `addrs` (distinct addresses) defaults to `players`: every player on their own address, as in a real room. */
-const room = (code: string, players: number, meta = "lobby.oval", kind: "race" | "derby" = "race", addrs = players): LobbyRoom => ({
+const room = (code: string, players: number, meta = "lobby.oval", kind: PublicKind = "race", addrs = players): LobbyRoom => ({
   room: publicRoomName(kind, code),
   players,
   addrs,
@@ -117,6 +118,15 @@ describe("given the room list a relay returns to a player looking for a race roo
       openRooms([room("A", 1, "over.rally"), room("B", 1, ""), room("C", 1, "bogus.x")], "race").map((r) => [r.stage, r.course]),
       [["over", "rally"], [null, ""], [null, "x"]],
     );
+  });
+
+  it("when the list holds public rooms of all four games, then no filter lists every one of this build with its game and course tag, and a game's filter lists only that game's rooms", () => {
+    const list = [room("A", 2, "lobby.oval", "race"), room("B", 3, "lobby.3", "campaign"), room("C", 2, "running.havana", "survival"), room("D", 2, "lobby", "derby")];
+    assert.deepEqual(
+      openRooms(list, null).map((r) => [r.kind, codeOf(r.room), r.course]).sort(),
+      [["campaign", "B", "3"], ["derby", "D", ""], ["race", "A", "oval"], ["survival", "C", "havana"]],
+    );
+    for (const [kind, code] of [["race", "A"], ["campaign", "B"], ["survival", "C"], ["derby", "D"]] as const) assert.equal(openRooms(list, kind).map((r) => codeOf(r.room)).join(), code, kind);
   });
 });
 

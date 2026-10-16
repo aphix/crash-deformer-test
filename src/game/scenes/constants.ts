@@ -21,12 +21,15 @@ export const UPRIGHT = 0.9;
 /**
  * The derby arena every field plays in (`scenes/derby-ground.ts` builds it, `derby-arena.ts` draws it): one fixed size, a ring
  * wall of `wallPieces` flat boxes whose inner faces stand `radius` m from the middle, a 1 m ground grid reaching `gridHalf` m each way.
+ * `concreteHeight`: the wall's concrete lower part (design >= 3.5 m), glass above it up to `wallHeight`.
  * `spawnInset`: `layoutDerby`'s ring sits this far inside the wall.
  */
 export const DERBY_ARENA = {
   radius: 38,
   wallThickness: 1,
-  wallHeight: 10,
+  /** Measured need 7.83 m (monster across, heading 4.71, stride 1) + the owner's ask for a wall above 10 m: 12 m. */
+  wallHeight: 12,
+  concreteHeight: 3.5,
   wallPieces: 48,
   wallMitre: 0.3,
   gridHalf: 40,

@@ -185,6 +185,8 @@ export class RagdollSystem {
   /** Fixed colliders every dummy shares off a course (pad or disc with its ramps, corkscrew, poles), built at the run's first throw: Rapier's step allocates per collider (0.31 KB, RapierEval). */
   private readonly statics: Collider[] = [];
   private disposed = false;
+  /** Rapier's load, started once: a second `preload` while it runs (the engine's, a test's) is the same one. */
+  private loading: Promise<void> | null = null;
   /** The world's worker (null: none, or it failed). */
   private remote: RagdollRemote | null = null;
   /** Where this run's dummies are, chosen at its first throw or knock (`pick`): this thread's world or the worker's. Null: not yet. */
@@ -245,7 +247,11 @@ export class RagdollSystem {
    * engine calls this once boot is `ready`; until it resolves `update` only judges hits (`pending`). The world's worker
    * (`RagdollRemote`) starts beside it, where the browser has Workers.
    */
-  async preload(): Promise<void> {
+  preload(): Promise<void> {
+    return (this.loading ??= this.load());
+  }
+
+  private async load(): Promise<void> {
     if (!this.hosted) this.remote ??= RagdollRemote.open((err) => this.fallBack(err));
     const R = await loadRapier();
     if (this.disposed) return;
@@ -740,20 +746,22 @@ export class RagdollSystem {
   }
 
   /**
-   * A dummy of the scene's own, with no car (the Lab's): torso at `p` turned `q` (standing upright at identity, arms up),
-   * moving at `v` and spinning at `w` (world), lying about `life` sim s, in slot `slot` (-1: a free one, else the oldest).
+   * A dummy of the scene's own, with no car (the Lab's, the showcase's): torso at `p` turned `q` (standing upright at identity, arms up),
+   * moving at `v` and spinning at `w` (world), lying about `life` sim s, in slot `slot` (-1: a free one, else the oldest). With a `dress`
+   * he is a figure thrown standing, as `throwFigure` throws one: arms hanging, in that dress.
    * Nobody is thrown: no exit, no throw hook, no ride-along. Returns his slot; -1 while Rapier is still loading.
    */
-  place(p: THREE.Vector3, q: THREE.Quaternion, v: THREE.Vector3, w: THREE.Vector3, life: number, slot: number): number {
+  place(p: THREE.Vector3, q: THREE.Quaternion, v: THREE.Vector3, w: THREE.Vector3, life: number, slot: number, dress?: { cop: boolean; look: DriverLook }): number {
     if (!this.world) return -1;
-    const t = this.next;
+    const t = dress ? this.figure : this.next;
     t.p.copy(p);
     t.q.copy(q);
     t.v.copy(v);
     t.w.copy(w);
     t.car = -1;
     t.age = 0;
-    t.cop = false;
+    t.cop = dress?.cop ?? false;
+    t.look = dress?.look;
     t.rides = false;
     return this.spawn(t, slot, life);
   }

@@ -61,8 +61,8 @@ const STAGE: Record<CrashHudState["compactStage"], string> = {
 /** Camera names: the drive views and the spectator cams. */
 const CAM_LABEL: Record<NonNullable<CrashHudState["cam"]>, string> = { third: "Chase cam", far: "Far chase", first: "Hood cam", cine: "Trackside", dutch: "Wheel cam", orbit: "Orbit", auto: "Auto", free: "Free fly" };
 
-/** Fleet is "none of the others": the engine keeps derby, race, press, pistons, doors, corkscrew, stack, range, the Lab and the garage mutually exclusive. */
-type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "corkscrew" | "stack" | "range" | "survival" | "lab" | "garage";
+/** Fleet is "none of the others": the engine keeps derby, race, press, pistons, doors, corkscrew, stack, range, the Lab and the garage mutually exclusive. The showcase (by link only) has no button: the bar lights Fleet there. */
+type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "corkscrew" | "stack" | "range" | "survival" | "lab" | "garage" | "showcase";
 /** `tone`: the mode's accent (a `--tone` variable), so the richer game modes carry a ring and a tinted fill; `quiet`: a test rig, muted until picked. */
 type SceneDef = { id: Scene; label: string; aria: string; tone?: string; quiet?: boolean };
 /** Richer game modes first, then the test rigs. */
@@ -430,6 +430,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
     stack: () => engine.current?.toggleStack(),
     lab: () => engine.current?.toggleLab(),
     garage: () => engine.current?.toggleGarage(),
+    showcase: () => engine.current?.toggleShowcase(),
   };
   // Barrier, balls and ramps are fleet props; the engine ignores them while the press, a rig, the range, the Lab, the garage or the race owns the pad.
   const propsLocked = state.showCompactor || state.showPistons || state.showDoors || state.showCorkscrew || state.stack !== null || state.range !== null || state.lab !== null || state.garage !== null || state.race !== null;

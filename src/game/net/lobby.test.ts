@@ -9,7 +9,7 @@ import { NO_CAR_PICK, NO_PERSON_PICK, CAR_SPRAY, PERSON_SPRAY } from "../match/l
 import type { Ejection } from "../vehicle/ejection.ts";
 import { NetPlay } from "./net-play.ts";
 import { PHASES, type NetGame } from "./net-ports.ts";
-import { RESULTS_HOLD } from "./net-constants.ts";
+import { BETWEEN_ROUNDS_S, RESULTS_HOLD } from "./net-constants.ts";
 import { FRAME_MS, Hub } from "./net-hub.test-util.ts";
 
 /**
@@ -61,6 +61,7 @@ function worldGame(w: World, name: string) {
     reelPlaying: () => false,
     launchEjection: (_e: Ejection) => {},
     meterOf: () => null,
+    courseMenu: () => w.race.courseMenu(),
     playerLook: () => ({ car: { ...NO_CAR_PICK }, person: { ...NO_PERSON_PICK }, carSpray: new Uint8Array(CAR_SPRAY.w * CAR_SPRAY.h), personSpray: new Uint8Array(PERSON_SPRAY.w * PERSON_SPRAY.h) }),
     wearLook: () => {},
     dropLooks: () => {},
@@ -317,5 +318,107 @@ describe("given a host and a guest in the lobby of a private room, Survival chos
     }
     assert.equal(lw.race.courseId, "national-mall", "the course");
     assert.equal(lw.race.survival, true, "a Survival run");
+  });
+});
+
+describe("given a host and a guest in the lobby of a private room, Campaign chosen with a playlist of courses", () => {
+  /** The lobby with a campaign over `playlist` (one lap, two AI) started by Go, and both worlds a second into round 1. */
+  function campaign(playlist: string[]) {
+    const s = lobby();
+    s.host.setLobbyKind("campaign");
+    s.host.setPlaylist(playlist);
+    s.hw.race.command({ type: "options", options: { aiCount: 2, laps: 1 } });
+    s.step(10);
+    assert.equal(s.host.go(), true);
+    s.step(40);
+    /** Frames of the room's clock only, `seconds` of them: the world is not stepped (the finished round has nothing left to simulate). */
+    const wait = (seconds: number): void => {
+      for (let k = 0; k < seconds * 30; k++) {
+        s.host.frame(FRAME_MS / 1000);
+        s.guest.frame(FRAME_MS / 1000);
+        s.hub.flush();
+      }
+    };
+    /** The guest's car wins the round the host is on (a human win counts), and the round is over. */
+    const guestWins = (): void => {
+      const session = s.hw.race["session"];
+      assert.ok(session, "a round is running");
+      session.winnerId = 1;
+      s.hw.race.command({ type: "end" });
+    };
+    return { ...s, wait, guestWins };
+  }
+
+  it("when the host sets the courses and presses Go, then both worlds race the first one as round 1 of a campaign over the host's list", () => {
+    const s = campaign(["rally", "oval"]);
+    assert.deepEqual(s.guest.status().gate, null, "the gate closed on the guest");
+    for (const [who, w] of [["host", s.hw], ["guest", s.gw]] as const) {
+      assert.equal(w.race.free, false, `${who}: no lobby`);
+      assert.equal(w.race.courseId, "rally", `${who}: the first course of the list`);
+      assert.equal(w.race.hud().mode, "campaign", `${who}: a campaign`);
+      assert.deepEqual([w.race.hud().campaign?.tracks, w.race.hud().campaign?.round], [["rally", "oval"], 0], `${who}: the host's list, round 1`);
+    }
+  });
+
+  it("when the lobby holds the host's list before Go, then the guest reads it from the host's gate", () => {
+    const s = lobby();
+    s.host.setLobbyKind("campaign");
+    s.host.setPlaylist(["city", "rally"]);
+    s.step(10);
+    assert.deepEqual([s.guest.status().gate?.kind, s.guest.status().gate?.playlist], ["campaign", ["city", "rally"]]);
+  });
+
+  it("when a human wins round 1 and the between-rounds minute runs out, then the host scores it and starts the second course, and the guest follows to it with the table on round 2", () => {
+    const s = campaign(["rally", "oval"]);
+    s.guestWins();
+    s.wait(20);
+    assert.equal(s.hw.race.courseId, "rally", "20 s into the minute: still the first course");
+    assert.ok(s.guest.status().nextIn! >= 38 && s.guest.status().nextIn! <= 41, `the guest reads the clock: ${s.guest.status().nextIn}`);
+    s.wait(BETWEEN_ROUNDS_S);
+    s.step(40);
+    for (const [who, w] of [["host", s.hw], ["guest", s.gw]] as const) {
+      assert.equal(w.race.courseId, "oval", `${who}: the second course`);
+      assert.equal(w.race.hud().campaign?.round, 1, `${who}: round 1 is scored`);
+      assert.notEqual(w.race.phase, "finished", `${who}: a new round is on`);
+    }
+    assert.equal(s.guest.status().nextIn, null, "the clock is gone");
+    const standings = s.gw.race.hud().campaign!.standings;
+    assert.equal(standings.reduce((n, r) => n + r.wins, 0), 1, "the table the guest shows carries the scored round: one win");
+    assert.ok(standings.every((r) => r.places.length === 1), "every car has its round-1 place");
+  });
+
+  it("when the host presses Next on the results and again on the standings, then the second course starts at once, without waiting for the minute", () => {
+    const s = campaign(["rally", "oval"]);
+    s.guestWins();
+    s.step(30 * 4);
+    s.hw.race.command({ type: "next" });
+    assert.equal(s.hw.race.hud().menu, "standings");
+    s.hw.race.command({ type: "next" });
+    s.step(40);
+    assert.equal(s.hw.race.courseId, "oval");
+    assert.equal(s.gw.race.courseId, "oval", "the guest followed");
+  });
+
+  it("when the host turns auto-advance off, then the minute passes and the room is still on the first course's results", () => {
+    const s = campaign(["rally", "oval"]);
+    s.host.setAutoNext(false);
+    s.guestWins();
+    s.wait(BETWEEN_ROUNDS_S + 10);
+    assert.equal(s.hw.race.courseId, "rally");
+    assert.equal(s.hw.race.phase, "finished");
+    assert.equal(s.guest.status().nextIn, null);
+  });
+
+  it("when the last course's minute runs out, then the campaign is over and the room is back in the Havana lobby with the Go gate up, on both worlds", () => {
+    const s = campaign(["oval"]);
+    s.guestWins();
+    s.wait(BETWEEN_ROUNDS_S + 2);
+    s.step(60);
+    for (const [who, w] of [["host", s.hw], ["guest", s.gw]] as const) {
+      assert.equal(w.race.free, true, `${who}: free drive`);
+      assert.equal(w.race.courseId, "havana", `${who}: the lobby course`);
+      assert.equal(w.race.phase, null, `${who}: no session`);
+    }
+    assert.deepEqual([s.host.status().gate?.kind, s.host.status().gate?.playlist], ["campaign", ["oval"]], "the same campaign is ready to run again");
   });
 });

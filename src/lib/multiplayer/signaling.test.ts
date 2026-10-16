@@ -187,6 +187,39 @@ describe("given the signaling relay running on a freshly migrated database, with
     bad.meta = "x".repeat(33);
     assert.equal((await bad.poll()).status, 400);
   });
+
+  it("when public rooms of all four games and a private room are up, then the list of every game shows the public ones with their tags, a game's filter shows only its rooms, an unknown game is refused with 400, and the private room is never listed", async () => {
+    const games = [
+      ["race", "pub-race-ALLK01", "lobby.oval"],
+      ["campaign", "pub-campaign-ALLK01", "lobby.3"],
+      ["survival", "pub-survival-ALLK01", "running.havana"],
+      ["derby", "pub-derby-ALLK01", "lobby"],
+    ] as const;
+    for (const [game, room, meta] of games) {
+      const host = tab(sql, room, `kindhost-${game}`, "host");
+      host.meta = meta;
+      assert.equal((await host.poll()).status, 200, game);
+    }
+    // A private room: its code is what keeps it unlisted; it polls like any other.
+    assert.equal((await tab(sql, "SECRET77", "privhost", "host").poll()).status, 200);
+    interface Listed {
+      rooms?: { room: string; meta: string }[];
+    }
+    const list = async (query: string) => {
+      const res = await handleSignaling(new Request(`http://relay.test/api/rtc?list=public${query}`, { headers: { "x-forwarded-for": "10.9.9.6" } }), async () => sql);
+      const body: Listed = await res.json();
+      return { status: res.status, rooms: body.rooms ?? [] };
+    };
+    const mine = (rooms: { room: string; meta: string }[]) => rooms.filter((r) => r.room.endsWith("-ALLK01"));
+    assert.equal(
+      mine((await list("")).rooms).map((r) => `${r.room} ${r.meta}`).sort().join(", "),
+      "pub-campaign-ALLK01 lobby.3, pub-derby-ALLK01 lobby, pub-race-ALLK01 lobby.oval, pub-survival-ALLK01 running.havana",
+      "every game's room is listed with its host's tag",
+    );
+    for (const [game, room] of games) assert.equal(mine((await list(`&kind=${game}`)).rooms).map((r) => r.room).join(), room, `kind=${game} lists only ${game}`);
+    assert.equal((await list("")).rooms.some((r) => r.room === "SECRET77"), false, "a private room is not listed");
+    assert.equal((await list("&kind=tournament")).status, 400);
+  });
 });
 
 describe("given a relay database holding a full room written before peer tokens existed", () => {

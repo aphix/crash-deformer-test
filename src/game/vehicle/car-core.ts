@@ -8,6 +8,7 @@ import { computeNormalsFast } from "../deform/fast-normals.ts";
 import { hypot2, round4 } from "../deform/physics-util.ts";
 import { PART_FAMILY } from "../kernel/physics-core.js";
 import {
+  BUMPER_SEAT,
   DOOR,
   WHEEL_POS,
   makeBumperGeometry,
@@ -472,12 +473,12 @@ export abstract class CarCore {
 
   private makeBumper(front: boolean, accent: number): THREE.Group {
     const g = new THREE.Group();
-    const mesh = new THREE.Mesh(makeBumperGeometry(front), trimMaterial(accent));
+    const mesh = new THREE.Mesh(makeBumperGeometry(front, this.style), trimMaterial(accent));
     mesh.castShadow = true;
     this.flushCasters.push(mesh);
     g.add(mesh);
     if (!front) g.add(makeTailTrim());
-    g.position.set(0, 0.33, front ? 2.06 : -2.06);
+    g.position.set(0, BUMPER_SEAT.y, front ? BUMPER_SEAT.z : -BUMPER_SEAT.z);
     if (front) {
       const grille = makeGrille();
       grille.position.set(0, 0.1, 0.06);

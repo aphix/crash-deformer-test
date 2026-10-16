@@ -10,6 +10,8 @@ import { beginImpact, easeTimeScale, holdForThrow, impactScale, phaseClock, step
 import { throwComing } from "./ragdoll-trigger.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
 import { SHIRTS } from "./driver-look.ts";
+import type { DummyMesh } from "./ragdoll-mesh.ts";
+import { ROLE } from "./dummy-skin.ts";
 import { FLAT_GROUND } from "../world/ground.ts";
 import { occluder, sightLine, solid, type Occluder, type Sight } from "./spectate-cam.ts";
 import { BELT_Y, SILL_Y, UNDER } from "./ragdoll-proxy.ts";
@@ -236,9 +238,8 @@ describe("given a head-on crash where one car is a police car", () => {
       tickWorld(w);
       ragdolls.update(FRAME, cars, true, true, null);
     }
-    const mesh = scene.getObjectByName("ragdolls") as THREE.InstancedMesh;
-    const per = mesh.count / 2;
-    const chest = (car: number) => `#${mesh.getColorAt(ragdolls["dolls"].findIndex((d) => d.live && d.car === car) * per, new THREE.Color()).getHexString()}`;
+    const mesh = scene.getObjectByName("ragdolls") as DummyMesh;
+    const chest = (car: number) => `#${mesh.colourOf(ragdolls["dolls"].findIndex((d) => d.live && d.car === car), ROLE.SHIRT, new THREE.Color()).getHexString()}`;
     const shirts = [chest(0), chest(1)];
     ragdolls.dispose();
     // The cop keeps the uniform whatever the look seed; the civilian wears a palette tee that is not the cop navy.

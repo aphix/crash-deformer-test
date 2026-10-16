@@ -5,6 +5,7 @@ import "../kernel/rapier-node.test-util.ts";
 import type { RigidBody } from "@dimforge/rapier3d-simd";
 import { driverLook } from "./driver-look.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
+import { ROLES } from "./dummy-skin.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
 import { Purses, BURST_AT, ITEM_SPEED, ITEMS_MIN, PURSE_SPEED, SPREAD } from "./ragdoll-purse.ts";
 import { FREEWHEEL, launch, makeCar, makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
@@ -153,7 +154,10 @@ describe("given a thrown crash-test dummy driver who may carry a handbag (a woma
 
   it("when a driver is thrown again after a reset, then he keeps the same look, and when the next race changes the look seed, the look changes", async () => {
     const r = await system(7);
-    const colors = () => Float32Array.from(r["mesh"].instanceColor!.array);
+    const colors = () => {
+      const colour = new THREE.Color();
+      return Float32Array.from({ length: r["dolls"].length * ROLES }, (_, i) => r["mesh"].colourOf(Math.floor(i / ROLES), i % ROLES, colour).getHex());
+    };
     throwOut(r, 3);
     const first = colors();
     r.reset();

@@ -648,8 +648,13 @@ const FASCIA: readonly (readonly [number, number])[] = [
   [-0.1, -0.07],
 ];
 
-/** Bumper fascia: rounded top, intake recess, splitter lip, wrapped corners. */
-export function makeBumperGeometry(front: boolean): THREE.BufferGeometry {
+/** Where a bumper group sits on the body (m): its height, and its distance either side of the middle (0.05 inside the end stations' 2.11). */
+export const BUMPER_SEAT = { y: 0.33, z: 2.06 } as const;
+/** How far inside the body side (m) a bumper's wrapped corner is held: a tail or nose narrower than the fascia's ±0.77 would show the corner through the skin. */
+const BUMPER_TUCK = 0.01;
+
+/** Bumper fascia: rounded top, intake recess, splitter lip, wrapped corners, the corners held inside `style`'s body side. */
+export function makeBumperGeometry(front: boolean, style: BodyStyle): THREE.BufferGeometry {
   const s = front ? 1 : -1;
   const stations = 16;
   const rings: Pt[][] = [];
@@ -670,7 +675,11 @@ export function makeBumperGeometry(front: boolean): THREE.BufferGeometry {
     const x = pos.getZ(i);
     const ring = Math.min(stations, Math.floor(i / n));
     const wrap = i < (stations + 1) * n ? wraps[ring]! : Math.max(0, Math.abs(x) - 0.58);
-    pos.setXYZ(i, x, pos.getX(i), s * (pos.getY(i) - wrap * 0.65));
+    const y = pos.getX(i);
+    const z = s * (pos.getY(i) - wrap * 0.65);
+    const slice = sampleSlice(s * BUMPER_SEAT.z + z, style.profile);
+    const side = sideX(BUMPER_SEAT.y + y, slice.hw, slice.yBelt) - BUMPER_TUCK;
+    pos.setXYZ(i, Math.sign(x) * Math.min(Math.abs(x), side), y, z);
   }
   ensureOutwardNormals(geo);
   return geo;

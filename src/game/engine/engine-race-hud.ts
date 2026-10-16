@@ -185,6 +185,19 @@ export abstract class RaceHudLayer extends RaceWatch {
     }
   }
 
+  /**
+   * Netplay host, a campaign round has ended: moves on from wherever the room is, as the host's own Next presses would (results: the round
+   * is scored, or replayed when no human won it; standings: the next round, or after the last the setup menu). Nothing without one.
+   */
+  advance(): void {
+    if (!this.campaign || this.session?.phase !== "finished") return;
+    if (this.menu !== "standings") {
+      this.menu = "results";
+      this.next();
+    }
+    if (this.menu === "standings") this.next();
+  }
+
   /** Each rival keeps the aggression it rolled when the campaign began. */
   private pegCampaign(): void {
     if (!this.campaign) return;

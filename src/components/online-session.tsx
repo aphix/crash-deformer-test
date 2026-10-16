@@ -1,4 +1,5 @@
 import { useMemo, type RefObject } from "react";
+import { AutoNextToggle } from "@/components/auto-next";
 import { RoomShare } from "@/components/room-share";
 import { useVoice } from "@/components/use-voice";
 import { LobbyGate } from "@/components/lobby-gate";
@@ -41,6 +42,8 @@ export function SessionDetails({ engine, status }: { engine: RefObject<CrashEngi
           {status.role === "host" ? " (host)" : ""} · {status.snapHz.toFixed(0)} snapshots/s · {(status.bytesPerSec / 1024).toFixed(1)} KB/s
         </p>
         {status.gate ? <LobbyGate engine={engine} status={{ ...status, gate: status.gate }} /> : null}
+        {status.autoNext === null ? null : <AutoNextToggle engine={engine} />}
+        {status.nextIn === null ? null : <p className="font-display tabular-nums">Next round in {status.nextIn} s</p>}
         <ul className="space-y-0.5" aria-label="Connected peers">
           {status.peers.length === 0 ? <li className="text-subtle">{status.public ? "Waiting for players…" : "No peers yet"}</li> : null}
           {status.peers.map((p) => {

@@ -34,6 +34,7 @@ import { DEFAULT_RACE_OPTIONS, type CarPose, type Entrant, type RaceMenu, type R
 import { CrashRecorder } from "./engine-record.ts";
 import { makeCarFrame, type CarFrame } from "../net/codec.ts";
 import { carLayout } from "../net/car-pose.ts";
+import type { CourseMenu } from "../net/net-ports.ts";
 import type { HighlightClip } from "../match/highlights.ts";
 
 /** What the director needs from `CrashEngine`. */
@@ -289,6 +290,11 @@ export abstract class RaceField {
     if (!this.survivalCourses.some((c) => c.id === id)) return false;
     this.survivalId = id;
     return true;
+  }
+
+  /** The courses a host picks from (netplay's hosting panel reads them before race mode is on): the race menu's, and the ones Survival is played on. */
+  courseMenu(): CourseMenu {
+    return { courses: this.courses, survival: this.survivalCourses };
   }
 
   /** A bench-only course (`?bench=strip`): found by its id like the off-menu ones, listed nowhere, replaced by the next call. */

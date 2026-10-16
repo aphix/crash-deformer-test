@@ -22,6 +22,8 @@ export const LOBBY_S = 15;
 export const DEFAULT_MIN_PLAYERS = 2;
 /** Seconds a finished public race shows its results before the next one starts (late joiners race then). */
 export const RESULTS_HOLD = 12;
+/** A campaign's whole stretch between rounds (its results, the highlight reel, the standings) lasts this long (s) on a host that auto-advances, then the next course loads. */
+export const BETWEEN_ROUNDS_S = 60;
 /** The race state rides along every this many snapshots (5 Hz), and with every keyframe. */
 export const RACE_EVERY = 6;
 /** A client in race mode with no race message from its host this long (ms) leaves race mode. */

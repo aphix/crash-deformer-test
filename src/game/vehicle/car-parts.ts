@@ -2,7 +2,7 @@ import { hypot2, detSin, detCos, PART_FAMILY } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { BUMPER_F } from "./constants.ts";
-import { DOOR } from "./car-mesh.ts";
+import { BUMPER_SEAT, DOOR } from "./car-mesh.ts";
 import { hingePose, INTERIOR_MASSES, interiorPose } from "./part-pose.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { UPRIGHT_UP_Y } from "./car-suspension.ts";
@@ -238,7 +238,7 @@ export abstract class CarParts extends CarGlass {
         const fl = this.deform.massLocal(p.name === BUMPER_F ? "bumperFL" : "bumperRL");
         const fr = this.deform.massLocal(p.name === BUMPER_F ? "bumperFR" : "bumperRR");
         p.object.position.set((fl.x + fr.x) * 0.5, (fl.y + fr.y) * 0.5, (fl.z + fr.z) * 0.5);
-        const span = Math.abs(fl.z - (p.name === BUMPER_F ? 2.06 : -2.06));
+        const span = Math.abs(fl.z - (p.name === BUMPER_F ? BUMPER_SEAT.z : -BUMPER_SEAT.z));
         p.object.scale.set(1 + t * 0.04, Math.max(0.45, 1 - t * 0.28), Math.max(0.18, 1 - span * 0.45));
         // Hangs by the corner that took less: rolls about it, the struck end drops.
         const left = this.deform.sensorCompression(p.attachL);

@@ -129,6 +129,7 @@ export class CrashEngine extends EngineGarage {
     playerLook: () => this.playerLook(),
     wearLook: (i, look) => this.wearLook(i, look),
     dropLooks: () => this.dropLooks(),
+    courseMenu: () => this.race.courseMenu(),
     seat: this.seat,
   });
   /** The results reel and its solo view. */

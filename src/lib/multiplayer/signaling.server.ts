@@ -149,16 +149,17 @@ interface PublicRoom {
  */
 const HOST_FRESH_SECONDS = 15;
 
-/** `?kind=`: one kind of public match; rooms are named `pub-<kind>-…` (net-play.ts `publicMatch`). */
-const KIND = z.enum(["race", "derby"]).optional();
+/** `?kind=`: one game's public rooms; rooms are named `pub-<kind>-…` (net-play.ts `publicHost`). */
+const KINDS = ["race", "campaign", "survival", "derby"] as const;
+const KIND = z.enum(KINDS).optional();
 
 /**
- * GET ?list=public[&kind=race|derby] — open public rooms (a host that polled recently, a free seat), each
+ * GET ?list=public[&kind=race|campaign|survival|derby] — open public rooms (a host that polled recently, a free seat), each
  * with its host's `meta`. Rooms with the most distinct addresses come first, ties in random order: one
  * address padding its own rooms with idle peers (and hosting at most `PUBLIC_HOSTS_PER_IP`) cannot outrank
  * real players.
  */
-async function listPublic(sql: Sql, kind: "race" | "derby" | undefined): Promise<Response> {
+async function listPublic(sql: Sql, kind: (typeof KINDS)[number] | undefined): Promise<Response> {
   const rows = await sql.query<{ room: string; players: number; addrs: number; meta: string }>(
     `SELECT room, count(*)::int AS players, count(DISTINCT ip_tag)::int AS addrs, coalesce(max(meta) FILTER (WHERE name = 'host'), '') AS meta FROM webrtc_peers
      WHERE room LIKE $1 AND last_seen > now() - make_interval(secs => $2)

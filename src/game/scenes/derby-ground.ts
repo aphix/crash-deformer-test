@@ -1,15 +1,17 @@
 import type { DeformableCar } from "../vehicle/car.ts";
+import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { propContact, type PropHits } from "../contact/prop-contact.ts";
-import { detCos, detSin, PART_FAMILY } from "../kernel/physics-core.js";
+import { detAtan2, detCos, detSin, hypot2, PART_FAMILY } from "../kernel/physics-core.js";
 import { SURFACE_IDS } from "../world/catalog.ts";
 import { SURFACE } from "../world/constants.ts";
 import { Ground } from "../world/ground.ts";
 import { raisePlateaus, type Plateau } from "../world/terrain.ts";
 import { DERBY_ARENA } from "./constants.ts";
+import { FAKE_DEPTH } from "./fleet.ts";
 
 /**
  * The derby arena's ground (the Havana plateau mechanism, `world/terrain.ts`): one 1 m grid patch holds every rise, so the middle
- * table-top, the four jumps, the pit and the scrap hump ARE the ground a tyre or a ragdoll meets, one surface query. Only what
+ * table-top, the four bowl ramps at the wall, the pit and the scrap hump ARE the ground a tyre or a ragdoll meets, one surface query. Only what
  * stands on it is a prism of the same store: the ring wall, the containers, the K-rails, the crash pads and the tyre berms. A prism
  * never touches a rise (a flat box beside a heightfield ramp answers a false wall, measured), and every prism's top is a floor
  * through the one query. Floor and plateau tops are asphalt and concrete (grip 1 both): handling is unchanged.
@@ -22,60 +24,119 @@ export type DerbyPropKind = (typeof DERBY_PROP)[keyof typeof DERBY_PROP];
 /** A flat prism of the arena: its plan box (centre, yaw, half extents) and height over the floor. `yaw`: local z is (sin yaw, cos yaw). */
 export type DerbyBox = { kind: DerbyPropKind; x: number; z: number; yaw: number; hx: number; hz: number; height: number };
 
-const { radius, wallThickness, wallHeight, wallPieces, wallMitre, gridHalf } = DERBY_ARENA;
+const { radius, wallThickness, wallHeight, wallPieces, wallMitre, gridHalf, spawnInset } = DERBY_ARENA;
 
 /**
  * The rises, axis-aligned (`plateauHeight` has no yaw): a flat top at `height`, each side a plane over `run` (-x, +x, -z, +z), crest
  * and foot rounded over `round` m (a crest of 1.5 m or more keeps a hull's penetration under a centimetre, measured).
- * A jump has a long run on the side cars enter by (grade 0.25) and a short one on its lip; they pinwheel round the table-top so
- * every launch line runs along a lane and none points at the wall.
+ * The four ramps are the design's bowl ramps: each stands at the wall with its high end toward it, a long run (grade about 0.2) down
+ * to the open middle and a short lip run on the wall side, so the middle stays free of rises.
  */
-const JUMP_HEIGHT = 1.5;
-const JUMP_ENTRY = 7;
-const JUMP_LIP = 2;
-const JUMP_SIDE = 2.5;
-const JUMP_ROUND = 1.5;
-const JUMP_CREST = 1;
-const JUMP_HALF_WIDTH = 2.5;
-const JUMP_X = 15;
-const JUMP_Z = 14;
-/**
- * How far (m) each jump stands in from (`JUMP_X`, `JUMP_Z`) along the axis cars enter it by, where its long entry run reaches out:
- * the ground reads its 1 m nodes bilinearly, so a rise node raises the floor up to √2 m beyond it, and at 0 a jump's foot (29.73 m
- * out) stood within that of the spawn ring's inner edge (30.58 m: a 27-car field's corner 1.4 mm up it).
- */
-const JUMP_PULL = 0.5;
+const RAMP_HALF_WIDTH = 2;
+/** Run (m) of a ramp's two side planes: with the deck, 5 m either side of its axis (measured: a car hitting a 1.5 m side plane at 59 deg at 18 m/s flew to 14.5 m, at 3 m to under half that). */
+const RAMP_SIDE = 3;
+const RAMP_CREST = 1;
+const RAMP_LIP = 2;
+const RAMP_ROUND = 1.5;
+/** Design: flat tops stand at least this far (m) inside the wall. */
+const WALL_SETBACK = 4;
 
 const concrete = SURFACE.concrete;
 
-export const DERBY_PLATEAUS: readonly Plateau[] = [
-  // The table-top: 9 x 9 m flat top, 1.8 m up, on grade 0.26 sides.
-  { x: 0, z: 0, halfX: 4.5, halfZ: 4.5, height: 1.8, run: [7, 7, 7, 7], round: 1.5, top: concrete },
-  // North-east: enter from the wall side (+z), launch toward -z.
-  { x: JUMP_X, z: JUMP_Z - JUMP_PULL, halfX: JUMP_HALF_WIDTH, halfZ: JUMP_CREST, height: JUMP_HEIGHT, run: [JUMP_SIDE, JUMP_SIDE, JUMP_LIP, JUMP_ENTRY], round: JUMP_ROUND, top: concrete },
-  // South-east: enter from +x, launch toward -x.
-  { x: JUMP_X - JUMP_PULL, z: -JUMP_Z, halfX: JUMP_CREST, halfZ: JUMP_HALF_WIDTH, height: JUMP_HEIGHT, run: [JUMP_LIP, JUMP_ENTRY, JUMP_SIDE, JUMP_SIDE], round: JUMP_ROUND, top: concrete },
-  // South-west: enter from -z, launch toward +z.
-  { x: -JUMP_X, z: -JUMP_Z + JUMP_PULL, halfX: JUMP_HALF_WIDTH, halfZ: JUMP_CREST, height: JUMP_HEIGHT, run: [JUMP_SIDE, JUMP_SIDE, JUMP_ENTRY, JUMP_LIP], round: JUMP_ROUND, top: concrete },
-  // North-west: enter from -x, launch toward +x.
-  { x: -JUMP_X + JUMP_PULL, z: JUMP_Z, halfX: JUMP_CREST, halfZ: JUMP_HALF_WIDTH, height: JUMP_HEIGHT, run: [JUMP_ENTRY, JUMP_LIP, JUMP_SIDE, JUMP_SIDE], round: JUMP_ROUND, top: concrete },
-  // The pit plateau, west: a flat 8 x 6 m top 1 m up, its outer foot a grid cell's reach inside the spawn ring (at -21 its node at
-  // x = -29 stood 29.27 m out).
-  { x: -20.5, z: 0, halfX: 4, halfZ: 3, height: 1, run: [3, 3, 3, 3], round: 1.5, top: concrete },
-  // The scrap hump, south: low cover, 0.8 m up.
-  { x: 0, z: -21, halfX: 2.5, halfZ: 2.5, height: 0.8, run: [3, 3, 3, 3], round: 1.5, top: concrete },
+/** A bowl ramp: where it is, which way it rises (unit step toward the wall), and its design long run (m) and height (m). */
+export type DerbyRamp = { name: string; plateau: Plateau; toward: { x: number; z: number }; lateral: number; length: number; height: number };
+
+/** Distance (m) from the middle to the crest's centre of a ramp `lateral` m off the middle line: its flat top ends `WALL_SETBACK` m inside the wall. */
+function rampCentre(lateral: number): number {
+  const cornerOffset = Math.abs(lateral) + RAMP_HALF_WIDTH + RAMP_SIDE;
+  return Math.sqrt(radius * radius - cornerOffset * cornerOffset) - WALL_SETBACK - RAMP_CREST;
+}
+
+function ramp(name: string, toward: { x: number; z: number }, lateral: number, length: number, height: number): DerbyRamp {
+  const risesAlongX = toward.x !== 0;
+  const centre = rampCentre(lateral);
+  // run: -x, +x, -z, +z. The sides run `RAMP_SIDE`; along the axis the wall side is the lip and the middle side the long run.
+  const run: Plateau["run"] = [RAMP_SIDE, RAMP_SIDE, RAMP_SIDE, RAMP_SIDE];
+  const wallIndex = risesAlongX ? (toward.x > 0 ? 1 : 0) : toward.z > 0 ? 3 : 2;
+  run[wallIndex] = RAMP_LIP;
+  run[wallIndex ^ 1] = length;
+  const plateau: Plateau = {
+    x: risesAlongX ? toward.x * centre : lateral,
+    z: risesAlongX ? lateral : toward.z * centre,
+    halfX: risesAlongX ? RAMP_CREST : RAMP_HALF_WIDTH,
+    halfZ: risesAlongX ? RAMP_HALF_WIDTH : RAMP_CREST,
+    height,
+    run,
+    round: RAMP_ROUND,
+    top: concrete,
+  };
+  return { name, plateau, toward, lateral, length, height };
+}
+
+/** Design table 4.2: lengths and heights are the design's (14/13/15/13 m, 2.8/2.5/3.0/2.5 m); lateral offsets (m) are the probe's, moved at most 2 m to fit the spawn ring. */
+export const DERBY_RAMPS: readonly DerbyRamp[] = [
+  ramp("north", { x: 0, z: 1 }, 10.5, 14, 2.8),
+  ramp("east", { x: 1, z: 0 }, -7.5, 13, 2.5),
+  ramp("south", { x: 0, z: -1 }, 4, 15, 3),
+  ramp("west", { x: -1, z: 0 }, -15.5, 13, 2.5),
 ];
 
-const CONTAINER = { hx: 1.22, hz: 3.05, height: 2.4 };
+/** The table-top: 12 x 12 m flat top, 2.2 m up, on grade 0.26 sides (the one rise that stands in the bowl's middle half: it is the design's central plateau). */
+export const DERBY_TABLE_TOP: Plateau = { x: -9, z: 5, halfX: 6, halfZ: 6, height: 2.2, run: [8.5, 8.5, 8.5, 8.5], round: 1.5, top: concrete };
+
+export const DERBY_PLATEAUS: readonly Plateau[] = [
+  ...DERBY_RAMPS.map((entry) => entry.plateau),
+  DERBY_TABLE_TOP,
+  // The pit plateau: a flat 10 x 8 m top, 1 m up.
+  { x: 15, z: 6, halfX: 5, halfZ: 4, height: 1, run: [3, 3, 3, 3], round: 1.5, top: concrete },
+  // The scrap hump: low cover, 0.8 m up.
+  { x: 11, z: -10, halfX: 2.5, halfZ: 2.5, height: 0.8, run: [3, 3, 3, 3], round: 1.5, top: concrete },
+];
+
+/** How far outside a prop's box (m) a spawned hull's corner must stay. */
+export const SPAWN_CLEARANCE = 1;
+/** Radial half-width (m) of the band round the spawn ring in which a spawned hull stands: its half-length and the clearance. */
+const SPAWN_BAND = CAR_HALF.z + SPAWN_CLEARANCE;
+const SPAWN_RING = radius - spawnInset;
+/**
+ * A prop whose nearest point to the middle is this far (m) out stands behind every spawned hull (its rear corners) and its clearance:
+ * no car starts facing it, so `layoutDerby` need not skip its bearings. The rows of props against the wall are set this far out, plus a margin.
+ */
+const BEHIND_HULLS = hypot2(SPAWN_RING + CAR_HALF.z, CAR_HALF.x) + SPAWN_CLEARANCE;
+const BEHIND_MARGIN = 0.05;
+const BEHIND_RING = BEHIND_HULLS + BEHIND_MARGIN;
+
+const DEGREES = Math.PI / 180;
+/** Container footprint (design 1.8-2.4 m high: the two heights alternate along a row). */
+const CONTAINER = { hx: 1.22, hz: 3.05 };
+const CONTAINER_HEIGHTS = [2.4, 1.8, 2.4, 1.8];
 /** Half the width of a guard-rail box (m), across its length. */
 const RAIL_HALF_WIDTH = 0.6;
 const RAIL = { hx: RAIL_HALF_WIDTH, hz: 1.83, height: 1.8 };
-const PAD = { hx: 1, hz: 1, height: 1.8 };
-const TYRES = { hx: 0.8, hz: 1.9, height: 1.5, pieces: 3, arcs: [20, 140, 255] as const, step: 6 };
-const DEGREES = Math.PI / 180;
+/** The lane between the chicane's two pairs of rails (m): a monster truck's width with room (today's 4.3). */
+const RAIL_LANE = 4.3;
+/** How much nearer the wall (m) the chicane's second pair stands: what the wall's thickness leaves behind the hulls. */
+const RAIL_STAGGER = 0.6;
+/** Where the rail chicane stands (degrees round from +z): between the east ramp's footprint and the tyre berm at 52. */
+const CHICANE_DEGREES = 80;
+const PAD = { hx: 1, hz: 1 };
+const PAD_HEIGHTS = [1.8, 1.8];
+/** Tyre berms (design 1.5-2.0 m high: the two heights alternate piece by piece). */
+const TYRES = { hx: 0.8, hz: 1.9, heights: [1.5, 2], pieces: 3, arcs: [52, 150, 205] as const, step: 6 };
+/** Gap (m) between neighbours of a row against the wall. */
+const ROW_GAP = 0.1;
 
-function box(kind: DerbyPropKind, x: number, z: number, yaw: number, size: { hx: number; hz: number; height: number }): DerbyBox {
+type PropSize = { hx: number; hz: number; height: number };
+
+function box(kind: DerbyPropKind, x: number, z: number, yaw: number, size: PropSize): DerbyBox {
   return { kind, x, z, yaw, hx: size.hx, hz: size.hz, height: size.height };
+}
+
+/** A box `distance` m out along `bearing` (rad from +z toward +x), `lateral` m clockwise of that line, its long axis `turn` rad from the radial. */
+function polar(kind: DerbyPropKind, bearing: number, distance: number, lateral: number, turn: number, size: PropSize): DerbyBox {
+  const sin = detSin(bearing);
+  const cos = detCos(bearing);
+  return box(kind, sin * distance + cos * lateral, cos * distance - sin * lateral, bearing + turn, size);
 }
 
 /** The ring wall: `wallPieces` boxes about the middle, each mitred `wallMitre` m into the next, inner faces `radius` m out. */
@@ -91,35 +152,102 @@ function wallBoxes(): DerbyBox[] {
 /** Tyre berms against the wall: arcs of boxes whose outer faces meet the wall's inner face. */
 function tyreBoxes(): DerbyBox[] {
   const centre = radius - TYRES.hx;
-  return TYRES.arcs.flatMap((arcDegrees) =>
+  return TYRES.arcs.flatMap((arcDegrees, arc) =>
     Array.from({ length: TYRES.pieces }, (_, k) => {
       const angle = (arcDegrees + (k - (TYRES.pieces - 1) / 2) * TYRES.step) * DEGREES;
-      return box(DERBY_PROP.tyres, detSin(angle) * centre, detCos(angle) * centre, angle + Math.PI / 2, TYRES);
+      const height = TYRES.heights[(arc * TYRES.pieces + k) % TYRES.heights.length]!;
+      return polar(DERBY_PROP.tyres, angle, centre, 0, Math.PI / 2, { hx: TYRES.hx, hz: TYRES.hz, height });
     }),
   );
+}
+
+/**
+ * A row of boxes of one footprint against the wall, long axis along it, centred on `centreDegrees`, one per height: the inner face
+ * `BEHIND_RING` out (the outer face may stand a little into the wall's thickness), neighbours `ROW_GAP` m apart at their inner faces.
+ */
+function wallRow(kind: DerbyPropKind, centreDegrees: number, size: { hx: number; hz: number }, heights: readonly number[], outward = 0): DerbyBox[] {
+  const step = 2 * detAtan2(size.hz + ROW_GAP / 2, BEHIND_RING);
+  return heights.map((height, k) => polar(kind, centreDegrees * DEGREES + (k - (heights.length - 1) / 2) * step, BEHIND_RING + outward + size.hx, 0, Math.PI / 2, { ...size, height }));
+}
+
+/**
+ * The K-rail chicane against the wall: two pairs of rails `RAIL_LANE` m apart along it, the second pair stood `RAIL_STAGGER` m
+ * nearer the wall, so the lane between them steps as a chicane's does. Every inner face stays behind the hulls.
+ */
+function railChicane(): DerbyBox[] {
+  const pairHalfSpan = 2 * RAIL.hz + ROW_GAP / 2;
+  const pairBearing = detAtan2(RAIL_LANE / 2 + pairHalfSpan, BEHIND_RING) / DEGREES;
+  return [-1, 1].flatMap((side) => wallRow(DERBY_PROP.rail, CHICANE_DEGREES + side * pairBearing, RAIL, [RAIL.height, RAIL.height], side > 0 ? RAIL_STAGGER : 0));
 }
 
 export const DERBY_BOXES: readonly DerbyBox[] = [
   ...wallBoxes(),
   ...tyreBoxes(),
-  // Container berm, north: two boxes in an L with a 5 m gap between them.
-  box(DERBY_PROP.container, -6, 22.5, 0, CONTAINER),
-  box(DERBY_PROP.container, 3.5, 24.2, Math.PI / 2, CONTAINER),
-  // Barrier chicane, east: three barriers along z, alternate lanes 4.3 m wide.
-  box(DERBY_PROP.rail, 21, 5, 0, RAIL),
-  box(DERBY_PROP.rail, 26.5, 0, 0, RAIL),
-  box(DERBY_PROP.rail, 21, -5, 0, RAIL),
-  // Crash pads, north-west of the containers.
-  box(DERBY_PROP.pad, -13, 23.8, 0, PAD),
-  box(DERBY_PROP.pad, -10.6, 23.8, 0, PAD),
+  // Container berm in the north-west: four boxes side by side against the wall, tall and short alternating.
+  ...wallRow(DERBY_PROP.container, 312, CONTAINER, CONTAINER_HEIGHTS),
+  // Crash pads at either end of the containers.
+  ...wallRow(DERBY_PROP.pad, 264, PAD, PAD_HEIGHTS),
+  ...wallRow(DERBY_PROP.pad, 349, PAD, PAD_HEIGHTS),
+  // K-rails: the chicane along the wall.
+  ...railChicane(),
 ];
 
-/** The prisms that stand free on the floor (containers, rails, pads), not the wall and the berms against it: what a spawn must not face (`layoutDerby`). */
-export const DERBY_FREE_PROPS: readonly DerbyBox[] = DERBY_BOXES.filter((b) => b.kind !== DERBY_PROP.wall && b.kind !== DERBY_PROP.tyres);
+/** A prism's plan box alone (centre, yaw, half extents): what `layoutDerby` blocks bearings with. */
+type SpawnBox = { x: number; z: number; yaw: number; hx: number; hz: number };
+
+/** Distance (m) from the middle to the nearest point of a box. */
+function nearestReach(b: SpawnBox): number {
+  const across = b.z * detSin(b.yaw) - b.x * detCos(b.yaw);
+  const along = -b.x * detSin(b.yaw) - b.z * detCos(b.yaw);
+  return hypot2(Math.max(0, Math.abs(across) - b.hx), Math.max(0, Math.abs(along) - b.hz));
+}
+
+/**
+ * A slot faces the middle, so its hull's inner end stands `CAR_HALF.z` nearer the middle than the slot and over a ramp where the slot
+ * itself is not: a ramp spoils the slots whose lateral offset on the ring is its own times about this (measured with the ramps' laterals:
+ * 1.12 keeps every spoiled bearing inside the arc its box blocks; the plain ring/(ring - CAR_HALF.z) = 1.07 leaves the west ramp's low end out).
+ */
+const RING_LATERAL_SCALE = 1.12;
+/** Half-width (m) of a ramp's box across its axis: the least that blocks every bearing a hull of any slot touches the rise on, its tail included (measured: 5.75 m leaves some). */
+const SPAWN_BLOCK_ACROSS = 6;
+
+/**
+ * A ramp's plan box in the spawn ring's band: `SPAWN_BLOCK_ACROSS` either side of the ramp's line on the ring, the band along the
+ * ramp's axis (the ring's reach at that offset, plus or minus the band). `layoutDerby` widens it by the car's half length and skips
+ * every bearing it blocks, so no slot starts on or in front of a ramp.
+ */
+function spawnBlock(entry: DerbyRamp): SpawnBox {
+  const ringLateral = entry.lateral * RING_LATERAL_SCALE;
+  const ringAlong = Math.sqrt(SPAWN_RING * SPAWN_RING - ringLateral * ringLateral);
+  const risesAlongX = entry.toward.x !== 0;
+  return {
+    x: risesAlongX ? entry.toward.x * ringAlong : ringLateral,
+    z: risesAlongX ? ringLateral : entry.toward.z * ringAlong,
+    yaw: 0,
+    hx: risesAlongX ? SPAWN_BAND : SPAWN_BLOCK_ACROSS,
+    hz: risesAlongX ? SPAWN_BLOCK_ACROSS : SPAWN_BAND,
+  };
+}
+
+/**
+ * What a spawn must not face (`layoutDerby`): the prisms a hull on the ring can face (every prop but the wall and those standing
+ * behind the hulls: the berms and rows against the wall), and one band box per ramp.
+ */
+export const DERBY_FREE_PROPS: readonly SpawnBox[] = [
+  ...DERBY_BOXES.filter((b) => b.kind !== DERBY_PROP.wall && nearestReach(b) < BEHIND_HULLS),
+  ...DERBY_RAMPS.map(spawnBlock),
+];
 
 /** Grid nodes along a side: the grid reaches `gridHalf` m each way from the middle. */
 const NODES = 2 * gridHalf + 1;
 const FLOOR = SURFACE_IDS.indexOf(SURFACE.asphalt);
+/**
+ * Where every prism of the arena starts (m, under the floor): a wreck that sank through the floor (measured: a body 1.9 m under it,
+ * its group origin 1.2 m) must still meet the wall and the props instead of passing beneath them (`prop-contact.ts` skips a prism
+ * a body is wholly under the base of). A car stays in the soft-body sim down to `FAKE_DEPTH` at its origin, its body reaching a
+ * body height lower still.
+ */
+const DERBY_PRISM_BASE = -(FAKE_DEPTH + 2 * CAR_HALF.y);
 
 export class DerbyGround extends Ground {
   /** The baked grid, row-major along x: node (i, j) is at world (i - gridHalf, j - gridHalf). The floor mesh reads the same nodes. */
@@ -148,7 +276,7 @@ export class DerbyGround extends Ground {
       outside: { surface: FLOOR, hills: new Float64Array(0) },
       unbounded: true,
     });
-    for (const [id, b] of DERBY_BOXES.entries()) this.addPrism({ x: b.x, z: b.z, yaw: b.yaw, hx: b.hx, hz: b.hz, base: 0, top: b.height, id });
+    for (const [id, b] of DERBY_BOXES.entries()) this.addPrism({ x: b.x, z: b.z, yaw: b.yaw, hx: b.hx, hz: b.hz, base: DERBY_PRISM_BASE, top: b.height, id });
     this.seal();
   }
 

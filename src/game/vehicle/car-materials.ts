@@ -389,10 +389,14 @@ export function makeGrille(): THREE.Mesh {
   return new THREE.Mesh(toned(new THREE.BoxGeometry(0.72, 0.16, 0.06, 4, 2, 1), 0x1a1c20, 0.55, 0.45), partsMaterial());
 }
 
-/** Lower diffuser strip and the number plate, in rear-bumper space; the tail lamps sit on the body. */
+/**
+ * Lower diffuser strip and the number plate, in rear-bumper space; the tail lamps sit on the body. The bumper's seat is 0.05 m inside the
+ * body's tail station (2.06 against the profiles' 2.11), so the strip's rear face at -0.02 - 0.03 lay on the tail face and z-fought it;
+ * centred at -0.04 its rear face stands 2 cm proud.
+ */
 export function makeTailTrim(): THREE.Mesh {
   const parts = [
-    toned(new THREE.BoxGeometry(1.1, 0.05, 0.06), 0x15171a, 0.6, 0.3).translate(0, -0.12, -0.02),
+    toned(new THREE.BoxGeometry(1.1, 0.05, 0.06), 0x15171a, 0.6, 0.3).translate(0, -0.12, -0.04),
     toned(new THREE.BoxGeometry(0.36, 0.11, 0.02), 0xd8d4cc, 0.6, 0.1).translate(0, 0.03, -0.08),
   ];
   return new THREE.Mesh(mergeToned(parts, "tail trim"), partsMaterial());

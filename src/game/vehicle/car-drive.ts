@@ -7,7 +7,8 @@ import { C_GRIP, C_SURF, HIT_SIZE, ROLLS } from "../world/surfaces.ts";
 import { assists, carClass, carDrivability, CLASSES, drivenAxles, enginePull, HANDLING, rollingOver, rotatingShare, SELF_RIGHT_SLOWEST, tractionLimit, type Assists, type Drivability } from "./vehicle-classes.ts";
 import { LOSS_SIZE, wheelLoss } from "./wheel-loss.ts";
 import { detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
-import { FLIPPED_UP_Y, GRIP_YAW_CAP, SLIDE_SPEED } from "./constants.ts";
+import { GRIP_YAW_CAP, SLIDE_SPEED, FLIPPED_UP_Y } from "./constants.ts";
+import { standingBite } from "./wheel-bite.ts";
 
 /** Shared by derby AI and the player seat. */
 export type DriveInput = {
@@ -253,12 +254,12 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const command = pedal(input.steer, -1, THROTTLE_STEPS);
   const brake = pedal(input.brake, 0, BRAKE_STEPS);
   // No wheel within its springs' reach of a surface (flight, a belly on a roof) or no drivetrain: the car keeps its ballistic velocity and spin.
-  // Nor on its side or roof (`FLIPPED_UP_Y`, the body's up·world-up from its quaternion): wheels touching then rest on a wall or a car, and a tyre
-  // pushing along its own plane drove a truck lying against the arena wall through the 1 m wall at 0.5 m/s.
+  // The wheels that are in reach drive as far as the surface under them carries the car (`standingBite`): none on a side or roof or against a wall, all on a bank the body lies along.
   const alive = car.deform.drivetrainAlive;
   car.airThrottle = alive && car.airborne ? throttle : 0; // in the air the gas winds the wheels (`spinWheels`)
-  const q = car.group.quaternion;
-  if (!alive || car.wheelsDown === 0 || 1 - 2 * (q.x * q.x + q.z * q.z) < FLIPPED_UP_Y) return idleDriveState(d);
+  if (!alive || car.wheelsDown === 0) return idleDriveState(d);
+  const tyreShare = standingBite(car);
+  if (tyreShare === 0) return idleDriveState(d);
   // A pedal wakes a sleeping wreck only where it acts: the clip records the outputs (`idleDriveState` zeroes a dead or wheel-less car's), so a wake on the raw input would be one the replay never sees.
   if (throttle !== 0 || brake !== 0 || input.ebrake) car.wake();
   const k = CLASSES[carClass(car)];
@@ -387,7 +388,8 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
     const t = (1 - realism) * Math.min(1, drift * 2) * edge;
     yawRate = (1 - t) * yawRate + t * Math.max(-most, Math.min(most, assisted));
   }
-  yawRate += dmg.pull * Math.min(1, v / 10);
+  // The tyres give the yaw and the velocity change they would at full bite by their share (`tyreShare`: 1 gives them whole, 0 is the idle return above): a fade, not a cut.
+  yawRate = (yawRate + dmg.pull * Math.min(1, v / 10)) * tyreShare;
   const dyaw = yawRate * dt;
 
   const c = detCos(dyaw);
@@ -408,8 +410,8 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
     const kept = Math.min(Math.max(lon, top), Math.sqrt(lon * lon + (1 - a.scrub) * (lat * lat - latOut * latOut)));
     lon += (kept - lon) * edge;
   }
-  const nvx = fx * lon + fz * latOut;
-  const nvz = fz * lon - fx * latOut;
+  const nvx = tyreShare * (fx * lon + fz * latOut) + (1 - tyreShare) * vx;
+  const nvz = tyreShare * (fz * lon - fx * latOut) + (1 - tyreShare) * vz;
 
   d.spin = spin;
   d.hold = bite * dt - (Math.abs(lat) - Math.abs(latOut));

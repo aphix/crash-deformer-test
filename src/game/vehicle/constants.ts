@@ -23,8 +23,10 @@ export const FUEL_CUTOFF_G = 10;
 export const SIDE_HIT_X = 0.7;
 /** How long (s) the engine stays cut before it restarts (the switch is resettable; design pillar 2: a car that dies at once is lame). A short pick, no source: the stall is felt, not the end of the run. */
 export const STALL_S = 3;
-/** A car whose body's up·world-up (`upY`) is below this is on its roof or side. */
+/** A car whose body's up·world-up (`upY`) is below this is on its roof or side; and the facing (the contact normal against the body's up) at which a tyre's drive fades to nothing (`standingBite`). */
 export const FLIPPED_UP_Y = 0.35;
+/** The facing (cos 65°) from which a tyre's drive is whole (`standingBite`). A pick, no source: a narrow band above the flip line (a car tipping over crosses it in a few frames). A tyre on a car's hood reads facings of 0.63 and over, and the corkscrew's floor, the steepest the game has, 0.955. */
+export const BITE_FULL_FACING = 0.42;
 /** The share of its lateral grip (grip / v, rad/s) the tyres hold a car's yaw rate to while it grips (`applyDrive`). */
 export const GRIP_YAW_CAP = 1.05;
 /** No slide starts below this forward speed (m/s): `applyDrive`'s slide and the input layer's brake-tap drift request. */
