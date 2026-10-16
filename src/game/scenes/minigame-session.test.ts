@@ -15,6 +15,8 @@ const STILL_BEFORE_REST = REST_HOLD / 2;
 const FRAMES_AFTER_SCORING = 1000;
 const SET_LENGTH = 3;
 
+type RecordedScore = { mode: MinigameMode; throwsPerSet: number | null; carType: string; score: number };
+
 /** A bests double: keeps the best pair and remembers every `record` call. */
 function fakeBests(initial: MinigameBestPair = { thisCar: null, overall: null }): MinigameBests & { recorded: RecordedScore[] } {
   const recorded: RecordedScore[] = [];
@@ -95,7 +97,7 @@ describe("given a long jump session", () => {
     assert.equal(card.liveValue, null, "live value once scored");
     assert.deepEqual(card.setScores, [], "no set in the long jump");
     assert.equal(card.throwsPerSet, null, "no set length in the long jump");
-    assert.deepEqual(bests.recorded, [{ mode: "longJump", throwsPerSet: null, carType: CAR_TYPE, score: 57.25 }], "the throw is recorded");
+    assert.deepEqual(bests.recorded, [{ mode: "longJump", throwsPerSet: null, carType: "muscle", score: 57.25 }], "the throw is recorded");
   });
 
   it("when he comes to rest behind the lip, then the score is floored at 0", () => {
@@ -113,7 +115,7 @@ describe("given a long jump session", () => {
     for (let frame = 0; frame < FRAMES_AFTER_SCORING; frame++) {
       assert.equal(session.step({ pedalPressed: frame % 2 === 0, thrown: true, torso: torsoAt(90 + frame, 9, 0, REST_HOLD + frame) }), null, "frame after scoring");
     }
-    assert.deepEqual(session.hud(), before, "card after the idle frames");
+    assert.equal(JSON.stringify(session.hud()), JSON.stringify(before), "card after the idle frames");
     assert.equal(bests.recorded.length, 1, "nothing recorded again");
   });
 
@@ -167,7 +169,7 @@ describe("given a long jump session", () => {
     const stored = { thisCar: 31, overall: 44 };
     const session = new MinigameSession(fakeBests(stored));
     session.begin("longJump", LONG_JUMP_OPTIONS);
-    assert.deepEqual(session.hud().best, stored, "best before the throw");
+    assert.deepEqual(session.hud().best, { thisCar: 31, overall: 44 }, "best before the throw");
     throwAndRestAt(session, 36);
     assert.deepEqual(session.hud().best, { thisCar: 36, overall: 44 }, "best after a throw that beats this car's but not the overall");
   });
@@ -191,7 +193,7 @@ describe("given a high jump session", () => {
     assert.deepEqual(result, { scored: 14 }, "score at the crossing, halfway between the samples");
     assert.equal(session.hud().phase, "scored", "phase at the crossing");
     assert.equal(session.hud().lastScore, 14, "last score");
-    assert.deepEqual(bests.recorded, [{ mode: "highJump", throwsPerSet: null, carType: CAR_TYPE, score: 14 }], "the throw is recorded");
+    assert.deepEqual(bests.recorded, [{ mode: "highJump", throwsPerSet: null, carType: "muscle", score: 14 }], "the throw is recorded");
   });
 
   it("when he comes to rest without ever reaching the plane, then the score is 0 only once the rest hold passes", () => {
@@ -260,13 +262,17 @@ describe("given a Ring Fling session", () => {
     const session = new MinigameSession(fakeBests());
     session.begin("ringFling", { carType: CAR_TYPE });
     const card = session.hud();
-    assert.deepEqual([card.attempt, card.throwsPerSet, card.setTotal, card.setComplete], [1, THROWS_PER_SET.default, 0, false], "fresh set");
+    assert.equal(card.attempt, 1, "fresh set attempt");
+    assert.equal(card.throwsPerSet, THROWS_PER_SET.default, "fresh set length");
+    assert.equal(card.setTotal, 0, "fresh set total");
+    assert.equal(card.setComplete, false, "fresh set complete");
   });
 
   it("when a set of three is thrown, then attempts count 1 to 3, the total sums the scores, and only the finished set's total is recorded", () => {
     const bests = fakeBests();
     const session = new MinigameSession(bests);
     session.begin("ringFling", { carType: CAR_TYPE, throwsPerSet: SET_LENGTH });
+    const SET_SCORES_AFTER_THROW = ["10", "10,40", "10,40,100"];
     const scoresInOrder = [RING_CUPS[0]!, RING_CUPS[3]!, RING_POCKETS[0]!];
     for (let throwIndex = 0; throwIndex < SET_LENGTH; throwIndex++) {
       const zone = scoresInOrder[throwIndex]!;
@@ -274,14 +280,14 @@ describe("given a Ring Fling session", () => {
       const card = session.hud();
       assert.equal(card.attempt, throwIndex + 1, `attempt number after throw ${throwIndex + 1}`);
       assert.equal(card.setComplete, throwIndex === SET_LENGTH - 1, `set complete after throw ${throwIndex + 1}`);
-      assert.deepEqual(card.setScores, scoresInOrder.slice(0, throwIndex + 1).map((scored) => scored.score), `set scores after throw ${throwIndex + 1}`);
+      assert.equal(card.setScores.join(","), SET_SCORES_AFTER_THROW[throwIndex], `set scores after throw ${throwIndex + 1}`);
       if (throwIndex < SET_LENGTH - 1) {
         assert.deepEqual(bests.recorded, [], "no best recorded before the set is complete");
         session.retry();
       }
     }
     assert.equal(session.hud().setTotal, 10 + 40 + 100, "set total");
-    assert.deepEqual(bests.recorded, [{ mode: "ringFling", throwsPerSet: SET_LENGTH, carType: CAR_TYPE, score: 150 }], "set total recorded under its set length");
+    assert.deepEqual(bests.recorded, [{ mode: "ringFling", throwsPerSet: 3, carType: "muscle", score: 150 }], "set total recorded under its set length");
   });
 
   it("when retry follows the set's last throw, then a new set starts: attempt 1, no scores, total 0", () => {
@@ -314,7 +320,10 @@ describe("given a Ring Fling session", () => {
     session.retry();
     session.setThrowsPerSet(THROWS_PER_SET.max + 7);
     let card = session.hud();
-    assert.deepEqual([card.throwsPerSet, card.attempt, card.setScores, card.phase], [THROWS_PER_SET.max, 1, [], "ready"], "above the max: clamped, new set");
+    assert.equal(card.throwsPerSet, THROWS_PER_SET.max, "above the max: clamped");
+    assert.equal(card.attempt, 1, "above the max: new set");
+    assert.equal(card.setScores.length, 0, "above the max: no scores");
+    assert.equal(card.phase, "ready", "above the max: ready");
     session.setThrowsPerSet(0);
     assert.equal(session.hud().throwsPerSet, THROWS_PER_SET.min, "below the min: clamped");
     session.begin("ringFling", { carType: CAR_TYPE, throwsPerSet: -5 });

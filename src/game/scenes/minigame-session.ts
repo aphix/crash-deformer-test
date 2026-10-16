@@ -9,7 +9,7 @@ import { ringScore } from "./minigame-ring.ts";
  * Nothing here runs on a timer: a scored attempt stays scored until `retry()`, `resetRun()` or `begin()`.
  */
 
-export type MinigamePhase = "ready" | "running" | "thrown" | "scored";
+type MinigamePhase = "ready" | "running" | "thrown" | "scored";
 
 /** The pair of bests a mode keeps: for the driver's car type, and over every car type. */
 export type MinigameBestPair = { thisCar: number | null; overall: number | null };
@@ -42,7 +42,7 @@ export type MinigameHudState = {
   best: MinigameBestPair;
 };
 
-export type MinigameBeginOptions = {
+type MinigameBeginOptions = {
   carType: string;
   /** Ring Fling only. */
   throwsPerSet?: number;

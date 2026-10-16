@@ -68,7 +68,9 @@ describe("given the minigame stations' composer", () => {
     assert.equal(art.group.parent, null, "the engine adds it to a scene, not the composer");
     for (const mode of MINIGAME_MODES) {
       const station = stationOf(art, mode);
-      assert.deepEqual(station.position.toArray(), [STATION_ANCHORS[mode].x, 0, STATION_ANCHORS[mode].z], `${mode} station position`);
+      assert.equal(station.position.x, STATION_ANCHORS[mode].x, `${mode} station x`);
+      assert.equal(station.position.y, 0, `${mode} station y`);
+      assert.equal(station.position.z, STATION_ANCHORS[mode].z, `${mode} station z`);
     }
     art.dispose();
   });
@@ -78,9 +80,9 @@ describe("given the minigame stations' composer", () => {
     for (const shown of MINIGAME_MODES) {
       art.setMode(shown);
       assert.equal(art.group.visible, true);
-      assert.deepEqual(
-        MINIGAME_MODES.filter((mode) => stationOf(art, mode).visible),
-        [shown],
+      assert.equal(
+        MINIGAME_MODES.filter((mode) => stationOf(art, mode).visible).join(","),
+        shown,
         `only ${shown} shows`,
       );
       assert.equal(art.group.getObjectByName("cardboard-boxes")?.visible, shown === "highJump", `the boxes show with the High jump alone (mode ${shown})`);
@@ -102,7 +104,14 @@ describe("given the minigame stations' composer", () => {
     assert.equal(placements.length, layout.boxes.length);
     for (let boxIndex = 0; boxIndex < layout.boxes.length; boxIndex++) {
       const local = layout.boxes[boxIndex]!;
-      assert.deepEqual(placements[boxIndex], { ...local, x: local.x + anchor.x, z: local.z + anchor.z }, `box ${boxIndex}`);
+      const placed = placements[boxIndex]!;
+      assert.equal(placed.x, local.x + anchor.x, `box ${boxIndex} x`);
+      assert.equal(placed.y, local.y, `box ${boxIndex} y`);
+      assert.equal(placed.z, local.z + anchor.z, `box ${boxIndex} z`);
+      assert.equal(placed.yaw, local.yaw, `box ${boxIndex} yaw`);
+      assert.equal(placed.width, local.width, `box ${boxIndex} width`);
+      assert.equal(placed.height, local.height, `box ${boxIndex} height`);
+      assert.equal(placed.depth, local.depth, `box ${boxIndex} depth`);
     }
     art.dispose();
   });

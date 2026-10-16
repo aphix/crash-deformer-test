@@ -11,9 +11,9 @@ function bestText(mode: MinigameMode, best: number | null): string {
   return best === null ? "–" : valueText(mode, best);
 }
 
-export type ThrowsStepperView = { value: number; canDecrease: boolean; canIncrease: boolean };
+type ThrowsStepperView = { value: number; canDecrease: boolean; canIncrease: boolean };
 
-export type MinigamePanelView = {
+type MinigamePanelView = {
   title: string;
   /** The live reading while he flies (m past the lip, m above it, the ring zone under him), else null. */
   live: string | null;

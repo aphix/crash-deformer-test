@@ -12,7 +12,7 @@ export const MAJOR_BOARD_EVERY = 5;
 /** The frame stands this many boards taller than the best measured apex. */
 export const FRAME_EXTRA_BOARDS = 1;
 /** The net hangs this far (m) past the posts. */
-export const NET_DISTANCE_PAST_POSTS = 30;
+const NET_DISTANCE_PAST_POSTS = 30;
 
 /** Half the distance (m) between the two posts. */
 export const POST_HALF_SPAN = 3;
@@ -22,11 +22,14 @@ export const POST_THICKNESS = 0.4;
 export const FRAME_BOARD_THICKNESS = 0.15;
 
 /** The score counts when he passes the posts' plane this far (m) beside the posts: "he doesn't need to be between the posts". */
-export const CAPTURE_MARGIN_BESIDE_POSTS = 3;
+const CAPTURE_MARGIN_BESIDE_POSTS = 3;
 export const CAPTURE_HALF_WIDTH = POST_HALF_SPAN + CAPTURE_MARGIN_BESIDE_POSTS;
 
+/** How many cardboard boxes the landing piles hold (the art's box pool is sized from this same number). */
 export const BOX_COUNT = 48;
+/** Smallest box edge (m): boxes are sized between this and `BOX_SIZE_MAX`. */
 export const BOX_SIZE_MIN = 0.8;
+/** Largest box edge (m): also sets `BOX_CELL_PITCH`, the room one stack needs. */
 export const BOX_SIZE_MAX = 1.4;
 /** The piles start this far (m) before the posts, and end this far past the measured landing, never nearer the net than `BOX_NET_CLEARANCE`. */
 export const BOX_PILE_LEAD = 3;
@@ -35,7 +38,7 @@ export const BOX_NET_CLEARANCE = 3;
 /** The piles reach this far (m) either side of the lane centre: as wide as the capture band. */
 export const BOX_PILE_HALF_WIDTH = CAPTURE_HALF_WIDTH;
 /** Boxes are stacked about this many high; fewer cells than that need force taller stacks. */
-export const BOX_STACK_LAYERS_TARGET = 2;
+const BOX_STACK_LAYERS_TARGET = 2;
 /** Square cell (m) one stack stands in: the bounding diameter of the largest box at any yaw, so no two stacks can touch. */
 export const BOX_CELL_PITCH = BOX_SIZE_MAX * Math.SQRT2;
 /** A box wanders from its cell's centre by this share of the room its bounding circle leaves in the cell. */

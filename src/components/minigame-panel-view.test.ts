@@ -73,10 +73,12 @@ describe("given the quick-switch list", () => {
   for (const mode of MINIGAME_MODES) {
     it(`when the mode is ${mode}, then the list holds the other modes with their labels`, () => {
       const others = minigamePanelView({ ...LONG_JUMP_READY, mode }).otherModes;
-      assert.deepEqual(
-        others,
-        MINIGAME_MODES.filter((other) => other !== mode).map((other) => ({ mode: other, label: MODE_LABELS[other] })),
-      );
+      const expected = MINIGAME_MODES.filter((other) => other !== mode);
+      assert.equal(others.length, expected.length);
+      for (let index = 0; index < expected.length; index++) {
+        assert.equal(others[index]?.mode, expected[index]);
+        assert.equal(others[index]?.label, MODE_LABELS[expected[index]!]);
+      }
     });
   }
 });
@@ -105,9 +107,15 @@ describe("given a Ring Fling", () => {
     const atMin = minigamePanelView({ ...RING_READY, throwsPerSet: THROWS_PER_SET.min }).stepper;
     const atMax = minigamePanelView({ ...RING_READY, throwsPerSet: THROWS_PER_SET.max }).stepper;
     const between = minigamePanelView({ ...RING_READY, throwsPerSet: THROWS_PER_SET.min + 1 }).stepper;
-    assert.deepEqual(atMin, { value: THROWS_PER_SET.min, canDecrease: false, canIncrease: true });
-    assert.deepEqual(atMax, { value: THROWS_PER_SET.max, canDecrease: true, canIncrease: false });
-    assert.deepEqual(between, { value: THROWS_PER_SET.min + 1, canDecrease: true, canIncrease: true });
+    assert.equal(atMin?.value, THROWS_PER_SET.min, "value at the min");
+    assert.equal(atMin?.canDecrease, false, "no decrease at the min");
+    assert.equal(atMin?.canIncrease, true, "increase at the min");
+    assert.equal(atMax?.value, THROWS_PER_SET.max, "value at the max");
+    assert.equal(atMax?.canDecrease, true, "decrease at the max");
+    assert.equal(atMax?.canIncrease, false, "no increase at the max");
+    assert.equal(between?.value, THROWS_PER_SET.min + 1, "value between the bounds");
+    assert.equal(between?.canDecrease, true, "decrease between the bounds");
+    assert.equal(between?.canIncrease, true, "increase between the bounds");
   });
 
   it("when a set is under way, then the stepper is locked", () => {

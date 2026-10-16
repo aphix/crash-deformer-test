@@ -26,6 +26,7 @@ export const POCKET_AIM_WINDOW = 1.2;
 /** Mesh sample spacing (m) the ground lane samples the board at: fine enough for the rim's thinnest wall to hold a section. */
 export const RING_MESH_STEP = 0.2;
 
+/** The real skee-ball lane's width (inches), scaled to game metres by `scaledMetres`. */
 const REAL_LANE_WIDTH_INCHES = 27;
 /** The board's rise per metre run (about 3.4 degrees): steep enough to read as a skee-ball lane, shallow enough for a dummy thrown 15-22 m/s to land on it. */
 const BOARD_SLOPE = 0.06;

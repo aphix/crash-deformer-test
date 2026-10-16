@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { hypot2 } from "../kernel/physics-core.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   RING_BACKSTOP,
@@ -70,7 +71,7 @@ const NUMERAL_SCORES = [...new Set(ZONES.map((zone) => zone.score))];
 const NUMERAL_ATLAS_ROWS = Math.ceil(NUMERAL_SCORES.length / NUMERAL_ATLAS_COLUMNS);
 
 function isOnCupFloor(localX: number, localZ: number): boolean {
-  return ZONES.some((zone) => Math.hypot(localX - zone.centreX, localZ - zone.centreZ) <= zone.radius - RING_CUP_PROFILE.wallFootWidth);
+  return ZONES.some((zone) => hypot2(localX - zone.centreX, localZ - zone.centreZ) <= zone.radius - RING_CUP_PROFILE.wallFootWidth);
 }
 
 function boardColour(localX: number, height: number, localZ: number): number {
@@ -108,7 +109,7 @@ function makeSkirtGeometry(): THREE.BufferGeometry {
   for (let side = 0; side < corners.length - 1; side++) {
     const from = corners[side]!;
     const to = corners[side + 1]!;
-    const steps = Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / RING_MESH_STEP);
+    const steps = Math.ceil(hypot2(to.x - from.x, to.z - from.z) / RING_MESH_STEP);
     for (let step = 0; step < steps; step++) {
       const nearX = from.x + ((to.x - from.x) * step) / steps;
       const nearZ = from.z + ((to.z - from.z) * step) / steps;
