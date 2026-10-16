@@ -2,9 +2,9 @@ import { before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { element, stubBrowser } from "../engine/engine-headless.test-util.ts";
-import { LANDING_HEIGHT } from "../scenes/minigame-constants.ts";
+import { LANDING_HEIGHT, STATION_HALF_WIDTH } from "../scenes/minigame-constants.ts";
 import { CAPTURE_HALF_WIDTH, highJumpLayout, POST_HALF_SPAN, POST_THICKNESS } from "../scenes/minigame-high-jump.ts";
-import { climbFootX, floorHeightAt } from "../scenes/minigame-profile.ts";
+import { climbFootX, floorHeightAt, stationFrontX } from "../scenes/minigame-profile.ts";
 import { makeHighJumpArt, NET_HALF_WIDTH, POST_THICKNESS_PER_METRE } from "./high-jump-art.ts";
 
 /** Most draw calls the High jump's whole art may cost: timber, boards, trim, back-board, net, with room for the composer's own. */
@@ -35,6 +35,18 @@ const MIN_BACKBOARD_OPACITY = 0.3;
 const MIN_NET_LINE_METRES = 0.1;
 const MIN_DASH_THICKNESS = 0.2;
 const MAX_TIMBER_TILE_METRES = 10;
+/** The brief's numbers: net poles every 15 m at most, cables every 20 m, kicker ribs every 3 m; poles under 40 cm thick vanish at 40 m; boards over 60 cm deep swallow a camera. */
+const NET_POLE_SPACING_METRES = 15;
+const NET_CABLE_SPACING_METRES = 20;
+const KICKER_RIB_PITCH_METRES = 3;
+const MIN_NET_POLE_THICKNESS = 0.4;
+const MAX_BOARD_DEPTH = 0.6;
+/** Two poles' bottoms closer than this (m) belong to one pole. */
+const SEPARATE_POLES_METRES = 2;
+/** A beam laid on a chord of the floor's arc (every 0.5 m of run in the art) sags under it by at most the chord's sagitta: at the lip's 60 degrees on a 20 m radius, 0.5 m long, 1.6 cm; allow double. */
+const MAX_BEAM_SAG = 0.03;
+/** A fascia thicker than this (m) would show as a slab. */
+const MAX_FASCIA_THICKNESS = 0.5;
 
 type RecordedFill = { x: number; y: number; width: number; height: number };
 const recordedCanvases: { width: number; height: number; fills: RecordedFill[] }[] = [];
@@ -67,6 +79,21 @@ function vertices(mesh: THREE.Mesh): THREE.Vector3[] {
 }
 
 const boundsOf = (points: THREE.Vector3[]): THREE.Box3 => new THREE.Box3().setFromPoints(points);
+
+/** The poles whose bottoms are `bottoms`: bottoms group by z (poles are metres apart), each a centre z and a width in x. */
+function poleSpans(bottoms: THREE.Vector3[]): { centre: number; width: number }[] {
+  const sorted = [...bottoms].sort((left, right) => left.z - right.z);
+  const groups = sorted.reduce<THREE.Vector3[][]>((poles, point) => {
+    const pole = poles.at(-1);
+    if (pole && point.z - pole.at(-1)!.z < SEPARATE_POLES_METRES) pole.push(point);
+    else poles.push([point]);
+    return poles;
+  }, []);
+  return groups.map((pole) => {
+    const box = boundsOf(pole);
+    return { centre: (box.min.z + box.max.z) / 2, width: box.max.x - box.min.x };
+  });
+}
 
 function drawCalls(group: THREE.Group): number {
   let calls = 0;
@@ -128,7 +155,7 @@ describe("given the High jump's art built from a layout", () => {
         assert.ok(Math.abs((bar.min.x + bar.max.x) / 2 - layout.postsX) < POSITION_TOLERANCE, `bar ${boardIndex} sits at the posts' x`);
         assert.ok(Math.abs(bar.min.z + bar.max.z) < POSITION_TOLERANCE, `bar ${boardIndex} is centred on the lane`);
         assert.ok(bar.max.z - bar.min.z <= 2 * POST_HALF_SPAN - thickness + POSITION_TOLERANCE, `bar ${boardIndex} fits between the posts`);
-        assert.ok(bar.max.x - bar.min.x <= thickness, `bar ${boardIndex} is no deeper than the posts`);
+        assert.ok(bar.max.x - bar.min.x <= MAX_BOARD_DEPTH, `bar ${boardIndex} is ${bar.max.x - bar.min.x} m deep: a camera inside a deep bar loses the view`);
         (board.major ? majorBarHeights : minorBarHeights).push(bar.max.y - bar.min.y);
       }
       assert.ok(Math.min(...majorBarHeights) > Math.max(...minorBarHeights), "the major bars are thicker than the minor ones");
@@ -137,6 +164,7 @@ describe("given the High jump's art built from a layout", () => {
         const sign = boxAt(layout.boards.length + signIndex);
         assert.ok(sign.min.y >= board.y - POSITION_TOLERANCE, `the sign of the ${board.heightAboveLip} m board reaches down to ${sign.min.y}, below its line ${board.y}`);
         assert.ok(Math.abs((sign.min.x + sign.max.x) / 2 - layout.postsX) < POSITION_TOLERANCE && Math.abs(sign.min.z + sign.max.z) < POSITION_TOLERANCE, `sign ${signIndex} is between the posts`);
+        assert.ok(sign.max.x - sign.min.x <= MAX_BOARD_DEPTH, `sign ${signIndex} is ${sign.max.x - sign.min.x} m deep: a camera inside a deep sign loses the view`);
         assert.ok(sign.max.y - sign.min.y > 2 * Math.max(...majorBarHeights), `sign ${signIndex} is much bigger than its bar`);
         signCells.add(frontCell(layout.boards.length + signIndex));
       }
@@ -187,10 +215,82 @@ describe("given the High jump's art built from a layout", () => {
       const linePixels = Math.min(...weaveCanvas.fills.map((fill) => Math.min(fill.width, fill.height)));
       const meshMetres = box.getSize(new THREE.Vector3()).y / weave.repeat.y;
       assert.ok((meshMetres * linePixels) / weaveCanvas.width >= MIN_NET_LINE_METRES - POSITION_TOLERANCE, `net line ${(meshMetres * linePixels) / weaveCanvas.width} m`);
-      const poles = boundsOf(vertices(meshNamed(art, "timber")).filter((point) => Math.abs(point.x - layout.netX) < 1));
+      const poles = boundsOf(vertices(meshNamed(art, "net-frame")).filter((point) => Math.abs(point.x - layout.netX) < 1));
       assert.ok(Math.abs((poles.min.x + poles.max.x) / 2 - layout.netX) < POSITION_TOLERANCE, `net poles at x ${(poles.min.x + poles.max.x) / 2}`);
       assert.ok(poles.max.z > box.max.z - POSITION_TOLERANCE && poles.min.z < box.min.z + POSITION_TOLERANCE, "the poles stand at the net's ends");
       assert.ok(poles.max.y >= box.max.y, `the poles reach ${poles.max.y}, the net's top ${box.max.y}`);
+    });
+
+    it(`when it is built for ${name}, then the net stands on a frame: stout poles at both ends and between at most ${NET_POLE_SPACING_METRES} m apart, each with a back pole and a stay at the top, and steel cables across it every ${NET_CABLE_SPACING_METRES} m of height`, () => {
+      const art = makeHighJumpArt(layout, LIP_Y);
+      const frame = vertices(meshNamed(art, "net-frame"));
+      const bottoms = frame.filter((point) => Math.abs(point.y - LANDING_HEIGHT) < POSITION_TOLERANCE);
+      const frontRow = poleSpans(bottoms.filter((point) => point.x < layout.netX + 1));
+      const backRow = poleSpans(bottoms.filter((point) => point.x >= layout.netX + 1));
+      assert.ok(frontRow.length >= 3, `${frontRow.length} poles along a net ${2 * NET_HALF_WIDTH} m wide`);
+      assert.ok(Math.abs(frontRow[0]!.centre + NET_HALF_WIDTH) < POSITION_TOLERANCE && Math.abs(frontRow.at(-1)!.centre - NET_HALF_WIDTH) < POSITION_TOLERANCE, "a pole at each end of the net");
+      for (let poleIndex = 1; poleIndex < frontRow.length; poleIndex++) {
+        assert.ok(frontRow[poleIndex]!.centre - frontRow[poleIndex - 1]!.centre <= NET_POLE_SPACING_METRES + POSITION_TOLERANCE, `poles ${poleIndex - 1} and ${poleIndex} are too far apart`);
+      }
+      assert.deepEqual(
+        backRow.map((pole) => pole.centre.toFixed(3)),
+        frontRow.map((pole) => pole.centre.toFixed(3)),
+        "a back pole behind every pole",
+      );
+      assert.ok(Math.min(...frontRow.map((pole) => pole.width)) >= MIN_NET_POLE_THICKNESS, `net poles ${frontRow.map((pole) => pole.width)} m thick`);
+      const frontTops = frame.filter((point) => Math.abs(point.x - layout.netX) < 1 && point.y > LANDING_HEIGHT + 1);
+      assert.ok(boundsOf(frontTops).max.y >= LANDING_HEIGHT + layout.netHeight, "the poles reach the net's top");
+      assert.ok(frame.some((point) => point.x >= layout.netX + 3 && Math.abs(point.y - (LANDING_HEIGHT + layout.netHeight)) < 0.5), "a stay joins the tops of front and back poles");
+      const trim = vertices(meshNamed(art, "trim"));
+      const netCableHeights = Array.from({ length: Math.ceil(layout.netHeight / NET_CABLE_SPACING_METRES) - 1 }, (_, cableIndex) => LANDING_HEIGHT + (cableIndex + 1) * NET_CABLE_SPACING_METRES);
+      for (const cableY of netCableHeights) {
+        const cable = trim.filter((point) => Math.abs(point.x - layout.netX) < 1 && Math.abs(point.y - cableY) < 1);
+        assert.ok(cable.length > 0 && boundsOf(cable).max.z >= NET_HALF_WIDTH - POSITION_TOLERANCE && boundsOf(cable).min.z <= -NET_HALF_WIDTH + POSITION_TOLERANCE, `a cable across the net at ${cableY} m`);
+      }
+    });
+
+    it(`when it is built for ${name}, then timber ribs stand outside both flank walls about every ${KICKER_RIB_PITCH_METRES} m from the climb's foot to the lip, each from the floor's height to the pad's level, tied by beams along the floor's edge`, () => {
+      const kicker = vertices(meshNamed(makeHighJumpArt(layout, LIP_Y), "kicker"));
+      const boxes = Array.from({ length: kicker.length / VERTICES_PER_BOX }, (_, boxIndex) => kicker.slice(boxIndex * VERTICES_PER_BOX, (boxIndex + 1) * VERTICES_PER_BOX));
+      const isUpright = (box: THREE.Vector3[]) => new Set(box.map((point) => point.x.toFixed(4))).size === 2;
+      const foot = climbFootX("highJump");
+      for (const side of [-1, 1]) {
+        const flank = boxes.filter((box) => Math.sign(boundsOf(box).min.z + boundsOf(box).max.z) === side);
+        const ribs = flank.filter(isUpright).map(boundsOf).sort((left, right) => left.min.x - right.min.x);
+        const beams = flank.filter((box) => !isUpright(box)).map(boundsOf);
+        assert.ok(ribs.length >= 4, `${ribs.length} ribs on side ${side}`);
+        const ribCentres = ribs.map((rib) => (rib.min.x + rib.max.x) / 2);
+        assert.ok(Math.abs(ribCentres[0]! - foot) < POSITION_TOLERANCE && Math.abs(ribCentres.at(-1)!) < POSITION_TOLERANCE, `ribs run from ${ribCentres[0]} to ${ribCentres.at(-1)}, the climb is ${foot}..0`);
+        for (let ribIndex = 1; ribIndex < ribs.length; ribIndex++) {
+          assert.ok(ribCentres[ribIndex]! - ribCentres[ribIndex - 1]! <= 2 * KICKER_RIB_PITCH_METRES + 1, `ribs ${ribIndex - 1} and ${ribIndex} are ${ribCentres[ribIndex]! - ribCentres[ribIndex - 1]!} m apart`);
+        }
+        for (const rib of ribs) {
+          const floorY = floorHeightAt("highJump", (rib.min.x + rib.max.x) / 2, 0);
+          assert.ok(Math.abs(rib.min.y - Math.min(floorY, LANDING_HEIGHT)) < POSITION_TOLERANCE && Math.abs(rib.max.y - Math.max(floorY, LANDING_HEIGHT)) < POSITION_TOLERANCE, `rib at ${rib.min.x} spans ${rib.min.y}..${rib.max.y}, floor ${floorY}`);
+          assert.ok(rib.min.z * side >= STATION_HALF_WIDTH - POSITION_TOLERANCE || rib.max.z * side >= STATION_HALF_WIDTH - POSITION_TOLERANCE, "outside the flank wall");
+          assert.ok(Math.min(Math.abs(rib.min.z), Math.abs(rib.max.z)) >= STATION_HALF_WIDTH - POSITION_TOLERANCE, `rib z ${rib.min.z}..${rib.max.z} reaches inside the wall at ${STATION_HALF_WIDTH}`);
+        }
+        assert.ok(beams.length >= 4, `${beams.length} beams on side ${side}`);
+        for (const beam of beams) {
+          const centreX = (beam.min.x + beam.max.x) / 2;
+          assert.ok(Math.abs((beam.min.y + beam.max.y) / 2 - floorHeightAt("highJump", centreX, 0)) < MAX_BEAM_SAG, `a beam at x ${centreX} lies ${(beam.min.y + beam.max.y) / 2 - floorHeightAt("highJump", centreX, 0)} m off the floor's edge`);
+        }
+      }
+    });
+
+    it(`when it is built for ${name}, then a fascia plate covers the back face from the lip down to the landing across the whole band, standing off the surface`, () => {
+      const fascia = vertices(meshNamed(makeHighJumpArt(layout, LIP_Y), "fascia"));
+      const box = boundsOf(fascia);
+      const frontX = stationFrontX("highJump");
+      assert.ok(Math.abs(box.max.z - STATION_HALF_WIDTH) < POSITION_TOLERANCE && Math.abs(box.min.z + STATION_HALF_WIDTH) < POSITION_TOLERANCE, `fascia z ${box.min.z}..${box.max.z}`);
+      assert.ok(box.min.x > -MAX_FASCIA_THICKNESS && box.min.x < MAX_FASCIA_THICKNESS, `fascia starts at x ${box.min.x}, the lip is 0`);
+      assert.ok(Math.abs(box.max.x - frontX) < MAX_FASCIA_THICKNESS, `fascia ends at x ${box.max.x}, the face ends at ${frontX}`);
+      assert.ok(box.max.y >= floorHeightAt("highJump", 0, 0) - POSITION_TOLERANCE, "up to the lip");
+      assert.ok(box.min.y <= LANDING_HEIGHT + MAX_FASCIA_THICKNESS, "down to the landing");
+      for (const point of fascia) {
+        const surfaceY = floorHeightAt("highJump", Math.min(Math.max(point.x, 0), frontX), 0);
+        assert.ok(point.y >= surfaceY - POSITION_TOLERANCE, `a fascia vertex at (${point.x}, ${point.y}) is under the surface (${surfaceY})`);
+      }
     });
 
     it(`when it is built for ${name}, then it costs no more draws than the budget`, () => {

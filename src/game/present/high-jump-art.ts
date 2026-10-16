@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { LANDING_HEIGHT, MINIGAME_MODE } from "../scenes/minigame-constants.ts";
-import { climbFootX, floorHeightAt } from "../scenes/minigame-profile.ts";
+import { LANDING_HEIGHT, MINIGAME_MODE, STATION_HALF_WIDTH } from "../scenes/minigame-constants.ts";
+import { climbFootX, floorHeightAt, stationFrontX } from "../scenes/minigame-profile.ts";
 import { BOARD_FINE_STEP, CAPTURE_HALF_WIDTH, FRAME_BOARD_THICKNESS, POST_HALF_SPAN, POST_THICKNESS, type HeightBoard, type HighJumpLayout } from "../scenes/minigame-high-jump.ts";
 import { makeGlassMaterial } from "../vehicle/car-materials.ts";
 import { CANVAS_WHITE, canvasTexture } from "./lab-art.ts";
@@ -110,9 +110,26 @@ const BACKBOARD_RENDER_ORDER = 2;
 const NET_SIDE_MARGIN = 3;
 /** Half the net's width (m): the drawn net and the ground's net prism share it. */
 export const NET_HALF_WIDTH = CAPTURE_HALF_WIDTH + NET_SIDE_MARGIN;
-const NET_POLE_THICKNESS = 0.3;
+/** The net's poles and top cable are stout (a 78 m net on 0.3 m sticks reads as a grid hanging in the void) and scale with its height. */
+const NET_POLE_THICKNESS = 0.5;
 const NET_POLE_EXTRA_HEIGHT = 1;
-const NET_CABLE_THICKNESS = 0.1;
+const NET_CABLE_THICKNESS = 0.25;
+/** A pole stands at both ends and at least every this many metres between; a back row stands this far behind each, tied by a stay at the net's top. */
+const NET_POLE_SPACING = 15;
+const NET_BACK_ROW_SETBACK = 4;
+/** A steel cable crosses the net at every multiple of this many metres of height, below the top one. */
+const NET_CABLE_SPACING = 20;
+
+/**
+ * The kicker's cosmetic supports on each flank of the station's band (whose side walls are the dark slate): ribs every `pitch` m
+ * (about; the run is split evenly) from the climb's foot to the lip, each `width` wide outside the wall and `depth` along the run,
+ * a beam `beam` thick laid on the floor's edge in steps of `beamStep` m of run (a chord of the arc each, so it hugs the floor even at the lip's
+ * 60 degrees), ribs shorter than `minHeight` skipped.
+ */
+const KICKER_RIB = { pitch: 3, depth: 0.3, width: 0.4, beam: 0.5, beamStep: 0.5, minHeight: 0.3 } as const;
+/** The fascia over the lip's back face: its thickness and how far it stands off the face (m), against z-fighting. */
+const LIP_FASCIA = { thickness: 0.2, lift: 0.02 } as const;
+
 /**
  * One mesh of the weave (m) and its line width (px of the cell's `NET_TEXTURE_PX`): a line is `NET_MESH_SIZE * NET_LINE_PX / NET_TEXTURE_PX`
  * = 10 cm, about 2 px at 40 m. The texture takes no mipmaps: a mip of a thin line averages under the alpha cut and the far net would
@@ -145,7 +162,7 @@ function boxAt(sizeX: number, sizeY: number, sizeZ: number, x: number, y: number
 }
 
 /** A timber box whose uvs count metres of `TIMBER_TILE_METRES` tiles along each face, so the grain keeps its size at any length. */
-function timberBox(sizeX: number, sizeY: number, sizeZ: number, x: number, y: number, z: number): THREE.BufferGeometry {
+function timberBox(sizeX: number, sizeY: number, sizeZ: number, x: number, y: number, z: number, rotationZ = 0): THREE.BufferGeometry {
   const geometry = new THREE.BoxGeometry(sizeX, sizeY, sizeZ);
   const faceSizes = [
     [sizeZ, sizeY],
@@ -163,7 +180,7 @@ function timberBox(sizeX: number, sizeY: number, sizeZ: number, x: number, y: nu
       uv.setXY(vertexIndex, (uv.getX(vertexIndex) * width) / TIMBER_TILE_METRES, (uv.getY(vertexIndex) * height) / TIMBER_TILE_METRES);
     }
   }
-  return geometry.translate(x, y, z);
+  return geometry.rotateZ(rotationZ).translate(x, y, z);
 }
 
 function mergedMesh(name: string, parts: THREE.BufferGeometry[], material: THREE.Material): THREE.Mesh {
@@ -191,7 +208,7 @@ function backboardExtent(layout: HighJumpLayout, lipY: number) {
   };
 }
 
-/** The posts, their caps, and the net's two end poles. */
+/** The posts and their caps. */
 function timberGeometry(layout: HighJumpLayout, lipY: number): THREE.BufferGeometry[] {
   const scale = thicknessScale(layout.frameTop);
   const thickness = postThickness(layout.frameTop);
@@ -199,14 +216,66 @@ function timberGeometry(layout: HighJumpLayout, lipY: number): THREE.BufferGeome
   const shaftHeight = shaftTop - LANDING_HEIGHT;
   const capSide = thickness * POST_CAP_OVERHANG;
   const capHeight = POST_CAP_HEIGHT * scale;
-  const net = netExtent(layout);
-  const poleThickness = NET_POLE_THICKNESS * net.scale;
-  const poleHeight = net.top + NET_POLE_EXTRA_HEIGHT * net.scale - LANDING_HEIGHT;
   return [-1, 1].flatMap((side) => [
     timberBox(thickness, shaftHeight, thickness, layout.postsX, LANDING_HEIGHT + shaftHeight / 2, side * POST_HALF_SPAN),
     timberBox(capSide, capHeight, capSide, layout.postsX, shaftTop + capHeight / 2, side * POST_HALF_SPAN),
-    timberBox(poleThickness, poleHeight, poleThickness, layout.netX, LANDING_HEIGHT + poleHeight / 2, side * net.halfWidth),
   ]);
+}
+
+/**
+ * The net's frame: a tall pole at both ends and at every `NET_POLE_SPACING` m or less between them (the same z for every one), each
+ * with a pole standing `NET_BACK_ROW_SETBACK` m behind it and a stay beam tying their tops: a driving range's net stands on a frame, it does not float.
+ */
+function netFrameGeometry(layout: HighJumpLayout): THREE.BufferGeometry[] {
+  const net = netExtent(layout);
+  const poleThickness = NET_POLE_THICKNESS * net.scale;
+  const poleHeight = net.top + NET_POLE_EXTRA_HEIGHT * net.scale - LANDING_HEIGHT;
+  const stayThickness = NET_CABLE_THICKNESS * net.scale;
+  const intervalCount = Math.ceil((2 * net.halfWidth) / NET_POLE_SPACING);
+  return Array.from({ length: intervalCount + 1 }, (_, poleIndex) => -net.halfWidth + (poleIndex * 2 * net.halfWidth) / intervalCount).flatMap((poleZ) => [
+    timberBox(poleThickness, poleHeight, poleThickness, layout.netX, LANDING_HEIGHT + poleHeight / 2, poleZ),
+    timberBox(poleThickness, poleHeight, poleThickness, layout.netX + NET_BACK_ROW_SETBACK, LANDING_HEIGHT + poleHeight / 2, poleZ),
+    timberBox(NET_BACK_ROW_SETBACK, stayThickness, stayThickness, layout.netX + NET_BACK_ROW_SETBACK / 2, net.top, poleZ),
+  ]);
+}
+
+/** The kicker's cosmetic support: timber ribs on both flanks at every floor-profile step, from the climb's foot to the lip, tied by a beam along each flank's edge. */
+function kickerSupportGeometry(): THREE.BufferGeometry[] {
+  const footX = climbFootX(HIGH_JUMP);
+  const ribCount = Math.max(1, Math.round(-footX / KICKER_RIB.pitch));
+  const ribXs = Array.from({ length: ribCount + 1 }, (_, ribIndex) => footX + (ribIndex * -footX) / ribCount);
+  const flankZ = (side: number) => side * (STATION_HALF_WIDTH + KICKER_RIB.width / 2);
+  const ribs = [-1, 1].flatMap((side) =>
+    ribXs.flatMap((ribX) => {
+      const floorY = floorHeightAt(HIGH_JUMP, ribX, 0);
+      const low = Math.min(floorY, LANDING_HEIGHT);
+      const high = Math.max(floorY, LANDING_HEIGHT);
+      return high - low < KICKER_RIB.minHeight ? [] : [timberBox(KICKER_RIB.depth, high - low, KICKER_RIB.width, ribX, (low + high) / 2, flankZ(side))];
+    }),
+  );
+  const beamCount = Math.ceil(-footX / KICKER_RIB.beamStep);
+  const beamXs = Array.from({ length: beamCount + 1 }, (_, beamIndex) => footX + (beamIndex * -footX) / beamCount);
+  const beams = [-1, 1].flatMap((side) =>
+    beamXs.slice(1).map((beamX, index) => {
+      const fromX = beamXs[index]!;
+      const fromY = floorHeightAt(HIGH_JUMP, fromX, 0);
+      const toY = floorHeightAt(HIGH_JUMP, beamX, 0);
+      return timberBox(Math.hypot(beamX - fromX, toY - fromY) + KICKER_RIB.depth, KICKER_RIB.beam, KICKER_RIB.width, (fromX + beamX) / 2, (fromY + toY) / 2, flankZ(side), Math.atan2(toY - fromY, beamX - fromX));
+    }),
+  );
+  return [...ribs, ...beams];
+}
+
+/** A timber plate laid over the back face behind the lip, from the lip down to the landing, across the whole band: the kicker's front fascia. */
+function lipFasciaGeometry(): THREE.BufferGeometry {
+  const frontX = stationFrontX(HIGH_JUMP);
+  const lipFloorY = floorHeightAt(HIGH_JUMP, 0, 0);
+  const dropY = LANDING_HEIGHT - lipFloorY;
+  const length = Math.hypot(frontX, dropY);
+  const outwardX = -dropY / length;
+  const outwardY = frontX / length;
+  const offset = LIP_FASCIA.thickness / 2 + LIP_FASCIA.lift;
+  return timberBox(length, LIP_FASCIA.thickness, 2 * STATION_HALF_WIDTH, frontX / 2 + outwardX * offset, (lipFloorY + LANDING_HEIGHT) / 2 + outwardY * offset, 0, Math.atan2(dropY, frontX));
 }
 
 function timberMaterial(): THREE.MeshStandardMaterial {
@@ -266,7 +335,7 @@ function paintBoardAtlas(context: CanvasRenderingContext2D, majorBoards: readonl
  * given the -x face (the one the car sees) reads that whole cell instead.
  */
 function boardBox(height: number, y: number, solidCellIndex: number, labelCellIndex: number | null, cellCount: number, layout: HighJumpLayout): THREE.BufferGeometry {
-  const depth = FRAME_BOARD_THICKNESS * thicknessScale(layout.frameTop);
+  const depth = FRAME_BOARD_THICKNESS;
   const span = 2 * POST_HALF_SPAN - postThickness(layout.frameTop);
   const geometry = new THREE.BoxGeometry(depth, height, span).translate(layout.postsX, y, 0);
   const solid = atlasCell(solidCellIndex, cellCount);
@@ -335,6 +404,9 @@ function frameTrim(layout: HighJumpLayout, lipY: number): THREE.BufferGeometry[]
     boxAt(rail, rail, 2 * railZ, railX, top - rail / 2, 0),
     ...[-1, 1].map((side) => boxAt(rail, top - bottom, rail, railX, (bottom + top) / 2, side * railZ)),
     boxAt(cable, cable, 2 * net.halfWidth, layout.netX, net.top, 0),
+    ...Array.from({ length: Math.ceil(layout.netHeight / NET_CABLE_SPACING) - 1 }, (_, cableIndex) =>
+      boxAt(cable, cable, 2 * net.halfWidth, layout.netX, LANDING_HEIGHT + (cableIndex + 1) * NET_CABLE_SPACING, 0),
+    ),
   ].map((part) => painted(part, STEEL_COLOR));
   const plates = layout.boards.flatMap((board) =>
     [-1, 1].map((side) =>
@@ -442,8 +514,15 @@ function netMesh(layout: HighJumpLayout): THREE.Mesh {
 export function makeHighJumpArt(layout: HighJumpLayout, lipY: number): THREE.Group {
   const group = new THREE.Group();
   group.name = "high-jump";
-  const timber = mergedMesh("timber", timberGeometry(layout, lipY), timberMaterial());
+  const woodMaterial = timberMaterial();
+  const timber = mergedMesh("timber", timberGeometry(layout, lipY), woodMaterial);
   timber.castShadow = true;
+  const netFrame = mergedMesh("net-frame", netFrameGeometry(layout), woodMaterial);
+  netFrame.castShadow = true;
+  const kicker = mergedMesh("kicker", kickerSupportGeometry(), woodMaterial);
+  kicker.castShadow = true;
+  const fascia = mergedMesh("fascia", [lipFasciaGeometry()], woodMaterial);
+  fascia.castShadow = true;
   const trim = mergedMesh(
     "trim",
     [...frameTrim(layout, lipY), ...lipLine(layout, lipY), ...barrels(), ...chevrons(), ...stopBlock(lipY)],
@@ -452,6 +531,6 @@ export function makeHighJumpArt(layout: HighJumpLayout, lipY: number): THREE.Gro
   trim.castShadow = true;
   const boards = boardsMesh(layout);
   boards.castShadow = true;
-  group.add(timber, boards, trim, netMesh(layout), backboardMesh(layout, lipY));
+  group.add(timber, netFrame, kicker, fascia, boards, trim, netMesh(layout), backboardMesh(layout, lipY));
   return group;
 }
