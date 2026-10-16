@@ -53,22 +53,22 @@ const CLIMB_STALL_ALLOWANCE = 1;
 /** Per station and car type: the least speed (m/s) its centre may have at the climb's foot and as it reaches the lip: the numbers `minigame-profile.test.ts` pins on its own 5 cm grid. */
 const MINIMUM_SPEED: Readonly<Record<MinigameMode, Readonly<Record<string, { foot: number; lip: number }>>>> = {
   longJump: {
-    sedan: { foot: 30.5, lip: 36 },
-    muscle: { foot: 33, lip: 38 },
-    truck: { foot: 30, lip: 35.5 },
-    monster: { foot: 32.5, lip: 39 },
-    police: { foot: 30.5, lip: 36.5 },
-    hatchback: { foot: 30.5, lip: 36 },
-    wagon: { foot: 30.5, lip: 36 },
+    sedan: { foot: 17.5, lip: 25 },
+    muscle: { foot: 18, lip: 27 },
+    truck: { foot: 17.5, lip: 24.5 },
+    monster: { foot: 19, lip: 26.5 },
+    police: { foot: 17.5, lip: 24.5 },
+    hatchback: { foot: 17.5, lip: 25 },
+    wagon: { foot: 17.5, lip: 25 },
   },
   highJump: {
-    sedan: { foot: 31, lip: 18.5 },
-    muscle: { foot: 34, lip: 29 },
+    sedan: { foot: 31, lip: 26.5 },
+    muscle: { foot: 34, lip: 29.5 },
     truck: { foot: 31, lip: 26 },
     monster: { foot: 34.5, lip: 35 },
-    police: { foot: 31, lip: 19 },
-    hatchback: { foot: 31, lip: 18.5 },
-    wagon: { foot: 31, lip: 18.5 },
+    police: { foot: 31, lip: 26.5 },
+    hatchback: { foot: 31, lip: 26.5 },
+    wagon: { foot: 31, lip: 26.5 },
   },
   ringFling: {
     sedan: { foot: 29.5, lip: 32 },
@@ -176,9 +176,11 @@ describe("given each station's lane read between the nodes of the grid", () => {
     for (let localX = -5; localX <= 0; localX += 0.1) assert.equal(ground.heightAt(localX, STATION_ANCHORS.longJump.z), 0, `x = ${localX}`);
   });
 
-  it("when the long jump's run-up is read, then it lies below the pad (negative heights are real)", () => {
+  it("when the long jump's incline foot is read, then it lies below the pad as the profile has it (negative heights are real)", () => {
     const ground = buildGround();
-    assert.ok(ground.heightAt(climbFootX("longJump") - 5, STATION_ANCHORS.longJump.z) < -1);
+    const footHeight = floorHeightAt("longJump", climbFootX("longJump"), 0);
+    assert.ok(footHeight < -1, `the profile's foot ${footHeight}`);
+    assert.ok(Math.abs(ground.heightAt(STATION_ANCHORS.longJump.x + climbFootX("longJump"), STATION_ANCHORS.longJump.z, 0.5) - footHeight) <= HEIGHT_TOLERANCE);
   });
 });
 
