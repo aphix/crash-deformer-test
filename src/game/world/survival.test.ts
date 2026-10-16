@@ -9,7 +9,8 @@ import type { RaceHud } from "../match/types.ts";
 import { FRAME, frame, type World } from "./race-world.test-util.ts";
 import { Track } from "./track.ts";
 import { HAVANA } from "./tracks/havana.ts";
-import { assertDropInsHidden, chaseCam, dropInsAtPoses, hold, leaveSurvival, liveCops, play, steerAt, survivalWorld, visibleFrom } from "./survival-run.test-util.ts";
+import { assertDropInsHidden, chaseCam, dropInsAtPoses, hold, leaveSurvival, liveCops, play, survivalWorld, visibleFrom } from "./survival-run.test-util.ts";
+import { drivers } from "./survival-players.test-util.ts";
 
 const spec = new Track(HAVANA).survival!;
 const KEY = "crush.survival.best.havana";
@@ -239,13 +240,15 @@ describe("given a Survival run on the Havana course (the player against a pack o
   it("when the player lasts through the first two schedule steps, then the HUD's pack count follows the schedule (the cap and the long run are the hunter unit test's)", () => {
     const w = survivalWorld();
     try {
-      const pts = ringTour();
-      const r = play(w, { seconds: GREEN_S + 2 * HUNT.every - 1, player: tour(pts) });
+      // The evading driver (`drivers("evade")`): a player out to stay alive. The ring tour at a fixed 16 m/s lasted to step 1 only while the pack's
+      // ram near (3.7, 216) at about 14 s missed it, which a 1 cm start shift or 8 ms of frame phase flips either way on any drive.
+      const r = play(w, { seconds: GREEN_S + 2 * HUNT.every - 1, player: drivers("evade", 1) });
       const runs = new Map<number, number[]>();
       for (const g of r.gaps) {
         // Halfway between two schedule steps (and past the 1.5 s drop gap) the pack has what the schedule wants.
         const frac = (g.time % HUNT.every) / HUNT.every;
-        if (frac > 0.3 && frac < 0.8) runs.set(Math.floor(g.time / HUNT.every), [...(runs.get(Math.floor(g.time / HUNT.every)) ?? []), g.cops - copsWanted(g.time, spec.formation.length)]);
+        const step = Math.floor(g.time / HUNT.every);
+        if (frac > 0.3 && frac < 0.8) runs.set(step, [...(runs.get(step) ?? []), g.cops - copsWanted(g.time, spec.formation.length)]);
         assert.ok(g.cops <= HUNT.cap, `${g.cops} cops at ${g.time.toFixed(0)} s`);
       }
       const steps = [...runs.keys()].sort((a, b) => a - b);
@@ -294,26 +297,3 @@ describe("given Survival's cops dropped in during a run", () => {
     }
   });
 });
-
-/** Waypoints round the ring road, every 18 m. */
-function ringTour(): [number, number][] {
-  const p = new Track(HAVANA).path;
-  const pts: [number, number][] = [];
-  for (let k = 0; k < p.count; k += 18) pts.push([p.x[k]!, p.z[k]!]);
-  return pts;
-}
-
-/**
- * The scripted player: round the ring at `DRIVE_SPEED`, steering at the next waypoint, starting with the waypoint nearest to where it is (waypoint 0 lies across a
- * stucco block from the start: the car drove into it and sat there until the cops finished it). It was 22 m/s: the ring's 90° corner is more than the car turns at
- * that speed, so it ran off the road into a stucco block, which a solid crushes and ejects the driver from as the range's slab does. From the start it lasts 31 s at 16 m/s.
- */
-function tour(pts: readonly (readonly [number, number])[]): (w: World) => void {
-  let i = -1;
-  return (w) => {
-    const car = w.cars[0]!.group.position;
-    if (i < 0) i = pts.reduce((best, q, k) => (Math.hypot(q[0] - car.x, q[1] - car.z) < Math.hypot(pts[best]![0] - car.x, pts[best]![1] - car.z) ? k : best), 0);
-    if (Math.hypot(pts[i]![0] - car.x, pts[i]![1] - car.z) < 14) i = (i + 1) % pts.length;
-    steerAt(w, pts[i]![0], pts[i]![1], DRIVE_SPEED);
-  };
-}
