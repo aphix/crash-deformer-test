@@ -27,7 +27,7 @@ export const UPRIGHT = 0.9;
 export const DERBY_ARENA = {
   radius: 38,
   wallThickness: 1,
-  wallHeight: 12,
+  wallHeight: 8,
   concreteHeight: 3.5,
   wallPieces: 48,
   wallMitre: 0.3,
