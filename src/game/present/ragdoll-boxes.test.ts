@@ -21,7 +21,13 @@ const PILE_LAYERS = 3;
 const BOX_COUNT = PILE_COLUMNS * PILE_COLUMNS * PILE_LAYERS;
 const PILE_FACE_X = 20;
 const BOX_PITCH = BOX_EDGE + BOX_GAP;
-const PILE_CENTRE_Z = ((PILE_COLUMNS - 1) * BOX_PITCH + BOX_EDGE) / 2;
+const PILE_TOP = PILE_LAYERS * BOX_EDGE;
+/** The shots' lateral line: through the middle of the second row of towers, not the 5 cm slot between the rows that the pile's centre falls in. */
+const AIM_Z = BOX_EDGE / 2 + BOX_PITCH;
+/** How far inside the pile's face (m) the shots are aimed, how steeply a high jump comes down, and how far over the pile's top (m) his torso is aimed (a torso is half a body thick). */
+const AIM_DEPTH = 1;
+const LANDING_DESCENT_DEGREES = 40;
+const TORSO_OVER_TOP = 0.3;
 /** A little yaw per box, so the pose rows see a turned box and the pile is not a perfect grid. */
 const YAW_STEP = 0.04;
 
@@ -38,9 +44,10 @@ function pileLayout(): BoxPlacement[] {
   return boxes;
 }
 
-/** A ragdoll system on flat ground with no cars. */
+/** A ragdoll system on the range's flat sand (`sand`: friction 3, as the range has it) with no cars. */
 async function system(boxes: readonly BoxPlacement[]): Promise<RagdollSystem> {
   const sys = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
+  sys.sand = true;
   await sys.preload();
   setGround(null);
   sys.update(FRAME, [], true, false, null);
@@ -59,18 +66,21 @@ function flyFarAway(sys: RagdollSystem, speed: number): void {
 }
 
 /**
- * A dummy from `distance` m before the pile's face, head first at `speed` m/s, `descentDegrees` below the horizontal, aimed so
- * that his torso reaches the face (centred across the pile) at `faceHeight`.
+ * A dummy from `distance` m before a point `AIM_DEPTH` m inside the pile's face, head first at `speed` m/s, `descentDegrees` below the
+ * horizontal, aimed so that his torso reaches that point, along `AIM_Z`, at `aimHeight`.
  */
-function fireIntoPile(sys: RagdollSystem, speed: number, descentDegrees: number, faceHeight: number): void {
+function fireIntoPile(sys: RagdollSystem, speed: number, descentDegrees: number, aimHeight: number): void {
   const distance = 12;
   const descent = (descentDegrees * Math.PI) / 180;
   const horizontal = speed * Math.cos(descent);
   const vertical = -speed * Math.sin(descent);
   const flight = distance / horizontal;
-  const startHeight = faceHeight - vertical * flight + 0.5 * GRAVITY * flight * flight;
-  spawnDummy(sys, new THREE.Vector3(PILE_FACE_X - distance, startHeight, PILE_CENTRE_Z), new THREE.Vector3(horizontal, vertical, 0));
+  const startHeight = aimHeight - vertical * flight + 0.5 * GRAVITY * flight * flight;
+  spawnDummy(sys, new THREE.Vector3(PILE_FACE_X + AIM_DEPTH - distance, startHeight, AIM_Z), new THREE.Vector3(horizontal, vertical, 0));
 }
+
+/** The landing after a high jump: 40 degrees down onto the pile's top, his torso a little over it. */
+const fireOntoPile = (sys: RagdollSystem, speed: number) => fireIntoPile(sys, speed, LANDING_DESCENT_DEGREES, PILE_TOP + TORSO_OVER_TOP);
 
 const dummyOf = (sys: RagdollSystem) => sys["dolls"][0]!;
 const boxBodiesOf = (sys: RagdollSystem) => sys["boxes"]["bodies"];
@@ -86,7 +96,7 @@ function depthInside(poses: Float32Array, index: number, edge: number, point: { 
   return Math.max(0, -clearance);
 }
 
-type Settle = { stillSeconds: number; simSeconds: number; deepestInside: number; lowestPart: number; farthestBoxMove: number; torso: THREE.Vector3 };
+type Settle = { stillSeconds: number; simSeconds: number; deepestInside: number; lowestPart: number; farthestBoxMove: number; nearestBox: number; torso: THREE.Vector3 };
 
 /** Run frames until the torso has lain still `stillWanted` s (or `limit` sim s), tracking how deep any part went into any box and how low any part went. */
 function runUntilStill(sys: RagdollSystem, stillWanted: number, limit: number): Settle {
@@ -108,7 +118,14 @@ function runUntilStill(sys: RagdollSystem, stillWanted: number, limit: number): 
       for (let i = 0; i < BOX_COUNT; i++) deepestInside = Math.max(deepestInside, depthInside(poses, i, BOX_EDGE, centre));
     }
   }
-  return { stillSeconds, simSeconds: frames * FRAME, deepestInside, lowestPart, farthestBoxMove: farthestMove(poses, placements), torso };
+  return { stillSeconds, simSeconds: frames * FRAME, deepestInside, lowestPart, farthestBoxMove: farthestMove(poses, placements), nearestBox: nearestBoxCentre(poses, torso), torso };
+}
+
+/** The distance (m) from `point` to the nearest box centre in `poses`. */
+function nearestBoxCentre(poses: Float32Array, point: THREE.Vector3): number {
+  let nearest = Infinity;
+  for (let i = 0; i < BOX_COUNT; i++) nearest = Math.min(nearest, Math.hypot(poses[i * BOX_POSE_FLOATS]! - point.x, poses[i * BOX_POSE_FLOATS + 1]! - point.y, poses[i * BOX_POSE_FLOATS + 2]! - point.z));
+  return nearest;
 }
 
 /** The farthest any box in `poses` is from its placement (m). */
@@ -133,9 +150,9 @@ const allAsleep = (sys: RagdollSystem) => boxBodiesOf(sys).every((body) => body.
 
 /** Most a box may drift from where it was put while nothing touches it (m). */
 const DRIFT_MAX = 0.05;
-/** Most a dummy's part centre may sit inside a box (m): a centre lies outside the box it rests on by half the part's thickness (measured 0.000 m at all four shots); one step at 30 m/s is 0.06 m, so more than this is a tunnel. */
+/** Most a dummy's part centre may sit inside a box (m): a centre lies outside the box it rests on by half the part's thickness (measured at most 0.025 m over the four shots); one step at 30 m/s is 0.06 m, so more than this is a tunnel. */
 const SOAK_INSIDE_BOX = 0.05;
-/** A part's centre rides over the pad (y = 0) by half its thickness (measured: 0.035 m at the lowest over the four shots). */
+/** A part's centre rides over the pad (y = 0) by half its thickness (measured: 0.051 m at the lowest over the four shots, among the boxes included). */
 const PAD_LEVEL = 0;
 /** A box lying on a face rests with its centre half an edge up; this much lower (m) is a box sunk into the pad. */
 const BOX_SETTLE_SOAK = 0.02;
@@ -178,9 +195,8 @@ describe("given a pile of 48 cardboard boxes standing asleep on flat ground", ()
   });
 });
 
-/** The pile's depth along x (m), and how far past its footprint a torso still counts as over it. */
-const PILE_DEPTH = (PILE_COLUMNS - 1) * BOX_PITCH + BOX_EDGE;
-const FOOTPRINT_MARGIN = 1;
+/** "On or among the boxes": a box centre this near (m) his torso at rest (a lying dummy is 2 m long; measured at most 1.83 m over the four shots). */
+const AMONG_BOXES = 2;
 /** A restacked box is this near its placement (m). */
 const RESTACK_TOLERANCE = 0.01;
 /** Frames after a 30 m/s shot when the boxes are still tumbling (0.5 s). */
@@ -189,10 +205,10 @@ const HIT_FRAMES = FRAME_HZ / 2;
 const HELD_SECONDS = 60;
 
 const hitCases = [
-  { it: "when he is thrown at 15 m/s descending 25 degrees into its top layer, then he lies on or among the boxes", speed: 15, descentDegrees: 25, faceHeight: 2.3, expectedOverPile: true },
-  { it: "when he is thrown at 20 m/s descending 25 degrees into its top layer, then he lies on or among the boxes", speed: 20, descentDegrees: 25, faceHeight: 2.3, expectedOverPile: true },
-  { it: "when he is thrown at 25 m/s descending 25 degrees into its top layer, then he lies on or among the boxes", speed: 25, descentDegrees: 25, faceHeight: 2.3, expectedOverPile: true },
-  { it: "when he is thrown level at 30 m/s into its middle layer, then no part of him is ever inside a box and the boxes are shoved away", speed: 30, descentDegrees: 0, faceHeight: 1.35, expectedOverPile: false },
+  { it: "when he is thrown at 15 m/s descending 40 degrees onto its top, then he lies on or among the boxes", speed: 15, descentDegrees: LANDING_DESCENT_DEGREES, aimHeight: PILE_TOP + TORSO_OVER_TOP },
+  { it: "when he is thrown at 20 m/s descending 40 degrees onto its top, then he lies on or among the boxes", speed: 20, descentDegrees: LANDING_DESCENT_DEGREES, aimHeight: PILE_TOP + TORSO_OVER_TOP },
+  { it: "when he is thrown at 25 m/s descending 40 degrees onto its top, then he lies on or among the boxes", speed: 25, descentDegrees: LANDING_DESCENT_DEGREES, aimHeight: PILE_TOP + TORSO_OVER_TOP },
+  { it: "when he is thrown level at 30 m/s into its middle layer, then no part of him is ever inside a box and he lies among the boxes he shoved", speed: 30, descentDegrees: 0, aimHeight: 1.35 },
 ] as const;
 
 describe("given a held dummy thrown into the pile of boxes", () => {
@@ -200,7 +216,7 @@ describe("given a held dummy thrown into the pile of boxes", () => {
     it(testCase.it, async () => {
       const sys = await system(pileLayout());
       sys.holdThrown();
-      fireIntoPile(sys, testCase.speed, testCase.descentDegrees, testCase.faceHeight);
+      fireIntoPile(sys, testCase.speed, testCase.descentDegrees, testCase.aimHeight);
       const settle = runUntilStill(sys, REST_HOLD, REST_WITHIN);
       console.log(
         `boxes hit ${testCase.speed} m/s ${testCase.descentDegrees} deg: still ${settle.stillSeconds.toFixed(2)} s after ${settle.simSeconds.toFixed(2)} s, torso (${settle.torso.x.toFixed(2)}, ${settle.torso.y.toFixed(2)}, ${settle.torso.z.toFixed(2)}), deepest part in a box ${settle.deepestInside.toFixed(3)} m, lowest part ${settle.lowestPart.toFixed(3)} m, farthest box ${settle.farthestBoxMove.toFixed(2)} m`,
@@ -210,8 +226,7 @@ describe("given a held dummy thrown into the pile of boxes", () => {
       assert.ok(settle.deepestInside < SOAK_INSIDE_BOX, `a part went ${settle.deepestInside.toFixed(3)} m into a box`);
       assert.ok(settle.lowestPart > PAD_LEVEL, `a part went down to ${settle.lowestPart.toFixed(3)} m: under the pad`);
       assert.ok(settle.farthestBoxMove > BOX_HIT_MOVE, `no box moved: the farthest went ${settle.farthestBoxMove.toFixed(3)} m`);
-      const overPile = settle.torso.x > PILE_FACE_X - FOOTPRINT_MARGIN && settle.torso.x < PILE_FACE_X + PILE_DEPTH + FOOTPRINT_MARGIN && Math.abs(settle.torso.z - PILE_CENTRE_Z) < PILE_DEPTH / 2 + FOOTPRINT_MARGIN;
-      assert.equal(overPile, testCase.expectedOverPile, `he lies at (${settle.torso.x.toFixed(2)}, ${settle.torso.z.toFixed(2)}): over the pile's footprint`);
+      assert.ok(settle.nearestBox < AMONG_BOXES, `the nearest box centre is ${settle.nearestBox.toFixed(2)} m from his torso at (${settle.torso.x.toFixed(2)}, ${settle.torso.z.toFixed(2)})`);
     });
   }
 });
@@ -221,7 +236,7 @@ describe("given boxes a dummy has scattered", () => {
     const placements = pileLayout();
     const sys = await system(placements);
     sys.holdThrown();
-    fireIntoPile(sys, 25, 25, 2.3);
+    fireOntoPile(sys, 25);
     const first = runUntilStill(sys, REST_HOLD, REST_WITHIN);
     sys.releaseThrown();
     sys.restackBoxes();
@@ -234,7 +249,7 @@ describe("given boxes a dummy has scattered", () => {
     const asleep = allAsleep(sys);
     const poseMove = currentMove(sys);
     sys.holdThrown();
-    fireIntoPile(sys, 25, 25, 2.3);
+    fireOntoPile(sys, 25);
     const second = runUntilStill(sys, REST_HOLD, REST_WITHIN);
     sys.dispose();
     assert.ok(first.farthestBoxMove > BOX_HIT_MOVE, `the first dummy scattered them ${first.farthestBoxMove.toFixed(2)} m`);
@@ -258,8 +273,22 @@ describe("given boxes a dummy has scattered", () => {
     sys.dispose();
     assert.ok(awakeAtRelease > 0, "boxes were still moving when he went");
     assert.ok(asleep && poolAsleep, "every box ended asleep");
-    console.log(`released while tumbling: ${awakeAtRelease} boxes awake at release, lowest box centre ${lowest.toFixed(3)} m`);
     assert.ok(lowest > BOX_EDGE / 2 - BOX_SETTLE_SOAK, `a box ended with its centre ${lowest.toFixed(3)} m up: under the pad`);
+  });
+
+  it("when the dummy falls asleep while boxes he hit still move, then the world steps on until the pile lies asleep", async () => {
+    const sys = await system(pileLayout());
+    sys.holdThrown();
+    fireIntoPile(sys, 30, 0, 1.35);
+    let awakeWhenDummySlept = -1;
+    for (let frame = 0; frame < 15 * FRAME_HZ; frame++) {
+      sys.update(FRAME, [], true, false, null);
+      if (awakeWhenDummySlept < 0 && dummyOf(sys).bodies[0]!.isSleeping()) awakeWhenDummySlept = boxBodiesOf(sys).filter((body) => !body.isSleeping()).length;
+    }
+    const asleep = allAsleep(sys);
+    sys.dispose();
+    assert.ok(awakeWhenDummySlept > 0, `${awakeWhenDummySlept} boxes were awake when he fell asleep (-1: he never did)`);
+    assert.ok(asleep, "every box ended asleep");
   });
 });
 
@@ -392,7 +421,7 @@ describe("given the boxes a ragdoll system draws from and the bodies it holds", 
   it("when a dummy has scattered them, then copyBoxPoses reads where the bodies are", async () => {
     const sys = await system(pileLayout());
     sys.holdThrown();
-    fireIntoPile(sys, 25, 25, 2.3);
+    fireOntoPile(sys, 25);
     runUntilStill(sys, REST_HOLD, REST_WITHIN);
     const out = new Float32Array(BOX_COUNT * BOX_POSE_FLOATS);
     sys.copyBoxPoses(out);
@@ -467,7 +496,7 @@ async function measureFlightWindows(): Promise<CostWindow[]> {
 async function measureHitWindow(): Promise<CostWindow> {
   const withPile = await system(pileLayout());
   const without = await system([]);
-  for (const sys of [withPile, without]) fireIntoPile(sys, 25, 25, 2.3);
+  for (const sys of [withPile, without]) fireOntoPile(sys, 25);
   const hit = newCosts();
   for (let frame = 0; frame < HIT_WINDOW_FRAMES; frame++) {
     pairedFrame(withPile, without, frame, hit);

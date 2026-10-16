@@ -14,7 +14,7 @@ export const BOX_POSE_FLOATS = 7;
  * board) is 2.7 kg, 3.7 kg/m³; the stunt-crew boxes the dummy lands among are stuffed with crumpled paper to about 11 kg, 15 kg/m³.
  */
 const CARDBOARD_DENSITY = 15;
-/** Box against box, and against ground that does not override it (Average rule): the grip of cardboard on cardboard. */
+/** Cardboard's grip; its Max rule holds it against the dummy's own Min-rule 0.12 (`SLIDE`), without which 15-25 m/s landings skated 4-8 m past the pile (measured). */
 const CARDBOARD_FRICTION = 0.6;
 /** A carton hardly bounces. */
 const CARDBOARD_RESTITUTION = 0.05;
@@ -124,6 +124,7 @@ export class BoxPile {
       R.ColliderDesc.cuboid(placement.width / 2, placement.height / 2, placement.depth / 2)
         .setDensity(CARDBOARD_DENSITY)
         .setFriction(CARDBOARD_FRICTION)
+        .setFrictionCombineRule(R.CoefficientCombineRule.Max)
         .setRestitution(CARDBOARD_RESTITUTION)
         .setCollisionGroups(knockedGroups(-1)),
       body,
