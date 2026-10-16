@@ -55,7 +55,7 @@ Each row links the document that covers the system; [`docs/ARCHITECTURE.md`](doc
 | Doors | A rig that rams an open or shut door and mirror from the side. | [`DOOR_RIG`](docs/DOOR_RIG.md) |
 | Corkscrew | A ramp that launches a car into a spin. | [`CONTROLS`](docs/CONTROLS.md) |
 | Stack | Cars dropped onto a column, crushed from the top. | [`LOAD_CRUSH`](docs/LOAD_CRUSH.md) |
-| Range | FlatOut's driver-flinging event: a car hits a jersey barrier at 100 km/h and its driver flies into a sand field marked every 10 m. | [`CINEMATIC`](docs/CINEMATIC.md) |
+| Range | FlatOut's driver-flinging event: a car hits a jersey barrier at 100 km/h and its driver flies into a sand field marked every 10 m. | [`CINEMATIC`](docs/CINEMATIC.md), [`MINIGAMES`](docs/MINIGAMES.md) |
 | Lab | A workbench where you flick a toy car at a house of cards made of cars and a wall of props. | [`PERF_BENCH`](docs/PERF_BENCH.md) |
 | Multiplayer | Host or join a room by code, or press Play online for the best open public race. Host-authoritative over WebRTC data channels, up to 8 players; a lobby on Havana; proximity voice. | [`MULTIPLAYER`](docs/MULTIPLAYER.md) |
 
