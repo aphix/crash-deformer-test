@@ -15,11 +15,18 @@ export const NO_RELEASE_SCALE: ReleaseScale = { forward: 1, upward: 1 };
 /** Floats per box in `BoxPile.copyPoses`: position xyz, then rotation xyzw. */
 export const BOX_POSE_FLOATS = 7;
 /**
- * A carton's mass per volume (kg/m³): single-wall board is about 0.55 kg per m² of face, so an empty 0.9 m cube (4.86 m² of
- * board) is 2.7 kg, 3.7 kg/m³; the stunt-crew boxes the dummy lands among are stuffed with crumpled paper to about 11 kg, 15 kg/m³.
+ * Mass of the board per m² of a carton's surface (kg): single-wall corrugated board is about 0.55 kg/m², and an empty carton is its
+ * six faces only, so a 2.1 m cube is 14.6 kg and a 0.9 m one 2.7 kg. A mass per volume instead (15 kg/m³ was the first try) made a
+ * 2.6 m box 264 kg: the dummy's 60 m/s landings then moved no box (0.01 m) where this lets them shove boxes several metres.
  */
-const CARDBOARD_DENSITY = 15;
-/** Cardboard's grip; its Max rule holds it against the dummy's own Min-rule 0.12 (`SLIDE`), without which 15-25 m/s landings skated 4-8 m past the pile (measured). */
+const CARDBOARD_KG_PER_SQUARE_METRE = 0.55;
+/**
+ * Air drag on a carton as a damping (per s) at a shove's typical 10 m/s: half the air's 1.2 kg/m³ times a cube's drag coefficient (about
+ * 1) times 10 m/s times its frontal area per kg (a face's L² over six faces' 0.55 kg/m², 0.3 m²/kg) is 1.9 per s. Light board is mostly
+ * drag: its fall speed is under 6 m/s, and without any (the dummy's 0.05 per s) a shoved box slid 40 m (measured).
+ */
+const CARDBOARD_DAMPING = 1.9;
+/** Cardboard's grip; its Max rule holds it against the dummy's own Min-rule 0.12 (`SLIDE`), without which a dummy skated over the stacks and 10 of 15 drops moved no box (measured). */
 const CARDBOARD_FRICTION = 0.6;
 /** A carton hardly bounces. */
 const CARDBOARD_RESTITUTION = 0.05;
@@ -124,10 +131,12 @@ export class BoxPile {
   private create(placement: BoxPlacement): RigidBody {
     const R = this.R!;
     const world = this.world!;
-    const body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(placement.x, placement.y, placement.z).setRotation(turned(placement)).setSleeping(true));
+    const body = world.createRigidBody(
+      R.RigidBodyDesc.dynamic().setTranslation(placement.x, placement.y, placement.z).setRotation(turned(placement)).setLinearDamping(CARDBOARD_DAMPING).setAngularDamping(CARDBOARD_DAMPING).setSleeping(true),
+    );
     world.createCollider(
       R.ColliderDesc.cuboid(placement.width / 2, placement.height / 2, placement.depth / 2)
-        .setDensity(CARDBOARD_DENSITY)
+        .setDensity(cartonDensity(placement))
         .setFriction(CARDBOARD_FRICTION)
         .setFrictionCombineRule(R.CoefficientCombineRule.Max)
         .setRestitution(CARDBOARD_RESTITUTION)
@@ -146,6 +155,13 @@ export class BoxPile {
     this.seenAsleep.fill(1);
     this.awake = 0;
   }
+}
+
+/** A hollow carton's density (kg/m³): the board's mass over the box's volume, so the body weighs `CARDBOARD_KG_PER_SQUARE_METRE` per m² of its faces. */
+function cartonDensity(placement: BoxPlacement): number {
+  const { width, height, depth } = placement;
+  const surface = 2 * (width * height + width * depth + height * depth);
+  return (CARDBOARD_KG_PER_SQUARE_METRE * surface) / (width * height * depth);
 }
 
 function turned(placement: BoxPlacement): { x: number; y: number; z: number; w: number } {
