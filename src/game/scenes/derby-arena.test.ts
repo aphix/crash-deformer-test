@@ -277,14 +277,14 @@ describe("derby arena glass", () => {
   });
 
   const glassCases = [
-    { field: "transparent", read: () => standardMaterialOf(glass).transparent, expected: true },
-    { field: "depthWrite", read: () => standardMaterialOf(glass).depthWrite, expected: false },
-    { field: "side", read: () => standardMaterialOf(glass).side, expected: THREE.DoubleSide },
-    { field: "castShadow", read: () => glass.castShadow, expected: false },
-    { field: "receiveShadow", read: () => glass.receiveShadow, expected: false },
+    { field: "transparent", read: () => standardMaterialOf(glass).transparent, expected: true, then: "it blends over the scene" },
+    { field: "depthWrite", read: () => standardMaterialOf(glass).depthWrite, expected: false, then: "it writes no depth" },
+    { field: "side", read: () => standardMaterialOf(glass).side, expected: THREE.FrontSide, then: "only its front faces draw" },
+    { field: "castShadow", read: () => glass.castShadow, expected: false, then: "it casts no shadow" },
+    { field: "receiveShadow", read: () => glass.receiveShadow, expected: false, then: "it receives no shadow" },
   ];
-  for (const { field, read, expected } of glassCases) {
-    it(`given the glass draw, when its ${field} is read, then it is ${expected}`, () => {
+  for (const { field, read, expected, then } of glassCases) {
+    it(`given the glass draw, when its ${field} is read, then ${then}`, () => {
       assert.equal(read(), expected);
     });
   }
@@ -294,15 +294,15 @@ describe("derby arena materials", () => {
   const floorMap = standardMaterialOf(meshNamed("derby-floor")).map;
   const deckMaterial = standardMaterialOf(meshNamed("derby-ramp-decks"));
   const mapCases = [
-    { name: "floor map width", read: () => floorMap?.image.width, expected: DIRT_TEXTURE_SIZE },
-    { name: "floor map height", read: () => floorMap?.image.height, expected: DIRT_TEXTURE_SIZE },
-    { name: "floor map horizontal wrap", read: () => floorMap?.wrapS, expected: THREE.ClampToEdgeWrapping },
-    { name: "ramp deck map horizontal wrap", read: () => deckMaterial.map?.wrapS, expected: THREE.RepeatWrapping },
-    { name: "ramp deck map vertical wrap", read: () => deckMaterial.map?.wrapT, expected: THREE.RepeatWrapping },
-    { name: "ramp deck depth write", read: () => deckMaterial.depthWrite, expected: false },
+    { name: "floor map width", read: () => floorMap?.image.width, expected: DIRT_TEXTURE_SIZE, then: "it is one 1024 texel square" },
+    { name: "floor map height", read: () => floorMap?.image.height, expected: DIRT_TEXTURE_SIZE, then: "it is one 1024 texel square" },
+    { name: "floor map horizontal wrap", read: () => floorMap?.wrapS, expected: THREE.ClampToEdgeWrapping, then: "it clamps: one map covers the arena, no tiling" },
+    { name: "ramp deck map horizontal wrap", read: () => deckMaterial.map?.wrapS, expected: THREE.RepeatWrapping, then: "the planks repeat" },
+    { name: "ramp deck map vertical wrap", read: () => deckMaterial.map?.wrapT, expected: THREE.RepeatWrapping, then: "the planks repeat" },
+    { name: "ramp deck depth write", read: () => deckMaterial.depthWrite, expected: false, then: "it writes no depth (a decal over the floor)" },
   ];
-  for (const { name, read, expected } of mapCases) {
-    it(`given the drawn arena, when the ${name} is read, then it is ${expected}`, () => {
+  for (const { name, read, expected, then } of mapCases) {
+    it(`given the drawn arena, when the ${name} is read, then ${then}`, () => {
       assert.equal(read(), expected);
     });
   }

@@ -37,6 +37,8 @@ const SCRAP_HEIGHT_TOLERANCE = 1e-3;
 const PLANK_TILE_METRES = 1;
 const DECK_ROUGHNESS = 0.9;
 const DECK_METALNESS = 0.02;
+/** Timber tint over the plank texture: the decks read a shade darker and redder than the tan dirt they lie on. */
+const DECK_TINT = 0xc8a27a;
 
 /** The plain past the wall: dark dirt from just under the wall's foot out to `OUTER_RADIUS` (m), a hair under the floor. */
 const OUTER_INNER_OVERLAP = 0.5;
@@ -231,7 +233,7 @@ function makeDeckGeometry(ground: DerbyGround): THREE.BufferGeometry {
 }
 
 function makeRampDecks(ground: DerbyGround): THREE.Mesh {
-  const material = new THREE.MeshStandardMaterial({ map: makePlankTexture(), roughness: DECK_ROUGHNESS, metalness: DECK_METALNESS });
+  const material = new THREE.MeshStandardMaterial({ map: makePlankTexture(), color: DECK_TINT, roughness: DECK_ROUGHNESS, metalness: DECK_METALNESS });
   const decks = groundMesh(makeDeckGeometry(ground), material, "decal");
   decks.name = "derby-ramp-decks";
   decks.receiveShadow = true;
@@ -333,7 +335,8 @@ function makeGlass(): THREE.InstancedMesh {
   const material = new THREE.MeshStandardMaterial({
     map: makeGlassTexture(),
     transparent: true,
-    side: THREE.DoubleSide,
+    // Front faces only: blending a closed box's back face over its front mirrors the reflection streak into an X lattice.
+    side: THREE.FrontSide,
     depthWrite: false,
     roughness: GLASS_ROUGHNESS,
     metalness: GLASS_METALNESS,
