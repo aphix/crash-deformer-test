@@ -2,10 +2,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { PR_BASE, PR_HX, PR_HZ, PR_TOP, PR_X, PR_YAW, PR_Z } from "../world/prism.ts";
+import type { Plateau } from "../world/terrain.ts";
 import { P_STRIDE, PRISM, Q_KIND, Q_STRIDE } from "../world/surfaces.ts";
 import { DERBY_ARENA } from "./constants.ts";
 import { makeDerbyArena } from "./derby-arena.ts";
-import { DERBY_BOXES, DERBY_PROP, DERBY_RAMPS, DERBY_TABLE_TOP, DerbyGround } from "./derby-ground.ts";
+import { DERBY_BOXES, DERBY_PLATEAUS, DERBY_PROP, DERBY_RAMPS, DERBY_TABLE_TOP, DerbyGround } from "./derby-ground.ts";
 
 /** Metres (and radians) two drawn numbers may differ by and still be one: the instance matrices are Float32. */
 const TOLERANCE = 1e-4;
@@ -237,11 +238,14 @@ describe("derby arena floor colour", () => {
 
 /** The level floor compared with: vertices at height 0 this near (m) the middle, clear of every rise and prop. */
 const LEVEL_FLOOR_REACH = 8;
-/** The table-top's mid slope: this far (m, from to) past the flat top's far edge, across the top's width (it falls 2.2 m over 8.5 m, so it is about half height here). */
-const SLOPE_FROM = 2;
-const SLOPE_TO = 7;
+/** The pit plateau is the one rise 1 m high (`DERBY_PLATEAUS`). */
+const PIT_HEIGHT = 1;
+/** Shares of a rise's height: its top is from the first, its mid slope between the next two, its foot under the last. */
+const TOP_FROM_SHARE = 0.98;
+const MID_SLOPE_SHARES = [0.4, 0.6] as const;
+const FOOT_UNDER_SHARE = 0.1;
 
-describe("derby arena plateau colour", () => {
+describe("derby arena rise colour", () => {
   const floor = meshNamed("derby-floor");
   const positions = floor.geometry.getAttribute("position");
   const colours = floor.geometry.getAttribute("color");
@@ -256,17 +260,27 @@ describe("derby arena plateau colour", () => {
     assert.ok(count > 0, "some vertices were compared");
     return total / count;
   };
-  const withinHalfWidth = (vertex: number) => Math.abs(positions.getX(vertex) - DERBY_TABLE_TOP.x) <= DERBY_TABLE_TOP.halfX;
-  const beyondTop = (vertex: number) => positions.getZ(vertex) - DERBY_TABLE_TOP.z - DERBY_TABLE_TOP.halfZ;
   const level = (vertex: number) => positions.getY(vertex) === 0 && Math.hypot(positions.getX(vertex), positions.getZ(vertex)) <= LEVEL_FLOOR_REACH;
-  const plateauCases = [
-    { name: "flat top", select: (vertex: number) => withinHalfWidth(vertex) && beyondTop(vertex) <= 0 && beyondTop(vertex) >= -2 * DERBY_TABLE_TOP.halfZ, least: 1.2, most: Infinity },
-    { name: "mid slope", select: (vertex: number) => withinHalfWidth(vertex) && beyondTop(vertex) >= SLOPE_FROM && beyondTop(vertex) <= SLOPE_TO, least: 0, most: 0.9 },
+  const onRise = (rise: Plateau, vertex: number) => {
+    const reachX = rise.halfX + rise.run[0] + rise.round;
+    const reachZ = rise.halfZ + rise.run[2] + rise.round;
+    return Math.abs(positions.getX(vertex) - rise.x) <= reachX && Math.abs(positions.getZ(vertex) - rise.z) <= reachZ;
+  };
+  const shareBetween = (rise: Plateau, vertex: number, from: number, to: number) => onRise(rise, vertex) && positions.getY(vertex) / rise.height >= from && positions.getY(vertex) / rise.height <= to;
+  const pit = DERBY_PLATEAUS.find((plateau) => plateau.height === PIT_HEIGHT);
+  assert.ok(pit, "the arena has a pit plateau");
+  const riseCases = [
+    { name: "table-top's flat top", rise: DERBY_TABLE_TOP, from: TOP_FROM_SHARE, to: 1, least: 1.5, most: Infinity },
+    { name: "pit plateau's flat top", rise: pit, from: TOP_FROM_SHARE, to: 1, least: 1.5, most: Infinity },
+    { name: "table-top's mid slope", rise: DERBY_TABLE_TOP, from: MID_SLOPE_SHARES[0], to: MID_SLOPE_SHARES[1], least: 0, most: 0.9 },
+    { name: "pit plateau's mid slope", rise: pit, from: MID_SLOPE_SHARES[0], to: MID_SLOPE_SHARES[1], least: 0, most: 0.9 },
+    { name: "table-top's foot", rise: DERBY_TABLE_TOP, from: 0.001, to: FOOT_UNDER_SHARE, least: 0, most: 0.8 },
+    { name: "pit plateau's foot", rise: pit, from: 0.001, to: FOOT_UNDER_SHARE, least: 0, most: 0.8 },
   ];
 
-  for (const { name, select, least, most } of plateauCases) {
-    it(`given the drawn floor, when the table-top's ${name} is compared with the level floor, then its mean red is ${least} to ${most} times the floor's`, () => {
-      const ratio = meanRed(select) / meanRed(level);
+  for (const { name, rise, from, to, least, most } of riseCases) {
+    it(`given the drawn floor, when the ${name} is compared with the level floor, then its mean red is ${least} to ${most} times the floor's`, () => {
+      const ratio = meanRed((vertex) => shareBetween(rise, vertex, from, to)) / meanRed(level);
       assert.ok(ratio >= least, `${name} ratio ${ratio} under ${least}`);
       assert.ok(ratio <= most, `${name} ratio ${ratio} over ${most}`);
     });

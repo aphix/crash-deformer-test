@@ -25,11 +25,17 @@ const FLOOR_MARGIN = 1;
 const FLOOR_DIRT_COLOUR = 0xa88358;
 /** The scrap hump's damp earth: the dirt tan darkened to well under half in linear light, not the near-black it was (a hard black blob in the bowl). */
 const FLOOR_SCRAP_COLOUR = 0x6b5a45;
-/** The bare rises (table-top, pit, scrap) read paler with height, up to this share over the flat floor at the table-top's height: dry dust on a packed top. */
-const RISE_LIGHTEN = 0.5;
-/** Their slopes read darker with grade, up to this share at the table-top's grade (its height over its run): so a plateau's footing shows from above. */
-const SLOPE_DARKEN = 0.35;
+/** The flat top of every rise: pale packed concrete-tan, the surface a car grips, clearly lighter than the dirt it stands on (no track marks are meant on it). */
+const RISE_TOP_COLOUR = 0xd9c29a;
+/** A node is on a rise's top from this share of the rise's height (crisp edge: the share runs from `RISE_TOP_FROM` to `RISE_TOP_TO`). */
+const RISE_TOP_FROM = 0.9;
+const RISE_TOP_TO = 0.98;
+/** The slope faces read darker with grade, up to this share at the table-top's grade (its height over its run). */
+const SLOPE_DARKEN = 0.3;
 const TABLE_GRADE = DERBY_TABLE_TOP.height / DERBY_TABLE_TOP.run[0];
+/** The foot outline: nodes that are lifted by under this share of their rise's height are darkened by up to `FOOT_DARKEN`, so the rise's footing is a line round it. */
+const FOOT_SHARE = 0.12;
+const FOOT_DARKEN = 0.3;
 /** Spread of the per-vertex tint: a vertex colour is its base times 1 ± half of this. */
 const FLOOR_TINT_RANGE = 0.16;
 const FLOOR_SEED = 20240611;
@@ -72,7 +78,8 @@ const WHITE = 0xffffff;
 const WALL_COLOURS = [WHITE] as const;
 /** Blue, red and rusted containers: one berm of four shows each in turn, the rusted one among them. */
 const CONTAINER_COLOURS = [0x2f4f7a, 0x8a3a2a, 0x7b4a2d] as const;
-const RAIL_COLOURS = [0xb0aca4] as const;
+/** Warm pale concrete: the K-rails stand out of the tan dirt and the grey wall. */
+const RAIL_COLOURS = [0xe6d6aa] as const;
 const PAD_COLOURS = [WHITE] as const;
 const TYRE_COLOURS = [WHITE] as const;
 const PROP_ROUGHNESS = 0.85;
@@ -115,6 +122,15 @@ const TOWER_LAMP_GLOW = 0xffe2b0;
 /** Emissive intensity of a lamp head (unitless multiplier). */
 const TOWER_LAMP_INTENSITY = 1.5;
 
+/** The rises that are plain mounds, the table-top and the pit (the ramps wear their timber decks; the scrap hump keeps its own look). */
+const RISES = DERBY_PLATEAUS.filter((plateau) => plateau.height !== SCRAP_HEIGHT && !DERBY_RAMPS.some((ramp) => ramp.plateau === plateau));
+
+/** How far up its rise a node stands (0 at the foot, 1 on the top), or null when it is on none of the rises' footprints. */
+function riseShareAt(x: number, z: number, height: number): number | null {
+  const rise = RISES.find((plateau) => x >= plateau.x - plateau.halfX - plateau.run[0] - plateau.round && x <= plateau.x + plateau.halfX + plateau.run[1] + plateau.round && z >= plateau.z - plateau.halfZ - plateau.run[2] - plateau.round && z <= plateau.z + plateau.halfZ + plateau.run[3] + plateau.round);
+  return rise ? height / rise.height : null;
+}
+
 /** The grade (rise per m) of the baked grid at a node: the central difference of its neighbours' heights, edges clamped. */
 function gradeAt(ground: DerbyGround, nodesPerSide: number, column: number, row: number): number {
   const heightAt = (nodeColumn: number, nodeRow: number): number => {
@@ -132,6 +148,7 @@ function makeFloorGeometry(ground: DerbyGround): THREE.BufferGeometry {
   const dirt = new THREE.Color(FLOOR_DIRT_COLOUR);
   const scrap = new THREE.Color(FLOOR_SCRAP_COLOUR);
   const base = new THREE.Color();
+  const riseTop = new THREE.Color(RISE_TOP_COLOUR);
   const scrapHumps = DERBY_PLATEAUS.filter((plateau) => plateau.height === SCRAP_HEIGHT);
   const random = makeSeededRandom(FLOOR_SEED);
   const vertexOfNode = new Int32Array(ground.heights.length).fill(-1);
@@ -152,8 +169,15 @@ function makeFloorGeometry(ground: DerbyGround): THREE.BufferGeometry {
     const x = column - DERBY_ARENA.gridHalf;
     const z = row - DERBY_ARENA.gridHalf;
     const height = ground.heights[node]!;
-    base.copy(dirt).lerp(scrap, isScrap(x, z, height) ? Math.min(height / SCRAP_HEIGHT, 1) : 0);
-    base.multiplyScalar((1 + RISE_LIGHTEN * Math.min(height / DERBY_TABLE_TOP.height, 1)) * (1 - SLOPE_DARKEN * Math.min(gradeAt(ground, nodesPerSide, column, row) / TABLE_GRADE, 1)));
+    const scrapWeight = isScrap(x, z, height) ? Math.min(height / SCRAP_HEIGHT, 1) : 0;
+    base.copy(dirt).lerp(scrap, scrapWeight);
+    const share = riseShareAt(x, z, height);
+    if (share !== null && scrapWeight === 0) {
+      const topness = THREE.MathUtils.smoothstep(share, RISE_TOP_FROM, RISE_TOP_TO);
+      const slopeness = (1 - topness) * Math.min(gradeAt(ground, nodesPerSide, column, row) / TABLE_GRADE, 1);
+      const footness = share > 0 ? 1 - THREE.MathUtils.smoothstep(share, 0, FOOT_SHARE) : 0;
+      base.lerp(riseTop, topness).multiplyScalar(1 - SLOPE_DARKEN * slopeness - FOOT_DARKEN * footness);
+    }
     const tint = 1 + (random() - 0.5) * FLOOR_TINT_RANGE;
     const vertex = positions.length / 3;
     positions.push(x, height, z);
