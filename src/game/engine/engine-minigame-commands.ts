@@ -2,7 +2,6 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { layOnGround } from "../vehicle/car-air-points.ts";
 import type { MinigameMode } from "../scenes/minigame-constants.ts";
 import { EngineDerby } from "./engine-derby.ts";
-import { MODE_LENS_DEGREES } from "./engine-minigame.ts";
 
 /**
  * The Range's minigame commands: what the HUD's pick, Retry, Reset run, the set-length stepper and Exit ask of the engine, and the
@@ -13,7 +12,6 @@ export abstract class EngineMinigames extends EngineDerby {
   startMinigame(mode: MinigameMode): void {
     if (!this.showRange || this.net.client) return;
     if (this.minigames.begin({ mode, carType: this.playerCar.id, scene: this.scene, cars: this.cars, ejection: this.ejection })) this.queueWarm();
-    this.view.setLens(MODE_LENS_DEGREES[mode] ?? null);
     this.tryUnlockAudio();
     this.restartMinigameAttempt();
   }
@@ -44,11 +42,10 @@ export abstract class EngineMinigames extends EngineDerby {
     this.restartMinigameAttempt();
   }
 
-  /** The minigame over (leaving the Range, or Exit): the dummy, boxes, art and the High jump's wide lens go. */
+  /** The minigame over (leaving the Range, or Exit): the dummy, boxes and art go. */
   protected endMinigames(): void {
     if (this.minigames.mode === null) return;
     this.minigames.end(this.ragdolls);
-    this.view.setLens(null);
   }
 
   /** The scene resets (the car to its start, the dummy and the boxes released and restacked, the camera back on the car) and the HUD follows. */
