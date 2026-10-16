@@ -125,6 +125,22 @@ for (const H of RATES) {
       });
     });
 
+    describe("given a sedan launched on asphalt with the boost lit", () => {
+      it("when it launches, then its wheels never spin and the body gains the boosted launch pull per second (the city AI lost a lap to a boost that spun against an unboosted cap)", () => {
+        const k = CLASSES.sedan;
+        const boosted = { ...FULL, boost: true };
+        let most = 0;
+        let first = Number.NaN;
+        drive("sedan", flat(SURFACE.asphalt), 0.3, H, boosted, (car) => {
+          most = Math.max(most, car.drive.spin);
+          if (Number.isNaN(first)) first = along(car) / H;
+        });
+        const launch = (k.launch[0] + (k.launch[1] - k.launch[0]) * HANDLING.realism) * k.boostAccel;
+        assert.equal(most, 0, `the boost launch spun at ${most.toFixed(2)}`);
+        assert.ok(Math.abs(first / launch - 1) < 0.01, `the first slice pulled ${first.toFixed(2)} against the boosted launch ${launch.toFixed(2)} m/s²`);
+      });
+    });
+
     describe("given the sedan launched flat out on grass at the arcade end", () => {
       it("when its wheels spin, then the body gains exactly the road's traction less the grass's rolling resistance per second, never the engine's pull", () => {
         HANDLING.realism = 0;

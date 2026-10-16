@@ -44,9 +44,9 @@ function hardMarks(track: Track): string[] {
  * traction cap and rolling resistance (the brain was not touched by it beyond planning with the surface's terminal).
  */
 const HARD_MARKS: Record<string, string[]> = {
-  oval: ["8fb26064", "302afb49", "abd58732", "92841856", "e8f6a97b", "fda268a7", "f26d6dc8", "a590baff", "af913771", "ea5221a6", "f1eabf64", "54ca3c3", "667e3bc8", "a7d0ed49", "c72b5336", "93a6cff5"],
-  rally: ["bc67c326", "ec0c586a", "7e310642", "2a4b13d2", "74ad060c", "62c11cc3", "41efd12", "c7bf5f55", "59173ecc", "109540e", "14342064", "a90660f9", "6edb8286", "706310e3", "7fb66e94", "bb27bb93"],
-  stunt: ["df4c4768", "fcfa854f", "8f11bb5a", "a90c48a8", "7a4065a0", "804ae828", "d65424fb", "e1d86419", "4b9ae89f", "62a27747", "715d842f", "bfbc3d9a", "ffc082b0", "16893bc3", "dd3a5764", "4ff1ac65"],
+  oval: ["ec2f121c", "56030a96", "f6911302", "1f83fbb7", "4869785a", "84e80a1c", "aa78ece7", "1f5965bb", "30380780", "b6586c18", "44c232cd", "e0782505", "8d982922", "88b96b99", "35d71f01", "e921a6a6"],
+  rally: ["1809820a", "8b85e42b", "9d41dae", "9a7e26fa", "7a3beaf9", "bc073643", "1c7f1449", "8ff3337c", "506790ce", "dcafbc2b", "2e300d80", "21cc3dae", "502ed0a9", "55f0469b", "44789c68", "dffe05a1"],
+  stunt: ["c3040009", "ff7676f9", "42fc2a1d", "9730904b", "e582ef7e", "12caf938", "8d736a8d", "4bc60ae6", "ff36880f", "341e4e22", "a2d523f9", "80d3ba99", "9c4ffe8d", "c36432f5", "55a94d8f", "c16d6b88"],
 };
 
 describe("given 8 clean AI cars (aggression 0) on the grid of the oval", () => {

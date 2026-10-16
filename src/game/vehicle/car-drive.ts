@@ -146,10 +146,13 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
   let want = 0;
   let lock = 0;
   // The road's traction (Uncharted 4 15:21–16:42: tyre μ × surface μ × load is the most the driven wheels pass forward; JC4 11:02–13:36, a friction
-  // clamp): the driven axles' grip under their load for the class's driveline, less the share of the wheels lost (`wheelLoss`).
-  const cap = tractionLimit(k, muF, muR, realism) * driveShare;
+  // clamp): the driven axles' grip under their load for the class's driveline, less the share of the wheels lost (`wheelLoss`). The boost lifts it
+  // with the pull: on dry asphalt the cap is the launch pull (`tractionLimit`), boosted the boosted launch, so a boost launch on asphalt grips as it
+  // always has and only a surface under 1 spins it.
+  const boosted = 1 + (k.boostAccel - 1) * boost;
+  const cap = tractionLimit(k, muF, muR, realism) * driveShare * boosted;
   // The engine the wheels see: damage, the wheels lost and the boost scale its pull; the handbrake takes from the push below.
-  const scale = dmg.power * driveShare * (1 + (k.boostAccel - 1) * boost);
+  const scale = dmg.power * driveShare * boosted;
   // The wheel spin: m/s the driven tread runs ahead of the body (0 gripping). The state is the excess, not the wheel speed, so what the world does
   // to the body between slices (a slope, a wall, a contact) never reads as spin.
   let over = io[14]!;
