@@ -37,10 +37,10 @@ export const CAPTURE_HALF_WIDTH = POST_HALF_SPAN + CAPTURE_MARGIN_BESIDE_POSTS;
 
 /** How many cardboard boxes the landing piles hold (the art's box pool is sized from this same number). */
 export const BOX_COUNT = 48;
-/** Smallest box edge (m): boxes are sized between this and `BOX_SIZE_MAX`. */
-export const BOX_SIZE_MIN = 0.8;
+/** Smallest box edge (m): boxes are sized between this and `BOX_SIZE_MAX`, about dummy-sized (a lying dummy is 2.0 x 0.6 m) so he reads as landing among boxes, not on crates beside 200 m posts. */
+export const BOX_SIZE_MIN = 1.6;
 /** Largest box edge (m): also sets `BOX_CELL_PITCH`, the room one stack needs. */
-export const BOX_SIZE_MAX = 1.4;
+export const BOX_SIZE_MAX = 2.6;
 /** The piles start this far (m) before the posts, and end this far past the measured landing, never nearer the net than `BOX_NET_CLEARANCE`. */
 export const BOX_PILE_LEAD = 3;
 export const BOX_PILE_TRAIL = 4;

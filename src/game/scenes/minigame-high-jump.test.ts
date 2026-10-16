@@ -188,6 +188,7 @@ describe("given the capture band beside the posts", () => {
 
 const LAYOUT_CASES = [
   { name: "a record-sized best case", measured: { crossingHeight: 230, landingDistance: 300 }, expectedFrameTop: 300, expectedBoardCount: 35, expectedMajorHeights: [0, 50, 100, 150, 200, 250], expectedNetHeight: 115 },
+  { name: "the sizing measurement's best run (156.4 m over the posts, landing 32.2 m)", measured: { crossingHeight: 156.4, landingDistance: 32.2 }, expectedFrameTop: 210, expectedBoardCount: 26, expectedMajorHeights: [0, 50, 100, 150, 200], expectedNetHeight: 78.2 },
   { name: "a best case in the coarse zone", measured: { crossingHeight: 157, landingDistance: 240 }, expectedFrameTop: 210, expectedBoardCount: 26, expectedMajorHeights: [0, 50, 100, 150, 200], expectedNetHeight: 78.5 },
   { name: "a best case whose headroom lands exactly on a board", measured: { crossingHeight: 100, landingDistance: 160 }, expectedFrameTop: 130, expectedBoardCount: 18, expectedMajorHeights: [0, 50, 100], expectedNetHeight: 50 },
   { name: "a best case whose headroom just passes the fine zone", measured: { crossingHeight: 38.5, landingDistance: 25 }, expectedFrameTop: 60, expectedBoardCount: 11, expectedMajorHeights: [0, 50], expectedNetHeight: 30 },
@@ -336,5 +337,30 @@ describe("given the layout's boards for a different lip height", () => {
       assert.equal(high.boards[index].heightAboveLip, low.boards[index].heightAboveLip, `board ${index} above the lip`);
       assert.equal(high.boards[index].y, low.boards[index].y + 4, `board ${index} above the pad`);
     }
+  });
+});
+
+/** The lying dummy's length (present/ragdoll-body.ts PARTS; scenes may not import present). */
+const DUMMY_LYING_LENGTH = 2.0;
+const SIZING_MEASURED: HighJumpMeasured = { crossingHeight: 156.4, landingDistance: 32.2 };
+const LAYERS_AT_SIZING_LANDING = 3;
+
+describe("given the sizing measurement's landing, where the piles are narrow", () => {
+  const boxes = highJumpLayout(SIZING_MEASURED, LIP_Y).boxes;
+
+  it("when the boxes are laid out, then every box has an edge about as long as the lying dummy, so he lands among boxes", () => {
+    for (const box of boxes) {
+      assert.ok(Math.max(box.width, box.height, box.depth) >= DUMMY_LYING_LENGTH * 0.8, `box ${box.width} x ${box.height} x ${box.depth} is dummy-sized`);
+    }
+  });
+
+  it("when the boxes are laid out, then 48 of them fit in stacks no higher than three boxes, on cells the largest box cannot spill out of", () => {
+    const stackTops = new Map<string, number>();
+    for (const box of boxes) {
+      const stackKey = `${Math.round(box.x / BOX_CELL_PITCH)}:${Math.round(box.z / BOX_CELL_PITCH)}`;
+      stackTops.set(stackKey, Math.max(stackTops.get(stackKey) ?? 0, box.y + box.height / 2));
+    }
+    assert.equal(boxes.length, BOX_COUNT, "box count");
+    assert.ok(Math.max(...stackTops.values()) <= LAYERS_AT_SIZING_LANDING * BOX_SIZE_MAX, `tallest stack ${Math.max(...stackTops.values())} m`);
   });
 });
