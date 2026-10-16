@@ -14,6 +14,8 @@ const FIBRE_COUNT = 48;
 const FIBRE_STRIDE = { x: 53, y: 97 } as const;
 const CORRUGATION_PITCH_PX = 8;
 const TAPE = { left: 114, width: 28 } as const;
+/** The texture covers this many metres of cardboard each way before it repeats. */
+const CARDBOARD_TILE_METRES = 1;
 
 /** Kraft board: fibre streaks and corrugation lines, a strip of tape down the middle, a few printed marks. */
 function paintCardboard(context: CanvasRenderingContext2D): void {
@@ -39,6 +41,28 @@ function paintCardboard(context: CanvasRenderingContext2D): void {
 }
 
 /**
+ * The unit cube's UVs span each face whatever its size, so a big box stretched the texture (tape strip and printed marks swollen with
+ * it). Each instance's own scale tells the vertex shader how many metres its face is: the texture repeats once per
+ * `CARDBOARD_TILE_METRES`, centred on the face (the tape runs down the middle of every face at any size).
+ */
+function tileTexturePerMetre(material: THREE.MeshStandardMaterial): void {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <uv_vertex>",
+      /* glsl */ `#include <uv_vertex>
+#ifdef USE_INSTANCING
+  vec3 boxMetres = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
+  vec3 faceAxis = abs(normal);
+  vec2 faceMetres = faceAxis.x > 0.5 ? boxMetres.zy : (faceAxis.y > 0.5 ? boxMetres.xz : boxMetres.xy);
+  vMapUv = (vMapUv - 0.5) * faceMetres / ${CARDBOARD_TILE_METRES.toFixed(4)} + 0.5;
+#endif`,
+    );
+  };
+  material.customProgramCacheKey = () => `cardboard-tiled-${CARDBOARD_TILE_METRES}`;
+  material.needsUpdate = true;
+}
+
+/**
  * The dynamic box piles, drawn: one `InstancedMesh` (one draw) of a unit cube with kraft-board texture, each instance scaled to its
  * box's size (`setLayout`) and posed from the 7 floats `RagdollSystem.copyBoxPoses` gives (position xyz, rotation xyzw) in `update`.
  * Poses are world coordinates, so the mesh stays at the world origin.
@@ -55,12 +79,9 @@ export class CardboardBoxes {
 
   constructor(capacity: number) {
     this.capacity = capacity;
-    this.mesh = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ map: canvasTexture(CARDBOARD_TEXTURE_PX, CARDBOARD_TEXTURE_PX, paintCardboard), roughness: 0.9 }),
-      capacity,
-    );
-    this.mesh.name = "cardboard-boxes";
+    const material = new THREE.MeshStandardMaterial({ map: canvasTexture(CARDBOARD_TEXTURE_PX, CARDBOARD_TEXTURE_PX, paintCardboard), roughness: 0.9 });
+    tileTexturePerMetre(material);
+    this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), material, capacity);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.count = 0;
     // Boxes tumble anywhere in the pile's lanes; the unit cube's own bounding sphere would cull the whole pile at the origin.
