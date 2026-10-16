@@ -1,9 +1,16 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { MINIGAME_MODES, MODE_LABELS, STATION_HALF_WIDTH } from "../scenes/minigame-constants.ts";
+import { MINIGAME_MODE, MINIGAME_MODES, MODE_LABELS, START_HILL, STATION_HALF_WIDTH, type MinigameMode } from "../scenes/minigame-constants.ts";
 import { floorHeightAt, lipHeight, stationBackX, stationFrontX } from "../scenes/minigame-profile.ts";
 import { makeStationSurface, STATION_SURFACE_STYLES, SURFACE_DRAW_CALL_BUDGET, SURFACE_STEP } from "./minigame-surface-art.ts";
+
+/** Centres of the grid's cells (grid from the lip) along the run, from the pad's end to the lip: where the lane carries its dashes, never the pad's bars. */
+function cellCentresPastThePad(mode: MinigameMode): number[] {
+  const firstCell = Math.ceil((stationBackX(mode) + START_HILL.padLength) / SURFACE_STEP);
+  const lastCell = Math.floor(Math.min(stationFrontX(mode), 0) / SURFACE_STEP);
+  return Array.from({ length: lastCell - firstCell }, (_, index) => (firstCell + index + 0.5) * SURFACE_STEP);
+}
 
 const HEIGHT_TOLERANCE = 0.001;
 const EXTENT_TOLERANCE = 0.001;
@@ -150,13 +157,13 @@ for (const mode of MINIGAME_MODES) {
 
 describe("given the High jump's red run-up strip with its dashed centre line", () => {
   const style = STATION_SURFACE_STYLES.highJump;
-  const triangles = paintedTriangles(makeStationSurface("highJump", style));
-  const runUpCellCentres = Array.from({ length: 160 }, (_, index) => -40 + (index + 0.5) * SURFACE_STEP);
+  const triangles = paintedTriangles(makeStationSurface(MINIGAME_MODE.highJump, style));
+  const runUpCellCentres = cellCentresPastThePad(MINIGAME_MODE.highJump);
 
   it("when the strip's middle is walked along the run-up, then dashes come and go as separate runs of the line's colour and the strip's", () => {
     const dashed = runUpCellCentres.map((x) => isColour(triangleAt(triangles, x, 0), style.centreDashColour!));
     const dashRuns = dashed.filter((isDash, index) => isDash && (index === 0 || !dashed[index - 1])).length;
-    assert.ok(dashRuns >= 2, `${dashRuns} dashes in 40 m`);
+    assert.ok(dashRuns >= 2, `${dashRuns} dashes along ${runUpCellCentres.length} cells`);
     assert.ok(dashed.includes(false), "gaps between the dashes");
     for (const x of runUpCellCentres) {
       const triangle = triangleAt(triangles, x, 0);
@@ -167,16 +174,16 @@ describe("given the High jump's red run-up strip with its dashed centre line", (
 
 describe("given each station's paint across the lane", () => {
   const cases = [
-    { it: "when a long jump dash is crossed, then the lane runs asphalt, white line, asphalt, white dash, asphalt, white line, asphalt", mode: "longJump", runsOfPaint: ["base", "line", "base", "line", "base", "line", "base"] },
-    { it: "when a high jump dash is crossed, then the strip runs red, white line, red, white dash, red, white line, red", mode: "highJump", runsOfPaint: ["base", "line", "base", "line", "base", "line", "base"] },
-    { it: "when the Ring Fling lane is crossed, then it runs dark, light line, dark, light line, dark with no dash", mode: "ringFling", runsOfPaint: ["base", "line", "base", "line", "base"] },
+    { it: "when a long jump dash is crossed, then the lane runs asphalt, white line, asphalt, white dash, asphalt, white line, asphalt", mode: MINIGAME_MODE.longJump, runsOfPaint: ["base", "line", "base", "line", "base", "line", "base"] },
+    { it: "when a high jump dash is crossed, then the strip runs red, white line, red, white dash, red, white line, red", mode: MINIGAME_MODE.highJump, runsOfPaint: ["base", "line", "base", "line", "base", "line", "base"] },
+    { it: "when the Ring Fling lane is crossed, then it runs dark, light line, dark, light line, dark with no dash", mode: MINIGAME_MODE.ringFling, runsOfPaint: ["base", "line", "base", "line", "base"] },
   ] as const;
   for (const testCase of cases) {
     it(testCase.it, () => {
       const style = STATION_SURFACE_STYLES[testCase.mode];
       const triangles = paintedTriangles(makeStationSurface(testCase.mode, style));
       const paints = { base: style.baseColour, line: style.edgeLineColour! };
-      const probeX = Array.from({ length: 480 }, (_, index) => -40 + (index + 0.5) * SURFACE_STEP).find((x) => style.centreDashColour === null || isColour(triangleAt(triangles, x, 0), style.centreDashColour));
+      const probeX = cellCentresPastThePad(testCase.mode).find((x) => style.centreDashColour === null || isColour(triangleAt(triangles, x, 0), style.centreDashColour));
       assert.ok(probeX !== undefined, "an x where the centre line is painted");
       const colourNames = coloursAcrossLane(triangles, probeX, style.laneHalfWidth, Object.values(paints)).map((hex) => Object.entries(paints).find(([, painted]) => painted === hex)?.[0] ?? "unknown");
       assert.equal(colourNames.join(","), testCase.runsOfPaint.join(","), "paint runs across the lane");
