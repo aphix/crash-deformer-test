@@ -37,6 +37,7 @@ import type { PersonPick } from "../match/look-data.ts";
 import type { SprayBitmap } from "./spray.ts";
 import { Purses } from "./ragdoll-purse.ts";
 import { CAR_BOX, type PropDraw, PropBodies } from "./ragdoll-props.ts";
+import { type BoxPlacement, BoxPile } from "./ragdoll-boxes.ts";
 import { CarProxies, DOLL_REACH, NEAR_HOLD, NEAR_MARGIN, PROP_BAND_HIGH, PROP_BAND_LOW, PURSE_REACH } from "./ragdoll-cars.ts";
 import type { RagCar } from "./ragdoll-car-view.ts";
 import { dollGroups, FIXED_GROUPS, knockedGroups, MAX_ACC, propGroups, SLOTS, STEP, thrownGroups } from "./ragdoll-config.ts";
@@ -156,6 +157,10 @@ export class RagdollSystem {
   private purses: Purses | null = null;
   /** The course's or the scene's knockable props: standing fixed on their spots, knocked ones tumbling (`knockProp`); a car's front meets one over its lower box's height. */
   private readonly props = new PropBodies(knockedGroups, FIXED_GROUPS, GRACE, PROP_BAND_LOW, PROP_BAND_HIGH, (cx, cz, y, half) => this.patchAt(cx, cz, y, half));
+  /** The range minigames' cardboard boxes (`setBoxes`): dynamic cuboids in this world, asleep until hit. */
+  private readonly boxes = new BoxPile();
+  /** Seconds a thrown dummy lies about (`LIFE`; for ever between `holdThrown` and `releaseThrown`). */
+  private thrownLife = LIFE;
   private readonly onExit: (at: THREE.Vector3, frame: THREE.Quaternion, inherit: THREE.Vector3) => void;
   private R: Rapier | null = null;
   private world: World | null = null;
@@ -274,6 +279,7 @@ export class RagdollSystem {
     // A child of the dummies' mesh, so the scene root keeps its one `ragdolls` child and the props draw only while a dummy is out.
     this.mesh.add((this.purses = this.proxies.purses = new Purses(R, world, SLOTS, propGroups, GRACE)).mesh);
     this.props.load(R, world);
+    this.boxes.load(R, world);
     // One step with a dummy out, far below the world: links the step path before a crash needs it.
     const d = this.dolls[0]!;
     for (const b of d.bodies) b.setEnabled(true);
@@ -295,6 +301,8 @@ export class RagdollSystem {
     this.remote?.reset();
     for (let s = 0; s < this.dolls.length; s++) this.despawn(s);
     this.props.clear();
+    this.boxes.clear();
+    this.thrownLife = LIFE;
     this.tumble?.reset();
     for (const c of this.statics) this.world?.removeCollider(c, false);
     this.statics.length = 0;
@@ -350,7 +358,7 @@ export class RagdollSystem {
     this.pending.length = 0;
     this.wake();
     this.props.here(this.course !== null && activeGround() === this.course.ground);
-    if (this.live === 0 && this.props.count === 0) {
+    if (this.live === 0 && this.props.count === 0 && this.boxes.asleep()) {
       for (let i = 0; i < MAX_CARS; i++) this.proxies.follow(i, null);
       if (this.hosted) this.wanted.fill(0);
       return;
@@ -379,7 +387,7 @@ export class RagdollSystem {
     this.proxies.glassNear(cars, dt);
     // Whole steps out of the accumulator (`STEP` with a dummy out or a knocked prop moving fast, `PROP_STEP` for knocked
     // props alone), each proxy a step further along its frame's path.
-    const step = this.live > 0 || this.props.faster(PROP_FAST) ? STEP : PROP_STEP;
+    const step = this.live > 0 || !this.boxes.asleep() || this.props.faster(PROP_FAST) ? STEP : PROP_STEP;
     const lead = this.acc;
     this.acc = dormant ? 0 : Math.min(lead + dt, MAX_ACC);
     const steps = Math.floor(this.acc / step + 1e-6);
@@ -417,6 +425,7 @@ export class RagdollSystem {
     if (steps > 0) for (const d of this.dolls) if (d.live) this.capture(d, d.cur);
     if (steps > 0) this.purses?.capture(true);
     if (steps > 0) this.props.capture(true);
+    if (steps > 0) this.boxes.capture();
     for (let s = 0; s < SLOTS; s++) {
       const d = this.dolls[s]!;
       if (!d.live) continue;
@@ -454,6 +463,7 @@ export class RagdollSystem {
   private dormant(cars: readonly RagCar[], barrier: THREE.Object3D | null, dt: number): boolean {
     if (this.purses && !this.purses.asleep()) return false;
     if (!this.props.asleep()) return false;
+    if (!this.boxes.asleep()) return false;
     for (const d of this.dolls) {
       if (!d.live) continue;
       if (!d.bodies[0]!.isSleeping() || this.stirred(_r.set(d.cur[0]!, d.cur[1]!, d.cur[2]!), cars, barrier)) return false;
@@ -637,6 +647,7 @@ export class RagdollSystem {
     this.mesh.removeFromParent();
     this.purses?.dispose();
     this.props.dispose();
+    this.boxes.dispose();
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
     this.mesh.dispose();
@@ -649,9 +660,9 @@ export class RagdollSystem {
    * dummy flies now or (Rapier still loading) once it is in. The sim's own event (`EjectionWatch`), a netplay host's
    * message or a highlight clip's record: the dummy starts from the event's numbers alone, so the same event is the
    * same throw wherever it is launched. `rides` false: the ride-along never frames him (a reel's throw from another
-   * crash than its own, `ownThrow`).
+   * crash than its own, `ownThrow`). `releaseSpeedScale` multiplies his launch velocity (the range minigames' boost; 1: the event's own).
    */
-  launch(e: Ejection, cars: readonly DeformableCar[], rides = true): void {
+  launch(e: Ejection, cars: readonly DeformableCar[], rides = true, releaseSpeedScale = 1): void {
     this.cars = cars;
     const car = cars[e.car]!;
     if (this.authority) car.smashGlass(e.exit);
@@ -663,7 +674,7 @@ export class RagdollSystem {
     t.p.copy(e.pos);
     t.q.copy(e.quat);
     t.w.copy(e.spin);
-    ejectionVelocity(e, t.v);
+    ejectionVelocity(e, t.v).multiplyScalar(releaseSpeedScale);
     t.car = e.car;
     t.age = 0;
     t.cop = e.cop;
@@ -759,7 +770,7 @@ export class RagdollSystem {
     passengerThrow(ride, t.p);
     t.age = 0;
     if (this.mode === "remote") this.launchRemote(t, this.cars, look);
-    else this.spawn(t, -1, LIFE, look);
+    else this.spawn(t, -1, this.thrownLife, look);
   }
 
   /** Slot `s`'s torso centre after the last step into `p`, and its velocity (world) into `v` unless null; false while no dummy is out in it. */
@@ -782,7 +793,7 @@ export class RagdollSystem {
   }
 
   /** Throw `t`'s dummy into slot `at` (-1: a free slot, else the oldest one's), to lie about `life` sim s, in `dressed` (none: his car's driver's look); returns the slot. */
-  spawn(t: Throw, at = -1, life = LIFE, dressed: DriverLook | null = null): number {
+  spawn(t: Throw, at = -1, life = this.thrownLife, dressed: DriverLook | null = null): number {
     let slot = at >= 0 ? at : this.dolls.findIndex((d) => !d.live);
     if (slot < 0) slot = this.dolls.reduce((o, d, s) => (d.age > this.dolls[o]!.age ? s : o), 0);
     this.despawn(slot);
@@ -912,6 +923,37 @@ export class RagdollSystem {
   /** Knocked prop `i`'s middle after the last step into `p`, and its velocity into `v`; false while it is not out. */
   propAt(i: number, p: THREE.Vector3, v: THREE.Vector3): boolean {
     return this.props.centre(i, p, v);
+  }
+
+  /** The range minigames' boxes: replace any with ones at `boxes`, asleep; remembered for `restackBoxes`. */
+  setBoxes(boxes: readonly BoxPlacement[]): void {
+    this.boxes.set(boxes);
+  }
+
+  /** Every box back at the placement `setBoxes` gave it, still and asleep (a Retry). */
+  restackBoxes(): void {
+    this.boxes.restack();
+  }
+
+  clearBoxes(): void {
+    this.boxes.clear();
+  }
+
+  /** Every box's pose into `out` (7 floats each: position xyz, rotation xyzw); returns the box count. */
+  copyBoxPoses(out: Float32Array): number {
+    return this.boxes.copyPoses(out);
+  }
+
+  /** Dummies launched from now on lie about until `releaseThrown`, not `LIFE` s (a minigame's score is read while he lies). */
+  holdThrown(): void {
+    this.thrownLife = Infinity;
+  }
+
+  /** The dummies held lying about for ever go, and later ones lie `LIFE` s again. */
+  releaseThrown(): void {
+    this.thrownLife = LIFE;
+    this.pending.length = 0;
+    for (let s = 0; s < this.dolls.length; s++) if (this.dolls[s]!.live && this.dolls[s]!.life === Infinity) this.despawn(s);
   }
 
   /**
