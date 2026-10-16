@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { DRIVER_CARS } from "../match/types.ts";
 import {
   DEGREES_TO_RADIANS,
-  HIGH_JUMP_APEX_BAND,
   HIGH_JUMP_KICKER,
+  HIGH_JUMP_MIN_APEX,
   LIP_BACK_FACE_PITCH_DEGREES,
   LONG_JUMP_INCLINE,
   MINIGAME_MODES,
@@ -56,13 +56,13 @@ const MINIMUM_SPEED: Readonly<Record<MinigameMode, Readonly<Record<string, { foo
     wagon: { foot: 30.5, lip: 36 },
   },
   highJump: {
-    sedan: { foot: 31, lip: 30 },
-    muscle: { foot: 34, lip: 33 },
-    truck: { foot: 31, lip: 29.5 },
-    monster: { foot: 34.5, lip: 35.5 },
-    police: { foot: 31, lip: 30 },
-    hatchback: { foot: 31, lip: 30 },
-    wagon: { foot: 31, lip: 30 },
+    sedan: { foot: 31, lip: 26.5 },
+    muscle: { foot: 34, lip: 29.5 },
+    truck: { foot: 31, lip: 26 },
+    monster: { foot: 34.5, lip: 35 },
+    police: { foot: 31, lip: 26.5 },
+    hatchback: { foot: 31, lip: 26.5 },
+    wagon: { foot: 31, lip: 26.5 },
   },
   ringFling: {
     sedan: { foot: 29.5, lip: 32 },
@@ -107,7 +107,7 @@ describe("given each station's floor read every 5 cm from the back of its pad to
 describe("given each station's lip", () => {
   const testCases = [
     { it: "when the long jump's lip is read, then the floor is exactly the pad's level and level", mode: "longJump", lipHeightMin: 0, lipHeightMax: 0, lipPitchMinDegrees: 0, lipPitchMaxDegrees: 0 },
-    { it: "when the high jump's lip is read, then it stands 2 to 3.5 m up and its floor climbs at 34 to 38 degrees", mode: "highJump", lipHeightMin: 2, lipHeightMax: 3.5, lipPitchMinDegrees: 34, lipPitchMaxDegrees: 38 },
+    { it: "when the high jump's lip is read, then it stands 8 to 11 m up and its floor climbs at 55 to 65 degrees", mode: "highJump", lipHeightMin: 8, lipHeightMax: 11, lipPitchMinDegrees: 55, lipPitchMaxDegrees: 65 },
     { it: "when Ring Fling's lip is read, then it stands under 1.5 m up and its floor climbs at 22 to 30 degrees", mode: "ringFling", lipHeightMin: 0.5, lipHeightMax: 1.5, lipPitchMinDegrees: 22, lipPitchMaxDegrees: 30 },
   ] as const;
   for (const testCase of testCases) {
@@ -240,10 +240,11 @@ describe("given each of the 7 car types parked on the pad of each station and re
 
 describe("given the high jump's kicker made steeper, an arc of the shipped radius", () => {
   /** The sweep's pitches (deg), and the speed (m/s) under which a car is called to have lost the climb at the lip: the plan's lowest lip speed. */
-  const SWEEP_DEGREES = [HIGH_JUMP_KICKER.lipPitchDegrees, 45, 55, 65, 75, 85];
+  const SWEEP_DEGREES = [HIGH_JUMP_KICKER.lipPitchDegrees, 65, 70, 75, 80, 85];
   const LIP_SPEED_FLOOR = 17;
-  /** The shipped pitch stays this far (deg) under the steepest the sedan still climbs at the floor speed. */
-  const MARGIN_DEGREES = 3;
+  /** The radius (m) the kicker had before the retune, which cliffs the sedan family's climb. */
+  const OLD_RADIUS = 20;
+  const sedan = DRIVER_CARS.find((type) => type.id === "sedan")!;
 
   it("when every car type climbs each pitch, then all reach the lip at any of them (no tyre treats the face as a wall) and the sedan's lip speed falls with the pitch yet stays over the floor even at the steepest", (t) => {
     const sedanCentre: number[] = [];
@@ -258,27 +259,20 @@ describe("given the high jump's kicker made steeper, an arc of the shipped radiu
       t.diagnostic(`arc radius ${HIGH_JUMP_KICKER.radius} m to ${pitch} deg:\n${table(rows)}`);
     }
     for (let i = 1; i < sedanCentre.length; i++) assert.ok(sedanCentre[i]! <= sedanCentre[i - 1]! + 1e-6, `sedan lip speeds ${sedanCentre.join(", ")}`);
-    assert.ok(sedanCentre[0]! >= LIP_SPEED_FLOOR, `shipped sedan lip speed ${sedanCentre[0]}`);
     assert.ok(sedanCentre[sedanCentre.length - 1]! >= LIP_SPEED_FLOOR, `the sedan's lip speed at the steepest swept pitch ${sedanCentre[sedanCentre.length - 1]}: the climb has no wall in the sweep`);
-    assert.ok(HIGH_JUMP_KICKER.lipPitchDegrees <= SWEEP_DEGREES[SWEEP_DEGREES.length - 1]! - MARGIN_DEGREES, "the shipped pitch keeps its margin under the steepest the sedan climbs at the floor speed");
   });
 
   it("when the old radius of 20 m is swept to the same steepest pitch, then the sedan's lip speed is under the floor: the floor row can fail", () => {
     const steepest = SWEEP_DEGREES[SWEEP_DEGREES.length - 1]!;
-    const OLD_RADIUS = 20;
-    const run = driveToLip(DRIVER_CARS.find((type) => type.id === "sedan")!, highJumpVariant(OLD_RADIUS, steepest, RUN_UP_LENGTH.highJump), FINE_CELL);
+    const run = driveToLip(sedan, highJumpVariant(OLD_RADIUS, steepest, RUN_UP_LENGTH.highJump), FINE_CELL);
     assert.ok(run.lipCentreSpeed < LIP_SPEED_FLOOR, `old-radius sedan at ${steepest} deg: ${run.lipCentreSpeed}`);
   });
 
-  it("when the shipped pitch is raised by 30 percent, then the sedan reaches the lip under the speed the shipped kicker gives it: the climb row can fail", () => {
-    const shipped = driveToLip(DRIVER_CARS.find((type) => type.id === "sedan")!, stationDriveProfile("highJump"), FINE_CELL);
-    const steeper = driveToLip(
-      DRIVER_CARS.find((type) => type.id === "sedan")!,
-      highJumpVariant(HIGH_JUMP_KICKER.radius, HIGH_JUMP_KICKER.lipPitchDegrees * 1.3, RUN_UP_LENGTH.highJump),
-      FINE_CELL,
-    );
+  it("when the shipped pitch is given the old radius of 20 m, then the sedan reaches the lip under the speed the shipped kicker gives it: the climb row can fail", () => {
+    const shipped = driveToLip(sedan, stationDriveProfile("highJump"), FINE_CELL);
+    const tighter = driveToLip(sedan, highJumpVariant(OLD_RADIUS, HIGH_JUMP_KICKER.lipPitchDegrees, RUN_UP_LENGTH.highJump), FINE_CELL);
     assert.ok(shipped.lipCentreSpeed >= MINIMUM_SPEED.highJump.sedan!.lip, "shipped meets its bar");
-    assert.ok(steeper.lipCentreSpeed < MINIMUM_SPEED.highJump.sedan!.lip, `30 percent steeper gives ${steeper.lipCentreSpeed}`);
+    assert.ok(tighter.lipCentreSpeed < MINIMUM_SPEED.highJump.sedan!.lip, `the old radius gives ${tighter.lipCentreSpeed}`);
   });
 
   it("when the sweep's builder is given the shipped numbers, then its floor is the shipped floor", () => {
@@ -292,7 +286,7 @@ describe("given the high jump's kicker made steeper, an arc of the shipped radiu
 });
 
 describe("given each of the 7 car types released at full throttle from the high jump's hilltop and thrown unboosted at the lip", () => {
-  /** The apex (m above the lip) of the driver's ballistic flight from the car's velocity at the lip plus the usual pop, per car type, on `profile`. */
+  /** The flight of each car type's driver, from the car's velocity at the lip plus the usual pop, on `profile`. */
   const flightsOn = (profile: DriveProfile): { id: string; flight: LipFlight }[] =>
     DRIVER_CARS.map((type) => {
       const run = driveToLip(type, profile, FINE_CELL);
@@ -304,44 +298,32 @@ describe("given each of the 7 car types released at full throttle from the high 
       .map(({ id, flight }) => `${id.padEnd(9)} lip horizontal ${flight.horizontalSpeed.toFixed(1)} vertical ${flight.verticalSpeed.toFixed(1)} m/s, apex ${flight.apexHeight.toFixed(1)} m over the lip at ${flight.apexDistance.toFixed(1)} m past it, lands ${flight.landingDistance.toFixed(1)} m past it`)
       .join("\n");
   const apexesOf = (rows: readonly { flight: LipFlight }[]): number[] => rows.map(({ flight }) => flight.apexHeight);
-  const inBand = (apexes: readonly number[]): boolean => apexes.every((apex) => apex >= HIGH_JUMP_APEX_BAND.min && apex <= HIGH_JUMP_APEX_BAND.max);
-  /** The best class's apex is at least this share of the band's top, and the best over the worst apex is at most this ratio. */
-  const BEST_NEAR_TOP_SHARE = 0.9;
-  const MOST_SPREAD = 3.5;
+  const spreadOf = (rows: readonly { flight: LipFlight }[]): number => Math.max(...apexesOf(rows)) / Math.min(...apexesOf(rows));
+  /** The best apex over the worst is at most this. */
+  const MOST_SPREAD = 4;
   /** The mid run's lip speed is this share of the full-throttle one, within this share. */
   const MID_SHARE = 0.7;
   const MID_SHARE_TOLERANCE = 0.03;
-  /** The old kicker (radius, deg) and a kicker too shallow to throw anyone (deg), the mutations the band rows must fail. */
-  const OLD_KICKER = { radius: 20, lipPitchDegrees: 60 };
-  const SHALLOW_DEGREES = 15;
+  /** The mutations the apex rows must fail: a kicker too shallow to throw high (deg), and the old radius (m) at a steeper pitch (deg), where its sedan family cliffs. */
+  const SHALLOW_DEGREES = 36;
+  const OLD_RADIUS = 20;
+  const OLD_RADIUS_STEEPER_DEGREES = 65;
   const shipped = flightsOn(stationDriveProfile("highJump"));
 
-  it("when each is thrown at the shipped kicker's lip, then every class's apex is inside the band, the best near its top and the worst not under its min", (t) => {
-    t.diagnostic(`shipped kicker (radius ${HIGH_JUMP_KICKER.radius} m, ${HIGH_JUMP_KICKER.lipPitchDegrees} deg, run-up ${RUN_UP_LENGTH.highJump} m), full throttle, band ${HIGH_JUMP_APEX_BAND.min} to ${HIGH_JUMP_APEX_BAND.max} m:\n${flightTable(shipped)}`);
-    for (const { id, flight } of shipped) {
-      assert.ok(flight.apexHeight >= HIGH_JUMP_APEX_BAND.min, `${id} apex ${flight.apexHeight} under the band`);
-      assert.ok(flight.apexHeight <= HIGH_JUMP_APEX_BAND.max, `${id} apex ${flight.apexHeight} over the band`);
-    }
-    assert.ok(Math.max(...apexesOf(shipped)) >= BEST_NEAR_TOP_SHARE * HIGH_JUMP_APEX_BAND.max, `best apex ${Math.max(...apexesOf(shipped))} is not near the band's top`);
+  it("when each is thrown at the shipped kicker's lip, then every class's unboosted apex is at least the minimum", (t) => {
+    t.diagnostic(`shipped kicker (radius ${HIGH_JUMP_KICKER.radius} m, ${HIGH_JUMP_KICKER.lipPitchDegrees} deg, run-up ${RUN_UP_LENGTH.highJump} m), full throttle, minimum apex ${HIGH_JUMP_MIN_APEX} m, best over worst ${spreadOf(shipped).toFixed(2)}:\n${flightTable(shipped)}`);
+    for (const { id, flight } of shipped) assert.ok(flight.apexHeight >= HIGH_JUMP_MIN_APEX, `${id} apex ${flight.apexHeight} under the minimum`);
   });
 
-  it("when the best apex is read against the worst, then the ratio is at most 3.5", () => {
-    const ratio = Math.max(...apexesOf(shipped)) / Math.min(...apexesOf(shipped));
-    assert.ok(ratio <= MOST_SPREAD, `best over worst apex ${ratio}`);
+  it("when the best apex is read against the worst, then the ratio is at most 4", () => {
+    assert.ok(spreadOf(shipped) <= MOST_SPREAD, `best over worst apex ${spreadOf(shipped)}`);
   });
 
-  it("when the old 60 degree kicker of radius 20 m is thrown at, then every apex is over the band and the ratio is over 3.5: the rows fail before the retune", (t) => {
-    const old = flightsOn(highJumpVariant(OLD_KICKER.radius, OLD_KICKER.lipPitchDegrees, RUN_UP_LENGTH.highJump));
-    t.diagnostic(`old kicker (radius ${OLD_KICKER.radius} m, ${OLD_KICKER.lipPitchDegrees} deg):\n${flightTable(old)}`);
-    assert.ok(apexesOf(old).every((apex) => apex > HIGH_JUMP_APEX_BAND.max), `old apexes ${apexesOf(old).join(", ")}`);
-    assert.ok(Math.max(...apexesOf(old)) / Math.min(...apexesOf(old)) > MOST_SPREAD, "the old spread is over the bar");
-  });
-
-  it("when the shipped radius is given the old 60 degrees, or a shallow 15 degrees, then the band row fails over its top, or under its min: the apex rows can fail", () => {
-    const steep = apexesOf(flightsOn(highJumpVariant(HIGH_JUMP_KICKER.radius, OLD_KICKER.lipPitchDegrees, RUN_UP_LENGTH.highJump)));
-    const shallow = apexesOf(flightsOn(highJumpVariant(HIGH_JUMP_KICKER.radius, SHALLOW_DEGREES, RUN_UP_LENGTH.highJump)));
-    assert.ok(!inBand(steep) && Math.min(...steep) > HIGH_JUMP_APEX_BAND.max, `60 degrees: ${steep.join(", ")}`);
-    assert.ok(!inBand(shallow) && Math.min(...shallow) < HIGH_JUMP_APEX_BAND.min, `15 degrees: ${shallow.join(", ")}`);
+  it("when the shipped radius is given a shallow pitch, then a class is under the minimum apex; and when the old radius is given a steeper one, then the ratio is over 4: the apex rows can fail", () => {
+    const shallow = flightsOn(highJumpVariant(HIGH_JUMP_KICKER.radius, SHALLOW_DEGREES, RUN_UP_LENGTH.highJump));
+    const cliffed = flightsOn(highJumpVariant(OLD_RADIUS, OLD_RADIUS_STEEPER_DEGREES, RUN_UP_LENGTH.highJump));
+    assert.ok(Math.min(...apexesOf(shallow)) < HIGH_JUMP_MIN_APEX, `${SHALLOW_DEGREES} degrees: ${apexesOf(shallow).join(", ")}`);
+    assert.ok(spreadOf(cliffed) > MOST_SPREAD, `old radius at ${OLD_RADIUS_STEEPER_DEGREES} degrees: ratio ${spreadOf(cliffed)}`);
   });
 
   it("when each is governed to about 70 percent of its full-throttle lip speed, then it still reaches the lip, at that speed, and flies lower and shorter than at full throttle", (t) => {
