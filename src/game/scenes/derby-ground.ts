@@ -7,6 +7,7 @@ import { SURFACE } from "../world/constants.ts";
 import { Ground } from "../world/ground.ts";
 import { raisePlateaus, type Plateau } from "../world/terrain.ts";
 import { DERBY_ARENA } from "./constants.ts";
+import { FAKE_DEPTH } from "./fleet.ts";
 
 /**
  * The derby arena's ground (the Havana plateau mechanism, `world/terrain.ts`): one 1 m grid patch holds every rise, so the middle
@@ -240,6 +241,13 @@ export const DERBY_FREE_PROPS: readonly SpawnBox[] = [
 /** Grid nodes along a side: the grid reaches `gridHalf` m each way from the middle. */
 const NODES = 2 * gridHalf + 1;
 const FLOOR = SURFACE_IDS.indexOf(SURFACE.asphalt);
+/**
+ * Where every prism of the arena starts (m, under the floor): a wreck that sank through the floor (measured: a body 1.9 m under it,
+ * its group origin 1.2 m) must still meet the wall and the props instead of passing beneath them (`prop-contact.ts` skips a prism
+ * a body is wholly under the base of). A car stays in the soft-body sim down to `FAKE_DEPTH` at its origin, its body reaching a
+ * body height lower still.
+ */
+const DERBY_PRISM_BASE = -(FAKE_DEPTH + 2 * CAR_HALF.y);
 
 export class DerbyGround extends Ground {
   /** The baked grid, row-major along x: node (i, j) is at world (i - gridHalf, j - gridHalf). The floor mesh reads the same nodes. */
@@ -268,7 +276,7 @@ export class DerbyGround extends Ground {
       outside: { surface: FLOOR, hills: new Float64Array(0) },
       unbounded: true,
     });
-    for (const [id, b] of DERBY_BOXES.entries()) this.addPrism({ x: b.x, z: b.z, yaw: b.yaw, hx: b.hx, hz: b.hz, base: 0, top: b.height, id });
+    for (const [id, b] of DERBY_BOXES.entries()) this.addPrism({ x: b.x, z: b.z, yaw: b.yaw, hx: b.hx, hz: b.hz, base: DERBY_PRISM_BASE, top: b.height, id });
     this.seal();
   }
 
