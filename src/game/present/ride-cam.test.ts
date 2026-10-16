@@ -6,7 +6,7 @@ import { FLAT_GROUND, Ground } from "../world/ground.ts";
 import type { Doll } from "./ragdoll-body.ts";
 import { RideAlong } from "./ragdoll-ride.ts";
 import { MINIGAME_AIM_LEAD, RideCam } from "./ride-cam.ts";
-import type { Sight } from "./spectate-cam.ts";
+import { inside, occluder, type Occluder, type Sight } from "./spectate-cam.ts";
 
 /**
  * The ride cam over a dummy flung on a ballistic path (released from the origin under the sim's gravity, 60 Hz frames, the
@@ -53,6 +53,8 @@ type FlightOptions = {
   /** Where the windshield shot's car stands; `exitAt` also is the thrown driver's start. */
   carAt?: THREE.Vector3;
   start?: THREE.Vector3;
+  /** Where the camera stood before the ride (the drive cam behind the car), looking at the driver's start: unset, the origin. */
+  eyeBefore?: THREE.Vector3;
 };
 
 type Flight = {
@@ -77,6 +79,10 @@ function filmFlight(release: THREE.Vector3, options: FlightOptions = {}): Flight
   const cam = new RideCam();
   const camera = new THREE.PerspectiveCamera(DEFAULT_LENS_DEGREES, ASPECT, 0.1, 5000);
   const start = options.start ?? new THREE.Vector3(0, 0, 0);
+  if (options.eyeBefore) {
+    camera.position.copy(options.eyeBefore);
+    camera.lookAt(start);
+  }
   cam.begin({ group: { position: options.carAt ?? CAR_AT }, fwdFlat: CAR_FORWARD }, CAR_SPEED, PANE);
   const framing = cam.framing;
   framing.n = 1;
@@ -222,7 +228,7 @@ function groundBlocksLine(ground: Ground, eye: THREE.Vector3, head: THREE.Vector
 }
 
 /** The ride cam's eye after `RESTING_SECONDS` of a dummy lying still with his head at (0, `LYING_HEAD_HEIGHT`, 0) in the bowl; `aimLead` unset: no lead. */
-function restingEye(aimLead: number | undefined): THREE.Vector3 {
+function restingEye(aimLead: number | undefined, occluders: readonly Occluder[] = []): THREE.Vector3 {
   const ground = bowlGround();
   const cam = new RideCam();
   const camera = new THREE.PerspectiveCamera(DEFAULT_LENS_DEGREES, ASPECT, 0.1, 5000);
@@ -231,7 +237,7 @@ function restingEye(aimLead: number | undefined): THREE.Vector3 {
   framing.n = 1;
   framing.hold = true;
   framing.c.set(0, LYING_HEAD_HEIGHT, 0);
-  framing.sight = () => ({ ground, path: null, wallTop: 0, rim: Infinity, occ: [] });
+  framing.sight = () => ({ ground, path: null, wallTop: 0, rim: Infinity, occ: occluders });
   if (aimLead !== undefined) framing.lead = aimLead;
   for (let frame = 0; frame < RESTING_SECONDS * FRAME_HZ; frame++) cam.update(camera, FRAME_SECONDS, framing);
   return camera.position.clone();
@@ -308,6 +314,8 @@ const CAR_HEIGHT = 1.36;
 /** The dummy leaves through the windshield: his head at the roof, 0.8 m behind the car's middle. */
 const LAUNCH_HEAD = new THREE.Vector3(-0.6, LIP_HEIGHT + 1.3, 0);
 const LAUNCH_SPEED = 28;
+/** Where the drive cam stood behind the car on the lip before the throw (measured in the real engine: 8 m behind, 5 m below the car). */
+const DRIVE_CAM_EYE = new THREE.Vector3(-7.9, 4.6, 0);
 const FIRST_SECOND_FRAMES = FRAME_HZ;
 /** The line from the eye to the head is sampled every `CHECK_STEP` m and counts as hidden when a sample lies inside the car's box, the last `CAR_CHECK_STOP` m short of the head (he sits at the roof). */
 const CAR_CHECK_STOP = 0.5;
@@ -332,7 +340,7 @@ function carBoxHidesLine(eye: THREE.Vector3, head: THREE.Vector3): boolean {
 
 describe("given a driver thrown from a car on the High jump's lip, filmed for the first second of his throw", () => {
   const release = new THREE.Vector3(LAUNCH_SPEED * 0.14, LAUNCH_SPEED * 2, 0);
-  const options = (aimLead: number | undefined): FlightOptions => ({ aimLead, carAt: LIP_CAR_AT, start: LAUNCH_HEAD, sight: () => ({ ground: lipGround(), path: null, wallTop: 0, rim: Infinity, occ: [] }) });
+  const options = (aimLead: number | undefined): FlightOptions => ({ aimLead, carAt: LIP_CAR_AT, start: LAUNCH_HEAD, eyeBefore: DRIVE_CAM_EYE, sight: () => ({ ground: lipGround(), path: null, wallTop: 0, rim: Infinity, occ: [] }) });
 
   it("when the aim is not led, then the car's own box hides his head from the eye on some of those frames (the fault)", () => {
     const flight = filmFlight(release, options(undefined));
@@ -341,11 +349,119 @@ describe("given a driver thrown from a car on the High jump's lip, filmed for th
     assert.ok(hidden > 0, `${hidden} of ${FIRST_SECOND_FRAMES} frames hidden`);
   });
 
-  it("when the aim is led by MINIGAME_AIM_LEAD, then the car's box hides him on none of those frames and he is inside the central 95% on every frame of the flight", () => {
+  it("when the aim is led by MINIGAME_AIM_LEAD, then the car's box hides him on none of the frames after the first of that second (the first is the old camera's own view) and he is inside the central 95% on every frame of the flight", () => {
     const flight = filmFlight(release, options(MINIGAME_AIM_LEAD));
     let hidden = 0;
-    for (let frame = 0; frame < FIRST_SECOND_FRAMES; frame++) if (carBoxHidesLine(flight.eyes[frame]!, flight.heads[frame]!)) hidden++;
-    assert.equal(hidden, 0, "frames hidden by the car");
+    for (let frame = 1; frame < FIRST_SECOND_FRAMES; frame++) if (carBoxHidesLine(flight.eyes[frame]!, flight.heads[frame]!)) hidden++;
+    assert.equal(hidden, 0, "frames hidden by the car after the first");
+    assert.equal(flight.outsideAnywhere, 0, "frames outside");
+  });
+});
+
+/** The High jump's frame across the throw: the posts' plane, a board `BOARD_HALF_THICKNESS` thick, `BOARD_HALF_SPAN` m either side of the lane (the posts 3 m out, up to 1 m thick), as tall as the flight. */
+const POSTS_PLANE_X = 11;
+const BOARD_HALF_THICKNESS = 0.075;
+const BOARD_HALF_SPAN = 3.5;
+const BOARD_TOP = 400;
+const BOARD_PADDING = 0.5;
+const BOARD_CROSSING_RELEASE = new THREE.Vector3(7, 58, 0);
+/** The opening ease (`LEAD_OPEN_BLEND_T`, a quarter second of frames) and two frames more: the eye is then at the follow shot's. */
+const OPENING_EASE_FRAMES = 17;
+const STANDOFF_TOLERANCE = 0.1;
+const STANDOFF_PER_SPEED = 0.25;
+const STANDOFF_MAX = 12;
+const AT_REST_STANDOFF = 8;
+const AT_REST_HEIGHT = 6;
+const FRAME_BOARD = occluder(POSTS_PLANE_X, 0, 0, BOARD_HALF_THICKNESS, BOARD_HALF_SPAN, false, 0, BOARD_TOP);
+
+describe("given a dummy thrown up past the High jump's frame (release 7, 58, 0 m/s), its board across the lane at the posts' plane", () => {
+  const boardSight = (): Sight => ({ ground: FLAT_GROUND, path: null, wallTop: 0, rim: Infinity, occ: [FRAME_BOARD] });
+
+  it("when the aim is led by MINIGAME_AIM_LEAD, then the eye crosses the posts' plane and stands within the board's padded box on none of the frames", () => {
+    const flight = filmFlight(BOARD_CROSSING_RELEASE, { aimLead: MINIGAME_AIM_LEAD, sight: boardSight });
+    const eyeXs = flight.eyes.map((eye) => eye.x);
+    let pressed = 0;
+    for (const eye of flight.eyes) if (inside(FRAME_BOARD, eye.x, eye.y, eye.z, BOARD_PADDING)) pressed++;
+    assert.ok(Math.min(...eyeXs) < POSTS_PLANE_X && Math.max(...eyeXs) > POSTS_PLANE_X, "the eye crosses the posts' plane");
+    assert.equal(pressed, 0, "frames the eye is in or against the board");
+    assert.equal(flight.outsideAnywhere, 0, "frames outside");
+  });
+});
+
+describe("given a dummy thrown up the High jump's path (release 4, 58, 0 m/s) filmed with the aim led by MINIGAME_AIM_LEAD", () => {
+  it("when he climbs, then on every frame after the opening ease the eye is at least a quarter second of his speed (at most 12 m) from him", () => {
+    const flight = filmFlight(HIGH_JUMP_RELEASE, { aimLead: MINIGAME_AIM_LEAD });
+    let nearest = Infinity;
+    let shortfall = 0;
+    for (let frame = OPENING_EASE_FRAMES; frame < flight.frames; frame++) {
+      const seconds = (frame + 1) * FRAME_SECONDS;
+      const climb = HIGH_JUMP_RELEASE.y - GRAVITY * seconds;
+      if (climb <= 0) break;
+      const speed = Math.hypot(HIGH_JUMP_RELEASE.x, climb);
+      const wanted = Math.min(STANDOFF_MAX, STANDOFF_PER_SPEED * speed);
+      const distance = flight.eyes[frame]!.distanceTo(flight.heads[frame]!);
+      nearest = Math.min(nearest, distance - wanted);
+      if (distance < wanted - STANDOFF_TOLERANCE) shortfall++;
+    }
+    assert.ok(nearest > -STANDOFF_TOLERANCE, `the eye was ${-nearest} m short of the standoff at its worst`);
+    assert.equal(shortfall, 0, "frames nearer than the standoff");
+  });
+});
+
+/** Cardboard stacks round a resting dummy: a stack `STACK_HEIGHT` tall (two boxes) at (`STACK_AT_X`, `STACK_AT_Z`), `STACK_HALF` either side, between the eye and the dummy. */
+const STACK_HEIGHT = 2.6;
+const STACK_AT_X = -1.75;
+const STACK_AT_Z = -2.8;
+const STACK_HALF = 0.8;
+const STACK = occluder(STACK_AT_X, STACK_AT_Z, 0, STACK_HALF, STACK_HALF, false, 0, STACK_HEIGHT);
+const LINE_STEP = 0.05;
+
+/** Does the stack (not padded) hold any sample of the line from `eye` to `head`, the last `CHECK_STOP` m short of it? */
+function stackBlocksLine(eye: THREE.Vector3, head: THREE.Vector3): boolean {
+  const length = eye.distanceTo(head);
+  const point = new THREE.Vector3();
+  for (let reach = 0; reach < length - CHECK_STOP; reach += LINE_STEP) {
+    point.lerpVectors(eye, head, reach / length);
+    if (inside(STACK, point.x, point.y, point.z, 0)) return true;
+  }
+  return false;
+}
+
+describe("given a dummy lying still in a field of cardboard stacks, a 2.6 m stack 3.3 m from him between him and the eye", () => {
+  const head = new THREE.Vector3(0, LYING_HEAD_HEIGHT, 0);
+
+  it("when the aim is not led, then the stack blocks the line from the eye to him (the fault)", () => {
+    const eye = restingEye(undefined, [STACK]);
+    assert.ok(stackBlocksLine(eye, head), `the eye at ${eye.toArray()} sees him past the stack`);
+  });
+
+  it("when the aim is led by MINIGAME_AIM_LEAD, then the eye stands at least 6 m over his head and 8 m back, and the stack does not block the line to him", () => {
+    const eye = restingEye(MINIGAME_AIM_LEAD, [STACK]);
+    assert.ok(eye.y >= head.y + AT_REST_HEIGHT, `the eye is ${eye.y - head.y} m over him`);
+    assert.ok(Math.hypot(eye.x - head.x, eye.z - head.z) >= AT_REST_STANDOFF, `the eye is ${Math.hypot(eye.x - head.x, eye.z - head.z)} m back`);
+    assert.ok(!stackBlocksLine(eye, head), `the eye at ${eye.toArray()} is behind the stack`);
+  });
+
+  it("when the aim is led and no stack stands near him, then the eye still stands at least 6 m over his head and 8 m back", () => {
+    const eye = restingEye(MINIGAME_AIM_LEAD);
+    assert.ok(eye.y >= head.y + AT_REST_HEIGHT, `the eye is ${eye.y - head.y} m over him`);
+    assert.ok(Math.hypot(eye.x - head.x, eye.z - head.z) >= AT_REST_STANDOFF, `the eye is ${Math.hypot(eye.x - head.x, eye.z - head.z)} m back`);
+  });
+});
+
+const OPEN_JUMP_LIMIT = 3;
+const OPEN_FIRST_FRAME_LIMIT = 3;
+
+describe("given a driver thrown from the High jump's lip with the drive cam behind and below the car", () => {
+  const options: FlightOptions = { aimLead: MINIGAME_AIM_LEAD, carAt: LIP_CAR_AT, start: LAUNCH_HEAD, eyeBefore: DRIVE_CAM_EYE, sight: () => ({ ground: lipGround(), path: null, wallTop: 0, rim: Infinity, occ: [] }) };
+
+  it("when the ride opens with a lead, then the first frame's eye is within 3 m of where the drive cam stood, no later frame's eye moves more than 3 m from the one before, and he is inside the central 95% on every frame", () => {
+    const release = new THREE.Vector3(LAUNCH_SPEED * 0.14, LAUNCH_SPEED * 2, 0);
+    const flight = filmFlight(release, options);
+    let largestJump = 0;
+    for (let frame = 1; frame < flight.frames; frame++) largestJump = Math.max(largestJump, flight.eyes[frame]!.distanceTo(flight.eyes[frame - 1]!));
+    assert.ok(flight.eyes[0]!.distanceTo(DRIVE_CAM_EYE) < OPEN_FIRST_FRAME_LIMIT, `the first frame's eye is ${flight.eyes[0]!.distanceTo(DRIVE_CAM_EYE)} m from the drive cam`);
+    assert.ok(largestJump < OPEN_JUMP_LIMIT, `an eye jumped ${largestJump} m between two frames`);
     assert.equal(flight.outsideAnywhere, 0, "frames outside");
   });
 });
