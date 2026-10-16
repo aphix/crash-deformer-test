@@ -298,7 +298,7 @@ for (const H of RATES) {
     describe("given the sedan's gear buckets (the speed ranges of each gear)", () => {
       it("when its speed climbs from near standstill past the top of the last gear, then the gauge's engine revs climb within each gear to near the redline, drop once at each upshift in step with the gauge's gear, fall below 35 % at the foot of the next gear, and idle at 0.18 in reverse", () => {
         const k = CLASSES.sedan;
-        const at = (v: number) => carRpm({ style: { id: "sedan" }, velocity: { x: 0, z: v }, fwdFlat: { x: 0, z: 1 } });
+        const at = (v: number) => carRpm({ style: { id: "sedan" }, velocity: { x: 0, z: v }, fwdFlat: { x: 0, z: 1 }, drive: { spinSpeed: 0 } });
         let drops = 0;
         let prev = at(0);
         for (let v = 0.1; v < k.topSpeed * 1.3; v += 0.05) {
@@ -313,7 +313,7 @@ for (const H of RATES) {
         assert.equal(drops, k.gears.length - 1, "one drop per upshift");
         assert.ok(at(gearHi(k, 1) - 0.01) > 0.99, "near the redline at the top of a bucket");
         assert.ok(at(gearHi(k, 1) + 0.01) < 0.35, "back at the foot of the next");
-        assert.equal(carRpm({ style: { id: "sedan" }, velocity: { x: 0, z: -5 }, fwdFlat: { x: 0, z: 1 } }), 0.18, "idles in reverse");
+        assert.equal(carRpm({ style: { id: "sedan" }, velocity: { x: 0, z: -5 }, fwdFlat: { x: 0, z: 1 }, drive: { spinSpeed: 0 } }), 0.18, "idles in reverse");
       });
     });
 

@@ -4,7 +4,7 @@ import { blankIntent, readIntent, shapeDrive, type DriveFeel } from "./drive-inp
 import type { PadState } from "./gamepad.ts";
 import { CRASH, FRICTION_G, hypot2 } from "../deform/physics-util.ts";
 import { C_GRIP, HIT_SIZE } from "../world/surfaces.ts";
-import { assists, carClass, carDrivability, CLASSES, enginePull, HANDLING, SELF_RIGHT_SLOWEST, type Assists, type Drivability } from "./vehicle-classes.ts";
+import { assists, carClass, carDrivability, CLASSES, drivenAxles, enginePull, HANDLING, rotatingShare, SELF_RIGHT_SLOWEST, tractionLimit, type Assists, type Drivability } from "./vehicle-classes.ts";
 import { LOSS_SIZE, wheelLoss } from "./wheel-loss.ts";
 import { detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 import { FLIPPED_UP_Y, GRIP_YAW_CAP, SLIDE_SPEED } from "./constants.ts";
@@ -43,8 +43,6 @@ export const DRIVE = {
   roll: 0.15,
   /** Freewheel air drag (1/m, × speed²): ½ρC_dA/m for a sedan, 0.3 m/s² at 32 m/s. */
   drag: 0.0003,
-  /** Axle offset from the car origin (m) where each axle reads the ground's grip. */
-  axle: 1.34,
   /** No slide starts below this forward speed (m/s). */
   slideSpeed: SLIDE_SPEED,
   /** A boost at full lock kicks a tail-happy class out above this forward speed (m/s): 0.55 × the old 18 m/s top. */
@@ -108,9 +106,11 @@ const turnAt = new Float64Array(2);
 const _assistFor = new Float64Array([NaN]);
 /**
  * `pedals` in/out: in [0] throttle, [1] brake, [2] along, [3] muF, [4] muR, [5] top-speed scale, [6] dt, [12] handbrake grip (`drive.ebrakeK`),
- * [13] boost thrust (`drive.boostK`); out [7] top, [8] speed, [9] want, [10] spin, [11] lock. Doubles in a typed array: passed or returned out of line they boxed.
+ * [13] boost thrust (`drive.boostK`), [14] wheel spin (`drive.spinSpeed`, m/s), [15] the road's rolling resistance over asphalt's (m/s², a driven car's),
+ * [16] the whole of it (a freewheeling car's); out [7] top, [8] speed, [9] want, [10] spin (the slip ratio), [11] lock, [17] wheel spin.
+ * Doubles in a typed array: passed or returned out of line they boxed.
  */
-const _pedal = new Float64Array(14);
+const _pedal = new Float64Array(18);
 /** What the wheels still on leave of each control (`wheelLoss`'s layout; `applyDrive` fills it, `pedals` reads it). */
 const _loss = new Float64Array(LOSS_SIZE);
 
@@ -121,6 +121,7 @@ function idleDriveState(d: DeformableCar["drive"]): void {
   d.brake = 0;
   d.ebrake = false;
   d.spin = 0;
+  d.spinSpeed = 0;
   d.lock = 0;
   d.slide = 0;
   d.hold = 0;
@@ -145,37 +146,53 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
   const top = throttle < 0 ? k.revSpeed : k.topSpeed * dmg.top * (1 + (k.boostTop - 1) * boost) * io[5]! * Math.sqrt(driveShare);
   let speed = along;
   let want = 0;
-  let spin = 0;
   let lock = 0;
+  // The road's traction (Uncharted 4 15:21–16:42: tyre μ × surface μ × load is the most the driven wheels pass forward; JC4 11:02–13:36, a friction
+  // clamp): the driven axles' grip under their load for the class's driveline, less the share of the wheels lost (`wheelLoss`).
+  const cap = tractionLimit(k, muF, muR, realism) * driveShare;
+  // The engine the wheels see: damage, the wheels lost and the boost scale its pull; the handbrake takes from the push below.
+  const scale = dmg.power * driveShare * (1 + (k.boostAccel - 1) * boost);
+  // The wheel spin: m/s the driven tread runs ahead of the body (0 gripping). The state is the excess, not the wheel speed, so what the world does
+  // to the body between slices (a slope, a wall, a contact) never reads as spin.
+  let over = io[14]!;
+  const ws = Math.abs(along) + over;
+  let engine = 0;
+  const resist = io[15]!;
   if (brake > 0) {
     let s = Math.abs(speed);
     s *= Math.exp(-DRIVE.ebrakeDrag * ebrake * dt);
     // Brake force is near constant: a linear stop, never weaker than lifting off. Wheels off take their share of the
-    // brakes with them.
-    s = Math.max(0, s - k.brake * _loss[2]! * (0.55 + 0.45 * Math.min(muF, muR)) * Math.max(0.45, brake) * dt);
+    // brakes with them; the road's rolling resistance adds its own.
+    s = Math.max(0, s - (k.brake * _loss[2]! * (0.55 + 0.45 * Math.min(muF, muR)) * Math.max(0.45, brake) + resist) * dt);
     speed = s < 0.4 ? 0 : Math.sign(speed) * s;
     // ABS hides most of the lock-up at the arcade end.
     if (brake > 0.7 && s > 3) lock = ((brake - 0.7) / 0.3) * ((1 - realism) * 0.45 + realism) * Math.min(1, s / 10);
   } else {
     if (input.neutral) {
-      // Freewheeling: no thrust, no engine braking (`want` stays 0, the car is not under power), the road's drag alone.
+      // Freewheeling: no thrust, no engine braking (`want` stays 0, the car is not under power), the road's whole rolling resistance and the air's drag alone.
       const v = Math.abs(speed);
-      speed = Math.sign(speed) * Math.max(0, v - (DRIVE.roll + DRIVE.drag * v * v) * dt);
+      speed = Math.sign(speed) * Math.max(0, v - (io[16]! + DRIVE.drag * v * v) * dt);
     } else {
       want = throttle * top;
       const v = Math.abs(speed);
-      // The engine's push (and its lift-off braking) is what the handbrake's grip takes away.
+      const dir = want >= 0 ? 1 : -1;
+      // The engine pulls toward `want` (or holds it; `<=` so a car sitting on it re-evaluates its push every slice and sags where the road's
+      // drag beats the pull); past it, lift-off engine braking. The push (and its lift-off braking) is what the handbrake's grip takes away.
+      const pushing = dir > 0 ? speed <= want : speed >= want;
       let rate = k.brake * DRIVE.coast * (1 - ebrake);
-      if (Math.abs(want) > v) {
-        // The engine's pull at this wheel speed (`enginePull`: the launch pull, then constant power through every gear), from the
-        // arcade punch to the sourced figures along the realism slider.
-        rate = enginePull(k, v, realism) * dmg.power * driveShare * (1 + (k.boostAccel - 1) * boost) * (0.4 + 0.6 * muR) * (1 - ebrake);
-        if (throttle > 0.5 && along > -0.5) {
-          spin = Math.max(v < 7 ? (1 - v / 7) * throttle * (0.35 + 0.65 * k.torque) * (0.7 + 0.3 * boost) : 0, (1 - muR) * throttle * 0.6) * (1 - ebrake);
-        }
+      if (pushing && Math.abs(want) >= v) {
+        // The engine's pull at the wheels' speed (`enginePull`: the launch pull, then constant power through every gear). Gripping, the body
+        // takes it; spinning, the body takes the road's kinetic friction, `cap`, no more and no less (Uncharted 4 16:33–16:55).
+        engine = enginePull(k, ws, realism) * scale * (1 - ebrake);
+        rate = over > 0 || engine > cap ? cap : engine;
       }
-      if (speed < want) speed = Math.min(want, speed + rate * dt);
-      else speed = Math.max(want, speed - rate * dt);
+      if (pushing) {
+        const next = speed + dir * rate * dt - Math.sign(speed) * resist * dt;
+        speed = dir > 0 ? Math.min(want, next) : Math.max(want, next);
+      } else {
+        const next = speed - Math.sign(speed) * (rate + resist) * dt;
+        speed = dir > 0 ? Math.max(want, next) : Math.min(want, next);
+      }
     }
     if (ebrake > 0) {
       // The handbrake alone: only the rolling drag slows the car, and a creep under 0.4 m/s stops as the grip nears full.
@@ -187,11 +204,18 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
   if (_loss[5]! > 0) {
     speed = Math.sign(speed) * Math.max(0, Math.abs(speed) - _loss[5]! * dt);
   }
+  // The driven wheels: the engine's gross torque (its pull × 1 + the driveline's rotating share) less the road's reaction (`cap`) spins the
+  // rotating mass while the body takes the road's cap less its drag; their difference is how fast the tread runs ahead (Uncharted 4 15:33–16:55,
+  // the leftover goes back into the wheel, and it slows to meet the friction on a lift). Gripping wheels (`engine <= cap`) never start.
+  if (over > 0 || engine > cap) over = Math.max(0, over + ((engine - cap) * (1 + 1 / rotatingShare(k, ws)) + resist) * dt);
+  const v1 = Math.abs(speed);
   io[7] = top;
   io[8] = speed;
   io[9] = want;
-  io[10] = spin;
+  // The slip ratio (JC4 06:48–07:03): the wheel faster than it moves forward, 0 gripping.
+  io[10] = over > 0 ? over / (v1 + over) : 0;
   io[11] = lock;
+  io[17] = over;
 }
 
 /** Steps per unit of throttle and steer (signed 8 bits, the netplay wire's) and of brake (unsigned 8 bits): `HighlightClip.inputs` holds a pedal in one byte each. */
@@ -264,26 +288,42 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   _grip[1] = ((down & 4) !== 0 ? hit[2 * HIT_SIZE + C_GRIP]! : 0) / 2 + ((down & 8) !== 0 ? hit[3 * HIT_SIZE + C_GRIP]! : 0) / 2;
   const muF = _grip[0]! * _loss[3]!; // an axle with its wheels off grips like a body on the road
   const muR = _grip[1]! * _loss[4]!;
+  // The traction reads what the standing wheels of each axle stand on: an axle with one wheel down reads that wheel (a wheel in the air is no tyre
+  // to read, not a tyre on nothing); an axle with none down has no traction, except on a locked 4wd, whose other axle still turns it along (the
+  // monster's fronts leave a sedan's hood with its rears still on the trunk).
+  const frontDown = (down & 1) + ((down >> 1) & 1);
+  const rearDown = ((down >> 2) & 1) + ((down >> 3) & 1);
+  const frontOn = frontDown > 0 ? (_grip[0]! * 2) / frontDown : 0;
+  const rearOn = rearDown > 0 ? (_grip[1]! * 2) / rearDown : 0;
+  const locked = k.drive === "4wd";
   _pedal[0] = throttle;
   _pedal[1] = brake;
   _pedal[2] = along;
-  // The wheels still on bite the floor as ever (their share is `_loss`'s): only the sideways grip below sees a bare axle.
-  _pedal[3] = _grip[0]!;
-  _pedal[4] = _grip[1]!;
+  _pedal[3] = frontDown === 0 && locked ? rearOn : frontOn;
+  _pedal[4] = rearDown === 0 && locked ? frontOn : rearOn;
   _pedal[5] = topScale;
   _pedal[6] = dt;
   _pedal[12] = ebrake;
   _pedal[13] = boost;
+  _pedal[14] = d.spinSpeed;
+  _pedal[15] = 0;
+  _pedal[16] = DRIVE.roll;
   pedals(k, dmg, input, _pedal);
   const top = _pedal[7]!;
   const speed = _pedal[8]!;
   const want = _pedal[9]!;
   const spin = _pedal[10]!;
   const lock = _pedal[11]!;
+  d.spinSpeed = _pedal[17]!;
   const v = Math.abs(speed);
-  const grip = k.grip * a.grip * 0.5 * (muF + muR);
+  // A spinning tyre has little sideways grip left (JC4 17:36–17:48; Uncharted 4 16:07–16:25, the combined force stays under the limit): the driven
+  // axles' grip fades with the slip ratio, so a front-driven car understeers under power (its steering authority fades with it) and a rear-driven one oversteers.
+  const driven = drivenAxles(k);
+  const muFL = muF * ((driven & 1) !== 0 ? 1 - spin : 1);
+  const muRL = muR * ((driven & 2) !== 0 ? 1 - spin : 1);
+  const grip = k.grip * a.grip * 0.5 * (muFL + muRL);
   let yawRate =
-    steer * k.turn * (1 + (DRIVE.ebrakeTurn - 1) * ebrake) * (0.35 + Math.min(1, v / 8) * 0.65) * (0.45 + 0.55 * muF);
+    steer * k.turn * (1 + (DRIVE.ebrakeTurn - 1) * ebrake) * (0.35 + Math.min(1, v / 8) * 0.65) * (0.45 + 0.55 * muFL);
   const beta = detAtan2(-lat0, Math.max(1, Math.abs(along)));
   const dir = beta > 0.02 ? 1 : beta < -0.02 ? -1 : Math.sign(steer);
   let target = 0;
@@ -336,7 +376,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   // A crashed car in contact slides on its tyres: they give the sliding friction of a locked tyre (`CRASH.muSlide`, the axles' grip), not the arcade grip,
   // which would cancel the hit's sideways exchange as it is made. The arcade grip comes back over the contact window (`settledShare`), never in one slice.
   const arcadeBite = (1 - drift) * grip + drift * slideBite;
-  const slidingBite = CRASH.muSlide * FRICTION_G * 0.5 * (muF + muR);
+  const slidingBite = CRASH.muSlide * FRICTION_G * 0.5 * (muFL + muRL);
   const bite = car.deform.massActive && slidingBite < arcadeBite ? slidingBite + (arcadeBite - slidingBite) * car.deform.settledShare() : arcadeBite;
   const latOut = lat - Math.sign(lat) * Math.min(Math.abs(lat), bite * dt);
   // In a drift the arcade end hands most of the bitten-off sideways speed back to the nose, so slides

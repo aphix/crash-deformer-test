@@ -24,6 +24,8 @@ import {
   type NetLayout,
   type Snapshot,
 } from "./codec.ts";
+import { readCarPose } from "./car-pose.ts";
+import { drawSnapshots } from "./net-view.ts";
 import { FRAME_HZ } from "../kernel/constants.ts";
 
 const L: NetLayout = { masses: 20, clusters: 16, sensors: 21, parts: 8, wheels: 4 };
@@ -112,7 +114,7 @@ describe("given a two-car network snapshot with every field filled in", () => {
     for (let c = 0; c < 2; c++) {
       const f = s.cars[c]!;
       // Car 0 a falling fake, car 1 vaporized with its sirens on: each flag must come back on its own car only.
-      Object.assign(f, { x: 12.345 + c, y: 0.0123, z: -40.5, yaw: 3.1, pitch: -0.12, roll: 0.4, vx: 17.3, vy: -1.2, vz: -0.07, wy: 2.345, crashed: true, wreck: c === 0, falling: c === 0, vaporized: c === 1, sirens: c === 1, style: 4 + c, cls: 3 - c, meter: c === 0 ? 0.4 : -1 });
+      Object.assign(f, { x: 12.345 + c, y: 0.0123, z: -40.5, yaw: 3.1, pitch: -0.12, roll: 0.4, vx: 17.3, vy: -1.2, vz: -0.07, wy: 2.345, crashed: true, wreck: c === 0, falling: c === 0, vaporized: c === 1, sirens: c === 1, style: 4 + c, cls: 3 - c, meter: c === 0 ? 0.4 : -1, spin: c === 0 ? 12.37 : 0 });
       const d = f.deform;
       for (let i = 0; i < d.local.length; i++) d.local[i] = Math.sin(i * 1.7) * 2.2;
       for (let i = 0; i < d.skinPos.length; i++) d.skinPos[i] = Math.cos(i * 0.9) * 2.1;
@@ -162,6 +164,7 @@ describe("given a two-car network snapshot with every field filled in", () => {
       assert.equal(b.sirens, c === 1);
       if (c === 0) assert.ok(Math.abs(b.meter - 0.4) <= 0.5 / 254, `meter ${b.meter}`);
       else assert.equal(b.meter, -1, "a car with no nitrous reads back as none");
+      assert.ok(Math.abs(b.spin - a.spin) <= 0.125 + 1e-9, `spin ${b.spin}`);
     }
     const a = s.cars[0]!;
     const b = got.cars[0]!;
@@ -184,8 +187,30 @@ describe("given a two-car network snapshot with every field filled in", () => {
       for (let k = 0; k < 3; k++) assert.equal(b.parts.wheels[i * 7 + k], Math.fround(a.parts.wheels[i * 7 + k]!));
       for (let k = 3; k < 7; k++) assert.ok(Math.abs(b.parts.wheels[i * 7 + k]! - a.parts.wheels[i * 7 + k]!) <= Q.quat);
     }
-    // 17-byte header, 29-byte poses (body, meter, pose), a 667-byte wreck (its impact block is 12 numbers of 2 bytes) with 20 more per loose wheel (2): a loose part's pose is not sent.
-    assert.equal(w.off, 17 + 29 + (667 + 20 * 2) + 29);
+    // 17-byte header, 30-byte poses (body, meter, spin, pose), a 667-byte wreck (its impact block is 12 numbers of 2 bytes) with 20 more per loose wheel (2): a loose part's pose is not sent.
+    assert.equal(w.off, 17 + 30 + (667 + 20 * 2) + 30);
+  });
+});
+
+describe("given a host car whose driven wheels spin ahead of the body", () => {
+  it("when its pose crosses the wire and a client car draws it, then the client's wheelspin is the host's within a wire step, and one past the byte's range reads as its top", () => {
+    const host = makeCar();
+    const layout = layoutOf(host);
+    const s = makeSnapshot();
+    ensureFrames(s, 1, layout);
+    s.count = 1;
+    s.time = 5;
+    const client = makeCar();
+    for (const [spin, want] of [[12.37, 12.37], [0, 0], [70, 63.75]] as const) {
+      host.drive.spinSpeed = spin;
+      readCarPose(host, s.cars[0]!);
+      const w = new Writer();
+      writeSnapshot(w, s, layout);
+      const got = makeSnapshot();
+      readSnapshot(new Reader().reset(w.done()), got, layout);
+      drawSnapshots([got], [1], [], [client], 5, 1 / FRAME_HZ, { setVaporized: () => {}, clearScene: () => {} }, -1);
+      assert.ok(Math.abs(client.drive.spinSpeed - want) <= 0.125 + 1e-9, `spin ${spin} drew as ${client.drive.spinSpeed}`);
+    }
   });
 });
 

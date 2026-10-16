@@ -6,10 +6,18 @@
 import * as THREE from "three";
 import type { CarStyleId } from "./car-variants.ts";
 import { CLASS_HUBS, CLASS_LIFT } from "./constants.ts";
+import { WHEEL_POS } from "./car-mesh.ts";
+import { MU_TYRE } from "../world/surfaces.ts";
 
 export type VehicleClassId = "sedan" | "muscle" | "truck" | "monster" | "police";
 /** Netplay wire order (a snapshot sends the index): append only. */
 export const VEHICLE_CLASS_IDS: readonly VehicleClassId[] = ["sedan", "muscle", "truck", "monster", "police"];
+
+/**
+ * Which axles the engine turns: `fwd` / `rwd` one axle; `awd` both through an open centre differential (the torque split evenly, so the
+ * first axle to slip limits both: Uncharted 4 13:11–13:26); `4wd` both locked together (the axles' grip adds).
+ */
+export type Driveline = "fwd" | "rwd" | "awd" | "4wd";
 
 export interface ClassStats {
   id: VehicleClassId;
@@ -31,8 +39,12 @@ export interface ClassStats {
   launch: readonly [arcade: number, real: number];
   /** Constant power per kilogram (W/kg) the pull tails along past the knee, `power / wheelSpeed`, through every gear (one power: the pull is continuous across a shift). Fitted to the sourced 0–100 with `launch` (docs/HANDLING.md § Acceleration). */
   power: readonly [arcade: number, real: number];
-  /** 0–1 torque feel: how much the rear spins up on a launch. */
-  torque: number;
+  /** The driveline layout: the axles whose grip and load carry the engine's pull (`tractionLimit`) and lay the stripes. */
+  drive: Driveline;
+  /** Height of the centre of gravity over the ground (m): the load the launch moves between the axles (`tractionLimit`) and the drawn squat / dive (`LoadTransfer`). */
+  cgHeight: number;
+  /** The engine's redline (rpm): the motor voice's top (`motorRpm`) and the driveline's overall ratio at a wheel speed (`rotatingShare`). */
+  redlineRpm: number;
   /** Service brake (m/s²). */
   brake: number;
   /** Full-lock yaw rate at speed (rad/s). */
@@ -61,7 +73,9 @@ const SEDAN: ClassStats = {
   gears: [0.24, 0.42, 0.6, 0.8, 1],
   launch: [17.2, 6.9],
   power: [179.7, 72.2],
-  torque: 0.3,
+  drive: "fwd", // the sourced car (2018 Accord Sport) is front-drive, as are the hatchback and wagon bodies that borrow its stats
+  cgHeight: 0.5,
+  redlineRpm: 6800,
   brake: 28,
   turn: 1.55,
   grip: 39,
@@ -89,7 +103,9 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     gears: [0.24, 0.42, 0.6, 0.8, 1],
     launch: [20.4, 9.2],
     power: [230.5, 104.8],
-    torque: 0.6,
+    drive: "rwd", // 2018 Mustang GT: rear-drive muscle
+    cgHeight: 0.5,
+    redlineRpm: 6200,
     brake: 26,
     turn: 1.36,
     grip: 35.5,
@@ -110,7 +126,9 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     gears: [0.3, 0.53, 0.76, 1],
     launch: [16.3, 5],
     power: [178.2, 57.1],
-    torque: 0.5,
+    drive: "4wd", // 2026 Tacoma TRD Off-Road: part-time 4WD, a locked transfer case
+    cgHeight: 0.8,
+    redlineRpm: 5000,
     brake: 27,
     turn: 1.5,
     grip: 41,
@@ -131,7 +149,9 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     gears: [0.3, 0.53, 0.76, 1],
     launch: [17.1, 8.4],
     power: [243.6, 123.4],
-    torque: 0.7,
+    drive: "4wd", // Monster Jam trucks: solid axles, all four driven and locked
+    cgHeight: 1.2,
+    redlineRpm: 5500,
     brake: 26,
     turn: 1.3,
     grip: 37,
@@ -143,12 +163,12 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     wheelScale: 1.7,
   },
   /**
-   * The sedan's drive on the black-and-white body with the light bar. An AI police unit takes a little more
-   * before it dies: ×1.3 gives +16 % kill travel at the HUD's default realism (0.45 → 0.52 m; ×1.25 gives only +13.5 %),
-   * +14.5 % at the arcade end, where `KILL_CEILING` caps it, and +30 % at the realistic end. A player's police
-   * car keeps the sedan's (`killClass`).
+   * The sedan's drive on the black-and-white body with the light bar, rear-driven: the archetype is a rear-drive pursuit sedan
+   * (Crown Victoria, Charger Pursuit). An AI police unit takes a little more before it dies: ×1.3 gives +16 % kill travel at the
+   * HUD's default realism (0.45 → 0.52 m; ×1.25 gives only +13.5 %), +14.5 % at the arcade end, where `KILL_CEILING` caps it, and
+   * +30 % at the realistic end. A player's police car keeps the sedan's (`killClass`).
    */
-  police: { ...SEDAN, id: "police", label: "Police", style: "police", durability: 1.3 },
+  police: { ...SEDAN, id: "police", label: "Police", style: "police", drive: "rwd", redlineRpm: 7000, durability: 1.3 },
 };
 
 /** The class each body style drives as unless assigned another (the monster truck rides the pickup body). */
@@ -160,6 +180,9 @@ export const STYLE_CLASS: Readonly<Record<CarStyleId, VehicleClassId>> = {
   pickup: "truck",
   police: "police",
 };
+
+/** Wheel radius of the shared mesh (m); a scaled wheel is lifted to keep its tyre on the ground (`assignClass`) and its tread speed is the hub's × its scale (`rotatingShare`). */
+export const WHEEL_RADIUS = 0.32;
 
 export function classStats(id: VehicleClassId): ClassStats {
   return CLASSES[id];
@@ -208,10 +231,16 @@ export function carClass(car: { style: { id: CarStyleId } }): VehicleClassId {
   return assigned.get(car) ?? STYLE_CLASS[car.style.id];
 }
 
-/** The gauge's gear for a car: its forward speed's bucket 1-based (`gearAt`), 0 rolling backwards. */
-export function carGear(car: { style: { id: CarStyleId }; velocity: { x: number; z: number }; fwdFlat: { x: number; z: number } }): number {
+/** The driven wheels' tread speed along the nose (m/s): the body's speed plus what the tread runs ahead of it (`drive.spinSpeed`). */
+function wheelSpeed(car: { velocity: { x: number; z: number }; fwdFlat: { x: number; z: number }; drive: { spinSpeed: number } }): number {
   const along = car.velocity.x * car.fwdFlat.x + car.velocity.z * car.fwdFlat.z;
-  return along < -0.5 ? 0 : gearAt(CLASSES[carClass(car)], along) + 1;
+  return along < 0 ? along : along + car.drive.spinSpeed;
+}
+
+/** The gauge's gear for a car: its driven wheels' speed's bucket 1-based (`gearAt`), 0 rolling backwards. */
+export function carGear(car: { style: { id: CarStyleId }; velocity: { x: number; z: number }; fwdFlat: { x: number; z: number }; drive: { spinSpeed: number } }): number {
+  const ws = wheelSpeed(car);
+  return ws < -0.5 ? 0 : gearAt(CLASSES[carClass(car)], ws) + 1;
 }
 
 /** Revs (0-1 of the dial) at the foot of a gear bucket; a shift drops back to it. */
@@ -220,18 +249,18 @@ const REV_FLOOR = 0.3;
 export const REV_IDLE = 0.18;
 
 /**
- * The gauge's fake revs 0-1: there is no engine model, so they climb with forward speed through the current gear bucket
- * (`gearAt`): `REV_FLOOR` at the bucket's foot, 1 (the redline) at its top, and back down at the next gear's foot.
- * Pure function of speed and class, so it matches the gear shown beside it exactly.
+ * The gauge's revs 0-1: they climb with the driven wheels' speed through its gear bucket (`gearAt`): `REV_FLOOR` at the bucket's foot,
+ * 1 (the redline) at its top, and back down at the next gear's foot. Wheelspin revs the dial with the wheels, not the body (Uncharted 4
+ * 13:28: next frame's rpm from the fastest-spinning wheel). Pure function of the car's state and class, so it matches the gear shown beside it.
  */
-export function carRpm(car: { style: { id: CarStyleId }; velocity: { x: number; z: number }; fwdFlat: { x: number; z: number } }): number {
-  const along = car.velocity.x * car.fwdFlat.x + car.velocity.z * car.fwdFlat.z;
-  if (along < 0) return REV_IDLE;
+export function carRpm(car: { style: { id: CarStyleId }; velocity: { x: number; z: number }; fwdFlat: { x: number; z: number }; drive: { spinSpeed: number } }): number {
+  const ws = wheelSpeed(car);
+  if (ws < 0) return REV_IDLE;
   const k = CLASSES[carClass(car)];
-  const g = gearAt(k, along);
+  const g = gearAt(k, ws);
   const lo = gearLo(k, g);
   const hi = gearHi(k, g);
-  const share = Math.min(1, (along - lo) / (hi - lo));
+  const share = Math.min(1, (ws - lo) / (hi - lo));
   return g === 0 ? REV_IDLE + (1 - REV_IDLE) * share : REV_FLOOR + (1 - REV_FLOOR) * share;
 }
 
@@ -394,6 +423,50 @@ export function cornerSpeed(s: ClassStats, r: number, mu = 1, realism = HANDLING
   return Math.min(s.topSpeed, Math.sqrt(grip * r), s.turn * steerAuth * r);
 }
 
+/** Driven-axle bits of a class's driveline: 1 the front axle, 2 the rear. */
+export function drivenAxles(k: ClassStats): number {
+  return k.drive === "fwd" ? 1 : k.drive === "rwd" ? 2 : 3;
+}
+
+/** Gillespie, Fundamentals of Vehicle Dynamics, ch. 2 "Acceleration Performance": the mass factor (M + M_r) / M ≈ 1 + 0.04 + 0.0025 · N², N the overall engine:wheel ratio. */
+const ROTATING_FIXED = 0.04;
+const ROTATING_PER_RATIO2 = 0.0025;
+
+/**
+ * The driveline's rotating mass as a share of the car's, with the driven wheels at `ws` m/s (Gillespie's mass factor less 1): N is the
+ * overall ratio that puts the engine at its redline at `ws`, held at 1st's top below it. Gillespie's per-gear value at every gear's top,
+ * continuous between: a per-gear step fed the gear back into the spin and hunted at a bucket edge.
+ */
+export function rotatingShare(k: ClassStats, ws: number): number {
+  const ratio = (((k.redlineRpm * 2 * Math.PI) / 60) * WHEEL_RADIUS * k.wheelScale) / Math.max(ws, gearHi(k, 0));
+  return ROTATING_FIXED + ROTATING_PER_RATIO2 * ratio * ratio;
+}
+
+/**
+ * Gillespie ch. 2 traction-limited acceleration, in g, for the class's driveline on front and rear tyre μ `f`, `r`: the static 50/50 split
+ * (`WHEEL_POS` ±AXLE) and the longitudinal transfer a·h/L (h the class CG height, L the wheelbase) give front load share ½ − h·a/(gL), rear
+ * ½ + h·a/(gL); fwd a = μF g (½ − h a/(gL)) → ½ μF / (1 + μF h/L); rwd ½ μR / (1 − μR h/L); awd (open centre, equal torque) 2 × the weaker
+ * axle's limit; 4wd (locked) the axles' limits add with the transfer moving load from front to rear: ½ (μF + μR) / (1 + (h/L)(μF − μR)).
+ */
+function tractionG(k: ClassStats, f: number, r: number): number {
+  const h = k.cgHeight / (2 * WHEEL_POS[0]![2]);
+  return k.drive === "fwd" ? (0.5 * f) / (1 + f * h) : k.drive === "rwd" ? (0.5 * r) / (1 - r * h) : k.drive === "awd" ? Math.min(f / (1 + 2 * f * h), r / (1 - 2 * r * h)) : (0.5 * (f + r)) / (1 + h * (f - r));
+}
+
+/**
+ * The most forward pull (m/s²) the driven axles pass to the road at `realism`, from the front and rear axle grips (1 = dry asphalt). On dry
+ * asphalt it is the class's launch pull at every slider setting: the sourced 0–100 behind `launch` was driven on real tyres, so their traction
+ * is in it already, and a cap under it would count the tyre twice. A surface scales that: at the arcade end by the driven axles' grip alone
+ * (no load transfer: masterclass 23:19, assists "as subtle as possible"), at the realistic end by what Gillespie's law (`tractionG`, μ = grip ×
+ * `MU_TYRE`) gives the layout there against dry asphalt, so a front-driven car loses more of its launch on a loose surface than a rear-driven
+ * one and a locked 4wd the least.
+ */
+export function tractionLimit(k: ClassStats, muF: number, muR: number, realism: number): number {
+  const arcade = k.launch[0] * (k.drive === "fwd" ? muF : k.drive === "rwd" ? muR : k.drive === "awd" ? Math.min(muF, muR) : 0.5 * (muF + muR));
+  const real = (k.launch[1] * tractionG(k, muF * MU_TYRE, muR * MU_TYRE)) / tractionG(k, MU_TYRE, MU_TYRE);
+  return arcade + (real - arcade) * realism;
+}
+
 // --- class dressing (visual lift / wheel scale) -------------------------------
 
 type Dressable = {
@@ -404,8 +477,6 @@ type Dressable = {
   readonly style: { id: CarStyleId };
 };
 
-/** Wheel radius of the shared mesh (m); a scaled wheel is lifted to keep its tyre on the ground. */
-const WHEEL_RADIUS = 0.32;
 
 /**
  * Give `car` a class: stats for `applyDrive`, plus the monster / truck stance.

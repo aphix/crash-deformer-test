@@ -68,6 +68,7 @@ export function drawSnapshots(
       fa.vz + (fb.vz - fa.vz) * u,
     );
     car.angular.set(0, fa.wy + (fb.wy - fa.wy) * u, 0);
+    car.drive.spinSpeed = fa.spin + (fb.spin - fa.spin) * u;
     car.speed = car.velocity.length();
     car.crashed = fa.crashed;
     car.refreshBasis();

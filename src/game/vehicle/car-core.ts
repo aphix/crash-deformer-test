@@ -41,6 +41,7 @@ import { anchorOnSkin, poseOnSkin, type GlowKind, type SkinAnchor } from "./lamp
 import { panelRegions, type PanelName, type PanelRegion } from "./car-panels.ts";
 import { newDentState, type DentState } from "./loose-dent.ts";
 import { newLooseShape } from "./loose-step.ts";
+import { carClass, CLASSES, drivenAxles } from "./vehicle-classes.ts";
 const _p = new THREE.Vector3();
 const _inv = new THREE.Quaternion();
 const _lampQ = new THREE.Quaternion();
@@ -292,9 +293,9 @@ export abstract class CarCore {
   placements = 0;
   /** Times its engine was killed from outside the crash sim (`disable`): the recorder keys a step the count moved in, and a clip keeps that keyframe for the car. */
   kills = 0;
-  /** Last slice's drive (applyDrive writes it). spin / lock / slide: 0–1 wheel slip for tyre FX (launch wheelspin, brake lock-up, sideways slide); `drift`: the drift assist's state; `hold`: sideways grip (m/s) left this step, spent by a face the car is pressed on (`wallBounce`); `ebrakeK`: the handbrake grip actually applied, 0–1, ramped in and out over `DRIVE.ebrakeIn` / `ebrakeOut`; `boostK`: the boost thrust applied, 0 or 1.
+  /** Last slice's drive (applyDrive writes it). `spin`: the driven wheels' longitudinal slip ratio 0–1; `lock` / `slide`: 0–1 wheel slip for tyre FX (brake lock-up, sideways slide); `spinSpeed`: m/s the driven wheels' tread runs ahead of the body, 0 gripping (state: a spin builds and fades over the driveline's rotating mass, so it rides in the flight block and on the wire; the gear and revs are read off `along + spinSpeed`); `drift`: the drift assist's state; `hold`: sideways grip (m/s) left this step, spent by a face the car is pressed on (`wallBounce`); `ebrakeK`: the handbrake grip actually applied, 0–1, ramped in and out over `DRIVE.ebrakeIn` / `ebrakeOut`; `boostK`: the boost thrust applied, 0 or 1.
    *  `-0`: doubles from construction; each field's first fractional write mid-race deoptimised applyDrive for seconds. */
-  readonly drive = { throttle: -0, steer: -0, brake: -0, ebrake: false, boost: false, neutral: false, spin: -0, lock: -0, slide: -0, drift: -0, hold: -0, ebrakeK: -0, boostK: -0 };
+  readonly drive = { throttle: -0, steer: -0, brake: -0, ebrake: false, boost: false, neutral: false, spin: -0, spinSpeed: -0, lock: -0, slide: -0, drift: -0, hold: -0, ebrakeK: -0, boostK: -0 };
   /** A wreck at rest: `integrateWreck` skips its rigid step until something moves it (`wake`). */
   asleep = false;
   /** Seconds the wreck has rested (`integrateWreck`); it sleeps at `WRECK_REST_S`. */
@@ -741,8 +742,11 @@ export abstract class CarCore {
     const along = this.velocity.dot(this.forward);
     const decay = Math.exp(-dt / AIR_SPIN_TAU);
     const wind = this.airThrottle * AIR_SPIN_UP * dt;
+    // The driven wheels' tread runs ahead of the body by the drive's spin (`spinSpeed`); the others roll at the body's speed.
+    const driven = drivenAxles(CLASSES[carClass(this)]);
     for (let i = 0; i < this.wheels.length; i++) {
-      if (rolling) this.wheelRate[i] = (along - this.angular.y * WHEEL_POS[i]![0]) * inv * (1 - (i >= 2 ? Math.max(d.ebrakeK, d.lock) : d.lock));
+      const tread = along + ((driven & (i < 2 ? 1 : 2)) !== 0 ? Math.sign(along) * d.spinSpeed : 0);
+      if (rolling) this.wheelRate[i] = (tread - this.angular.y * WHEEL_POS[i]![0]) * inv * (1 - (i >= 2 ? Math.max(d.ebrakeK, d.lock) : d.lock));
       else this.wheelRate[i] = this.wheelRate[i]! * decay + wind;
       this.wheelSpin[i]! += this.wheelRate[i]! * dt;
       if (!this.looseWheels[i]!.loose) this.wheels[i]!.rotation.x = this.wheelSpin[i]!;

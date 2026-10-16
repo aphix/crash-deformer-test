@@ -4,6 +4,7 @@ import { C_GRIP, C_H, C_OWNER, C_SURF, HIT_SIZE, pointContact, PQ_SIZE, PQ_X, PQ
 import { SURFACE_IDS, type SurfaceId } from "../world/catalog.ts";
 import { hypot2 } from "../kernel/physics-core.js";
 import { MIN_SIM_DT } from "./constants.ts";
+import { carClass, CLASSES, drivenAxles } from "../vehicle/vehicle-classes.ts";
 
 /**
  * Tyre marks on the GPU. Every slipping wheel stamps one short quad per frame into ONE ground-aligned render
@@ -254,12 +255,14 @@ export class SkidMarks {
       const fz = car.fwdFlat.z;
       const hadPrev = this.hasPrev[c * 4] === 1;
       const lock = car.drive.lock;
-      // Launch spin eases out at 1.4/s after Handling's spin ends; a boost launch also spins the rears up to
-      // ~14 m/s (a visual cheat: Handling's own spin is gone by 7 m/s), so it lays two long tapering stripes.
+      // Launch spin eases out at 1.4/s after Handling's spin ends; a boost launch also spins the driven wheels up to
+      // ~14 m/s (a visual cheat: Handling's own spin is gone by 7 m/s), so it lays long tapering stripes.
       const along = v.x * fx + v.z * fz;
       const launch = car.drive.throttle > 0.5 ? car.drive.boostK * ramp(14 - along, 0, 6) : 0;
       const spin = (this.spinHold[c] = Math.max(car.drive.spin, launch, this.spinHold[c]! - simDt * 1.4));
       const bodySlide = ramp(car.drive.slide, DRIVE_SLIDE_START, DRIVE_SLIDE_FULL);
+      // The driven axles lay the launch stripes: a FWD car's fronts, a RWD car's rears, a 4WD car's all four.
+      const driven = drivenAxles(CLASSES[carClass(car)]);
       for (let k = 0; k < 4; k++) {
         const s = c * 4 + k;
         if (!car.group.visible) {
@@ -295,7 +298,7 @@ export class SkidMarks {
             rear ? ramp(side, SLIDE_START * grip, SLIDE_FULL * grip) : ramp(Math.abs(v.x * fz - v.z * fx), SLIDE_START * grip, SLIDE_FULL * grip),
             rear ? bodySlide : bodySlide * 0.5,
           );
-          slip = Math.max(slide, lock, rear ? spin : 0);
+          slip = Math.max(slide, lock, (driven & (rear ? 2 : 1)) !== 0 ? spin : 0);
         } else if (hadPrev && !jump && popped && gap < -WHEEL_R * 0.25 && vx * vx + vz * vz > 2) {
           scrape = 1;
           slip = 0.9;

@@ -30,5 +30,6 @@ export function readCarPose(car: DeformableCar, f: CarFrame): void {
   f.driverOut = EXIT_PANES.indexOf(car.driverOut);
   f.style = CAR_STYLE_IDS.indexOf(car.style.id);
   f.cls = VEHICLE_CLASS_IDS.indexOf(carClass(car));
+  f.spin = car.drive.spinSpeed;
   f.wreck = false;
 }

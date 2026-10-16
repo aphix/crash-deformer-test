@@ -31,30 +31,49 @@ Fleets cycle slots sedan, hatchback, wagon, coupe (muscle), pickup (truck), mons
 
 ## Acceleration
 
-Each class has 4 or 5 gear buckets (`ClassStats.gears`): a gear's top end as a share of the class top speed, and a fixed
-thrust (m/s²) that falls with each shift. No clutch or revs; the pull steps down at every shift. Each gear has an arcade
-and a realistic thrust, lerped by `HANDLING.realism`. Boost multiplies the thrust ×1.55–1.6 and lifts the top ×1.2–1.22,
+The engine's pull on the driven wheels is the class's launch pull (`ClassStats.launch`, m/s²) until its power is reached, then
+constant power (`ClassStats.power`, W/kg) tailing off as 1/wheel-speed through every gear (`enginePull`; masterclass 14:38, gears
+"tail off as vehicle speed approaches the next gear's working range"). One power for all gears, so the pull is continuous across a
+shift and a road's drag meets it mid-gear, never at a shift's step. The gear buckets (`ClassStats.gears`, each gear's top end as a share
+of the class top) are the gauge's, the shift kick's and the AI's. Both rows have an arcade and a realistic figure, lerped by
+`HANDLING.realism`; the power is fitted in closed form to the sourced 0–100 km/h with the launch pull kept: t₁₀₀ = power/(2·launch²) +
+v₁₀₀²/(2·power). Time to top follows from the law (`timeToTop` in the test); any continuous law pinned to t₁₀₀ has t_top ≤
+t₁₀₀·(v_top/v₁₀₀)², so the old "about 2×" top times could not hold. Boost multiplies the pull ×1.55–1.6 and lifts the top ×1.2–1.22,
 pulling on in top gear past the class top. In a race, drafting lifts the top a further ×1.02 while it lasts (`DRAFT.top`;
 [`RACE_DESIGN.md`](RACE_DESIGN.md) "Drafting"). The fastest a driven car goes is a boosted muscle car in a draft, and `barrier.test.ts`
 crashes every hit up to it.
 
-| Class | Gear top ends (× top) | Thrust per gear, arcade (m/s²) | Thrust per gear, realistic (m/s²) |
-|---|---|---|---|
-| Sedan | 0.24 / 0.42 / 0.6 / 0.8 / 1 | 17.2 / 10.7 / 6.1 / 3.5 / 2.0 | 6.9 / 4.3 / 2.44 / 1.93 / 1.1 |
-| Muscle | 0.24 / 0.42 / 0.6 / 0.8 / 1 | 20.4 / 12.7 / 7.7 / 4.7 / 2.8 | 9.2 / 5.73 / 3.47 / 2.43 / 1.45 |
-| Truck | 0.3 / 0.53 / 0.76 / 1 | 16.3 / 7.8 / 4.3 / 1.8 | 5 / 2.48 / 2.2 / 1.08 |
-| Monster | 0.3 / 0.53 / 0.76 / 1 | 17.1 / 11.5 / 5.0 / 1.8 | 8.4 / 5.65 / 2.45 / 0.88 |
+| Class | Gear top ends (× top) | Launch pull, arcade / realistic (m/s²) | Power, arcade / realistic (W/kg) | Knee, arcade / realistic (m/s) |
+|---|---|---|---|---|
+| Sedan | 0.24 / 0.42 / 0.6 / 0.8 / 1 | 17.2 / 6.9 | 179.7 / 72.2 | 10.4 / 10.5 |
+| Muscle | 0.24 / 0.42 / 0.6 / 0.8 / 1 | 20.4 / 9.2 | 230.5 / 104.8 | 11.3 / 11.4 |
+| Truck | 0.3 / 0.53 / 0.76 / 1 | 16.3 / 5 | 178.2 / 57.1 | 10.9 / 11.4 |
+| Monster | 0.3 / 0.53 / 0.76 / 1 | 17.1 / 8.4 | 243.6 / 123.4 | 14.2 / 14.7 |
 
-Launch targets (`vehicle-classes.test.ts` `LAUNCH`, full throttle at 1/80 s and 1/240 s steps): 0–100 km/h and time to top at each
-end of the slider. The realistic end is the sourced 0–60 mph read as 0–100 km/h, time to top about 2× the arcade end;
-the arcade end is about × 0.4 and × 0.5 of those, the real order kept (muscle and monster quickest, truck slowest off the line).
+**Traction and the driveline.** What the road takes of that pull is the driven axles' traction (`tractionLimit`, by the class's
+driveline `ClassStats.drive`: the sedan and its hatchback and wagon bodies front-driven as the sourced Accord is, the muscle coupe and
+the police cruiser rear-driven, the truck and the monster locked 4wd). On dry asphalt it is the launch pull at every slider setting:
+the sourced launch was driven on real tyres, so their traction is in it already. A surface scales that: at the arcade end by the driven
+axles' grip alone, at the realistic end by Gillespie's traction-limited acceleration (ch. 2: the static 50/50 split and the longitudinal
+transfer a·h/L with the class CG height `ClassStats.cgHeight`) for the layout there against dry asphalt, so a front-driven car loses more
+of its launch on a loose surface than a rear-driven one, and a locked 4wd the least. What the engine pulls past the traction spins the
+driven wheels (`drive.spinSpeed`, m/s the tread runs ahead of the body; Uncharted 4 15:42–16:55): the body takes exactly the road's
+traction while they spin, the excess accelerates the driveline's rotating mass (Gillespie's mass factor, `rotatingShare`, continuous in
+wheel speed) and the tyres slow it back to the road on a lift, never in one step. The gauge's gear and revs read the wheels, not the body
+(`carGear`, `carRpm`: an upshift comes early on grass, the needle climbs with the spin), the drawn wheels turn at the tread's speed, the
+stripes and the squeal read the slip ratio (`drive.spin`), and a spinning axle loses its sideways grip (a front-driven car understeers
+under power, a rear-driven one oversteers). Spin rides in the flight block and on the netplay wire (one byte, `NET_VERSION` 25).
 
-| Class | 0–100 km/h, arcade / realistic | Time to top, arcade / realistic |
+Launch targets (`vehicle-classes.test.ts` `LAUNCH`, full throttle at 1/80 s and 1/240 s steps): 0–100 km/h at each end of the slider.
+The realistic end is the sourced 0–60 mph read as 0–100 km/h; the arcade end is about × 0.4 of it, the real order kept (muscle and
+monster quickest, truck slowest off the line). Time to top is the law's.
+
+| Class | 0–100 km/h, arcade / realistic | Time to top, arcade / realistic (the law's) |
 |---|---|---|
-| Sedan | 2.45 / 6.1 s | 12 / 24 s |
-| Muscle | 1.95 / 4.3 s | 9.5 / 19 s |
-| Truck | 2.5 / 7.9 s | 12.7 / 25.7 s |
-| Monster | 2 / 4 s | 11.5 / 23.1 s |
+| Sedan | 2.45 / 6.1 s | 8.8 / 21.9 s |
+| Muscle | 1.95 / 4.3 s | 7.6 / 16.7 s |
+| Truck | 2.5 / 7.9 s | 8.5 / 26.6 s |
+| Monster | 2 / 4 s | 6.1 / 12.0 s |
 
 | Class | Real vehicle | 0–60 mph | Top speed | Source |
 |---|---|---|---|---|
@@ -84,8 +103,8 @@ the arcade end is about × 0.4 and × 0.5 of those, the real order kept (muscle 
 - **Draft** (race mode only): in the wake of another racer (a 36° cone up to 3 car lengths behind its rear bumper, [`RACE_DESIGN.md`](RACE_DESIGN.md) "Drafting") the top speed is ×1.02, the thrust unchanged.
 - **Recovery**: a driven car stuck on its roof or side rights itself after 1.2 s at the arcade end, slower toward mid
   slider; past 0.6 only R rights it.
-- **Surface grip** comes from the active `Ground` (`frictionAt`) under each axle: low front grip loses steering, low rear
-  grip loses traction and launches with wheelspin. Tyre FX read `car.drive.spin`, `lock` and `slide`, each 0–1.
+- **Surface grip** comes from the active `Ground` (`frictionAt`) under each axle: low front grip loses steering, and low grip under
+  the driven axles caps the launch and spins the wheels (§ Acceleration). Tyre FX read `car.drive.spin`, `lock` and `slide`, each 0–1.
 - **Speed readouts** read mph when the browser's locale region is the US, km/h everywhere else (`speed-units.ts`); physics
   stays in m/s.
 
@@ -175,8 +194,9 @@ From `deform.drivetrainHealth` (1 − block travel / kill travel), `deform.wheel
 
 A car short of dead never drops below 60 % of its class top speed (`LIMP_FLOOR`).
 
-**Wheels off** (`vehicle/wheel-loss.ts`, one rule for the player and every AI through `applyDrive`). Every class drives all
-four wheels. Steering is the front wheels' share (both gone: none, one gone: half the lock), thrust is wheels on / 4 and top
+**Wheels off** (`vehicle/wheel-loss.ts`, one rule for the player and every AI through `applyDrive`). Thrust and traction come
+from the wheels on (a quarter each); the class's driveline (`ClassStats.drive`) decides which axles' grip the traction reads,
+`wheelLoss` only how many wheels are left to read it with. Steering is the front wheels' share (both gone: none, one gone: half the lock), thrust is wheels on / 4 and top
 speed its square root, brakes are the wheels on with the fronts taking 60 %, an axle with both wheels off keeps 35 % of its
 sideways grip, every lost wheel scrapes the body for 0.5 m/s², and the handbrake needs a rear wheel to lock.
 

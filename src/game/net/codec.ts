@@ -52,8 +52,12 @@ carries the peer's own meter (a sixth byte), so every browser shows any viewed c
 22: co-op: a race snapshot carries the survival run (`survival`: bust time, pack count and wrecked), the campaign table and its standings flag, and a race HUD the team result, so peers on 21 would not follow a shared Survival run or campaign.
 23: the Havana lobby: `MSG.roster` entries carry each player's cleaned name (after the peer id), `MSG.input` flags gain bit 16 (`INPUT_RESET`: put my car back at a lobby spawn, repaired) and a race message carries the lobby's start gate (`gate`: players needed, game the Go switch starts), so peers on 22 would misread the roster and ignore the gate.
 24: a Survival race snapshot's pack carries `cause` (why the run ended for the host's car), so every peer's result card reads the host's, and peers on 23 would show their own.
+25: a car's snapshot record carries its wheelspin byte after the meter, so a 24 peer would read the pose one byte early.
 */
-export const NET_VERSION = 24;
+export const NET_VERSION = 25;
+
+/** m/s per wire step of a car's wheelspin: 255 steps reach 63.75 m/s, past every class's unboosted top (muscle 58.3 m/s); a spin beyond reads as the max, where the dial is on the redline anyway. */
+const SPIN_STEP = 0.25;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;
@@ -125,6 +129,8 @@ export interface CarFrame {
   cls: number;
   /** Its driver's boost meter (0-1), as the host knows it; -1 for a car with no nitrous (police, traffic, nobody driving). */
   meter: number;
+  /** m/s the driven wheels' tread runs ahead of the body (`drive.spinSpeed`); the gauge's gear and revs and the drawn wheelspin read it on a client. */
+  spin: number;
   /** The wreck section (deform + parts) rides with this frame. */
   wreck: boolean;
   readonly deform: DeformNetState;
@@ -172,6 +178,7 @@ export function makeCarFrame(L: NetLayout): CarFrame {
     style: 0,
     cls: 0,
     meter: -1,
+    spin: 0,
     wreck: false,
     deform: {
       local: new Float32Array(L.masses * 3),
@@ -334,7 +341,7 @@ export class Reader {
 /** Most bytes `writeSnapshot` writes for `n` cars: each with a wreck section, every part (a flag byte and 3 hinge values of 2 bytes: 7) and wheel (20) loose. */
 export function snapshotMaxBytes(n: number, L: NetLayout): number {
   const wreck = L.masses * 12 + L.clusters * 18 + L.sensors * 2 + IMPACT * 2 + 13 + L.parts * 7 + 4 + L.wheels * 20;
-  return 17 + n * (29 + wreck);
+  return 17 + n * (30 + wreck);
 }
 
 /** A car's doubles staged for `f32s`/`q16s` (see `Writer.q16s`). */
@@ -418,6 +425,7 @@ export function writeSnapshot(w: Writer, s: Snapshot, L: NetLayout): void {
     w.u8((f.crashed ? 1 : 0) | (f.wreck ? 2 : 0) | (f.vaporized ? 4 : 0) | (f.falling ? 8 : 0) | (f.sirens ? 16 : 0) | ((f.driverOut & 3) << 5));
     w.u8((f.style & 15) | ((f.cls & 15) << 4));
     w.u8(f.meter < 0 ? METER_NONE : Math.round(Math.min(1, f.meter) * METER_FULL));
+    w.u8(Math.min(255, Math.round(f.spin / SPIN_STEP)));
     const p = STAGE;
     p[0] = f.x;
     p[1] = f.y;
@@ -466,6 +474,7 @@ export function readSnapshot(r: Reader, s: Snapshot, L: NetLayout): void {
     f.cls = body >> 4;
     const meter = r.u8();
     f.meter = meter === METER_NONE ? -1 : meter / METER_FULL;
+    f.spin = r.u8() * SPIN_STEP;
     f.x = r.fin32();
     f.y = r.fin32();
     f.z = r.fin32();

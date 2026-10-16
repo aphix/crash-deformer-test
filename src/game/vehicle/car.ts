@@ -7,7 +7,7 @@ import { activeGround } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S } from "./car-core.ts";
 import { COM_Y, REST_SPEED } from "./car-air-body.ts";
-import { FLIGHT_BORNE, FLIGHT_CONTACT, FLIGHT_DOWN, FLIGHT_DRIFT, FLIGHT_END_AGO, FLIGHT_END_REACH, FLIGHT_END_SQUEEZE, FLIGHT_EULER, FLIGHT_INV_YAW, FLIGHT_POSITION, FLIGHT_QUATERNION, FLIGHT_RAMPS, FLIGHT_REST, FLIGHT_STALL, FLIGHT_VELOCITY } from "./car-flight.ts";
+import { FLIGHT_BORNE, FLIGHT_CONTACT, FLIGHT_DOWN, FLIGHT_DRIFT, FLIGHT_END_AGO, FLIGHT_END_REACH, FLIGHT_END_SQUEEZE, FLIGHT_EULER, FLIGHT_INV_YAW, FLIGHT_POSITION, FLIGHT_QUATERNION, FLIGHT_RAMPS, FLIGHT_REST, FLIGHT_SPIN, FLIGHT_STALL, FLIGHT_VELOCITY } from "./car-flight.ts";
 import { readContact } from "./car-air-points.ts";
 import { stepFree, wreckCentre, wreckInvI } from "./car-air.ts";
 import { bodyLift, Suspension, UPRIGHT_UP_Y } from "./car-suspension.ts";
@@ -324,6 +324,7 @@ export class DeformableCar extends CarParts {
       this.stalledS = buf[o + FLIGHT_STALL]!;
       this.drive.ebrakeK = buf[o + FLIGHT_RAMPS]!;
       this.drive.boostK = buf[o + FLIGHT_RAMPS + 1]!;
+      this.drive.spinSpeed = buf[o + FLIGHT_SPIN]!;
       this.surfaces?.borneState(this.slot, buf, o + FLIGHT_BORNE, true);
       this.restoreContact();
       this.contact(buf, o, true);
@@ -355,6 +356,7 @@ export class DeformableCar extends CarParts {
     buf[o + FLIGHT_REST] = this.restS;
     buf[o + FLIGHT_RAMPS] = this.drive.ebrakeK;
     buf[o + FLIGHT_RAMPS + 1] = this.drive.boostK;
+    buf[o + FLIGHT_SPIN] = this.drive.spinSpeed;
   }
 
   /**
@@ -749,7 +751,7 @@ export class DeformableCar extends CarParts {
     const lift = bodyLift(CLASSES[cls].lift, upY);
     let gone = 0;
     for (let i = 0; i < 4; i++) if (this.looseWheels[i]!.loose) gone |= 1 << i;
-    this.suspension.step(this.group, this.wheels, cls, lift, !this.crashed || this.deform.massActive, air, gone, this.wheelHit, dt, this.deform.massActive, this.drive.slide);
+    this.suspension.step(this.group, this.wheels, cls, lift, !this.crashed || this.deform.massActive, air, gone, this.wheelHit, dt, this.deform.massActive, this.drive.slide, this.drive.spinSpeed);
   }
 
   /** The class body the ride moves (`null` for a car with no class), found once. */

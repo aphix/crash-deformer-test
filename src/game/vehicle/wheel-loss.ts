@@ -18,7 +18,9 @@ const bits = (m: number, a: number, b: number): number => ((m & a) !== 0 ? 1 : 0
 
 /**
  * What the wheels still on the car (`mask`) leave of each control, one rule for the player and the AI (both go
- * through `applyDrive`). Every class drives all four wheels (the classes carry no driveline), so:
+ * through `applyDrive`). Thrust and traction come from the wheels on (a quarter each, `out[1]`); the class's driveline
+ * (`ClassStats.drive`) decides which axles' grip the traction reads (`tractionLimit`), `wheelLoss` only how many wheels
+ * are left to read it with. So:
  * - steering comes from the front wheels alone: both gone and the wheel does nothing, one gone half the lock;
  * - thrust comes from the wheels on, a quarter each;
  * - the brakes are the wheels on, the fronts taking 60 %: what is not braked has only the scrape and the road's drag;

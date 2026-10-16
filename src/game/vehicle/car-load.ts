@@ -30,16 +30,16 @@ const SHIFT_GAP = 0.25;
 const SHIFT_DOWN = 0.6;
 
 /**
- * Per class: height of the centre of gravity over the ground (m), and the most the drawn body pitches (squat / dive)
- * and rolls under load transfer (deg). The spring model alone gives a sedan 2.3° of pitch at 1 g and a monster 15°;
- * these limits are what arcade launches and corners saturate at, small enough that the springs keep room for a landing.
+ * Per class: the most the drawn body pitches (squat / dive) and rolls under load transfer (deg). The spring model alone gives a
+ * sedan 2.3° of pitch at 1 g and a monster 15°; these limits are what arcade launches and corners saturate at, small enough that
+ * the springs keep room for a landing. The centre of gravity's height is the class's (`ClassStats.cgHeight`).
  */
-const LOAD: Readonly<Record<VehicleClassId, { cg: number; pitch: number; roll: number }>> = {
-  sedan: { cg: 0.5, pitch: 1.5, roll: 3 },
-  muscle: { cg: 0.5, pitch: 1.8, roll: 3 },
-  police: { cg: 0.5, pitch: 1.5, roll: 3 },
-  truck: { cg: 0.8, pitch: 2.2, roll: 3.4 },
-  monster: { cg: 1.2, pitch: 3.5, roll: 4 },
+const LOAD: Readonly<Record<VehicleClassId, { pitch: number; roll: number }>> = {
+  sedan: { pitch: 1.5, roll: 3 },
+  muscle: { pitch: 1.8, roll: 3 },
+  police: { pitch: 1.5, roll: 3 },
+  truck: { pitch: 2.2, roll: 3.4 },
+  monster: { pitch: 3.5, roll: 4 },
 };
 
 /** Time constant (s) the ground pose's acceleration is smoothed over: a few slices, so one contact spike doesn't kick the body. */
@@ -92,9 +92,9 @@ export class LoadTransfer {
 
   /**
    * One slice: ground pose `e` (a matrixWorld's elements, current), `air` while no wheel is on the ground (no load),
-   * spring stiffness per unit mass `k` (ω², 1/s²) of class `cls`.
+   * spring stiffness per unit mass `k` (ω², 1/s²) of class `cls`, the drive's slide (0–1) and the driven wheels' spin (`drive.spinSpeed`, m/s).
    */
-  step(e: ArrayLike<number>, dt: number, air: boolean, cls: VehicleClassId, k: number, slide = 0): void {
+  step(e: ArrayLike<number>, dt: number, air: boolean, cls: VehicleClassId, k: number, slide = 0, spinSpeed = 0): void {
     const x = e[12]!;
     const z = e[14]!;
     const vx = this.seen > 0 ? (x - this.px) / dt : 0;
@@ -122,18 +122,19 @@ export class LoadTransfer {
     this.vx = vx;
     this.vz = vz;
     if (this.seen < 2) this.seen++;
-    this.shift(e, vx, vz, air, cls);
+    this.shift(e, vx, vz, air, cls, spinSpeed);
 
     // Along the body's nose (+z) and toward its +x side.
     const along = this.ax * e[8]! + this.az * e[10]!;
     const side = this.ax * e[0]! + this.az * e[2]!;
     const c = LOAD[cls];
+    const cg = CLASSES[cls].cgHeight;
     // Per wheel a spring k m/4 carries ΔF = m a h / (2 L) (axle) or m a h / (2 T) (side): Δ = 2 a h / (L k) with
     // L the wheelbase and T the track; the springs' own scale is saturated at the class's limit.
     const capP = AXLE * Math.tan(c.pitch * RAD);
     const capR = TRACK * Math.tan(c.roll * RAD * (1 + LOAD_FEEL.driftLean * slide));
-    const p = alongRoad(capP * tanh((along * c.cg) / (AXLE * k * capP)), e[9]!, c.pitch * RAD) + this.kick(dt);
-    const r = alongRoad(capR * tanh((side * c.cg) / (TRACK * k * capR)), e[1]!, c.roll * RAD);
+    const p = alongRoad(capP * tanh((along * cg) / (AXLE * k * capP)), e[9]!, c.pitch * RAD) + this.kick(dt);
+    const r = alongRoad(capR * tanh((side * cg) / (TRACK * k * capR)), e[1]!, c.roll * RAD);
     // Front and the +x side rise under +along and +side; the rear and the −x side sink.
     this.target[0] = p - r;
     this.target[1] = p + r;
@@ -141,10 +142,10 @@ export class LoadTransfer {
     this.target[3] = -p + r;
   }
 
-  /** The gauge's gear (`carGear`) of this slice's forward speed: a change while the wheels are down starts a kick (not on a spawn or a landing). */
-  private shift(e: ArrayLike<number>, vx: number, vz: number, air: boolean, cls: VehicleClassId): void {
+  /** The gauge's gear (`carGear`) of this slice's driven-wheel speed (the body's plus the spin): a change while the wheels are down starts a kick (not on a spawn or a landing). */
+  private shift(e: ArrayLike<number>, vx: number, vz: number, air: boolean, cls: VehicleClassId, spinSpeed: number): void {
     const along = vx * e[8]! + vz * e[10]!;
-    const g = along < -0.5 ? 0 : gearAt(CLASSES[cls], along) + 1;
+    const g = along < -0.5 ? 0 : gearAt(CLASSES[cls], along + spinSpeed) + 1;
     if (g !== this.gear && !air && this.seen > 1 && this.gear > 0 && g > 0 && this.age > SHIFT_GAP) {
       this.age = 0;
       this.dir = g > this.gear ? 1 : SHIFT_DOWN;

@@ -208,7 +208,7 @@ export class Suspension {
    * (`gone`, bit i: `WHEEL_POS` i; `sagOffsets`; snapped at dt 0); the wheels are then the wreck's (`nudgeWheels` puts them on their
    * hubs). A `wreck` (its masses carry it) stands on the ground through its own cage (`stepFree`'s belly rows read the cage's bottom): the drawn body is that cage, so nothing bottoms out.
    */
-  step(group: THREE.Object3D, wheels: readonly THREE.Object3D[], cls: VehicleClassId, lift: number, free: boolean, air: boolean, gone: number, hit: Float64Array, dt: number, wreck = false, slide = 0): void {
+  step(group: THREE.Object3D, wheels: readonly THREE.Object3D[], cls: VehicleClassId, lift: number, free: boolean, air: boolean, gone: number, hit: Float64Array, dt: number, wreck = false, slide = 0, spinSpeed = 0): void {
     if (this.body === undefined) this.body = group.getObjectByName(CLASS_LIFT) ?? null;
     if (!free) {
       if (this.riding) {
@@ -227,7 +227,7 @@ export class Suspension {
     const w = 2 * Math.PI * s.hz;
     const stop = s.travel / 2;
     const e = group.matrixWorld.elements;
-    this.load.step(e, dt, air, cls, w * w, slide);
+    this.load.step(e, dt, air, cls, w * w, slide, spinSpeed);
     let moved = !this.riding;
     this.riding = true;
     for (let i = 0; i < 4; i++) {
