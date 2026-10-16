@@ -381,6 +381,18 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
     });
   });
 
+  describe("given a minigame with a scored sedan best, when the player picks another car", () => {
+    it("then the card shows the new car's own best (none yet) next to the overall best, and the attempt starts again", () => {
+      engine.startMinigame("longJump");
+      assert.ok(minigameHud().best.overall !== null, "a long jump best exists from the sedan's throw");
+      engine.setPlayerCar("monster");
+      assert.equal(minigameHud().best.thisCar, null, "the monster has no best");
+      assert.ok(minigameHud().best.overall !== null, "the overall best is kept");
+      assert.equal(minigameHud().phase, "ready", "ready");
+      assert.equal(engine["minigameMode"], "longJump", "still in the minigame");
+    });
+  });
+
   describe("given the long jump driven from the parked start at full throttle by each driver car", () => {
     for (const driverCar of DRIVER_CARS) {
       it(`when a ${driverCar.id} holds the throttle to the barrier, then its driver is thrown exactly once and the throw scores the dummy's rest distance`, () => {
