@@ -177,9 +177,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * a clip of 94 or before replays such a wreck differently.
  * 96: a rear hit's push on the engine block counts as the drivetrain's travel only within `PACK_QUIET` of the hit's start (it counted at any time while something touched the car), so a car hit
  * from behind and touched later (a wall, a pusher, a ramp's flank) on a bank no longer reads the awakened lattice's set as 21 mm of crush: a replay of a clip of 95 or before reads that car's drivetrain health differently.
+ * 97: a mirror of a wreck lying on its side or roof (up below `UPRIGHT_UP_Y`) that its rest box puts into the ground is torn off (`CarParts.mirrorUnderGround`), and lies on the ground as a loose part (it
+ * stood 0.2-0.5 m into it, drawn on the door); a replay of a clip of 96 or before keeps that mirror on the car, so its keyframes' parts and the wreck's loose bodies differ from the first such landing.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 96;
+const REPLAY_VERSION = 97;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

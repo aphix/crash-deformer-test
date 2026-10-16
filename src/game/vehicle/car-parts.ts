@@ -5,6 +5,7 @@ import { BUMPER_F } from "./constants.ts";
 import { DOOR } from "./car-mesh.ts";
 import { hingePose, INTERIOR_MASSES, interiorPose } from "./part-pose.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
+import { UPRIGHT_UP_Y } from "./car-suspension.ts";
 import { MASS_SPECS, type MassName } from "../kernel/rig-spec.ts";
 import { flutterShell, makeShell, poseShell, recentre, setPrimer, shellBox } from "./car-panels.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
@@ -54,10 +55,16 @@ const _p = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _box = new THREE.Box3();
 const _lampQ = new THREE.Quaternion();
+const _q = new THREE.Quaternion();
 const _doorW = new THREE.Vector3();
 const _c = new THREE.Vector3();
 const _com = new THREE.Vector3();
 const _bumpW = new THREE.Vector3();
+/** A mirror the ground crushes off its car leaves with this much speed straight up (m/s, world). */
+const MIRROR_POP = 0.5;
+const _seatDoor = new THREE.Matrix4();
+const _seatMirror = new THREE.Matrix4();
+const _unitScale = new THREE.Vector3(1, 1, 1);
 /**
  * Glass against its frame's strain (`cageStrain`, m): the windshield and rear glass read their own cage, side glass its
  * door's. Peaks measured over the standard crashes: an unloaded pane reads ≤ 0.055 (the far door of a 30–50 km/h side hit),
@@ -129,6 +136,8 @@ function showOnCamera(o: THREE.Object3D): void {
 export abstract class CarParts extends CarGlass {
   /** The car's torn shells, oldest first. */
   private readonly liveShells: DetachPart[] = [];
+  /** Each mirror's box on its rest seat in the car's frame (`mirrorRestBox`), built when first asked. */
+  private readonly mirrorRestBoxes: THREE.Box3[] = [];
   /**
    * Per loose body (a part by its slot, then a popped wheel by its hub, `LOOSE_BODIES`): the slices of the step `stepWorld` last ran in which a stir woke it from sleep (bit i: slice i; `stepLoose`).
    * A replay without the car that stirred it wakes it there (`wakeBody`); the recorder keeps it (`HighlightClip.partStirs`). `stepWorld` clears it each step.
@@ -253,11 +262,13 @@ export abstract class CarParts extends CarGlass {
       p.object.rotation.y = -sign * Math.max(t * DOOR_JAM, p.swing!.theta);
       p.object.position.x += sign * t * 0.06;
       p.object.updateWorldMatrix(true, false);
-      _box.setFromObject(p.object);
-      // Keep the door's bottom off the ground under it (not where there is none: off the fleet disc's rim).
-      const g = _doorW.setFromMatrixPosition(p.object.matrixWorld);
-      const gy = activeGround().heightAt(g.x, g.z, g.y);
-      if (gy !== NO_FLOOR && _box.min.y < gy + 0.04) p.object.position.y += gy + 0.04 - _box.min.y;
+      // Keep the door's bottom off the ground under it (not where there is none: off the fleet disc's rim), by a lift along the car's up: only on its wheels, where that is up (on its side or roof it points into the ground).
+      if (this.group.matrixWorld.elements[5]! >= UPRIGHT_UP_Y) {
+        _box.setFromObject(p.object);
+        const g = _doorW.setFromMatrixPosition(p.object.matrixWorld);
+        const gy = activeGround().heightAt(g.x, g.z, g.y);
+        if (gy !== NO_FLOOR && _box.min.y < gy + 0.04) p.object.position.y += gy + 0.04 - _box.min.y;
+      }
     } else if (p.region) {
       if (p.folding) {
         if (!p.open || p.hingeT !== p.posed) this.shellPose(p);
@@ -603,6 +614,13 @@ export abstract class CarParts extends CarGlass {
     for (let pi = 0; pi < parts.length; pi++) {
       const p = parts[pi]!;
       if (p.detached) continue;
+      if (p.mirror) {
+        const side = p === this.mirrorParts[0] ? 0 : 1;
+        if (!this.doorParts[side]!.detached && this.mirrorUnderGround(side)) {
+          this.detachPart(p, impulse, _push.set(0, MIRROR_POP, 0).applyQuaternion(_q.copy(this.group.quaternion).invert()));
+          continue;
+        }
+      }
       if (p.hinge === "bar") {
         const sink = ROOF_REST_Y - this.deform.massLocal("roof").y;
         if (sink > BAR_TEAR_SINK || (ebs >= BAR_TEAR_MPS && this.deform.crushElapsed > 0.05)) this.detachPart(p, impulse);
@@ -658,6 +676,39 @@ export abstract class CarParts extends CarGlass {
     shellBox(p.region!, this.deform.restSkin, p.hingeT, this.group.position, this.group.quaternion, lift, _box).getCenter(_doorW);
     const g = activeGround().heightAt(_doorW.x, _doorW.z, _doorW.y);
     return g !== NO_FLOOR && _box.min.y < g;
+  }
+
+  /** Mirror `i`'s box on its rest seat (its door's, then its own on the door), in the car's frame. */
+  private mirrorRestBox(i: number): THREE.Box3 {
+    const cached = this.mirrorRestBoxes[i];
+    if (cached) return cached;
+    const door = this.doorParts[i]!;
+    const mirror = this.mirrorParts[i]!;
+    const geometry = (mirror.object as THREE.Mesh).geometry;
+    geometry.computeBoundingBox();
+    _seatDoor.compose(door.restPos, door.restQuat, _unitScale);
+    _seatMirror.compose(mirror.restPos, mirror.restQuat, _unitScale);
+    const box = geometry.boundingBox!.clone().applyMatrix4(_seatDoor.multiply(_seatMirror));
+    this.mirrorRestBoxes[i] = box;
+    return box;
+  }
+
+  /**
+   * Whether a car lying over has put mirror `i` into the ground: a mirror stands `DOOR.mirrorReach` out from the body side, so past `UPRIGHT_UP_Y` it is
+   * lower than the body it sits on. Sim state only (the rest box on the car's pose, as `scrapes`): the drawn door swings and sinks with the frame it is drawn at.
+   */
+  private mirrorUnderGround(i: number): boolean {
+    const q = this.group.quaternion;
+    if (1 - 2 * (q.x * q.x + q.z * q.z) >= UPRIGHT_UP_Y) return false;
+    const box = this.mirrorRestBox(i);
+    let low = Infinity;
+    for (let corner = 0; corner < 8; corner++) {
+      _c.set(corner & 1 ? box.max.x : box.min.x, corner & 2 ? box.max.y : box.min.y, corner & 4 ? box.max.z : box.min.z).applyQuaternion(q).add(this.group.position);
+      low = Math.min(low, _c.y);
+    }
+    box.getCenter(_c).applyQuaternion(q).add(this.group.position);
+    const g = activeGround().heightAt(_c.x, _c.z, _c.y);
+    return g !== NO_FLOOR && low < g;
   }
 
   /** Out for good until the next reset; `LampBatch` draws it dark. */
