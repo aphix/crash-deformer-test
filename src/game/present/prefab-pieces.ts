@@ -57,7 +57,7 @@ export function cyl(rTop: number, rBottom: number, y0: number, y1: number, seg: 
 }
 
 /** A plan outline as (x, z) points, in either winding. */
-export type Outline = readonly (readonly [number, number])[];
+type Outline = readonly (readonly [number, number])[];
 
 /** A regular polygon of `seg` sides inscribed in a circle of radius `r`, the corners where `cyl` puts its own. */
 export function circleOutline(r: number, seg: number): Outline {
