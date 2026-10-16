@@ -15,7 +15,7 @@ import { holdForThrow, PRE_IMPACT_LEAD, preImpact, type PhaseClock } from "../ma
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { throwComing } from "../present/ragdoll-trigger.ts";
 import { displayFrames, rangeCar } from "../present/range-run.test-util.ts";
-import { FRAME_HZ } from "../kernel/constants.ts";
+import { FRAME_HZ, GRAVITY } from "../kernel/constants.ts";
 import { JerseyBarrier } from "./engine-props.ts";
 
 /** Half the width (m) of the test ground's lane: well past a car's side. */
@@ -34,6 +34,8 @@ const RUN_SECONDS = 60;
 const STEER_LOOK_AHEAD = 10;
 const STEER_LOOK_PER_SPEED = 0.4;
 const STEER_GAIN = 2.5;
+/** Throttle (and brake) per m/s the car is under (over) a horizontal speed cap, as the lip rows' governor. */
+const GOVERNOR_GAIN = 1;
 /** The landing plane reaches this far (m) down the throw and this far to each side, past anything a throw gets to. */
 const LANDING_END_X = 400;
 const LANDING_HALF_WIDTH = 60;
@@ -95,15 +97,19 @@ export type ClimbRun = {
   /** The car's centre height (m above the pad) and whether its wheels were off the ground, as its nose reached the lip. */
   centreY: number;
   airborne: boolean;
+  /** The car's velocity (m/s) as its centre reached the lip's base line, split into the horizontal speed along the ground plane and the vertical one. */
+  lipHorizontalSpeed: number;
+  lipVerticalSpeed: number;
 };
 
 const _forward = new THREE.Vector3();
 
 /**
  * One car of `type` parked on the profile's pad (laid on the ground, the parked flag set), left alone to see it hold, then released at
- * full throttle and steered along the lane's middle until its nose reaches the lip's base line (x = 0), it stalls, or time runs out.
+ * full throttle (or, under a finite `horizontalSpeedCap` m/s, with the throttle and brake holding its horizontal speed to it) and steered
+ * along the lane's middle until its nose reaches the lip's base line (x = 0), it stalls, or time runs out.
  */
-export function driveToLip(type: DriverCar, profile: DriveProfile, cell: number): ClimbRun {
+export function driveToLip(type: DriverCar, profile: DriveProfile, cell: number, horizontalSpeedCap = Infinity): ClimbRun {
   const ground = new ProfileGround(profile, cell);
   setGround(ground);
   const car = dressedDriverCar(type);
@@ -118,7 +124,7 @@ export function driveToLip(type: DriverCar, profile: DriveProfile, cell: number)
     const noseReach = car.cage.fields.planBox[3]!;
     const heldSlide = Math.abs(car.group.position.x - profile.startX);
     const input: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
-    const run: ClimbRun = { reachedLip: false, heldSlide, footSpeed: 0, lipSpeed: 0, lipCentreSpeed: 0, slowestOnClimb: Infinity, seconds: 0, endX: 0, noseUp: 0, centreY: 0, airborne: false };
+    const run: ClimbRun = { reachedLip: false, heldSlide, footSpeed: 0, lipSpeed: 0, lipCentreSpeed: 0, slowestOnClimb: Infinity, seconds: 0, endX: 0, noseUp: 0, centreY: 0, airborne: false, lipHorizontalSpeed: 0, lipVerticalSpeed: 0 };
     let crossedFoot = false;
     let stalledFor = 0;
     const position = car.group.position;
@@ -126,6 +132,9 @@ export function driveToLip(type: DriverCar, profile: DriveProfile, cell: number)
       const aheadX = position.x + STEER_LOOK_AHEAD + car.speed * STEER_LOOK_PER_SPEED;
       const error = Math.atan2(aheadX - position.x, -position.z) - car.yaw;
       input.steer = Math.max(-1, Math.min(1, STEER_GAIN * Math.atan2(Math.sin(error), Math.cos(error))));
+      const horizontalSpeed = Math.hypot(car.velocity.x, car.velocity.z);
+      input.throttle = Math.max(0, Math.min(1, GOVERNOR_GAIN * (horizontalSpeedCap - horizontalSpeed)));
+      input.brake = Math.max(0, Math.min(1, GOVERNOR_GAIN * (horizontalSpeed - horizontalSpeedCap)));
       frame(world, input, clock);
       run.seconds = (n + 1) * FRAME;
       run.endX = position.x;
@@ -145,6 +154,8 @@ export function driveToLip(type: DriverCar, profile: DriveProfile, cell: number)
       }
       if (position.x >= 0) {
         run.lipCentreSpeed = car.speed;
+        run.lipHorizontalSpeed = Math.hypot(car.velocity.x, car.velocity.z);
+        run.lipVerticalSpeed = car.velocity.y;
         break;
       }
       if (stalledFor > STALL_SECONDS) break;
@@ -154,6 +165,41 @@ export function driveToLip(type: DriverCar, profile: DriveProfile, cell: number)
     car.dispose();
     setGround(null);
   }
+}
+
+/** The thrown driver's own upward speed over the car's (m/s): `THROW_UP` in ejection.ts (module-private), pinned by `ejection-vertical.test.ts`'s flat rows. */
+export const THROW_UP_PINNED = 3.5;
+
+/** Where a driver thrown at the lip by `LipThrow` goes, unboosted, from the car's velocity as its centre crosses the lip (`height` m over the landing's level). */
+export type LipFlight = { horizontalSpeed: number; verticalSpeed: number; apexHeight: number; apexDistance: number; landingDistance: number };
+
+export function lipFlight(run: ClimbRun, height: number): LipFlight {
+  const verticalSpeed = run.lipVerticalSpeed + THROW_UP_PINNED;
+  const horizontalSpeed = run.lipHorizontalSpeed;
+  const fallTime = (verticalSpeed + Math.sqrt(verticalSpeed * verticalSpeed + 2 * GRAVITY * (height - LANDING_HEIGHT))) / GRAVITY;
+  return {
+    horizontalSpeed,
+    verticalSpeed,
+    apexHeight: (verticalSpeed * verticalSpeed) / (2 * GRAVITY),
+    apexDistance: (horizontalSpeed * verticalSpeed) / GRAVITY,
+    landingDistance: horizontalSpeed * fallTime,
+  };
+}
+
+/** The caps the governed run's bisection searches (m/s) and how many halvings (a resolution of 0.07 m/s). */
+const CAP_SEARCH = { low: 8, high: 45, halvings: 9 } as const;
+
+/** The lowest horizontal speed cap (m/s) at which `type` still reaches the lip at `lipHorizontalSpeed` m/s or better: a car loses speed up the kicker, so the cap is above the lip speed. */
+export function capForLipSpeed(type: DriverCar, profile: DriveProfile, cell: number, lipHorizontalSpeed: number): number {
+  let low: number = CAP_SEARCH.low;
+  let high: number = CAP_SEARCH.high;
+  for (let halving = 0; halving < CAP_SEARCH.halvings; halving++) {
+    const middle = (low + high) / 2;
+    const run = driveToLip(type, profile, cell, middle);
+    if (run.reachedLip && run.lipHorizontalSpeed >= lipHorizontalSpeed) high = middle;
+    else low = middle;
+  }
+  return high;
 }
 
 /** The station `mode` as it ships, as a drive profile. */
@@ -251,12 +297,12 @@ export async function driveIntoBarrier(type: DriverCar, ground: Ground | null, s
   await system.preload();
   system.sand = true;
   const out: BarrierThrow = { ejections: 0, carSpeed: 0, distance: null, apex: -Infinity, release: new THREE.Vector3() };
-  let thrown: (typeof system)["dolls"][number] | null = null;
+  let thrown = null as (typeof system)["dolls"][number] | null;
   const verticalHistory: { at: number; velocityY: number }[] = [];
   let simulated = 0;
   world.onEject = (ejection) => {
     out.ejections++;
-    if (run.carryVertical) ejection.rel.y += verticalHistory.findLast((sample) => sample.at <= simulated - EJECTION_PRE_SECONDS)?.velocityY ?? 0;
+    if (run.carryVertical) ejection.rel.y += verticalHistory.slice().reverse().find((sample) => sample.at <= simulated - EJECTION_PRE_SECONDS)?.velocityY ?? 0;
     system.launch(ejection, [car]);
     if (thrown) return;
     thrown = system["dolls"].find((doll) => doll.live)!;
