@@ -1,0 +1,2542 @@
+1
+00:00:06,050 --> 00:00:06,850
+[SPEAKER_01]: Hello, everyone.
+
+2
+00:00:07,290 --> 00:00:08,910
+[SPEAKER_01]: Welcome to the science of off-roading.
+
+3
+00:00:09,110 --> 00:00:10,290
+[SPEAKER_01]: My name is Ed Pereira.
+
+4
+00:00:10,530 --> 00:00:11,590
+[SPEAKER_01]: I'm a programmer at Naughty Dog.
+
+5
+00:00:12,230 --> 00:00:16,090
+[SPEAKER_01]: During this talk, we'll be bouncing
+between the high and low-level topics as
+
+6
+00:00:16,090 --> 00:00:22,150
+[SPEAKER_01]: we go through the set of challenges we
+faced while developing the car that Drake
+
+7
+00:00:22,150 --> 00:00:23,950
+[SPEAKER_01]: drives around Madagascar in Uncharted 4.
+
+8
+00:00:27,650 --> 00:00:29,790
+[SPEAKER_01]: Let me start with some of the goals we had
+in mind.
+
+9
+00:00:30,050 --> 00:00:31,510
+[SPEAKER_01]: We set out to work on the 4x4.
+
+10
+00:00:31,510 --> 00:00:35,690
+[SPEAKER_01]: At its core, we felt it needed to be fun
+to drive for as many people as possible.
+
+11
+00:00:36,330 --> 00:00:39,550
+[SPEAKER_01]: Uncharted 4 is an adventure game that we
+felt that anyone should be able to pick up
+
+12
+00:00:39,550 --> 00:00:43,150
+[SPEAKER_01]: and enjoy, and since the 4x4 is a critical
+part of the story, we needed to make sure
+
+13
+00:00:43,150 --> 00:00:44,310
+[SPEAKER_01]: everyone enjoys driving it.
+
+14
+00:00:44,970 --> 00:00:48,230
+[SPEAKER_01]: Secondly, we wanted a sense of realism to
+keep the player grounded in Drake's
+
+15
+00:00:48,230 --> 00:00:48,550
+[SPEAKER_01]: adventure.
+
+16
+00:00:49,450 --> 00:00:52,370
+[SPEAKER_01]: Finally, we needed to make sure whatever
+we designed would work on the rockier,
+
+17
+00:00:52,410 --> 00:00:55,510
+[SPEAKER_01]: muddy terrain found when driving around
+the mountains of Madagascar.
+
+18
+00:00:56,610 --> 00:00:59,290
+[SPEAKER_01]: To accomplish these goals, we had to
+figure out what kind of simulation we
+
+19
+00:00:59,290 --> 00:00:59,530
+[SPEAKER_01]: wanted.
+
+20
+00:01:00,210 --> 00:01:03,350
+[SPEAKER_01]: When making a vehicle simulation,
+you kind of have to figure out where on
+
+21
+00:01:03,350 --> 00:01:04,250
+[SPEAKER_01]: the spectrum you want to fall.
+
+22
+00:01:05,170 --> 00:01:07,550
+[SPEAKER_01]: You can choose the real side with a game
+like Gran Turismo.
+
+23
+00:01:08,350 --> 00:01:10,710
+[SPEAKER_01]: The tagline is literally the real driving
+simulator.
+
+24
+00:01:11,530 --> 00:01:14,430
+[SPEAKER_01]: In games like this, you can have a very
+realistic tire grip simulation.
+
+25
+00:01:15,130 --> 00:01:17,030
+[SPEAKER_01]: Maybe the rubber wears down and the tire
+loses friction.
+
+26
+00:01:17,570 --> 00:01:21,470
+[SPEAKER_01]: Your motor can be complex with details
+like how much power is generated when each
+
+27
+00:01:21,470 --> 00:01:22,070
+[SPEAKER_01]: cylinder fires.
+
+28
+00:01:22,730 --> 00:01:27,970
+[SPEAKER_01]: The shape of the chassis can change
+airflow, giving you different handling and
+
+29
+00:01:27,970 --> 00:01:28,210
+[SPEAKER_01]: efficiency.
+
+30
+00:01:29,230 --> 00:01:33,010
+[SPEAKER_01]: On the other end, you have games like
+Super Mario Kart, where simple fun is much
+
+31
+00:01:33,010 --> 00:01:33,550
+[SPEAKER_01]: more important.
+
+32
+00:01:34,410 --> 00:01:37,650
+[SPEAKER_01]: There are aspects of racing introduced,
+but they are largely game mechanics rather
+
+33
+00:01:37,650 --> 00:01:38,290
+[SPEAKER_01]: than a simulation.
+
+34
+00:01:39,010 --> 00:01:42,110
+[SPEAKER_01]: The best example is drifting, where you
+end up hopping around so you don't take a
+
+35
+00:01:42,110 --> 00:01:43,850
+[SPEAKER_01]: penalty and play a canned spinning out
+animation.
+
+36
+00:01:44,730 --> 00:01:49,670
+[SPEAKER_01]: Another aspect is the fairly simple motor
+with the add mechanics of boosts,
+
+37
+00:01:49,730 --> 00:01:52,790
+[SPEAKER_01]: like when you use a mushroom or rev the
+engine just right at the start of a race.
+
+38
+00:01:53,370 --> 00:01:54,810
+[SPEAKER_01]: So where did we end up with the 4x4?
+
+39
+00:01:55,950 --> 00:01:57,090
+[SPEAKER_01]: We end up somewhere in the middle.
+
+40
+00:01:57,450 --> 00:01:59,870
+[SPEAKER_01]: In my opinion, when you're dealing with an
+environment that's going for realism,
+
+41
+00:02:00,270 --> 00:02:02,970
+[SPEAKER_01]: it's actually easier to run a simulation
+on the more real side.
+
+42
+00:02:03,290 --> 00:02:07,050
+[SPEAKER_01]: If you try to model it as simple as
+possible, the complexities of a realistic
+
+43
+00:02:07,050 --> 00:02:10,790
+[SPEAKER_01]: environment require you to add several
+hacks to get the simulation to look right.
+
+44
+00:02:11,310 --> 00:02:14,490
+[SPEAKER_01]: With a more realistic simulation,
+you can throw really varied terrain at it
+
+45
+00:02:14,490 --> 00:02:15,410
+[SPEAKER_01]: and it should remain stable.
+
+46
+00:02:16,010 --> 00:02:19,110
+[SPEAKER_01]: You might still need to tweak some of the
+parameters to make it feel good,
+
+47
+00:02:19,330 --> 00:02:22,190
+[SPEAKER_01]: but you won't need to fundamentally change
+the underlying physical model.
+
+48
+00:02:23,390 --> 00:02:25,470
+[SPEAKER_01]: I'm going to be going over the physical
+model in three parts.
+
+49
+00:02:26,110 --> 00:02:27,830
+[SPEAKER_01]: We're going to be talking about collision
+detection.
+
+50
+00:02:28,190 --> 00:02:30,890
+[SPEAKER_01]: So that's the chassis and the wheels and
+how that responds to the collision.
+
+51
+00:02:32,230 --> 00:02:35,070
+[SPEAKER_01]: We'll quickly go over motor simulation and
+how it generates torque.
+
+52
+00:02:35,850 --> 00:02:38,690
+[SPEAKER_01]: Then we'll talk about how that torque is
+applied to the wheels and how that
+
+53
+00:02:38,690 --> 00:02:40,170
+[SPEAKER_01]: generates forces applied to the vehicle.
+
+54
+00:02:41,250 --> 00:02:43,610
+[SPEAKER_01]: So let's go over how the Drake Mobile
+stands on its feet.
+
+55
+00:02:43,910 --> 00:02:47,310
+[SPEAKER_01]: Stated simply, the vehicle is built out of
+rigid bodies held together using
+
+56
+00:02:47,310 --> 00:02:47,730
+[SPEAKER_01]: constraints.
+
+57
+00:02:48,550 --> 00:02:52,790
+[SPEAKER_01]: We start off with a single rigid body for
+the chassis, a rigid body for each wheel,
+
+58
+00:02:53,050 --> 00:02:55,350
+[SPEAKER_01]: and constraints that keep everything
+together.
+
+59
+00:02:55,910 --> 00:03:00,770
+[SPEAKER_01]: We use Havoc as the solver for these
+constraints, but provide many of our own
+
+60
+00:03:00,770 --> 00:03:01,090
+[SPEAKER_01]: inputs.
+
+61
+00:03:01,590 --> 00:03:04,870
+[SPEAKER_01]: We turned off collision on the wheels in
+favor of Havoc's point constraint system.
+
+62
+00:03:05,150 --> 00:03:08,290
+[SPEAKER_01]: This system allows us to pass a point that
+we want the tires to stick to,
+
+63
+00:03:08,290 --> 00:03:13,810
+[SPEAKER_01]: and it also generates a normal force based
+on the motion and mass of the chassis and
+
+64
+00:03:13,810 --> 00:03:14,290
+[SPEAKER_01]: the wheels.
+
+65
+00:03:14,670 --> 00:03:18,030
+[SPEAKER_01]: Later, I'll go over how this normal force
+is used to compute friction.
+
+66
+00:03:19,150 --> 00:03:22,470
+[SPEAKER_01]: In order to find the point of contact,
+we use a raycast for each wheel from what
+
+67
+00:03:22,470 --> 00:03:25,750
+[SPEAKER_01]: we call the hard point to the furthest
+point the suspension can extend.
+
+68
+00:03:26,110 --> 00:03:30,310
+[SPEAKER_01]: The hard point is the point where the
+suspension is attached to the chassis and
+
+69
+00:03:30,310 --> 00:03:33,250
+[SPEAKER_01]: provides a nice reference point for the
+math we'll be doing on the wheels.
+
+70
+00:03:33,610 --> 00:03:36,870
+[SPEAKER_01]: I turn off the tire display so you can get
+a better look at the raycast.
+
+71
+00:03:36,870 --> 00:03:42,090
+[SPEAKER_01]: In this image, the yellow sphere at the
+bottom is the detected collision point.
+
+72
+00:03:42,670 --> 00:03:45,310
+[SPEAKER_01]: So let's take a look at how that all works
+driving on flat ground.
+
+73
+00:03:51,040 --> 00:03:52,020
+[SPEAKER_01]: So this is a great start.
+
+74
+00:03:52,880 --> 00:03:54,800
+[SPEAKER_01]: We can make some turns, start driving.
+
+75
+00:03:55,220 --> 00:03:58,420
+[SPEAKER_01]: I'm a huge fan of getting something up and
+running as fast as possible first and add
+
+76
+00:03:58,420 --> 00:03:59,100
+[SPEAKER_01]: features as they go.
+
+77
+00:03:59,620 --> 00:04:00,480
+[SPEAKER_01]: So this is flat ground.
+
+78
+00:04:00,800 --> 00:04:02,660
+[SPEAKER_01]: How does it handle on our test track of
+rough terrain?
+
+79
+00:04:06,490 --> 00:04:07,930
+[SPEAKER_01]: That's obviously not so good.
+
+80
+00:04:08,370 --> 00:04:09,950
+[SPEAKER_01]: We seem to have hit an invisible wall.
+
+81
+00:04:10,470 --> 00:04:11,230
+[SPEAKER_01]: I checked the level file.
+
+82
+00:04:11,510 --> 00:04:13,010
+[SPEAKER_01]: The designer definitely didn't put one
+there.
+
+83
+00:04:13,950 --> 00:04:15,230
+[SPEAKER_01]: So we need to break down the issues.
+
+84
+00:04:15,650 --> 00:04:19,350
+[SPEAKER_01]: First and foremost, the unpredictable
+collision response here is a big problem.
+
+85
+00:04:21,090 --> 00:04:23,510
+[SPEAKER_01]: Second, collision response doesn't happen
+fast enough.
+
+86
+00:04:24,450 --> 00:04:29,470
+[SPEAKER_01]: In the screenshot, you can clearly see
+that the wheels penetrating the bumps and
+
+87
+00:04:29,470 --> 00:04:31,230
+[SPEAKER_01]: that definitely does not meet our
+standards.
+
+88
+00:04:32,130 --> 00:04:33,410
+[SPEAKER_01]: So how do we fix these issues?
+
+89
+00:04:34,530 --> 00:04:37,490
+[SPEAKER_01]: First thing, it's obvious that a raycast
+just won't cut it.
+
+90
+00:04:37,910 --> 00:04:40,610
+[SPEAKER_01]: We consider options like moving the
+raycast forward if the car is moving,
+
+91
+00:04:40,870 --> 00:04:42,350
+[SPEAKER_01]: but it just didn't seem accurate enough.
+
+92
+00:04:42,350 --> 00:04:47,250
+[SPEAKER_01]: Instead, we replace the raycast with the
+shapecast using the tire dimensions as a
+
+93
+00:04:47,250 --> 00:04:48,150
+[SPEAKER_01]: cylinder for our shape.
+
+94
+00:04:48,770 --> 00:04:51,690
+[SPEAKER_01]: Another tweak was to cast the ray from
+above the hardpoint.
+
+95
+00:04:51,950 --> 00:04:53,750
+[SPEAKER_01]: In this case, well above the hardpoint.
+
+96
+00:04:54,090 --> 00:04:57,030
+[SPEAKER_01]: There are cases where the nose of the
+vehicle would spend a frame already in
+
+97
+00:04:57,030 --> 00:04:58,170
+[SPEAKER_01]: collision and get stuck.
+
+98
+00:04:58,490 --> 00:05:00,930
+[SPEAKER_01]: Moving the start of the cast up made sure
+that never happens.
+
+99
+00:05:01,530 --> 00:05:04,490
+[SPEAKER_01]: This screenshot shows the first collision
+point detected by the shapecast.
+
+100
+00:05:04,870 --> 00:05:08,250
+[SPEAKER_01]: On this round bump, there are actually
+several points returned by the shapecast.
+
+101
+00:05:08,250 --> 00:05:12,070
+[SPEAKER_01]: As a first step, we take the closest
+return point, which looks fairly accurate.
+
+102
+00:05:14,960 --> 00:05:15,980
+[SPEAKER_01]: This is a vast improvement.
+
+103
+00:05:16,460 --> 00:05:19,380
+[SPEAKER_01]: We're getting much less visible
+penetration, but it's not quite there yet.
+
+104
+00:05:20,620 --> 00:05:23,760
+[SPEAKER_01]: As you can see, under certain
+circumstances, it can be a very unstable
+
+105
+00:05:23,760 --> 00:05:26,220
+[SPEAKER_01]: response where you see a lot of jittering.
+
+106
+00:05:26,540 --> 00:05:29,500
+[SPEAKER_01]: This is caused by the fact that we're only
+taking the first collision point,
+
+107
+00:05:29,600 --> 00:05:34,820
+[SPEAKER_01]: so it's ping-ponging between which plank
+to put the tire on top of.
+
+108
+00:05:35,660 --> 00:05:38,780
+[SPEAKER_01]: We now need to take more collision points
+and pass them to the point constraint
+
+109
+00:05:38,780 --> 00:05:39,180
+[SPEAKER_01]: system.
+
+110
+00:05:39,860 --> 00:05:41,400
+[SPEAKER_01]: This allows us to have this...
+
+111
+00:05:42,320 --> 00:05:45,940
+[SPEAKER_01]: This allows us to have the tire sit on
+multiple planks, which stabilizes the
+
+112
+00:05:45,940 --> 00:05:46,280
+[SPEAKER_01]: response.
+
+113
+00:05:46,860 --> 00:05:49,860
+[SPEAKER_01]: We limit the number of points we use to
+three per wheel since we felt more than
+
+114
+00:05:49,860 --> 00:05:51,100
+[SPEAKER_01]: that would have diminishing returns.
+
+115
+00:05:53,880 --> 00:05:54,800
+[SPEAKER_01]: So this looks pretty good.
+
+116
+00:05:55,540 --> 00:05:58,740
+[SPEAKER_01]: One thing we discovered we don't like is
+how rough the collision response is to
+
+117
+00:05:58,740 --> 00:06:03,000
+[SPEAKER_01]: surfaces whose normal is not aligned with
+the suspension direction.
+
+118
+00:06:03,500 --> 00:06:06,940
+[SPEAKER_01]: You can see from the start of this that
+hitting that first bump, you completely
+
+119
+00:06:06,940 --> 00:06:07,900
+[SPEAKER_01]: lose all momentum.
+
+120
+00:06:08,480 --> 00:06:11,240
+[SPEAKER_01]: This is an implementation detail of Havoc
+that we wanted to work around,
+
+121
+00:06:11,380 --> 00:06:15,080
+[SPEAKER_01]: so we fake it and tell Havoc that all
+normals are in the direction of the
+
+122
+00:06:15,080 --> 00:06:15,400
+[SPEAKER_01]: suspension.
+
+123
+00:06:22,230 --> 00:06:22,970
+[SPEAKER_01]: Smooth as butter.
+
+124
+00:06:23,830 --> 00:06:25,730
+[SPEAKER_01]: We really liked how player favoring the
+response is here.
+
+125
+00:06:26,210 --> 00:06:29,570
+[SPEAKER_01]: If you run into any situations like this,
+we know the 4x4 will keep momentum nicely
+
+126
+00:06:29,570 --> 00:06:30,730
+[SPEAKER_01]: and not frustrate the player.
+
+127
+00:06:31,150 --> 00:06:34,690
+[SPEAKER_01]: This is obviously quite unrealistic,
+but this is one of the many times we
+
+128
+00:06:34,690 --> 00:06:37,650
+[SPEAKER_01]: leaned away from realism to make for a
+more fun driving experience.
+
+129
+00:06:38,690 --> 00:06:41,510
+[SPEAKER_01]: There is an unfortunate side effect,
+though, in that the wheels do not respond
+
+130
+00:06:41,510 --> 00:06:42,630
+[SPEAKER_01]: perfectly to collision anymore.
+
+131
+00:06:43,310 --> 00:06:45,570
+[SPEAKER_01]: You can kind of see the wheels penetrating
+the bumps now.
+
+132
+00:06:46,090 --> 00:06:48,990
+[SPEAKER_01]: Our solution is to reimplement wheel
+collision response ourselves.
+
+133
+00:06:49,410 --> 00:06:52,790
+[SPEAKER_01]: Using the highest point from before,
+we place the wheel so that it tangents the
+
+134
+00:06:52,790 --> 00:06:52,990
+[SPEAKER_01]: point.
+
+135
+00:06:54,790 --> 00:06:59,090
+[SPEAKER_01]: The first thing we need to do here is
+figure out where P1 and P2 are.
+
+136
+00:06:59,450 --> 00:07:02,630
+[SPEAKER_01]: These represent two potential points
+furthest penetrating into geometry.
+
+137
+00:07:03,150 --> 00:07:07,690
+[SPEAKER_01]: Because the wheel could be at an angle,
+we have to consider either side as the
+
+138
+00:07:07,690 --> 00:07:08,170
+[SPEAKER_01]: deepest point.
+
+139
+00:07:09,170 --> 00:07:12,770
+[SPEAKER_01]: To compute the points, we take the wheel's
+orientation vectors up and right and
+
+140
+00:07:12,770 --> 00:07:14,290
+[SPEAKER_01]: offset from the center point.
+
+141
+00:07:15,490 --> 00:07:17,250
+[SPEAKER_01]: Now we need to see which point is deepest.
+
+142
+00:07:17,690 --> 00:07:18,930
+[SPEAKER_01]: We do this using dot products.
+
+143
+00:07:19,390 --> 00:07:23,570
+[SPEAKER_01]: There are two vectors, one from C to P1
+and one from C to P2.
+
+144
+00:07:23,570 --> 00:07:27,990
+[SPEAKER_01]: If we dot these with N, our surface's
+normal vector, we produce two scalars,
+
+145
+00:07:28,230 --> 00:07:29,450
+[SPEAKER_01]: S1 and S2.
+
+146
+00:07:30,770 --> 00:07:36,330
+[SPEAKER_01]: S1 and S2 represent scalar distances,
+meaning how far CP1 and CP2 travel in the
+
+147
+00:07:36,330 --> 00:07:36,970
+[SPEAKER_01]: direction of N.
+
+148
+00:07:37,550 --> 00:07:40,230
+[SPEAKER_01]: You can see these scalars in the geometric
+sense in this image.
+
+149
+00:07:40,910 --> 00:07:43,930
+[SPEAKER_01]: Whichever of these scalars is larger
+determines which of the associated points
+
+150
+00:07:43,930 --> 00:07:44,370
+[SPEAKER_01]: is deeper.
+
+151
+00:07:44,810 --> 00:07:46,530
+[SPEAKER_01]: In this example, P1 is deeper.
+
+152
+00:07:47,050 --> 00:07:50,630
+[SPEAKER_01]: Now we can't use S1 directly, since that's
+the distance from the center to the
+
+153
+00:07:50,630 --> 00:07:50,930
+[SPEAKER_01]: corner.
+
+154
+00:07:51,650 --> 00:07:53,830
+[SPEAKER_01]: We have to compute another scalar,
+S3.
+
+155
+00:07:54,170 --> 00:07:58,470
+[SPEAKER_01]: That represents the distance from the
+contact point to the corner along the
+
+156
+00:07:58,470 --> 00:07:59,010
+[SPEAKER_01]: contact normal.
+
+157
+00:07:59,950 --> 00:08:05,270
+[SPEAKER_01]: We do this by taking the vector from the
+contact point to CP1 and dotting that with
+
+158
+00:08:05,270 --> 00:08:05,470
+[SPEAKER_01]: N.
+
+159
+00:08:05,950 --> 00:08:09,330
+[SPEAKER_01]: This resultant scalar is the final
+distance we have to move the wheel by in
+
+160
+00:08:09,330 --> 00:08:11,410
+[SPEAKER_01]: order to have the wheel's corner rest on
+the surface.
+
+161
+00:08:12,610 --> 00:08:15,890
+[SPEAKER_01]: Now obviously, if we just separate along
+the contact normal, the wheel will be
+
+162
+00:08:15,890 --> 00:08:17,430
+[SPEAKER_01]: pulled out of alignment with the
+suspension.
+
+163
+00:08:17,990 --> 00:08:21,570
+[SPEAKER_01]: So the next step is projecting the
+separation vector onto the suspension
+
+164
+00:08:21,570 --> 00:08:23,450
+[SPEAKER_01]: direction and moving along that vector
+now.
+
+165
+00:08:24,130 --> 00:08:26,010
+[SPEAKER_01]: Let's take a look at how that math works
+out.
+
+166
+00:08:29,810 --> 00:08:33,430
+[SPEAKER_01]: So responding to low penetration
+distances, we have a stable and correct
+
+167
+00:08:33,430 --> 00:08:34,570
+[SPEAKER_01]: looking collision response.
+
+168
+00:08:34,850 --> 00:08:36,230
+[SPEAKER_01]: Which is unfortunate for Drake.
+
+169
+00:08:37,850 --> 00:08:39,990
+[SPEAKER_01]: He's probably asking if we can go around
+at this point.
+
+170
+00:08:40,650 --> 00:08:44,870
+[SPEAKER_01]: Unfortunately, you quickly run into an
+issue when you have to move the wheel so
+
+171
+00:08:44,870 --> 00:08:48,330
+[SPEAKER_01]: far along the suspension direction that it
+goes past the hard point and into the
+
+172
+00:08:48,330 --> 00:08:49,150
+[SPEAKER_01]: 4x4's chassis.
+
+173
+00:08:51,870 --> 00:08:55,210
+[SPEAKER_01]: To avoid clipping the wheel well,
+we limit the distance the wheel can travel
+
+174
+00:08:55,210 --> 00:08:57,130
+[SPEAKER_01]: upwards so that it never passes the hard
+point.
+
+175
+00:08:57,510 --> 00:09:00,390
+[SPEAKER_01]: To counteract the fact that you would now
+see the wheel penetrating the ground,
+
+176
+00:09:00,790 --> 00:09:04,290
+[SPEAKER_01]: we apply an upward force on the hard point
+and it nets us two benefits.
+
+177
+00:09:04,730 --> 00:09:06,550
+[SPEAKER_01]: First, it will get the 4x4 out of
+collision.
+
+178
+00:09:07,310 --> 00:09:10,610
+[SPEAKER_01]: Secondly, when you slam it to the ground
+hard and it creates a nice jerk that the
+
+179
+00:09:10,610 --> 00:09:11,270
+[SPEAKER_01]: player can feel.
+
+180
+00:09:12,150 --> 00:09:14,510
+[SPEAKER_01]: Side note, this force is then delivered to
+Nate.
+
+181
+00:09:15,670 --> 00:09:16,230
+[SPEAKER_01]: Sorry, Nate.
+
+182
+00:09:20,620 --> 00:09:23,500
+[SPEAKER_01]: By the way, if you're interested in how
+our character animations are affected by
+
+183
+00:09:23,500 --> 00:09:27,960
+[SPEAKER_01]: physics and you didn't catch it this
+morning, you can check out Mikael's talk
+
+184
+00:09:27,960 --> 00:09:29,000
+[SPEAKER_01]: in the vault after the show.
+
+185
+00:09:30,380 --> 00:09:33,100
+[SPEAKER_01]: So with the wheels colliding properly,
+we ran into another issue.
+
+186
+00:09:37,580 --> 00:09:41,440
+[SPEAKER_01]: As you can see, we need to tweak what we
+consider valid points of contact.
+
+187
+00:09:41,800 --> 00:09:45,120
+[SPEAKER_01]: Because our casts will detect any
+collision, these walls count as points to
+
+188
+00:09:45,120 --> 00:09:46,120
+[SPEAKER_01]: place a tire is on top of.
+
+189
+00:09:46,820 --> 00:09:50,360
+[SPEAKER_01]: The limit we made was based on the angle
+of the surface the wheel probe detected.
+
+190
+00:09:50,920 --> 00:09:54,060
+[SPEAKER_01]: Taking the angle between the vertical
+vector and the normal of the surface,
+
+191
+00:09:54,380 --> 00:09:57,880
+[SPEAKER_01]: we ignore surfaces whose angle exceeds a
+designer-tuned maximum angle.
+
+192
+00:09:58,240 --> 00:09:59,160
+[SPEAKER_01]: So what does that look like?
+
+193
+00:10:03,770 --> 00:10:08,730
+[SPEAKER_01]: With the wall collision safely ignored,
+the 4x4 bumps the wall and continues on.
+
+194
+00:10:09,130 --> 00:10:09,730
+[SPEAKER_01]: And now another case.
+
+195
+00:10:11,930 --> 00:10:14,610
+[SPEAKER_01]: Okay, apparently sometimes you do want to
+drive on the wall.
+
+196
+00:10:16,410 --> 00:10:20,510
+[SPEAKER_01]: To solve this, we gave design the ability
+to turn off the angle check in script.
+
+197
+00:10:22,430 --> 00:10:25,930
+[SPEAKER_01]: Last issue regarding collision and chassis
+movement is when you drive off of a cliff
+
+198
+00:10:25,930 --> 00:10:27,910
+[SPEAKER_01]: into a place that is still a drivable
+space.
+
+199
+00:10:28,510 --> 00:10:32,270
+[SPEAKER_01]: We wanted to avoid flipping onto the 4x4
+side or roof as this would disrupt the
+
+200
+00:10:32,270 --> 00:10:33,290
+[SPEAKER_01]: player's driving experience.
+
+201
+00:10:33,930 --> 00:10:38,070
+[SPEAKER_01]: The quickest solution is to counter the
+Jeep's rotation using forces based on what
+
+202
+00:10:38,070 --> 00:10:39,710
+[SPEAKER_01]: direction the vehicle is currently
+rotating.
+
+203
+00:10:40,150 --> 00:10:40,910
+[SPEAKER_01]: Let's see what that looks like.
+
+204
+00:10:45,480 --> 00:10:48,520
+[SPEAKER_01]: So as you can see, it's a little
+unrealistic, but it's very important to
+
+205
+00:10:48,520 --> 00:10:49,940
+[SPEAKER_01]: keep the player happily driving around.
+
+206
+00:10:50,680 --> 00:10:54,520
+[SPEAKER_01]: In fact, for fun, we added some air
+control where we'd apply forces to the 4x4
+
+207
+00:10:54,520 --> 00:10:57,200
+[SPEAKER_01]: if it's in the air and you're pushing on a
+direction of the steering stick,
+
+208
+00:10:57,420 --> 00:11:00,300
+[SPEAKER_01]: constantly keeping the player feeling like
+they have some control.
+
+209
+00:11:01,900 --> 00:11:06,000
+[SPEAKER_01]: So now that we have collision detection
+settled, let's talk about powering the
+
+210
+00:11:06,000 --> 00:11:07,200
+[SPEAKER_01]: beast with our motor simulation.
+
+211
+00:11:08,580 --> 00:11:10,260
+[SPEAKER_01]: We decided to go with a manual
+transmission.
+
+212
+00:11:10,560 --> 00:11:13,880
+[SPEAKER_01]: It ends up being a simpler simulation when
+you don't have to deal with the torque
+
+213
+00:11:13,880 --> 00:11:14,240
+[SPEAKER_01]: converter.
+
+214
+00:11:14,800 --> 00:11:16,640
+[SPEAKER_01]: Who wants to deal with viscosity anyway,
+am I right?
+
+215
+00:11:18,260 --> 00:11:21,360
+[SPEAKER_01]: Simulating a motor requires a differential
+equation because the speed at which you're
+
+216
+00:11:21,360 --> 00:11:23,400
+[SPEAKER_01]: traveling feeds back into the motor's
+power curve.
+
+217
+00:11:23,720 --> 00:11:27,440
+[SPEAKER_01]: We implement this by breaking the problem
+into two parts, the motor and the wheels.
+
+218
+00:11:28,640 --> 00:11:32,540
+[SPEAKER_01]: So in this chart, we're looking at how
+much power and torque are generated by any
+
+219
+00:11:32,540 --> 00:11:33,040
+[SPEAKER_01]: given RPM.
+
+220
+00:11:33,780 --> 00:11:37,180
+[SPEAKER_01]: This curve is tuned by designers using the
+X to Y coordinates based on the size of
+
+221
+00:11:37,180 --> 00:11:39,720
+[SPEAKER_01]: the space and how responsive they want the
+4x4 to be.
+
+222
+00:11:40,280 --> 00:11:44,160
+[SPEAKER_01]: Basically, the way this curve works is
+your power grows as your motor spins
+
+223
+00:11:44,160 --> 00:11:47,900
+[SPEAKER_01]: faster and faster, up to a peak power,
+at which point you start losing efficiency
+
+224
+00:11:47,900 --> 00:11:48,860
+[SPEAKER_01]: and the power starts dropping.
+
+225
+00:11:50,280 --> 00:11:55,460
+[SPEAKER_01]: In the simulation, the motor starts at a
+minimum idle RPM and how much gas pedal is
+
+226
+00:11:55,460 --> 00:11:59,660
+[SPEAKER_01]: pressed applies a similar percentage of
+torque generated at the current motor RPM.
+
+227
+00:12:00,300 --> 00:12:04,140
+[SPEAKER_01]: It's a big simplification of how gas is
+applied to a real motor, but it's very
+
+228
+00:12:04,140 --> 00:12:04,520
+[SPEAKER_01]: effective.
+
+229
+00:12:06,320 --> 00:12:09,360
+[SPEAKER_01]: So the second part, as I mentioned,
+is how torque is generated from the motor
+
+230
+00:12:09,360 --> 00:12:10,580
+[SPEAKER_01]: and transfers to the wheels.
+
+231
+00:12:10,880 --> 00:12:14,000
+[SPEAKER_01]: To understand how that works, I need to
+mention another aspect of our
+
+232
+00:12:14,000 --> 00:12:14,380
+[SPEAKER_01]: transmission.
+
+233
+00:12:15,860 --> 00:12:16,760
+[SPEAKER_01]: This is a differential.
+
+234
+00:12:17,260 --> 00:12:20,140
+[SPEAKER_01]: This allows the attached wheels to rotate
+at different rates.
+
+235
+00:12:20,700 --> 00:12:24,300
+[SPEAKER_01]: So if you slam on the gas and one of the
+wheels is stuck and locked in place,
+
+236
+00:12:24,700 --> 00:12:27,500
+[SPEAKER_01]: the other wheel will spin freely and you
+won't flood or stall the engine.
+
+237
+00:12:28,020 --> 00:12:30,980
+[SPEAKER_01]: During development, we took a look at a
+lot of different elements of a real car
+
+238
+00:12:30,980 --> 00:12:32,460
+[SPEAKER_01]: and considered which ones to simulate.
+
+239
+00:12:33,200 --> 00:12:35,940
+[SPEAKER_01]: Looking at the benefit of differentials,
+this seemed like a good element to
+
+240
+00:12:35,940 --> 00:12:36,280
+[SPEAKER_01]: include.
+
+241
+00:12:37,220 --> 00:12:39,400
+[SPEAKER_01]: The primary reason we wanted this is to
+improve handling.
+
+242
+00:12:40,100 --> 00:12:43,000
+[SPEAKER_01]: When the wheels are free to turn at
+different rates, you get more grip on the
+
+243
+00:12:43,000 --> 00:12:43,620
+[SPEAKER_01]: outside tires.
+
+244
+00:12:44,240 --> 00:12:48,140
+[SPEAKER_01]: To understand this, imagine one side of
+the car carving one circle, the yellow
+
+245
+00:12:48,140 --> 00:12:50,640
+[SPEAKER_01]: circle here, and another side carving
+another circle, the blue circle.
+
+246
+00:12:51,120 --> 00:12:54,100
+[SPEAKER_01]: These two circles obviously have different
+circumferences.
+
+247
+00:12:54,100 --> 00:12:58,600
+[SPEAKER_01]: So if the wheels were fixed to turn at the
+same rate, they would necessarily be
+
+248
+00:12:58,600 --> 00:13:00,820
+[SPEAKER_01]: sliding, because the wheels are traveling
+different distances.
+
+249
+00:13:02,140 --> 00:13:06,240
+[SPEAKER_01]: The secondary benefit is we get big
+amounts of wheel spin, so our FX and
+
+250
+00:13:06,240 --> 00:13:09,320
+[SPEAKER_01]: foreground team have plenty of opportunity
+to send mud and rocks flying.
+
+251
+00:13:10,160 --> 00:13:11,020
+[SPEAKER_01]: Now with a differential,
+
+252
+00:13:14,840 --> 00:13:18,600
+[SPEAKER_01]: torque applied to it will be divided
+evenly between the wheels attached.
+
+253
+00:13:20,180 --> 00:13:23,160
+[SPEAKER_01]: So assuming a forward and rear
+differential and a differential between
+
+254
+00:13:23,160 --> 00:13:26,740
+[SPEAKER_01]: these two, we now have a system where
+torque is divided evenly among all four
+
+255
+00:13:26,740 --> 00:13:27,080
+[SPEAKER_01]: wheels.
+
+256
+00:13:28,700 --> 00:13:32,100
+[SPEAKER_01]: Since each wheel is allowed to sprint
+freely, we then calculate the next frame's
+
+257
+00:13:32,100 --> 00:13:35,600
+[SPEAKER_01]: RPM using the fastest spinning wheel,
+because in a manual transmission with the
+
+258
+00:13:35,600 --> 00:13:37,880
+[SPEAKER_01]: clutch applied, the wheels and the motor
+are directly linked.
+
+259
+00:13:39,640 --> 00:13:42,320
+[SPEAKER_01]: With the motor generating torque,
+I'm going to talk about how that torque
+
+260
+00:13:42,320 --> 00:13:44,740
+[SPEAKER_01]: ends up putting a force on the vehicle to
+get it moving forward.
+
+261
+00:13:46,100 --> 00:13:47,060
+[SPEAKER_01]: So let's talk about friction.
+
+262
+00:13:47,620 --> 00:13:50,680
+[SPEAKER_01]: We have power transferred from the motor
+to the wheel, now we need to transfer the
+
+263
+00:13:50,680 --> 00:13:53,520
+[SPEAKER_01]: power from the wheel to the ground,
+so the 4x4 moves forward.
+
+264
+00:13:54,520 --> 00:13:57,360
+[SPEAKER_01]: Friction dictates how much force can be
+applied to before there is a slip,
+
+265
+00:13:57,600 --> 00:13:58,700
+[SPEAKER_01]: and how much slip there is.
+
+266
+00:13:59,000 --> 00:14:02,560
+[SPEAKER_01]: Since friction is between two surfaces,
+we have to define the friction for the
+
+267
+00:14:02,560 --> 00:14:05,700
+[SPEAKER_01]: tires and the friction for the geometric
+surfaces the tires will be driving on.
+
+268
+00:14:06,580 --> 00:14:10,020
+[SPEAKER_01]: In order to accomplish the second part,
+we break the environment up into several
+
+269
+00:14:10,020 --> 00:14:12,460
+[SPEAKER_01]: surface types, each with a tuned amount of
+friction.
+
+270
+00:14:13,520 --> 00:14:17,500
+[SPEAKER_01]: The designers and artists work together to
+lay out all the friction types to make for
+
+271
+00:14:17,500 --> 00:14:19,120
+[SPEAKER_01]: a fun and interesting driving experience.
+
+272
+00:14:19,620 --> 00:14:21,480
+[SPEAKER_01]: Let's take a look at how that surface is
+blocked out.
+
+273
+00:14:22,520 --> 00:14:25,720
+[SPEAKER_01]: We have our grass here with very high
+friction, indicated by the yellow in this
+
+274
+00:14:25,720 --> 00:14:26,000
+[SPEAKER_01]: picture.
+
+275
+00:14:26,920 --> 00:14:30,360
+[SPEAKER_01]: A muddy transition point here with what
+would be an in-between amount of friction.
+
+276
+00:14:31,160 --> 00:14:33,380
+[SPEAKER_01]: Then a very little friction in a muddy
+riverbed.
+
+277
+00:14:33,900 --> 00:14:35,940
+[SPEAKER_01]: As you can see, it's really broken up very
+roughly.
+
+278
+00:14:36,240 --> 00:14:39,460
+[SPEAKER_01]: We didn't go into fine details of little
+bits of higher friction here and there,
+
+279
+00:14:39,460 --> 00:14:41,520
+[SPEAKER_01]: and it still feels really good to drive
+across.
+
+280
+00:14:42,840 --> 00:14:46,280
+[SPEAKER_01]: We spent a lot of time tuning friction on
+some of these surface types to make these
+
+281
+00:14:46,280 --> 00:14:48,420
+[SPEAKER_01]: muddy climbs challenging while still being
+fun.
+
+282
+00:14:49,260 --> 00:14:52,940
+[SPEAKER_01]: You really have to keep throwing at a
+plate tester with fresh eyes to see how
+
+283
+00:14:52,940 --> 00:14:53,700
+[SPEAKER_01]: difficult they find it.
+
+284
+00:15:01,060 --> 00:15:03,180
+[SPEAKER_01]: So let's get into some of the details
+about friction and torque.
+
+285
+00:15:03,680 --> 00:15:06,360
+[SPEAKER_01]: The first thing we need is the normal
+force N applied to the tire.
+
+286
+00:15:06,880 --> 00:15:10,760
+[SPEAKER_01]: This we get back out of havoc for each
+wheel once we've applied the point of
+
+287
+00:15:10,760 --> 00:15:11,040
+[SPEAKER_01]: contact.
+
+288
+00:15:11,040 --> 00:15:14,660
+[SPEAKER_01]: We let the solver give us this information
+because the pressure on the wheel is
+
+289
+00:15:14,660 --> 00:15:18,460
+[SPEAKER_01]: dependent on the downward momentum of the
+chassis and the forces generated by the
+
+290
+00:15:18,460 --> 00:15:18,840
+[SPEAKER_01]: suspension.
+
+291
+00:15:19,800 --> 00:15:21,200
+[SPEAKER_01]: So doing this is needlessly gritty.
+
+292
+00:15:21,920 --> 00:15:24,900
+[SPEAKER_01]: For the coefficient of friction,
+we multiply the friction of the tire with
+
+293
+00:15:24,900 --> 00:15:26,520
+[SPEAKER_01]: the friction of the surface it's in
+contact with.
+
+294
+00:15:27,000 --> 00:15:30,460
+[SPEAKER_01]: This coefficient is then multiplied with
+the force returned from havoc to generate
+
+295
+00:15:30,460 --> 00:15:31,880
+[SPEAKER_01]: a maximum friction force.
+
+296
+00:15:33,520 --> 00:15:36,160
+[SPEAKER_01]: Torque is then the rotational force
+applied to the wheel.
+
+297
+00:15:36,500 --> 00:15:40,620
+[SPEAKER_01]: With the friction resisting this rotation,
+the opposite force pushes the wheel
+
+298
+00:15:40,620 --> 00:15:40,960
+[SPEAKER_01]: forward.
+
+299
+00:15:42,100 --> 00:15:44,360
+[SPEAKER_01]: Our maximum friction force is split into
+two directions.
+
+300
+00:15:44,800 --> 00:15:48,540
+[SPEAKER_01]: We take the torque applied to the wheel,
+divided by the radius, and that gives us a
+
+301
+00:15:48,540 --> 00:15:49,500
+[SPEAKER_01]: linear forward force.
+
+302
+00:15:50,060 --> 00:15:52,660
+[SPEAKER_01]: Our lateral force is a little bit more
+complicated.
+
+303
+00:15:53,180 --> 00:15:57,260
+[SPEAKER_01]: We create a lateral slip coefficient based
+on the lateral velocity divided by the
+
+304
+00:15:57,260 --> 00:15:57,920
+[SPEAKER_01]: forward velocity.
+
+305
+00:15:58,560 --> 00:16:01,360
+[SPEAKER_01]: Multiplying this by the normal force
+returned from Havoc, we get a nice
+
+306
+00:16:01,360 --> 00:16:04,960
+[SPEAKER_01]: simulation where you regain control in a
+reasonable amount of time, no matter how
+
+307
+00:16:04,960 --> 00:16:05,600
+[SPEAKER_01]: fast you're sliding.
+
+308
+00:16:07,060 --> 00:16:09,780
+[SPEAKER_01]: Combining the two directions, we get a
+total force vector shown here.
+
+309
+00:16:10,120 --> 00:16:13,400
+[SPEAKER_01]: The length of this vector must be below
+the maximum friction force we calculated
+
+310
+00:16:13,400 --> 00:16:13,740
+[SPEAKER_01]: earlier.
+
+311
+00:16:14,520 --> 00:16:18,040
+[SPEAKER_01]: Dividing the two gives us a scalar to
+apply to the input vectors so that our
+
+312
+00:16:18,040 --> 00:16:19,660
+[SPEAKER_01]: total force falls below the maximum.
+
+313
+00:16:20,900 --> 00:16:25,540
+[SPEAKER_01]: We apply this scalar to both directions so
+the resultant total force falls below the
+
+314
+00:16:25,540 --> 00:16:25,960
+[SPEAKER_01]: max force.
+
+315
+00:16:27,680 --> 00:16:31,620
+[SPEAKER_01]: So lateral friction force is applied to
+the lateral velocity to slow the vehicle
+
+316
+00:16:31,620 --> 00:16:32,960
+[SPEAKER_01]: down when sliding side to side.
+
+317
+00:16:33,280 --> 00:16:36,840
+[SPEAKER_01]: In the forward direction, we apply up to
+the maximum friction to the wheel.
+
+318
+00:16:37,320 --> 00:16:40,580
+[SPEAKER_01]: The leftover difference is then applied
+back to the wheel as extra rotational
+
+319
+00:16:40,580 --> 00:16:42,880
+[SPEAKER_01]: velocity because the tire is slipping in
+this case.
+
+320
+00:16:43,920 --> 00:16:47,320
+[SPEAKER_01]: In the other direction, however,
+if the torque applied is less to the
+
+321
+00:16:47,320 --> 00:16:51,320
+[SPEAKER_01]: maximum friction force, we apply an
+opposite braking force on the angular
+
+322
+00:16:51,320 --> 00:16:54,900
+[SPEAKER_01]: velocity of the wheel so it slows to meet
+the friction if the wheel is overspinning
+
+323
+00:16:54,900 --> 00:16:55,240
+[SPEAKER_01]: and slipping.
+
+324
+00:16:57,000 --> 00:16:59,920
+[SPEAKER_01]: One final request from Design was,
+of course, being able to power slide.
+
+325
+00:17:00,500 --> 00:17:03,420
+[SPEAKER_01]: Tossing around some ideas, most
+importantly, we wanted to make it easy to
+
+326
+00:17:03,420 --> 00:17:03,740
+[SPEAKER_01]: use.
+
+327
+00:17:04,260 --> 00:17:07,540
+[SPEAKER_01]: We decided to implement a big fake with a
+hint of realism.
+
+328
+00:17:08,200 --> 00:17:10,940
+[SPEAKER_01]: When you hit the handbrake button,
+we simply reduce the friction on the back
+
+329
+00:17:10,940 --> 00:17:11,280
+[SPEAKER_01]: tires.
+
+330
+00:17:11,820 --> 00:17:14,200
+[SPEAKER_01]: This lets the rear kick out, but in a way
+we can easily tune.
+
+331
+00:17:15,740 --> 00:17:18,320
+[SPEAKER_01]: So that concludes the driving and physical
+aspects of the 4x4.
+
+332
+00:17:18,720 --> 00:17:22,260
+[SPEAKER_01]: Design would give me a layout that they
+wanted the 4x4 to drive on, and we'd work
+
+333
+00:17:22,260 --> 00:17:25,220
+[SPEAKER_01]: together to get the vehicle to feel and
+look right for the space.
+
+334
+00:17:25,920 --> 00:17:28,720
+[SPEAKER_01]: Now, with that working nicely,
+what do you do if a designer comes to you
+
+335
+00:17:28,720 --> 00:17:31,740
+[SPEAKER_01]: and says, hey, it'd be kind of the car
+drove itself.
+
+336
+00:17:33,560 --> 00:17:34,400
+[SPEAKER_01]: Okay, then.
+
+337
+00:17:35,040 --> 00:17:35,800
+[SPEAKER_01]: That sounds like fun.
+
+338
+00:17:36,380 --> 00:17:40,500
+[SPEAKER_01]: So the reason for this tech is so that
+NPCs like Sullivan or Elena can hop into
+
+339
+00:17:40,500 --> 00:17:43,980
+[SPEAKER_01]: the driver's seat and drive to Drake if he
+got too far from the 4x4.
+
+340
+00:17:45,340 --> 00:17:47,640
+[SPEAKER_01]: Thankfully, some of the AI work is already
+done for me.
+
+341
+00:17:47,640 --> 00:17:51,780
+[SPEAKER_01]: I have to tweak some things, but the nav
+mesh search code used by NPCs can be
+
+342
+00:17:51,780 --> 00:17:55,440
+[SPEAKER_01]: converted over pretty easily, so we have
+static paths generated almost immediately.
+
+343
+00:17:57,560 --> 00:18:00,860
+[SPEAKER_01]: The interesting bit comes when we talk
+about how to make a car on four wheels
+
+344
+00:18:00,860 --> 00:18:02,760
+[SPEAKER_01]: drive towards the next nav waypoint.
+
+345
+00:18:03,200 --> 00:18:04,020
+[SPEAKER_01]: Questions to answer.
+
+346
+00:18:04,280 --> 00:18:06,040
+[SPEAKER_01]: How do you actually turn to face the
+point?
+
+347
+00:18:06,720 --> 00:18:07,880
+[SPEAKER_01]: How fast should you be traveling?
+
+348
+00:18:08,220 --> 00:18:10,100
+[SPEAKER_01]: What if the next waypoint is behind you?
+
+349
+00:18:10,300 --> 00:18:11,400
+[SPEAKER_01]: How do you even know it's behind you?
+
+350
+00:18:11,720 --> 00:18:14,520
+[SPEAKER_01]: How do you know if there's a physical
+object in front of you that you need to
+
+351
+00:18:14,520 --> 00:18:14,920
+[SPEAKER_01]: drive around?
+
+352
+00:18:14,920 --> 00:18:16,100
+[SPEAKER_01]: How do you drive around it?
+
+353
+00:18:17,480 --> 00:18:18,480
+[SPEAKER_01]: Some basic principles.
+
+354
+00:18:19,120 --> 00:18:21,660
+[SPEAKER_01]: Cars have a defined turn radius like we
+talked about earlier.
+
+355
+00:18:22,360 --> 00:18:25,420
+[SPEAKER_01]: This is the radius of the smallest
+circular turn the vehicle is capable of
+
+356
+00:18:25,420 --> 00:18:25,620
+[SPEAKER_01]: making.
+
+357
+00:18:26,160 --> 00:18:30,040
+[SPEAKER_01]: The size of the turning circle changes
+based on how fast you're traveling because
+
+358
+00:18:30,040 --> 00:18:33,500
+[SPEAKER_01]: the wheels won't necessarily grip the
+ground hard enough to make the given turn.
+
+359
+00:18:33,960 --> 00:18:37,340
+[SPEAKER_01]: The circle also expands the further the
+steering wheel gets from the furthest
+
+360
+00:18:37,340 --> 00:18:37,620
+[SPEAKER_01]: edge.
+
+361
+00:18:38,240 --> 00:18:40,740
+[SPEAKER_01]: Understanding these aspects of your
+physical model lets you make decisions
+
+362
+00:18:40,740 --> 00:18:43,260
+[SPEAKER_01]: like how far do I have to turn the wheel
+to make the target.
+
+363
+00:18:44,920 --> 00:18:47,940
+[SPEAKER_01]: Let's go over how to calculate the turn
+radius based on the physical dimensions of
+
+364
+00:18:47,940 --> 00:18:48,200
+[SPEAKER_01]: the car.
+
+365
+00:18:49,020 --> 00:18:51,520
+[SPEAKER_01]: I base my math on the Ackerman steering
+geometry.
+
+366
+00:18:52,200 --> 00:18:57,460
+[SPEAKER_01]: In this image, theta is the maximum angle
+the wheels can rotate left to right.
+
+367
+00:18:59,220 --> 00:19:01,220
+[SPEAKER_01]: W is the width of the 4x4 and L is the
+length.
+
+368
+00:19:01,820 --> 00:19:04,220
+[SPEAKER_01]: Putting it all together gives us the
+radius of the turning circle.
+
+369
+00:19:04,660 --> 00:19:08,160
+[SPEAKER_01]: I'm uncertain if this is the perfect
+calculation of a tightest turning circle
+
+370
+00:19:08,160 --> 00:19:11,380
+[SPEAKER_01]: the 4x4 could drive along, but it was
+close enough of an estimate that it worked
+
+371
+00:19:11,380 --> 00:19:12,540
+[SPEAKER_01]: well for our AI logic.
+
+372
+00:19:14,060 --> 00:19:17,680
+[SPEAKER_01]: Okay, so now we're able to calculate if we
+can make a turn towards the waypoint.
+
+373
+00:19:17,920 --> 00:19:20,620
+[SPEAKER_01]: We obviously know the location of these
+circles since they are attached to the
+
+374
+00:19:20,620 --> 00:19:20,840
+[SPEAKER_01]: car.
+
+375
+00:19:21,180 --> 00:19:24,580
+[SPEAKER_01]: Assuming they're infinite cylinders,
+we use 2D algebra to figure out if the
+
+376
+00:19:24,580 --> 00:19:26,040
+[SPEAKER_01]: waypoint is inside of either circle.
+
+377
+00:19:28,020 --> 00:19:33,840
+[SPEAKER_01]: If the waypoint is inside of either
+circle, we need to put the 4x4 into
+
+378
+00:19:33,840 --> 00:19:38,600
+[SPEAKER_01]: reverse, turn the wheel in the opposite
+direction, so now our nose will turn
+
+379
+00:19:38,600 --> 00:19:39,220
+[SPEAKER_01]: towards the target.
+
+380
+00:19:39,600 --> 00:19:43,360
+[SPEAKER_01]: Once our nose is facing close enough to
+the target that the target is outside of
+
+381
+00:19:43,360 --> 00:19:46,140
+[SPEAKER_01]: the turning circle, we can switch back to
+drive and complete the turn.
+
+382
+00:19:47,620 --> 00:19:50,360
+[SPEAKER_01]: This logic also applies to whether the
+target is behind us.
+
+383
+00:19:50,720 --> 00:19:52,600
+[SPEAKER_01]: Reverse until we make the turn and
+continue on.
+
+384
+00:19:54,120 --> 00:19:57,300
+[SPEAKER_01]: Now let's take a closer look at what
+following a path ends up looking like.
+
+385
+00:20:03,110 --> 00:20:03,510
+[SPEAKER_01]: Nice.
+
+386
+00:20:04,890 --> 00:20:06,990
+[SPEAKER_01]: Next up, let's talk about obstacle
+avoidance.
+
+387
+00:20:07,550 --> 00:20:11,650
+[SPEAKER_01]: Our nav mesh search gives us a really good
+path to follow to avoid things like
+
+388
+00:20:11,650 --> 00:20:13,030
+[SPEAKER_01]: buildings or big boulders.
+
+389
+00:20:13,250 --> 00:20:16,810
+[SPEAKER_01]: But what do we do if another car is in the
+way and that car does not affect the nav
+
+390
+00:20:16,810 --> 00:20:17,070
+[SPEAKER_01]: mesh?
+
+391
+00:20:18,390 --> 00:20:22,610
+[SPEAKER_01]: To detect this, we need several ray casts,
+one per corner, forward and back,
+
+392
+00:20:22,870 --> 00:20:25,150
+[SPEAKER_01]: whose length is based on the speed the 4x4
+is driving.
+
+393
+00:20:25,910 --> 00:20:29,830
+[SPEAKER_01]: When one of the casts detects something,
+we simply push the steering wheel in the
+
+394
+00:20:29,830 --> 00:20:32,610
+[SPEAKER_01]: opposite direction based on how close the
+ray casts detected collision.
+
+395
+00:20:33,610 --> 00:20:36,850
+[SPEAKER_01]: We never forget that we eventually want to
+steer towards the target again,
+
+396
+00:20:37,070 --> 00:20:39,530
+[SPEAKER_01]: but the probe tells us when we're clear to
+start that turn.
+
+397
+00:20:39,990 --> 00:20:42,450
+[SPEAKER_01]: The direction the probe casts is tunable.
+
+398
+00:20:43,270 --> 00:20:47,250
+[SPEAKER_01]: In these videos, the probes are directly
+in front and behind, but depending on the
+
+399
+00:20:47,250 --> 00:20:49,730
+[SPEAKER_01]: environment you're dealing with,
+you might want these probes to shoot out
+
+400
+00:20:49,730 --> 00:20:52,230
+[SPEAKER_01]: at an angle to give more consideration to
+what's around the vehicle.
+
+401
+00:20:53,950 --> 00:20:57,690
+[SPEAKER_01]: For simplicity, we assume that design has
+not caused some kind of traffic jam that
+
+402
+00:20:57,690 --> 00:20:58,990
+[SPEAKER_01]: we could never steer around.
+
+403
+00:20:59,390 --> 00:21:02,530
+[SPEAKER_01]: This obviously wouldn't work in a city
+full of cars, but driving around the hills
+
+404
+00:21:02,530 --> 00:21:04,550
+[SPEAKER_01]: of Madagascar, this is an effective
+simplification.
+
+405
+00:21:06,470 --> 00:21:08,950
+[SPEAKER_01]: A small feature requested by design was
+spline following.
+
+406
+00:21:08,950 --> 00:21:12,670
+[SPEAKER_01]: For this, we turn off NavMesh Search and
+simply get a point on the spline curve
+
+407
+00:21:12,670 --> 00:21:16,550
+[SPEAKER_01]: some distance away from us based on how
+fast we're traveling.
+
+408
+00:21:17,370 --> 00:21:20,730
+[SPEAKER_01]: Obstacle avoidance is still on in this
+case, since other objects can get in the
+
+409
+00:21:20,730 --> 00:21:20,870
+[SPEAKER_01]: way.
+
+410
+00:21:21,510 --> 00:21:24,510
+[SPEAKER_01]: We want to steer around the obstacle and
+continue to use the nearest point on the
+
+411
+00:21:24,510 --> 00:21:25,270
+[SPEAKER_01]: spline as our target.
+
+412
+00:21:26,150 --> 00:21:29,590
+[SPEAKER_01]: So with navigation, steering, and obstacle
+avoidance put together, you've got a
+
+413
+00:21:29,590 --> 00:21:31,190
+[SPEAKER_01]: pretty good system for getting around most
+spaces.
+
+414
+00:21:32,330 --> 00:21:35,230
+[SPEAKER_01]: So to wrap up, first we went over
+collision detection.
+
+415
+00:21:35,590 --> 00:21:38,490
+[SPEAKER_01]: Using rigid bodies, constraints,
+and our own implementation of wheel
+
+416
+00:21:38,490 --> 00:21:41,750
+[SPEAKER_01]: response, we created a vehicle that moves
+around rough terrain smoothly.
+
+417
+00:21:42,670 --> 00:21:46,430
+[SPEAKER_01]: Our motor with a mix of realism and some
+glossed-over details, we created a nice
+
+418
+00:21:46,430 --> 00:21:50,110
+[SPEAKER_01]: balance between a tunable, realistic motor
+and avoiding the grittiness of a deeper
+
+419
+00:21:50,110 --> 00:21:50,570
+[SPEAKER_01]: simulation.
+
+420
+00:21:51,770 --> 00:21:55,650
+[SPEAKER_01]: Our tower friction simulation allows us to
+actually drive the vehicle and make turns
+
+421
+00:21:55,650 --> 00:21:57,910
+[SPEAKER_01]: in an easy-to-use way that most players
+can grasp.
+
+422
+00:21:59,190 --> 00:22:02,490
+[SPEAKER_01]: We took new requirements from design,
+where we had to add AI to the car and
+
+423
+00:22:02,490 --> 00:22:04,450
+[SPEAKER_01]: brought over navigation from existing
+systems.
+
+424
+00:22:05,390 --> 00:22:08,590
+[SPEAKER_01]: And we layered on steering behaviors so
+the 4x4 can follow the generated
+
+425
+00:22:08,590 --> 00:22:09,390
+[SPEAKER_01]: navigation paths.
+
+426
+00:22:10,610 --> 00:22:13,250
+[SPEAKER_01]: I want to give a quick thanks to some of
+the folks at Naughty Dog who helped put
+
+427
+00:22:13,250 --> 00:22:14,090
+[SPEAKER_01]: the 4x4 together.
+
+428
+00:22:14,390 --> 00:22:17,150
+[SPEAKER_01]: It actually took quite a few people to put
+all the bells and whistles on it.
+
+429
+00:22:17,610 --> 00:22:18,630
+[SPEAKER_01]: So these are just a few of the names.
+
+430
+00:22:19,370 --> 00:22:21,870
+[SPEAKER_01]: Inkyo made the beautiful visual model that
+we all came to love.
+
+431
+00:22:22,450 --> 00:22:23,650
+[SPEAKER_01]: Kristoff helped with some of the rigging.
+
+432
+00:22:23,950 --> 00:22:26,450
+[SPEAKER_01]: Rob is an audio designer and Jonathan is
+an audio programmer.
+
+433
+00:22:26,450 --> 00:22:29,610
+[SPEAKER_01]: And together they worked to get things
+like the motor purring just right.
+
+434
+00:22:30,450 --> 00:22:32,750
+[SPEAKER_01]: The Alice and Travis are programmers who
+helped with the simulation.
+
+435
+00:22:33,430 --> 00:22:35,910
+[SPEAKER_01]: Kurt and James are designers who helped on
+tuning and level layout.
+
+436
+00:22:37,110 --> 00:22:38,070
+[SPEAKER_01]: So that's the 4x4.
+
+437
+00:22:38,290 --> 00:22:39,910
+[SPEAKER_01]: The development is really about problem
+solving.
+
+438
+00:22:40,210 --> 00:22:43,730
+[SPEAKER_01]: We took a very design-oriented approach to
+development and always focused changes on
+
+439
+00:22:43,730 --> 00:22:45,210
+[SPEAKER_01]: the needs for making the game fun.
+
+440
+00:22:45,590 --> 00:22:46,110
+[SPEAKER_01]: Thanks for listening.
+
+441
+00:22:54,270 --> 00:22:56,670
+[SPEAKER_01]: So we have about five minutes for
+questions, if anybody has anything.
+
+442
+00:23:05,560 --> 00:23:06,980
+[SPEAKER_01]: If you want to come to the microphone,
+please.
+
+443
+00:23:12,240 --> 00:23:12,680
+[SPEAKER_03]: Sorry.
+
+444
+00:23:13,000 --> 00:23:13,440
+[SPEAKER_03]: Sorry.
+
+445
+00:23:13,740 --> 00:23:15,480
+[SPEAKER_03]: You mentioned about the rigid body.
+
+446
+00:23:15,760 --> 00:23:18,120
+[SPEAKER_03]: I imagine you are not using Unity,
+right?
+
+447
+00:23:18,700 --> 00:23:19,080
+[SPEAKER_01]: No.
+
+448
+00:23:19,500 --> 00:23:21,580
+[SPEAKER_01]: We use Havoc, but it's our own game
+engine.
+
+449
+00:23:22,340 --> 00:23:22,600
+[SPEAKER_01]: Okay.
+
+450
+00:23:22,820 --> 00:23:23,080
+[SPEAKER_01]: Thank you.
+
+451
+00:23:28,390 --> 00:23:31,250
+[SPEAKER_02]: So I had a similar simulator for driving.
+
+452
+00:23:31,970 --> 00:23:32,330
+[SPEAKER_02]: Okay.
+
+453
+00:23:32,650 --> 00:23:34,010
+[SPEAKER_02]: And I found an issue with this.
+
+454
+00:23:34,550 --> 00:23:35,910
+[SPEAKER_02]: You glossed over this real quick.
+
+455
+00:23:36,070 --> 00:23:41,290
+[SPEAKER_02]: When you are falling down and you need to
+take that wheel and push it up so it
+
+456
+00:23:41,290 --> 00:23:42,930
+[SPEAKER_02]: doesn't go through the ground using force.
+
+457
+00:23:43,250 --> 00:23:46,170
+[SPEAKER_02]: Now you don't want to do that instantly or
+you just suddenly pop up.
+
+458
+00:23:46,690 --> 00:23:48,250
+[SPEAKER_02]: So you need to add force over time.
+
+459
+00:23:48,430 --> 00:23:51,630
+[SPEAKER_02]: But if you are falling really far,
+that's a lot of force and it would bounce
+
+460
+00:23:51,630 --> 00:23:53,490
+[SPEAKER_02]: my car up fairly high.
+
+461
+00:23:53,490 --> 00:23:55,510
+[SPEAKER_02]: I'm wondering how you guys handled that.
+
+462
+00:23:55,970 --> 00:23:58,890
+[SPEAKER_02]: So there is a lot of force in a very short
+amount of time.
+
+463
+00:23:59,090 --> 00:24:01,950
+[SPEAKER_02]: Because that collision when you just hit
+is very quick.
+
+464
+00:24:02,890 --> 00:24:03,690
+[SPEAKER_02]: So to like move that...
+
+465
+00:24:03,690 --> 00:24:04,990
+[SPEAKER_02]: I'm just wondering how you guys handled
+that.
+
+466
+00:24:05,190 --> 00:24:10,090
+[SPEAKER_01]: So the question is, well, how did we
+handle the force applying to the vehicle
+
+467
+00:24:10,090 --> 00:24:12,410
+[SPEAKER_01]: to get it out of collision if it actually
+is already in?
+
+468
+00:24:13,870 --> 00:24:14,270
+[SPEAKER_01]: We...
+
+469
+00:24:14,750 --> 00:24:17,530
+[SPEAKER_01]: I'm actually okay with it being in
+collision for a little bit.
+
+470
+00:24:17,590 --> 00:24:20,530
+[SPEAKER_01]: So we don't push so hard that it flies out
+of collision.
+
+471
+00:24:20,530 --> 00:24:25,030
+[SPEAKER_01]: And so I actually have a tuning where
+there's a maximum amount of force that's
+
+472
+00:24:25,030 --> 00:24:26,130
+[SPEAKER_01]: actually allowed to be applied on it.
+
+473
+00:24:26,210 --> 00:24:28,190
+[SPEAKER_01]: So that it doesn't ever get pushed out
+that far.
+
+474
+00:24:28,430 --> 00:24:28,890
+[SPEAKER_02]: Okay.
+
+475
+00:24:29,550 --> 00:24:30,190
+[SPEAKER_02]: Thank you.
+
+476
+00:24:30,610 --> 00:24:31,050
+[SPEAKER_01]: Up over here.
+
+477
+00:24:31,250 --> 00:24:31,490
+[SPEAKER_04]: Hi.
+
+478
+00:24:31,930 --> 00:24:36,770
+[SPEAKER_04]: Did you have any trouble, like,
+if the vehicle bottoms out and then the
+
+479
+00:24:36,770 --> 00:24:41,390
+[SPEAKER_04]: collision of the chassis gets snagged on
+some small rock or something like that?
+
+480
+00:24:43,330 --> 00:24:43,810
+[SPEAKER_01]: It...
+
+481
+00:24:43,810 --> 00:24:45,630
+[SPEAKER_01]: The vehicle does bottom out a lot.
+
+482
+00:24:45,650 --> 00:24:53,650
+[SPEAKER_01]: But the Havoc rigidbody system is pretty
+good at making sure that it doesn't cause
+
+483
+00:24:53,650 --> 00:24:53,870
+[SPEAKER_01]: a problem.
+
+484
+00:24:53,970 --> 00:24:57,070
+[SPEAKER_01]: There are some cases, and you can still
+see them in the shipped game, though,
+
+485
+00:24:57,530 --> 00:25:03,710
+[SPEAKER_01]: where, like, the rocks and stuff will go
+flying because the chassis, like,
+
+486
+00:25:03,830 --> 00:25:05,450
+[SPEAKER_01]: hits that rock in a bad way.
+
+487
+00:25:06,330 --> 00:25:06,970
+[SPEAKER_01]: That's not...
+
+488
+00:25:06,970 --> 00:25:09,070
+[SPEAKER_01]: Like, it is something I looked into a
+little bit, but it's not something we
+
+489
+00:25:09,070 --> 00:25:11,210
+[SPEAKER_01]: cared enough about to have to,
+like, fix.
+
+490
+00:25:12,870 --> 00:25:17,110
+[SPEAKER_04]: Is the 4x4 a one-off, or is Naughty Dog
+going to look into more vehicle play in
+
+491
+00:25:17,110 --> 00:25:17,470
+[SPEAKER_04]: the future?
+
+492
+00:25:17,910 --> 00:25:18,830
+[SPEAKER_01]: Well, we had the boat.
+
+493
+00:25:19,370 --> 00:25:19,830
+[SPEAKER_04]: Oh, yeah.
+
+494
+00:25:22,210 --> 00:25:27,270
+[SPEAKER_01]: Yeah, I mean, we are definitely always
+exploring what other things we can do.
+
+495
+00:25:27,410 --> 00:25:33,510
+[SPEAKER_01]: Like, having the 4x4 in there was a
+starting-off point for making the boat,
+
+496
+00:25:33,590 --> 00:25:37,610
+[SPEAKER_01]: and so that's... they share a lot of the
+same code, so it's obviously a really good
+
+497
+00:25:37,610 --> 00:25:39,930
+[SPEAKER_01]: jumping-off point for making any other
+vehicle simulation.
+
+498
+00:25:43,610 --> 00:25:47,330
+[SPEAKER_03]: I was developing, like, and we are truck
+simulator.
+
+499
+00:25:47,550 --> 00:25:51,890
+[SPEAKER_03]: One of the problem I got into is,
+like, when you got a trailer behind your
+
+500
+00:25:51,890 --> 00:25:56,490
+[SPEAKER_03]: car, while you're trying, like,
+driving forward, of course, the,
+
+501
+00:25:56,490 --> 00:26:02,030
+[SPEAKER_03]: like, motor belongs to, like, a real
+wheels of the, like, the truck head,
+
+502
+00:26:02,030 --> 00:26:09,810
+[SPEAKER_03]: but how do you manage to, like,
+balance those initial, like, you know,
+
+503
+00:26:10,070 --> 00:26:17,850
+[SPEAKER_03]: the power when you're trying to do some
+color, the power on inner tire and the
+
+504
+00:26:17,850 --> 00:26:18,990
+[SPEAKER_03]: outer tire, they are different.
+
+505
+00:26:19,170 --> 00:26:20,530
+[SPEAKER_03]: How do you, like, balance that out?
+
+506
+00:26:20,650 --> 00:26:22,010
+[SPEAKER_03]: I got a lot of problem with that.
+
+507
+00:26:29,650 --> 00:26:32,370
+[SPEAKER_01]: I'm not... what's the problem you're
+having?
+
+508
+00:26:32,530 --> 00:26:32,930
+[SPEAKER_01]: I'm not sure.
+
+509
+00:26:34,610 --> 00:26:37,410
+[SPEAKER_03]: When you're driving your car too fast,
+you know,
+
+510
+00:26:40,470 --> 00:26:47,470
+[SPEAKER_03]: when you're doing color, in fact,
+the friction on your inner tire and the
+
+511
+00:26:47,470 --> 00:26:48,550
+[SPEAKER_03]: outer tire, they are different.
+
+512
+00:26:48,790 --> 00:26:49,310
+[SPEAKER_01]: Okay, yeah.
+
+513
+00:26:49,750 --> 00:26:53,770
+[SPEAKER_03]: That's where my, like, simulator went
+around a lot of times.
+
+514
+00:26:54,350 --> 00:26:59,250
+[SPEAKER_03]: I, like, the way I'm solving it is that we
+tuned a lot to make it feel better.
+
+515
+00:26:59,410 --> 00:27:01,570
+[SPEAKER_03]: I wonder how you, like, manage to solve
+that.
+
+516
+00:27:01,570 --> 00:27:08,610
+[SPEAKER_03]: And, you know, on Charity 4, the car is
+also running on, like, uneven paths.
+
+517
+00:27:09,010 --> 00:27:14,070
+[SPEAKER_03]: Sometimes it's, like, they are on the
+brink of, like, getting contact with the
+
+518
+00:27:14,070 --> 00:27:14,790
+[SPEAKER_03]: ground a lot.
+
+519
+00:27:14,970 --> 00:27:20,530
+[SPEAKER_03]: How do you, like, try to make them,
+like, in that, like, very boundary moment
+
+520
+00:27:20,530 --> 00:27:24,910
+[SPEAKER_03]: to make the car still, like, getting the
+force moving forward, like, correctly?
+
+521
+00:27:24,910 --> 00:27:31,050
+[SPEAKER_01]: Yeah, so the question to summarize is the
+all four tires are running on different
+
+522
+00:27:31,050 --> 00:27:32,590
+[SPEAKER_01]: friction of most of the time.
+
+523
+00:27:32,890 --> 00:27:36,770
+[SPEAKER_01]: As you're going from the riverbed to the
+grass, one side is still slipping,
+
+524
+00:27:36,870 --> 00:27:37,490
+[SPEAKER_01]: the other side catches.
+
+525
+00:27:39,610 --> 00:27:46,710
+[SPEAKER_01]: The differential actually helps in this
+case because we're splitting the torque to
+
+526
+00:27:46,710 --> 00:27:47,330
+[SPEAKER_01]: all four tires.
+
+527
+00:27:47,330 --> 00:27:55,550
+[SPEAKER_01]: That makes it so that it's actually a
+smoother transition because you don't have
+
+528
+00:27:55,550 --> 00:27:58,970
+[SPEAKER_01]: a sudden, like, very hard grip on one of
+the tires and cause it to just,
+
+529
+00:27:58,970 --> 00:27:59,410
+[SPEAKER_01]: like, stop.
+
+530
+00:28:01,330 --> 00:28:05,130
+[SPEAKER_01]: And other than that, like, we didn't
+really have any issues in that area,
+
+531
+00:28:05,170 --> 00:28:11,010
+[SPEAKER_01]: I think, possibly because of how stable
+the point constraint system is in Havoc.
+
+532
+00:28:11,390 --> 00:28:16,670
+[SPEAKER_01]: We basically told it the lateral friction
+we wanted, how much force is being applied
+
+533
+00:28:16,670 --> 00:28:19,350
+[SPEAKER_01]: there, and it would do a decent job of
+stabilizing.
+
+534
+00:28:20,670 --> 00:28:21,630
+[SPEAKER_00]: Okay, thank you.
+
+535
+00:28:23,870 --> 00:28:29,230
+[SPEAKER_00]: My question was just also about the chase
+sequence and the other cars in the chase
+
+536
+00:28:29,230 --> 00:28:31,070
+[SPEAKER_00]: sequence and the motorcycle.
+
+537
+00:28:31,210 --> 00:28:32,210
+[SPEAKER_00]: Do they use the same model?
+
+538
+00:28:33,190 --> 00:28:36,590
+[SPEAKER_01]: A lot of that is faked with splines.
+
+539
+00:28:37,870 --> 00:28:47,330
+[SPEAKER_01]: I think there's some of the same,
+like, the way the tires work and detect
+
+540
+00:28:47,330 --> 00:28:48,910
+[SPEAKER_01]: collision, I think, is the same.
+
+541
+00:28:48,910 --> 00:28:52,150
+[SPEAKER_01]: But the actual driving and movement is on
+a spline.
+
+542
+00:28:52,890 --> 00:28:55,830
+[SPEAKER_00]: And they didn't run, like, obstacle
+avoidance or anything?
+
+543
+00:28:56,090 --> 00:28:56,750
+[SPEAKER_01]: No, no.
+
+544
+00:28:59,330 --> 00:28:59,850
+[SPEAKER_01]: Okay.
+
+545
+00:29:00,150 --> 00:29:01,050
+[SPEAKER_01]: Thank you very much.
+

@@ -24,6 +24,8 @@ Nothing in the vfx/three list cuts a measured cost. Maybes: Rapier 0.21 (broadph
 
 - Burnout developer, 2020, "Vehicle Feel Masterclass: Balancing Arcade Accessibility with Simulation Depth": `VehicleFeelMasterClass_ArcadeFeelWithSimulationDepth.srt` (this folder). Reviewer RevMasterclass2 maps it to our code.
 - "Arcade Drift Physics" talk: `ArcadeDriftPhysics.srt` (this folder). Owner: secondary to the masterclass; may help the handling side.
+- Just Cause 4, Hamish Young (lead mechanics designer), "Tire Dynamics": `JustCause4_TireDynamics.srt` (this folder). Owner: the more arcadey, fun one. Friction clamps, drawn friction curves, grip × curve × wheel load × time step, pitch/roll scaling of the tyre impulse, driver-assist drift layer. Index: `talk-guidance.md` Talk 3.
+- Uncharted 4, Ed Pereira (Naughty Dog), "The Science of Off-roading": `Uncharted4_ScienceOfOffroading.srt` (this folder). Owner: the more cinematic one. Per-surface friction (no speed cap), motor RPM from the fastest-spinning wheel, torque applied up to the max friction force with the rest as wheelspin, handbrake as reduced rear friction. Index: `talk-guidance.md` Talk 4.
 - Already in repo: `attachments/Dynamic_Mesh_Deformation_for_Car_Games-[VNS-0cJlpIs].en.srt`.
 
 ## Session reports (agent reports from this investigation; their substance is copied into `leads.md`/`measurements.md` as it lands)

@@ -1,0 +1,2099 @@
+1
+00:00:05,940 --> 00:00:09,740
+[SPEAKER_01]: My talk today is going to be about vehicle
+physics and tire dynamics.
+
+2
+00:00:10,260 --> 00:00:11,760
+[SPEAKER_01]: My name is Hamish Young.
+
+3
+00:00:11,940 --> 00:00:14,440
+[SPEAKER_01]: I was the lead mechanics designer on Just
+Cause 4.
+
+4
+00:00:15,260 --> 00:00:20,800
+[SPEAKER_01]: And today we're going to talk a little bit
+about tires in particular and wheels.
+
+5
+00:00:21,120 --> 00:00:26,700
+[SPEAKER_01]: But let's quickly just have a reminder of
+what Just Cause 4 is.
+
+6
+00:00:27,480 --> 00:00:32,280
+[SPEAKER_01]: So Just Cause 4 is a big open-world game,
+open-world action game.
+
+7
+00:00:32,280 --> 00:00:37,440
+[SPEAKER_01]: We have a wide range of vehicles,
+over 100 different types of vehicle.
+
+8
+00:00:38,520 --> 00:00:40,660
+[SPEAKER_01]: And a lot of them have wheels.
+
+9
+00:00:41,060 --> 00:00:42,600
+[SPEAKER_01]: Not all, but a lot of them do.
+
+10
+00:00:42,980 --> 00:00:45,840
+[SPEAKER_01]: And wheels and tires are really going to
+be the focus of this talk.
+
+11
+00:00:46,380 --> 00:00:49,520
+[SPEAKER_01]: Obviously we could talk about many
+different types of bits of physics,
+
+12
+00:00:49,660 --> 00:00:51,100
+[SPEAKER_01]: but that's going to be the focus.
+
+13
+00:00:51,340 --> 00:00:53,720
+[SPEAKER_01]: But some of these principles can be
+applied to other phenomena.
+
+14
+00:00:54,660 --> 00:01:00,740
+[SPEAKER_01]: A little kind of note, the code is
+deliberately hard to read because it will
+
+15
+00:01:00,740 --> 00:01:01,820
+[SPEAKER_01]: take you time to read it.
+
+16
+00:01:02,340 --> 00:01:06,080
+[SPEAKER_01]: If you want to read it through,
+obviously get the notes afterwards.
+
+17
+00:01:07,100 --> 00:01:08,940
+[SPEAKER_01]: But I put it up there just as reference.
+
+18
+00:01:10,920 --> 00:01:14,600
+[SPEAKER_01]: Okay, so one of the things we want to do
+is obviously set out what the goals we're
+
+19
+00:01:14,600 --> 00:01:15,400
+[SPEAKER_01]: trying to achieve.
+
+20
+00:01:16,740 --> 00:01:18,320
+[SPEAKER_01]: So we have some limitations.
+
+21
+00:01:18,600 --> 00:01:20,020
+[SPEAKER_01]: We've got a limited CPU budget.
+
+22
+00:01:20,180 --> 00:01:24,000
+[SPEAKER_01]: We're making a big open-world game,
+and there's a lot of things going on.
+
+23
+00:01:24,440 --> 00:01:26,160
+[SPEAKER_01]: Tornadoes, all sorts of things going on.
+
+24
+00:01:26,160 --> 00:01:29,080
+[SPEAKER_01]: So we're going to have to, you know,
+keep performance pretty good.
+
+25
+00:01:30,720 --> 00:01:33,840
+[SPEAKER_01]: Alongside that, we're running our sim at
+30 hertz.
+
+26
+00:01:34,660 --> 00:01:38,040
+[SPEAKER_01]: And so we need to, unlike a kind of
+dedicated driving game, we're going to
+
+27
+00:01:38,040 --> 00:01:40,200
+[SPEAKER_01]: have a limited frame rate.
+
+28
+00:01:41,780 --> 00:01:43,760
+[SPEAKER_01]: We want it to be believable.
+
+29
+00:01:44,320 --> 00:01:50,280
+[SPEAKER_01]: Now this is in quotes, because obviously
+we don't want it to be actually realistic
+
+30
+00:01:50,280 --> 00:01:54,640
+[SPEAKER_01]: like a driving sim, but we do want cars to
+kind of feel like they behave like cars.
+
+31
+00:01:56,640 --> 00:01:59,700
+[SPEAKER_01]: And related to that is this idea of
+limited cognitive load.
+
+32
+00:01:59,920 --> 00:02:03,860
+[SPEAKER_01]: So when you're driving at high speed,
+you want to be able to do other things,
+
+33
+00:02:03,920 --> 00:02:06,040
+[SPEAKER_01]: and think about other things, and not just
+driving.
+
+34
+00:02:06,780 --> 00:02:09,060
+[SPEAKER_01]: And even when you have complex
+environments.
+
+35
+00:02:09,620 --> 00:02:13,020
+[SPEAKER_01]: So that's one of the big design goals for
+what we were doing.
+
+36
+00:02:14,920 --> 00:02:17,000
+[SPEAKER_01]: We also have a very wide range of
+vehicles.
+
+37
+00:02:17,260 --> 00:02:20,300
+[SPEAKER_01]: Small, large, and everything in between.
+
+38
+00:02:20,300 --> 00:02:23,760
+[SPEAKER_01]: And we want one system that can cope with
+all those different types of vehicle.
+
+39
+00:02:25,020 --> 00:02:26,540
+[SPEAKER_01]: And then obviously it's an open world.
+
+40
+00:02:26,660 --> 00:02:30,140
+[SPEAKER_01]: We have a huge, diverse environment to
+drive in.
+
+41
+00:02:30,740 --> 00:02:33,980
+[SPEAKER_01]: And we want for it to work in all those
+environments.
+
+42
+00:02:35,880 --> 00:02:39,780
+[SPEAKER_01]: So let's talk a little bit about the
+different kind of choices you can make in
+
+43
+00:02:39,780 --> 00:02:40,540
+[SPEAKER_01]: range of handling.
+
+44
+00:02:41,200 --> 00:02:48,080
+[SPEAKER_01]: You kind of got the kind of kart racing
+end, which a lot of indie developers tend
+
+45
+00:02:48,080 --> 00:02:50,440
+[SPEAKER_01]: to have games kind of heading in this
+direction.
+
+46
+00:02:50,720 --> 00:02:52,160
+[SPEAKER_01]: There's no tire model.
+
+47
+00:02:52,380 --> 00:02:57,440
+[SPEAKER_01]: It's all just forces built on that kind of
+core rigid body.
+
+48
+00:02:58,540 --> 00:03:01,360
+[SPEAKER_01]: As you head through, you know,
+arcade races.
+
+49
+00:03:01,560 --> 00:03:05,940
+[SPEAKER_01]: And to some extent there's a range where
+you might use a vehicle SDK from one of
+
+50
+00:03:05,940 --> 00:03:07,940
+[SPEAKER_01]: the physics providers.
+
+51
+00:03:08,940 --> 00:03:11,860
+[SPEAKER_01]: And they have a kind of constraint-based
+system.
+
+52
+00:03:12,700 --> 00:03:15,780
+[SPEAKER_01]: And then you head into more SimCade and
+driving simulations.
+
+53
+00:03:15,900 --> 00:03:19,760
+[SPEAKER_01]: At the far end of driving simulations,
+you end up with this really kind of
+
+54
+00:03:19,760 --> 00:03:24,020
+[SPEAKER_01]: accurate tire model with large complexity.
+
+55
+00:03:24,780 --> 00:03:28,960
+[SPEAKER_01]: And what I'm going to talk about today is
+how to get here.
+
+56
+00:03:30,140 --> 00:03:35,900
+[SPEAKER_01]: So how do you move either up this way or
+down the other way to hit the sweet spot
+
+57
+00:03:35,900 --> 00:03:37,980
+[SPEAKER_01]: that I'm going to be talking about?
+
+58
+00:03:38,800 --> 00:03:43,740
+[SPEAKER_01]: So to give you a sense of the order of
+operations, I'm going to talk about what
+
+59
+00:03:43,740 --> 00:03:44,820
+[SPEAKER_01]: we did for Just Cause 4.
+
+60
+00:03:45,760 --> 00:03:50,120
+[SPEAKER_01]: We're going to have similar input
+parameters to the simulation models.
+
+61
+00:03:50,140 --> 00:03:52,980
+[SPEAKER_01]: So we're going to take some elements from
+the simulation.
+
+62
+00:03:52,980 --> 00:03:59,400
+[SPEAKER_01]: But we want much higher grip than is real
+for that kind of use of arcade kind of
+
+63
+00:03:59,400 --> 00:03:59,680
+[SPEAKER_01]: physics.
+
+64
+00:04:00,920 --> 00:04:05,680
+[SPEAKER_01]: I'm going to talk quite a bit about
+friction clamps to stay physically stable.
+
+65
+00:04:05,820 --> 00:04:12,200
+[SPEAKER_01]: And this is kind of similar to how the
+constraints-based driving models work.
+
+66
+00:04:12,840 --> 00:04:16,140
+[SPEAKER_01]: And then I'm going to talk about how you
+can draw friction curves.
+
+67
+00:04:16,820 --> 00:04:20,840
+[SPEAKER_01]: And then scale down the pitch and roll
+components to compensate for the grip.
+
+68
+00:04:20,840 --> 00:04:24,640
+[SPEAKER_01]: And then we can talk about the driver
+assist stuff, which is actually very
+
+69
+00:04:24,640 --> 00:04:29,200
+[SPEAKER_01]: similar to the kart racing kind of physics
+you might see at that end.
+
+70
+00:04:29,440 --> 00:04:32,580
+[SPEAKER_01]: So what we're really trying to do is bring
+all those elements together into something
+
+71
+00:04:32,580 --> 00:04:33,460
+[SPEAKER_01]: that works as a whole.
+
+72
+00:04:35,260 --> 00:04:42,120
+[SPEAKER_01]: So let's talk a little bit about the kind
+of semi-empirical Forza, Gran Turismo end
+
+73
+00:04:42,120 --> 00:04:42,540
+[SPEAKER_01]: of things.
+
+74
+00:04:44,380 --> 00:04:46,300
+[SPEAKER_01]: The models actually take real tire.
+
+75
+00:04:46,300 --> 00:04:50,840
+[SPEAKER_01]: You take a real tire, and you put it in a
+real machine, and you vary the input
+
+76
+00:04:50,840 --> 00:04:52,840
+[SPEAKER_01]: parameters, and you measure the outcome.
+
+77
+00:04:53,080 --> 00:04:57,660
+[SPEAKER_01]: And then you curve fit that outcome to
+replicate it in your game.
+
+78
+00:04:58,020 --> 00:05:01,520
+[SPEAKER_01]: And the more accurately you can do that,
+and the higher frequency you can run that
+
+79
+00:05:01,520 --> 00:05:03,480
+[SPEAKER_01]: at, the more accurate you're going to be.
+
+80
+00:05:05,420 --> 00:05:11,060
+[SPEAKER_01]: The downside is that if you want to modify
+what those tires do, you don't want real.
+
+81
+00:05:11,740 --> 00:05:13,360
+[SPEAKER_01]: It gets pretty hard to modify.
+
+82
+00:05:14,820 --> 00:05:18,280
+[SPEAKER_01]: And there are real reasons why you may not
+want real tires.
+
+83
+00:05:19,560 --> 00:05:23,340
+[SPEAKER_01]: For a start, if you want to run at 30
+hertz, well, you're going to get terrible
+
+84
+00:05:23,340 --> 00:05:26,540
+[SPEAKER_01]: feedback, especially when you have weight
+transfer.
+
+85
+00:05:27,760 --> 00:05:32,360
+[SPEAKER_01]: You're not going to feel it, and the car
+is just going to be unpredictable in its
+
+86
+00:05:32,360 --> 00:05:32,740
+[SPEAKER_01]: behavior.
+
+87
+00:05:33,820 --> 00:05:40,140
+[SPEAKER_01]: You also, I mean, anyone who's gone from
+an arcade game to a driving simulator,
+
+88
+00:05:40,420 --> 00:05:41,580
+[SPEAKER_01]: understeer is a big deal.
+
+89
+00:05:41,580 --> 00:05:44,160
+[SPEAKER_01]: If you brake and you understeer,
+you don't hit the corner.
+
+90
+00:05:44,440 --> 00:05:46,360
+[SPEAKER_01]: It's kind of unacceptable in an open-world
+game.
+
+91
+00:05:46,360 --> 00:05:48,660
+[SPEAKER_01]: I need to come up to a T-junction and get
+around that corner.
+
+92
+00:05:50,360 --> 00:05:53,460
+[SPEAKER_01]: And oversteer can be an issue,
+but actually it's not such a big issue.
+
+93
+00:05:54,040 --> 00:05:59,120
+[SPEAKER_01]: But if you do want to kind of correct
+oversteer in a very physical, correct way,
+
+94
+00:05:59,520 --> 00:06:04,800
+[SPEAKER_01]: you need complex traction control and
+stability control, and that's difficult to
+
+95
+00:06:04,800 --> 00:06:05,160
+[SPEAKER_01]: get right.
+
+96
+00:06:07,440 --> 00:06:09,480
+[SPEAKER_01]: So I'm going to talk a little bit about
+the tire setup.
+
+97
+00:06:09,980 --> 00:06:14,320
+[SPEAKER_01]: There are some basic parameters we're
+going to need to assume we've generated.
+
+98
+00:06:14,680 --> 00:06:18,240
+[SPEAKER_01]: The wheel has a position and orientation,
+which includes the steer.
+
+99
+00:06:18,700 --> 00:06:20,460
+[SPEAKER_01]: You've got a linear velocity of the wheel.
+
+100
+00:06:20,580 --> 00:06:24,120
+[SPEAKER_01]: And then you've got its angular velocity
+in the direction of the spin.
+
+101
+00:06:24,440 --> 00:06:29,680
+[SPEAKER_01]: And then you've got some sort of ground
+position in normal where the tire is hit
+
+102
+00:06:29,680 --> 00:06:30,060
+[SPEAKER_01]: in the ground.
+
+103
+00:06:32,300 --> 00:06:35,780
+[SPEAKER_01]: So this is the tire reference frame I'm
+going to be talking about.
+
+104
+00:06:35,780 --> 00:06:40,400
+[SPEAKER_01]: And we're splitting the velocity into
+things that go along the line of the wheel
+
+105
+00:06:40,400 --> 00:06:42,420
+[SPEAKER_01]: with things that are going lateral to the
+wheel.
+
+106
+00:06:42,620 --> 00:06:44,860
+[SPEAKER_01]: And then you've got the angular velocity
+of the wheel's spin.
+
+107
+00:06:48,120 --> 00:06:52,900
+[SPEAKER_01]: So slip ratio, this is one of the input
+parameters that we're going to be using.
+
+108
+00:06:53,420 --> 00:06:55,920
+[SPEAKER_01]: And I'm going to take you through the kind
+of different phases of it.
+
+109
+00:06:55,920 --> 00:07:01,680
+[SPEAKER_01]: So wheel spin is defined in the slip ratio
+is when the wheel is spinning faster than
+
+110
+00:07:01,680 --> 00:07:02,620
+[SPEAKER_01]: it's moving forwards.
+
+111
+00:07:03,660 --> 00:07:09,560
+[SPEAKER_01]: There's a kind of intuitive thing here
+where the point on the rim that's going
+
+112
+00:07:09,560 --> 00:07:15,860
+[SPEAKER_01]: round, if it's perfectly gripping,
+then you actually end up with zero.
+
+113
+00:07:16,840 --> 00:07:18,520
+[SPEAKER_01]: So you're following the road.
+
+114
+00:07:18,800 --> 00:07:20,880
+[SPEAKER_01]: So wheel spin is when it's going faster
+than the road.
+
+115
+00:07:21,340 --> 00:07:25,280
+[SPEAKER_01]: And then when you're locked, the wheel is
+completely locked and you're sliding
+
+116
+00:07:25,280 --> 00:07:25,760
+[SPEAKER_01]: forwards.
+
+117
+00:07:26,120 --> 00:07:27,400
+[SPEAKER_01]: And that's negative.
+
+118
+00:07:27,680 --> 00:07:32,980
+[SPEAKER_01]: And the reason why we are in this space is
+because when you're braking, you're in
+
+119
+00:07:32,980 --> 00:07:35,480
+[SPEAKER_01]: this negative value up to minus one.
+
+120
+00:07:35,660 --> 00:07:38,000
+[SPEAKER_01]: And that means you get a braking force.
+
+121
+00:07:38,000 --> 00:07:42,060
+[SPEAKER_01]: And if you've got a positive direction,
+then you're going to have acceleration,
+
+122
+00:07:42,080 --> 00:07:44,220
+[SPEAKER_01]: and it's going to be a positive force.
+
+123
+00:07:45,480 --> 00:07:50,500
+[SPEAKER_01]: And this slip ratio is now defined between
+minus one when you're fully locked and up
+
+124
+00:07:50,500 --> 00:07:54,600
+[SPEAKER_01]: to essentially infinity, positive
+infinity, when the wheel is stationary but
+
+125
+00:07:54,600 --> 00:07:55,800
+[SPEAKER_01]: spinning fast.
+
+126
+00:07:57,260 --> 00:08:03,920
+[SPEAKER_01]: So if you like mathematics, this is the
+equation you'll see in books, which is
+
+127
+00:08:03,920 --> 00:08:05,840
+[SPEAKER_01]: literally what I've just shown you there.
+
+128
+00:08:06,700 --> 00:08:08,940
+[SPEAKER_01]: And there's a little bit of code,
+which is probably hard to read,
+
+129
+00:08:09,400 --> 00:08:10,740
+[SPEAKER_01]: which does the same thing.
+
+130
+00:08:11,100 --> 00:08:14,920
+[SPEAKER_01]: But in the game engine, actually,
+it's a little bit more complicated.
+
+131
+00:08:15,160 --> 00:08:16,380
+[SPEAKER_01]: There's a little bit of a gotcha here.
+
+132
+00:08:17,240 --> 00:08:24,600
+[SPEAKER_01]: If I actually go back, what happens is if
+the wheel spin is positive and you're
+
+133
+00:08:24,600 --> 00:08:29,160
+[SPEAKER_01]: going backwards, so it's negative,
+you actually get a minus sign on this
+
+134
+00:08:29,160 --> 00:08:30,620
+[SPEAKER_01]: first piece.
+
+135
+00:08:30,740 --> 00:08:34,780
+[SPEAKER_01]: You actually end up with something that's
+kind of more negative than minus one.
+
+136
+00:08:34,780 --> 00:08:36,540
+[SPEAKER_01]: And that's something you don't want.
+
+137
+00:08:38,000 --> 00:08:41,620
+[SPEAKER_01]: So in reality, you want to make a
+modification.
+
+138
+00:08:41,660 --> 00:08:45,020
+[SPEAKER_01]: We've got a little bit of a more
+complicated bit of code here, which you
+
+139
+00:08:45,020 --> 00:08:47,940
+[SPEAKER_01]: can potentially look at later,
+just to cope with those edge cases.
+
+140
+00:08:48,080 --> 00:08:50,660
+[SPEAKER_01]: And those edge cases are things that you
+might want to try and avoid.
+
+141
+00:08:52,580 --> 00:08:53,900
+[SPEAKER_01]: Okay, let's talk about slip angle.
+
+142
+00:08:54,540 --> 00:08:57,340
+[SPEAKER_01]: So slip angle is literally an angle.
+
+143
+00:08:58,040 --> 00:09:03,300
+[SPEAKER_01]: And it is the angle where the direction of
+the wheel is essentially sliding.
+
+144
+00:09:04,780 --> 00:09:06,880
+[SPEAKER_01]: It's basically as simple as that.
+
+145
+00:09:07,100 --> 00:09:13,160
+[SPEAKER_01]: So all you're working out is what that
+angle is in the two directions of the
+
+146
+00:09:13,160 --> 00:09:13,660
+[SPEAKER_01]: wheel velocity.
+
+147
+00:09:15,040 --> 00:09:17,360
+[SPEAKER_01]: And, you know, it's a pretty simple piece
+of code.
+
+148
+00:09:18,920 --> 00:09:20,080
+[SPEAKER_01]: We also have camber.
+
+149
+00:09:20,240 --> 00:09:25,000
+[SPEAKER_01]: So this is how much the wheel is rolling
+over relative to the ground.
+
+150
+00:09:25,620 --> 00:09:29,100
+[SPEAKER_01]: And once again, it's a relatively simple
+equation.
+
+151
+00:09:29,780 --> 00:09:35,560
+[SPEAKER_01]: And this is kind of a core piece of
+understanding how the wheel is relating to
+
+152
+00:09:35,560 --> 00:09:36,220
+[SPEAKER_01]: the ground patch.
+
+153
+00:09:38,260 --> 00:09:40,740
+[SPEAKER_01]: And finally, you have wheel load.
+
+154
+00:09:40,980 --> 00:09:45,040
+[SPEAKER_01]: Now, in a sim case, the suspension is very
+high frequency.
+
+155
+00:09:45,040 --> 00:09:49,260
+[SPEAKER_01]: You're going to get a lot of detail in how
+that wheel load works.
+
+156
+00:09:49,440 --> 00:09:53,660
+[SPEAKER_01]: And the tire model is going to kind of
+react to that in a very dynamic way.
+
+157
+00:09:54,140 --> 00:09:59,360
+[SPEAKER_01]: At 30 hertz, that's not really very
+possible to get great results out of.
+
+158
+00:09:59,580 --> 00:10:04,380
+[SPEAKER_01]: And also, you basically don't want too
+much weight transfer.
+
+159
+00:10:04,380 --> 00:10:09,500
+[SPEAKER_01]: So to keep everything kind of realistic,
+what actually happens is the suspension
+
+160
+00:10:09,500 --> 00:10:14,740
+[SPEAKER_01]: force at rest, when the thing isn't
+moving, you can blend that in to the
+
+161
+00:10:14,740 --> 00:10:16,380
+[SPEAKER_01]: suspension force with the dynamics.
+
+162
+00:10:16,420 --> 00:10:20,800
+[SPEAKER_01]: And you can end up with something that's
+scaled right and can give you a wheel load
+
+163
+00:10:20,800 --> 00:10:21,820
+[SPEAKER_01]: that's kind of reliable.
+
+164
+00:10:23,780 --> 00:10:28,980
+[SPEAKER_01]: So if you want more grip, we have an
+issue.
+
+165
+00:10:31,060 --> 00:10:33,920
+[SPEAKER_01]: The grip can cause things to diverge.
+
+166
+00:10:33,920 --> 00:10:37,640
+[SPEAKER_01]: So if I've got a velocity of a wheel,
+and I put it through my tire model,
+
+167
+00:10:37,800 --> 00:10:41,660
+[SPEAKER_01]: and I end up with a big force,
+I'm going to end up with something that
+
+168
+00:10:41,660 --> 00:10:46,220
+[SPEAKER_01]: actually ends up going the wrong way,
+and even faster than the way it started,
+
+169
+00:10:46,440 --> 00:10:49,200
+[SPEAKER_01]: which means a bigger force, which means it
+starts going the other way.
+
+170
+00:10:49,660 --> 00:10:51,060
+[SPEAKER_01]: The model can diverge.
+
+171
+00:10:52,320 --> 00:10:56,860
+[SPEAKER_01]: And so the drag from the grip is flipping
+the sign of velocity, is something you
+
+172
+00:10:56,860 --> 00:10:57,680
+[SPEAKER_01]: should never want.
+
+173
+00:10:58,340 --> 00:11:01,340
+[SPEAKER_01]: It's actually one of the reasons why these
+things can be unstable.
+
+174
+00:11:02,040 --> 00:11:04,880
+[SPEAKER_01]: So we're going to introduce this idea of a
+friction clamp.
+
+175
+00:11:05,480 --> 00:11:10,520
+[SPEAKER_01]: The friction clamp is a way of essentially
+enforcing the fact that the friction is
+
+176
+00:11:10,520 --> 00:11:11,840
+[SPEAKER_01]: only going to behave like a friction.
+
+177
+00:11:12,180 --> 00:11:14,280
+[SPEAKER_01]: It's not going to go wrong.
+
+178
+00:11:14,520 --> 00:11:17,500
+[SPEAKER_01]: And actually, this principle is used all
+over the place.
+
+179
+00:11:17,640 --> 00:11:22,220
+[SPEAKER_01]: So for aerodynamics, when you have a V
+squared term and it's unbounded,
+
+180
+00:11:22,220 --> 00:11:26,660
+[SPEAKER_01]: having a friction clamp to prevent it from
+firing your thing backwards when you're
+
+181
+00:11:26,660 --> 00:11:29,460
+[SPEAKER_01]: going too fast is a pretty good thing to
+have.
+
+182
+00:11:29,900 --> 00:11:36,860
+[SPEAKER_01]: The danger here is that the mass in this
+equation, so the kind of applicable mass
+
+183
+00:11:36,860 --> 00:11:41,340
+[SPEAKER_01]: you're trying to use, if you have more
+than one tire, which is pretty much every
+
+184
+00:11:41,340 --> 00:11:45,520
+[SPEAKER_01]: vehicle, you can't apply it all to the
+same mass.
+
+185
+00:11:46,260 --> 00:11:48,240
+[SPEAKER_01]: And so it's a little bit more complicated.
+
+186
+00:11:48,720 --> 00:11:53,440
+[SPEAKER_01]: But in a solver, so in an iterative solver
+like a lot of the physics engines,
+
+187
+00:11:53,880 --> 00:11:56,640
+[SPEAKER_01]: this is essentially how they're doing
+their vehicle physics.
+
+188
+00:11:56,840 --> 00:12:00,420
+[SPEAKER_01]: They're taking the clamp and they're
+scaling down how much force you're going
+
+189
+00:12:00,420 --> 00:12:04,800
+[SPEAKER_01]: to get out relative to that clamp,
+which keeps it always in the middle.
+
+190
+00:12:04,840 --> 00:12:10,120
+[SPEAKER_01]: But it has a downside in terms of if you
+wanted any effects based on wheel spin,
+
+191
+00:12:10,120 --> 00:12:13,920
+[SPEAKER_01]: like losing grip because of wheel spin,
+it doesn't model that at all.
+
+192
+00:12:15,260 --> 00:12:19,920
+[SPEAKER_01]: So instead of doing that, what we're
+talking about is actually providing the
+
+193
+00:12:19,920 --> 00:12:24,980
+[SPEAKER_01]: friction clamp in code, but introducing
+this idea of useful mass.
+
+194
+00:12:25,220 --> 00:12:27,420
+[SPEAKER_01]: So it goes back to this idea of wheel
+load.
+
+195
+00:12:27,640 --> 00:12:33,100
+[SPEAKER_01]: So if you have all of the wheels with the
+correct load and everything is stationary,
+
+196
+00:12:33,860 --> 00:12:41,400
+[SPEAKER_01]: then the relative mass that's going to be
+relative to that wheel, the heuristic is
+
+197
+00:12:41,400 --> 00:12:44,960
+[SPEAKER_01]: that you end up with this wheel load
+divided by all those wheel loads.
+
+198
+00:12:45,200 --> 00:12:48,620
+[SPEAKER_01]: And that kind of gives you the ratio of
+the vehicle mass you should be
+
+199
+00:12:48,620 --> 00:12:51,560
+[SPEAKER_01]: representing by that one tire's friction
+clamp.
+
+200
+00:12:51,800 --> 00:12:55,940
+[SPEAKER_01]: Now, it's not completely perfect,
+but it's a pretty good heuristic,
+
+201
+00:12:55,940 --> 00:12:59,940
+[SPEAKER_01]: and it works very, very well up to tiny,
+tiny velocities.
+
+202
+00:13:01,420 --> 00:13:04,400
+[SPEAKER_01]: And it's what I'm going to be using for
+the rest of the talk.
+
+203
+00:13:06,380 --> 00:13:08,540
+[SPEAKER_01]: Okay, so longitudinal friction clamps.
+
+204
+00:13:08,680 --> 00:13:10,660
+[SPEAKER_01]: So there are different dimensions in which
+we need these clamps.
+
+205
+00:13:10,820 --> 00:13:14,760
+[SPEAKER_01]: The first one is the wheel sliding
+forwards, and we just want to prevent it
+
+206
+00:13:14,760 --> 00:13:17,300
+[SPEAKER_01]: from going back on itself in a completely
+linear sense.
+
+207
+00:13:18,680 --> 00:13:23,540
+[SPEAKER_01]: So we have this useful mass, and we're
+trying to prevent the forward force from
+
+208
+00:13:23,540 --> 00:13:26,320
+[SPEAKER_01]: being bigger than required to stop that
+wheel.
+
+209
+00:13:27,100 --> 00:13:31,200
+[SPEAKER_01]: The only complication here is the wheel is
+actually putting power in if it's got
+
+210
+00:13:31,200 --> 00:13:31,560
+[SPEAKER_01]: torque.
+
+211
+00:13:31,780 --> 00:13:35,740
+[SPEAKER_01]: So you want to take that into account as
+well, and that's what the second term here
+
+212
+00:13:35,740 --> 00:13:36,040
+[SPEAKER_01]: is.
+
+213
+00:13:36,740 --> 00:13:40,420
+[SPEAKER_01]: For the angular clamp, you're trying to
+prevent the wheel spinning the wrong way
+
+214
+00:13:40,420 --> 00:13:42,160
+[SPEAKER_01]: and changing the sign of the slip.
+
+215
+00:13:42,900 --> 00:13:47,160
+[SPEAKER_01]: And so your reaction force needs to not be
+too big itself.
+
+216
+00:13:47,700 --> 00:13:49,500
+[SPEAKER_01]: And that's a little bit more complicated.
+
+217
+00:13:49,760 --> 00:13:53,760
+[SPEAKER_01]: You're ending up trying to work out what
+the new velocity needs to be relative to
+
+218
+00:13:53,760 --> 00:13:54,240
+[SPEAKER_01]: the slip.
+
+219
+00:13:54,560 --> 00:13:57,640
+[SPEAKER_01]: And so the code is a little bit more
+complicated.
+
+220
+00:13:58,280 --> 00:14:03,080
+[SPEAKER_01]: But it ends up generating what the maximum
+force should be to prevent the wheel
+
+221
+00:14:03,080 --> 00:14:05,640
+[SPEAKER_01]: actually spinning the wrong way relative
+to the road speed.
+
+222
+00:14:07,960 --> 00:14:10,320
+[SPEAKER_01]: And the third thing is this lateral clamp.
+
+223
+00:14:12,520 --> 00:14:18,080
+[SPEAKER_01]: And likewise, you might think that was
+simple, but it's just the mass,
+
+224
+00:14:18,220 --> 00:14:19,160
+[SPEAKER_01]: you know, going sideways.
+
+225
+00:14:19,580 --> 00:14:23,380
+[SPEAKER_01]: But you've got to worry about the angular
+considerations.
+
+226
+00:14:23,680 --> 00:14:26,240
+[SPEAKER_01]: And theoretically, the longitudinal clamp
+should do the same thing.
+
+227
+00:14:26,480 --> 00:14:29,360
+[SPEAKER_01]: I'm not going to get you to read this
+code, but essentially it's taking into
+
+228
+00:14:29,360 --> 00:14:33,000
+[SPEAKER_01]: account the inertia and not just the
+linear force.
+
+229
+00:14:34,400 --> 00:14:39,600
+[SPEAKER_01]: So once your programmer has sorted out the
+friction clamps, let's take a look at what
+
+230
+00:14:39,600 --> 00:14:40,180
+[SPEAKER_01]: it does.
+
+231
+00:14:40,180 --> 00:14:41,840
+[SPEAKER_01]: So this is with the friction clamp on.
+
+232
+00:14:42,900 --> 00:14:44,280
+[SPEAKER_01]: The car is going to accelerate.
+
+233
+00:14:44,520 --> 00:14:45,460
+[SPEAKER_01]: You may see the curves.
+
+234
+00:14:46,140 --> 00:14:49,100
+[SPEAKER_01]: And you can see that the markers on the
+curves are smooth.
+
+235
+00:14:49,340 --> 00:14:50,800
+[SPEAKER_01]: And they're not jumping around.
+
+236
+00:14:51,080 --> 00:14:52,600
+[SPEAKER_01]: And there's no jitter.
+
+237
+00:14:53,360 --> 00:14:58,720
+[SPEAKER_01]: Whereas if I show you with the clamp off,
+you should be able to see that the actual
+
+238
+00:14:58,720 --> 00:15:04,460
+[SPEAKER_01]: markers as the car drives away,
+the car is shaking and so is the values.
+
+239
+00:15:04,600 --> 00:15:07,800
+[SPEAKER_01]: They're jittering all over the place
+because they're not getting clamps and
+
+240
+00:15:07,800 --> 00:15:08,700
+[SPEAKER_01]: you're getting this divergence.
+
+241
+00:15:09,580 --> 00:15:11,500
+[SPEAKER_01]: Obviously, you don't want this in your
+game.
+
+242
+00:15:13,540 --> 00:15:17,900
+[SPEAKER_01]: So once you've got your clamps in place,
+now you can turn up the friction as much
+
+243
+00:15:17,900 --> 00:15:20,000
+[SPEAKER_01]: as you like, because you're never going to
+break it.
+
+244
+00:15:20,660 --> 00:15:23,000
+[SPEAKER_01]: Your designers can go absolutely wild.
+
+245
+00:15:23,160 --> 00:15:24,100
+[SPEAKER_01]: They can do whatever they like.
+
+246
+00:15:25,440 --> 00:15:31,220
+[SPEAKER_01]: But if you really want to set things up in
+a way that is controllable without having
+
+247
+00:15:31,220 --> 00:15:34,860
+[SPEAKER_01]: to record real tire data, you really want
+to be able to find the right friction
+
+248
+00:15:34,860 --> 00:15:36,280
+[SPEAKER_01]: curves for your game.
+
+249
+00:15:37,260 --> 00:15:42,320
+[SPEAKER_01]: So we actually literally draw the friction
+curves in a spline tool, as you can see.
+
+250
+00:15:43,820 --> 00:15:46,000
+[SPEAKER_01]: And we have like a three-phase model.
+
+251
+00:15:46,400 --> 00:15:55,600
+[SPEAKER_01]: So any of the curves, you end up with zero
+relative to a peak, and then you saturate
+
+252
+00:15:55,600 --> 00:15:56,720
+[SPEAKER_01]: out at the far end.
+
+253
+00:15:57,600 --> 00:15:59,240
+[SPEAKER_01]: And the reason why we do this...
+
+254
+00:15:59,240 --> 00:16:01,420
+[SPEAKER_01]: So the curve can have as many points as
+you like.
+
+255
+00:16:01,660 --> 00:16:07,240
+[SPEAKER_01]: The difficulty is that for the working out
+what the curves in each direction need to
+
+256
+00:16:07,240 --> 00:16:12,360
+[SPEAKER_01]: do, in a more complicated model,
+you end up with these complicated
+
+257
+00:16:12,360 --> 00:16:16,200
+[SPEAKER_01]: mathematical relationships between these
+different parameters.
+
+258
+00:16:16,500 --> 00:16:19,940
+[SPEAKER_01]: And we're trying to simplify that down to
+something that ends up being only a few
+
+259
+00:16:19,940 --> 00:16:20,340
+[SPEAKER_01]: graphs.
+
+260
+00:16:20,340 --> 00:16:25,040
+[SPEAKER_01]: So this is possibly the most difficult
+part of the talk.
+
+261
+00:16:25,960 --> 00:16:29,960
+[SPEAKER_01]: But essentially, if you're talking about
+the force of which you're going forwards,
+
+262
+00:16:30,540 --> 00:16:32,480
+[SPEAKER_01]: so this is about forward force here.
+
+263
+00:16:33,820 --> 00:16:39,380
+[SPEAKER_01]: If you are not slipping sideways at all,
+then when you accelerate, you're going to
+
+264
+00:16:39,380 --> 00:16:40,320
+[SPEAKER_01]: get a certain curve.
+
+265
+00:16:41,000 --> 00:16:43,200
+[SPEAKER_01]: And when you brake, you're going to get a
+certain curve.
+
+266
+00:16:44,020 --> 00:16:48,320
+[SPEAKER_01]: But when you're sliding sideways,
+and you want to go forwards, And you may
+
+267
+00:16:48,320 --> 00:16:53,300
+[SPEAKER_01]: get more wheel spin, so you're reducing
+the shape of the curve.
+
+268
+00:16:53,940 --> 00:16:58,280
+[SPEAKER_01]: And it's something that lets you have
+things like doughnutting.
+
+269
+00:16:58,520 --> 00:17:03,840
+[SPEAKER_01]: So if you want to doughnut, then you want
+the side slip to actually let you wheel
+
+270
+00:17:03,840 --> 00:17:04,100
+[SPEAKER_01]: spin.
+
+271
+00:17:04,760 --> 00:17:09,060
+[SPEAKER_01]: And likewise the other way around,
+so now you're thinking about lateral
+
+272
+00:17:09,060 --> 00:17:13,060
+[SPEAKER_01]: force, so these curves are the force
+relative to the slip angle.
+
+273
+00:17:14,300 --> 00:17:18,160
+[SPEAKER_01]: You're going to have five of them for each
+of the slips of the wheels.
+
+274
+00:17:18,460 --> 00:17:24,640
+[SPEAKER_01]: So this is how you can get effects like
+drifting naturally, where if you slam the
+
+275
+00:17:24,640 --> 00:17:29,560
+[SPEAKER_01]: handbrake on, this bottom graph kicks in,
+because you're getting a negative slip
+
+276
+00:17:29,560 --> 00:17:30,080
+[SPEAKER_01]: angle.
+
+277
+00:17:31,060 --> 00:17:35,740
+[SPEAKER_01]: That's going to mean you have low lateral
+grip, so you're going to slide sideways.
+
+278
+00:17:36,100 --> 00:17:39,060
+[SPEAKER_01]: And then you're going to pump the
+accelerator, so now you're in the
+
+279
+00:17:39,060 --> 00:17:46,540
+[SPEAKER_01]: saturated slip angle, and you're getting
+that wheel spin, which then gives you low
+
+280
+00:17:46,540 --> 00:17:48,560
+[SPEAKER_01]: lateral force as well.
+
+281
+00:17:48,820 --> 00:17:54,200
+[SPEAKER_01]: So the bottom graph and the top graph skip
+all the middle ground, and you get that
+
+282
+00:17:54,200 --> 00:17:54,900
+[SPEAKER_01]: change of behavior.
+
+283
+00:17:55,540 --> 00:18:00,240
+[SPEAKER_01]: So the relationship between the lateral
+graphs and the longitudinal graphs is
+
+284
+00:18:00,240 --> 00:18:03,880
+[SPEAKER_01]: something that can be a little
+counterintuitive, but it's still simpler
+
+285
+00:18:03,880 --> 00:18:08,060
+[SPEAKER_01]: than trying to modify a complicated
+mathematical function, like you would have
+
+286
+00:18:08,060 --> 00:18:09,300
+[SPEAKER_01]: for a magic formula tire.
+
+287
+00:18:10,680 --> 00:18:14,200
+[SPEAKER_01]: It takes a little while to get your head
+around, but actually it's very powerful
+
+288
+00:18:14,200 --> 00:18:16,660
+[SPEAKER_01]: once you get your head around it.
+
+289
+00:18:16,940 --> 00:18:20,740
+[SPEAKER_01]: And it's really this that is the basis of
+the model.
+
+290
+00:18:20,980 --> 00:18:26,380
+[SPEAKER_01]: So if you head back between here,
+you really want to understand that the
+
+291
+00:18:26,380 --> 00:18:33,940
+[SPEAKER_01]: angle that you have, and the steepness of
+the curve, kind of represents the feel in
+
+292
+00:18:33,940 --> 00:18:36,680
+[SPEAKER_01]: a different way than you might expect.
+
+293
+00:18:36,980 --> 00:18:39,980
+[SPEAKER_01]: So the steepness of the curve is really
+how much grip you feel.
+
+294
+00:18:40,120 --> 00:18:43,520
+[SPEAKER_01]: It's not the actual height, it's the
+steepness that matters.
+
+295
+00:18:43,840 --> 00:18:49,000
+[SPEAKER_01]: And as you go up the curve, you're going
+to feel it's grippy, and as it levels off,
+
+296
+00:18:49,260 --> 00:18:51,160
+[SPEAKER_01]: you're going to feel like actually it's
+sliding.
+
+297
+00:18:51,160 --> 00:18:56,280
+[SPEAKER_01]: And if it drops, it actually feels like
+the slide is getting faster.
+
+298
+00:18:57,000 --> 00:19:02,560
+[SPEAKER_01]: And so as you're going to gain intuition
+about what these curves feel like,
+
+299
+00:19:02,800 --> 00:19:07,620
+[SPEAKER_01]: you can really begin to play with when you
+get wheel spin, how does the car feel when
+
+300
+00:19:07,620 --> 00:19:08,120
+[SPEAKER_01]: it's turning?
+
+301
+00:19:08,400 --> 00:19:11,740
+[SPEAKER_01]: When you're drifting, how does it feel?
+
+302
+00:19:11,880 --> 00:19:13,040
+[SPEAKER_01]: And you can balance this out.
+
+303
+00:19:13,300 --> 00:19:16,160
+[SPEAKER_01]: Now in our engine, all of these curves are
+normalized.
+
+304
+00:19:16,160 --> 00:19:21,980
+[SPEAKER_01]: So actually in the final game,
+we only had pretty much two or three sets
+
+305
+00:19:21,980 --> 00:19:24,980
+[SPEAKER_01]: of tires for all vehicles in the whole
+game.
+
+306
+00:19:25,960 --> 00:19:30,500
+[SPEAKER_01]: Because they basically did the right
+things, and it meant that we only had to
+
+307
+00:19:30,500 --> 00:19:33,840
+[SPEAKER_01]: set up the actual grip value themselves.
+
+308
+00:19:34,100 --> 00:19:35,680
+[SPEAKER_01]: So I'm going to move on to that in a
+second.
+
+309
+00:19:36,200 --> 00:19:41,000
+[SPEAKER_01]: The actual grip, which was authored for
+the front and rear wheels, was just
+
+310
+00:19:41,000 --> 00:19:42,360
+[SPEAKER_01]: essentially a value.
+
+311
+00:19:42,640 --> 00:19:47,100
+[SPEAKER_01]: And we were trying to balance the front
+and rear grip, and that was multiplied by
+
+312
+00:19:47,100 --> 00:19:49,640
+[SPEAKER_01]: this graph, this set of graphs that I
+mentioned earlier.
+
+313
+00:19:51,160 --> 00:19:54,420
+[SPEAKER_01]: Obviously multiplied by the wheel load,
+so it's scaled correctly.
+
+314
+00:19:54,940 --> 00:19:57,920
+[SPEAKER_01]: And then we multiplied the time step to
+get the impulse.
+
+315
+00:20:00,140 --> 00:20:05,000
+[SPEAKER_01]: Once you got to basically a grip level,
+multiplied by this graph, multiplied by
+
+316
+00:20:05,000 --> 00:20:08,380
+[SPEAKER_01]: the wheel load, multiplied by the time
+step, you really have quite a simple
+
+317
+00:20:08,380 --> 00:20:10,440
+[SPEAKER_01]: equation of these forces.
+
+318
+00:20:12,660 --> 00:20:16,540
+[SPEAKER_01]: But, and here's a big thing, if you want
+something to be believable and you turn
+
+319
+00:20:16,540 --> 00:20:20,780
+[SPEAKER_01]: the grip up, all that's going to happen is
+your car is suddenly going to wallow and
+
+320
+00:20:20,780 --> 00:20:22,260
+[SPEAKER_01]: roll and do horrible things.
+
+321
+00:20:22,520 --> 00:20:27,900
+[SPEAKER_01]: Now you can add kind of anti-damp,
+like suspension, and stiffen the
+
+322
+00:20:27,900 --> 00:20:28,920
+[SPEAKER_01]: suspension, all those things.
+
+323
+00:20:29,140 --> 00:20:33,960
+[SPEAKER_01]: But if you want those values to be vaguely
+realistic, you actually, the best thing to
+
+324
+00:20:33,960 --> 00:20:37,780
+[SPEAKER_01]: do is to modify how you're going to apply
+the force to begin with.
+
+325
+00:20:38,240 --> 00:20:41,780
+[SPEAKER_01]: So, if you reduce the pitch and roll
+components of the forces you were going to
+
+326
+00:20:41,780 --> 00:20:45,460
+[SPEAKER_01]: apply to the wheel, you can really turn
+this down in a very controllable way.
+
+327
+00:20:45,560 --> 00:20:47,760
+[SPEAKER_01]: You don't have to redo your suspension
+setup.
+
+328
+00:20:48,240 --> 00:20:52,880
+[SPEAKER_01]: So, in this case, we just decompose the
+impulse of the point back into the linear
+
+329
+00:20:52,880 --> 00:20:53,780
+[SPEAKER_01]: angular components.
+
+330
+00:20:53,980 --> 00:20:58,300
+[SPEAKER_01]: And then we just multiply by linear factor
+into the roll and pitch.
+
+331
+00:20:58,300 --> 00:21:03,200
+[SPEAKER_01]: And that just made it so the suspension
+setup could be completely kind of
+
+332
+00:21:03,200 --> 00:21:06,360
+[SPEAKER_01]: realistic, and the extra grip didn't cause
+too many problems.
+
+333
+00:21:09,020 --> 00:21:12,640
+[SPEAKER_01]: Okay, so, just as a high-level summary.
+
+334
+00:21:12,780 --> 00:21:14,040
+[SPEAKER_01]: So, we've got some input parameters.
+
+335
+00:21:14,200 --> 00:21:15,820
+[SPEAKER_01]: We've got slip ratio and slip angle.
+
+336
+00:21:16,860 --> 00:21:22,140
+[SPEAKER_01]: We're turning the grip up higher than
+real, and we're preventing it from getting
+
+337
+00:21:22,140 --> 00:21:23,680
+[SPEAKER_01]: too big with the friction clamps.
+
+338
+00:21:24,620 --> 00:21:30,600
+[SPEAKER_01]: And so, that element of the friction
+clamps is keeping us physically stable
+
+339
+00:21:30,600 --> 00:21:32,020
+[SPEAKER_01]: whatever graph I draw.
+
+340
+00:21:33,300 --> 00:21:35,680
+[SPEAKER_01]: And then we can draw friction curves.
+
+341
+00:21:36,480 --> 00:21:38,700
+[SPEAKER_01]: And actually, you have tremendous amount
+of freedom here.
+
+342
+00:21:38,840 --> 00:21:42,000
+[SPEAKER_01]: So, once you've got the clamp in place,
+you have a lot of freedom.
+
+343
+00:21:42,480 --> 00:21:49,500
+[SPEAKER_01]: And for our planes and non-cars,
+we actually just had a linear ramp and a
+
+344
+00:21:49,500 --> 00:21:49,860
+[SPEAKER_01]: saturation.
+
+345
+00:21:49,860 --> 00:21:54,000
+[SPEAKER_01]: And we didn't have this complicated wheel
+spin effect.
+
+346
+00:21:54,220 --> 00:21:57,440
+[SPEAKER_01]: Because the clamps meant that whatever
+happened, we would stay physically
+
+347
+00:21:57,440 --> 00:21:59,440
+[SPEAKER_01]: believable, and it would be fine.
+
+348
+00:22:01,040 --> 00:22:03,800
+[SPEAKER_01]: If you then have too much grip,
+you can scale down the pitch and roll
+
+349
+00:22:03,800 --> 00:22:04,320
+[SPEAKER_01]: components.
+
+350
+00:22:04,760 --> 00:22:08,860
+[SPEAKER_01]: And then you get to the final step,
+which is like driver assist, drift
+
+351
+00:22:08,860 --> 00:22:09,260
+[SPEAKER_01]: control.
+
+352
+00:22:09,560 --> 00:22:13,040
+[SPEAKER_01]: And that actually goes back to that kind
+of cart racer type physics.
+
+353
+00:22:13,160 --> 00:22:18,440
+[SPEAKER_01]: You're really controlling the car from the
+basis of a rigid body and the forces.
+
+354
+00:22:18,440 --> 00:22:21,640
+[SPEAKER_01]: And there are many, many ways of doing
+this.
+
+355
+00:22:22,700 --> 00:22:26,060
+[SPEAKER_01]: And it really is a talk in its own right.
+
+356
+00:22:26,240 --> 00:22:28,380
+[SPEAKER_01]: And I'm not going to dive too deep into
+it.
+
+357
+00:22:28,420 --> 00:22:31,780
+[SPEAKER_01]: Although, if people have questions,
+obviously, that's important.
+
+358
+00:22:33,480 --> 00:22:37,480
+[SPEAKER_01]: But the real thing is, if you come from
+that kind of cart racer feel, actually,
+
+359
+00:22:37,580 --> 00:22:40,180
+[SPEAKER_01]: you'll be very familiar with the kinds of
+forces you might want to do here.
+
+360
+00:22:40,400 --> 00:22:46,400
+[SPEAKER_01]: The way that we triggered drift is either
+by, obviously, button press and control.
+
+361
+00:22:46,400 --> 00:22:51,020
+[SPEAKER_01]: But you can also trigger it by,
+if the slip angle of the rear wheels gets
+
+362
+00:22:51,020 --> 00:22:54,280
+[SPEAKER_01]: beyond the limit, you can then get into
+that kind of drift phase.
+
+363
+00:22:54,400 --> 00:22:58,080
+[SPEAKER_01]: And you start controlling the vehicle at
+the whole vehicle stage and not about the
+
+364
+00:22:58,080 --> 00:22:58,460
+[SPEAKER_01]: tires.
+
+365
+00:22:59,300 --> 00:23:05,100
+[SPEAKER_01]: So, in our model, we've actually ended up
+using all parts of the spectrum of that
+
+366
+00:23:05,100 --> 00:23:12,100
+[SPEAKER_01]: kind of cart racer handling for drift,
+the kind of physics SDK-style friction
+
+367
+00:23:12,100 --> 00:23:19,400
+[SPEAKER_01]: clamp model for keeping us inbound,
+and then a slightly semi-realistic tire
+
+368
+00:23:19,400 --> 00:23:24,680
+[SPEAKER_01]: model modified heading off in the more sim
+direction.
+
+369
+00:23:25,180 --> 00:23:29,460
+[SPEAKER_01]: And all these things come together means
+that we can run at 30 hertz, you can go
+
+370
+00:23:29,460 --> 00:23:34,360
+[SPEAKER_01]: around the corner very fast,
+unrealistically fast, you can control in
+
+371
+00:23:34,360 --> 00:23:36,940
+[SPEAKER_01]: the drift, and you can really bring these
+things together.
+
+372
+00:23:37,800 --> 00:23:44,220
+[SPEAKER_01]: And so, the kind of final point I'd like
+to make, before I would kind of go off
+
+373
+00:23:44,220 --> 00:23:49,740
+[SPEAKER_01]: this topic, is that the people who are
+building indie games with the kind of cart
+
+374
+00:23:49,740 --> 00:23:53,940
+[SPEAKER_01]: racer mechanics, if you want to go a bit
+more physical and you want to add tires,
+
+375
+00:23:54,500 --> 00:24:00,160
+[SPEAKER_01]: the next step along that path would be to
+get your friction clamps right for the
+
+376
+00:24:00,160 --> 00:24:03,140
+[SPEAKER_01]: wheels, and then you can do whatever you
+like with your tire model.
+
+377
+00:24:04,320 --> 00:24:07,140
+[SPEAKER_01]: It isn't that hard to move from one to the
+other.
+
+378
+00:24:09,520 --> 00:24:10,740
+[SPEAKER_01]: So, that's my talk.
+
+379
+00:24:10,980 --> 00:24:11,720
+[SPEAKER_01]: Thank you very much.
+
+380
+00:24:20,970 --> 00:24:21,750
+[SPEAKER_01]: Any questions?
+
+381
+00:24:27,680 --> 00:24:28,120
+[SPEAKER_03]: Hello.
+
+382
+00:24:28,120 --> 00:24:29,300
+[SPEAKER_03]: Thank you for the talk.
+
+383
+00:24:29,300 --> 00:24:34,620
+[SPEAKER_03]: My question is, how did you decide where
+to place the tires on the ground,
+
+384
+00:24:34,620 --> 00:24:38,660
+[SPEAKER_03]: and how did that interact with your
+calculation of suspension forces?
+
+385
+00:24:38,980 --> 00:24:39,500
+[SPEAKER_01]: Sure.
+
+386
+00:24:39,860 --> 00:24:43,000
+[SPEAKER_01]: So, the question was, how did we decide
+where to put the tires on the ground,
+
+387
+00:24:43,060 --> 00:24:46,000
+[SPEAKER_01]: and have that interact with suspension
+forces?
+
+388
+00:24:46,500 --> 00:24:51,720
+[SPEAKER_01]: So, we did line tests to place the wheel
+on the ground, and then the suspension
+
+389
+00:24:51,720 --> 00:24:55,740
+[SPEAKER_01]: force held the vehicle off the ground.
+
+390
+00:24:57,100 --> 00:25:00,860
+[SPEAKER_01]: It's very similar to, like, lots of
+simplistic behaviors.
+
+391
+00:25:01,500 --> 00:25:05,120
+[SPEAKER_01]: The line tests were linear, so we weren't
+doing anything sophisticated.
+
+392
+00:25:05,400 --> 00:25:08,900
+[SPEAKER_01]: Like, if you wanted to model more
+sophisticated suspension geometry,
+
+393
+00:25:08,900 --> 00:25:14,500
+[SPEAKER_01]: you would actually put it on a circle to
+change how the roll center worked.
+
+394
+00:25:14,780 --> 00:25:17,480
+[SPEAKER_01]: But we kept it very simple, just had line
+tests.
+
+395
+00:25:17,680 --> 00:25:18,640
+[SPEAKER_01]: So that's how we placed the wheel.
+
+396
+00:25:19,480 --> 00:25:20,580
+[SPEAKER_03]: Quick follow-up, then.
+
+397
+00:25:20,720 --> 00:25:23,460
+[SPEAKER_03]: If debris flew under your line test,
+what would you do?
+
+398
+00:25:23,460 --> 00:25:25,500
+[SPEAKER_01]: If debris fell under the line test?
+
+399
+00:25:25,660 --> 00:25:25,820
+[SPEAKER_03]: Yeah.
+
+400
+00:25:26,020 --> 00:25:27,020
+[SPEAKER_03]: Would that push the car up?
+
+401
+00:25:27,300 --> 00:25:28,140
+[SPEAKER_01]: It depended.
+
+402
+00:25:28,380 --> 00:25:32,040
+[SPEAKER_01]: So we have a physics model where you have
+layers.
+
+403
+00:25:33,000 --> 00:25:36,740
+[SPEAKER_01]: And so the collision with the raycast
+depends on whether something was tagged to
+
+404
+00:25:36,740 --> 00:25:37,420
+[SPEAKER_01]: be in the layer or not.
+
+405
+00:25:38,320 --> 00:25:42,420
+[SPEAKER_01]: So in the case of debris, it depended on
+which layer that debris was.
+
+406
+00:25:42,520 --> 00:25:46,040
+[SPEAKER_01]: If it was big enough, then yes,
+absolutely, it would climb up on it.
+
+407
+00:25:46,120 --> 00:25:49,600
+[SPEAKER_01]: But for very small things, we could not
+put them in that physics layer,
+
+408
+00:25:49,660 --> 00:25:50,940
+[SPEAKER_01]: and so they'd be ignored by the line test.
+
+409
+00:25:51,540 --> 00:25:52,240
+[SPEAKER_03]: Thank you.
+
+410
+00:25:52,380 --> 00:25:52,520
+[SPEAKER_03]: Okay.
+
+411
+00:25:56,010 --> 00:25:56,770
+[SPEAKER_01]: Anybody else?
+
+412
+00:26:00,260 --> 00:26:00,740
+[SPEAKER_00]: Hi.
+
+413
+00:26:00,900 --> 00:26:05,640
+[SPEAKER_00]: I was wondering, I thought that Just Cause
+went through the Havoc engine.
+
+414
+00:26:05,860 --> 00:26:09,260
+[SPEAKER_00]: Once you'd done the calculations for the
+forces due to the tires, how did you
+
+415
+00:26:09,260 --> 00:26:12,580
+[SPEAKER_00]: integrate that back into Havoc,
+or did you have your own solver?
+
+416
+00:26:12,580 --> 00:26:18,880
+[SPEAKER_01]: So we can, we used Havoc to, there's an
+API in Havoc to apply forces.
+
+417
+00:26:19,520 --> 00:26:22,860
+[SPEAKER_01]: So once we calculated what force we wanted
+to apply, we applied it.
+
+418
+00:26:23,760 --> 00:26:27,220
+[SPEAKER_01]: The solve happened in the Havoc solver.
+
+419
+00:26:27,220 --> 00:26:28,040
+[SPEAKER_00]: Great stuff.
+
+420
+00:26:28,160 --> 00:26:28,340
+[SPEAKER_00]: Thanks.
+
+421
+00:26:28,560 --> 00:26:28,720
+[SPEAKER_00]: Okay.
+
+422
+00:26:34,520 --> 00:26:35,260
+[SPEAKER_02]: Hey, yeah.
+
+423
+00:26:35,520 --> 00:26:36,900
+[SPEAKER_02]: Kind of related to the first question.
+
+424
+00:26:37,420 --> 00:26:40,560
+[SPEAKER_02]: Since you did line tests down,
+you said, I was just curious, because I've
+
+425
+00:26:40,560 --> 00:26:44,760
+[SPEAKER_02]: hit this problem, do you have any issues
+with like going over a curb and having,
+
+426
+00:26:44,940 --> 00:26:49,880
+[SPEAKER_02]: you know, it immediately changes,
+you know, in all that, the suspension,
+
+427
+00:26:49,940 --> 00:26:52,300
+[SPEAKER_02]: and I pretty much have things where cars
+fly when I hit curves.
+
+428
+00:26:52,460 --> 00:26:54,920
+[SPEAKER_02]: Did you do anything to address that,
+or did you even have that issue?
+
+429
+00:26:54,920 --> 00:27:00,820
+[SPEAKER_01]: Yeah, so the question is about line tests
+and the compression of a wheel based on a
+
+430
+00:27:00,820 --> 00:27:05,480
+[SPEAKER_01]: time step, finding a surface that wasn't
+there before, right?
+
+431
+00:27:05,600 --> 00:27:05,980
+[SPEAKER_02]: Exactly.
+
+432
+00:27:06,180 --> 00:27:06,640
+[SPEAKER_02]: Yeah, yeah.
+
+433
+00:27:06,700 --> 00:27:08,320
+[SPEAKER_02]: I figured you'd get it and you can
+rephrase it.
+
+434
+00:27:08,440 --> 00:27:09,020
+[SPEAKER_01]: Yeah, yeah, yeah.
+
+435
+00:27:09,680 --> 00:27:11,860
+[SPEAKER_01]: So there's two issues here.
+
+436
+00:27:11,940 --> 00:27:18,360
+[SPEAKER_01]: So one is, being loads kind of
+insensitive, we didn't get side forces
+
+437
+00:27:18,360 --> 00:27:19,460
+[SPEAKER_01]: based on that, right?
+
+438
+00:27:19,460 --> 00:27:22,280
+[SPEAKER_01]: So the only issue was the suspension force
+itself.
+
+439
+00:27:23,240 --> 00:27:28,180
+[SPEAKER_01]: So we didn't suddenly gain grip just
+because we hit a curb.
+
+440
+00:27:29,420 --> 00:27:33,900
+[SPEAKER_01]: Essentially, the idea is you're going to
+have to damp those forces.
+
+441
+00:27:34,920 --> 00:27:37,020
+[SPEAKER_01]: And there are multiple ways of doing that.
+
+442
+00:27:37,960 --> 00:27:40,860
+[SPEAKER_01]: We took a pretty basic approach to that.
+
+443
+00:27:41,100 --> 00:27:45,720
+[SPEAKER_01]: And you can tell when you've moved the
+suspension a long way in one frame that
+
+444
+00:27:45,720 --> 00:27:46,960
+[SPEAKER_01]: you need to damp.
+
+445
+00:27:46,960 --> 00:27:47,660
+[SPEAKER_01]: Gotcha.
+
+446
+00:27:47,780 --> 00:27:47,920
+[SPEAKER_02]: Right.
+
+447
+00:27:48,080 --> 00:27:48,260
+[SPEAKER_02]: Thanks.
+
+448
+00:27:52,740 --> 00:27:53,180
+[SPEAKER_01]: Cool.
+
+449
+00:27:54,580 --> 00:27:55,020
+[SPEAKER_01]: Okay.
+
+450
+00:27:55,240 --> 00:27:55,760
+[SPEAKER_01]: Thank you very much.
+
