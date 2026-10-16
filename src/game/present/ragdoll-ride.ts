@@ -73,9 +73,10 @@ export class RideAlong {
    * far apart are each shown in turn, never all at once from a camera pulled back to fit them. `hold`: keep watching
    * once they lie still, always from behind (the range: its signs read down the throw, and it shows where its driver
    * came to rest). `lens`: the scene's lens (deg); `sight`: the scene's solids (the windshield and trackside eyes
-   * stand clear of them). The dummies are drawn `alpha` of the way between their last two steps.
+   * stand clear of them). The dummies are drawn `alpha` of the way between their last two steps. `lead` (s, the minigames
+   * pass it): the aim runs that much of the dummies' velocity ahead of their heads, so a fast climber stays framed (`RideCam`).
    */
-  frame(dolls: readonly Doll[], alpha: number, camera: THREE.PerspectiveCamera, wallDt: number, hold: boolean, watched: number, held: boolean, lens: number, sight: () => Sight): RideFrame {
+  frame(dolls: readonly Doll[], alpha: number, camera: THREE.PerspectiveCamera, wallDt: number, hold: boolean, watched: number, held: boolean, lens: number, sight: () => Sight, lead = 0): RideFrame {
     if (!this.riding) return "none";
     const keep = hold || held;
     let cut = false;
@@ -97,11 +98,12 @@ export class RideAlong {
         return "none";
       }
     }
-    const lead = dolls[this.primary]!;
-    blendPose(lead.prev, lead.cur, 7, alpha, _r, _q);
+    const primaryDoll = dolls[this.primary]!;
+    blendPose(primaryDoll.prev, primaryDoll.cur, 7, alpha, _r, _q);
     // The primary and every framed dummy near it: the centre of their heads, pulled back to fit their spread.
     let n = 0;
     let vx = 0;
+    let vy = 0;
     let vz = 0;
     const f = this.cam.framing;
     const c = f.c.set(0, 0, 0);
@@ -111,6 +113,7 @@ export class RideAlong {
       if (_r.distanceTo(this.heads[n]!) > CAM_NEAR) continue;
       c.add(this.heads[n]!);
       vx += d.vel[0]!;
+      vy += d.vel[1]!;
       vz += d.vel[2]!;
       n++;
     }
@@ -120,12 +123,14 @@ export class RideAlong {
     f.spread = Math.min(spread, CAM_NEAR);
     f.n = n;
     f.vx = vx;
+    f.vy = vy;
     f.vz = vz;
     f.hold = hold;
     f.held = held;
     f.cut = cut;
     f.lens = lens;
     f.sight = sight;
+    f.lead = lead;
     return this.cam.update(camera, wallDt, f);
   }
 

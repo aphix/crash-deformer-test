@@ -634,9 +634,9 @@ export class RagdollSystem {
     return d !== undefined && d.live && d.settled;
   }
 
-  /** Place `camera` on the dummies being followed: "none" when none is (the engine's own camera runs), "held" when the user's orbit has it (`RideAlong.frame`). */
-  frameCamera(camera: THREE.PerspectiveCamera, wallDt: number, hold: boolean, watched: number, held: boolean, lens: number, sight: () => Sight): RideFrame {
-    return this.ride.frame(this.dolls, this.alpha, camera, wallDt, hold, watched, held, lens, sight);
+  /** Place `camera` on the dummies being followed: "none" when none is (the engine's own camera runs), "held" when the user's orbit has it (`RideAlong.frame`; `lead`: s the aim runs ahead of their velocity, the minigames). */
+  frameCamera(camera: THREE.PerspectiveCamera, wallDt: number, hold: boolean, watched: number, held: boolean, lens: number, sight: () => Sight, lead = 0): RideFrame {
+    return this.ride.frame(this.dolls, this.alpha, camera, wallDt, hold, watched, held, lens, sight, lead);
   }
 
   dispose(): void {
