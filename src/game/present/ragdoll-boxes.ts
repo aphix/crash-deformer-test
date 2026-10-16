@@ -7,6 +7,11 @@ import { knockedGroups } from "./ragdoll-config.ts";
 /** One cardboard box in world coordinates: its centre, its turn about the vertical (rad), and its full size (m). */
 export type BoxPlacement = { x: number; y: number; z: number; yaw: number; width: number; height: number; depth: number };
 
+/** A release-velocity multiplier: `forward` scales the horizontal (x, z) components, `upward` the vertical (y) one. */
+export type ReleaseScale = { forward: number; upward: number };
+/** The event's own release velocity, unscaled. */
+export const NO_RELEASE_SCALE: ReleaseScale = { forward: 1, upward: 1 };
+
 /** Floats per box in `BoxPile.copyPoses`: position xyz, then rotation xyzw. */
 export const BOX_POSE_FLOATS = 7;
 /**
