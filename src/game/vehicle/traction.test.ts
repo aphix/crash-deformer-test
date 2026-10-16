@@ -1,10 +1,10 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { applyDrive, idleDrive, type DriveInput } from "./car-drive.ts";
+import { applyDrive, idleDrive, THROTTLE_STEPS, type DriveInput } from "./car-drive.ts";
 import type { DeformableCar } from "./car.ts";
 import { FLIGHT } from "./car-flight.ts";
 import { makeCar } from "./ground-probe.test-util.ts";
-import { carGear, carRpm, CLASSES, gearHi, HANDLING, rotatingShare, tractionLimit, VEHICLE_CLASS_IDS, type ClassStats, type Driveline, type VehicleClassId } from "./vehicle-classes.ts";
+import { carGear, carRpm, CLASSES, gearHi, gearLo, HANDLING, rollingOver, rotatingShare, terminalSpeed, tractionLimit, VEHICLE_CLASS_IDS, type ClassStats, type Driveline, type VehicleClassId } from "./vehicle-classes.ts";
 import { Ground, setGround } from "../world/ground.ts";
 import { SURFACE } from "../world/constants.ts";
 import { SURFACE_IDS, SURFACES, type SurfaceId } from "../world/catalog.ts";
@@ -126,9 +126,9 @@ for (const H of RATES) {
     });
 
     describe("given the sedan launched flat out on grass at the arcade end", () => {
-      it("when its wheels spin, then the body gains exactly the road's traction per second (the launch pull times the grass grip), never the engine's pull", () => {
+      it("when its wheels spin, then the body gains exactly the road's traction less the grass's rolling resistance per second, never the engine's pull", () => {
         HANDLING.realism = 0;
-        const cap = CLASSES.sedan.launch[0] * SURFACES.grass.grip;
+        const cap = CLASSES.sedan.launch[0] * SURFACES.grass.grip - rollingOver(SURFACES.grass.roll);
         const pulls: number[] = [];
         let last = 0;
         drive("sedan", flat(SURFACE.grass), BUILD_S, H, FULL, (car) => {
@@ -229,6 +229,86 @@ for (const H of RATES) {
         const rwd = withAndWithoutSpin("muscle");
         assert.ok(Math.abs(rwd.yaw[0] / rwd.yaw[1] - 1) < 0.02, `a spinning rear axle steers at ${rwd.yaw[0].toFixed(3)} against ${rwd.yaw[1].toFixed(3)} rad/s`);
         assert.ok(rwd.hold[0] < rwd.hold[1], `hold ${rwd.hold[0].toFixed(3)} spinning, ${rwd.hold[1].toFixed(3)} gripping`);
+      });
+    });
+
+    describe("given a car driven flat out on one surface for long enough to settle", () => {
+      /** The terminal the law gives and where the gauge reads it: speed (m/s), gear and revs after `seconds`. */
+      function settled(cls: VehicleClassId, surface: SurfaceId, seconds: number): { v: number; gear: number; rpm: number } {
+        const car = drive(cls, flat(surface), seconds, H, FULL, () => {});
+        return { v: along(car), gear: carGear(car), rpm: carRpm(car) };
+      }
+
+      it("when the sedan runs on grass, then it settles where its power meets the grass's rolling resistance over asphalt's, in 5th off the redline; on sand lower, in 4th; and the truck on grass in 4th: each at the law's terminalSpeed", () => {
+        const cases: [VehicleClassId, SurfaceId, number][] = [
+          ["sedan", SURFACE.grass, 5],
+          ["sedan", SURFACE.sand, 4],
+          ["truck", SURFACE.grass, 4],
+        ];
+        for (const [cls, surface, gear] of cases) {
+          const k = CLASSES[cls];
+          const law = terminalSpeed(k, rollingOver(SURFACES[surface].roll));
+          assert.ok(law < k.topSpeed, `${cls} on ${surface}: the law's terminal ${law.toFixed(1)} is under the class top`);
+          const got = settled(cls, surface, 60);
+          const share = (law - gearLo(k, gear - 1)) / (gearHi(k, gear - 1) - gearLo(k, gear - 1));
+          const detail = `${cls} on ${surface}: ${got.v.toFixed(2)} m/s in gear ${got.gear} at revs ${got.rpm.toFixed(2)} (law ${law.toFixed(2)}, gear ${gear} at ${(0.3 + 0.7 * share).toFixed(2)})`;
+          assert.ok(got.v <= law && law - got.v <= 0.5, detail);
+          assert.equal(got.gear, gear, detail);
+          assert.ok(Math.abs(got.rpm - (0.3 + 0.7 * share)) <= 0.03 && got.rpm < 0.97, detail);
+        }
+        const asphalt = settled("sedan", SURFACE.asphalt, 30);
+        assert.ok(Math.abs(asphalt.v - CLASSES.sedan.topSpeed) < 1e-6, `asphalt reaches the class top: ${asphalt.v.toFixed(2)}`);
+      });
+
+      it("when the sedan holds half throttle on grass, then it holds exactly that share of the class top (its power beats the drag there); when it holds 90 % on sand from 50 m/s, then it sags to the sand's terminal", () => {
+        const k = CLASSES.sedan;
+        // The pedal the sim runs is on the clip's grid (`THROTTLE_STEPS`): 0.5 rounds to 64/127.
+        const share = Math.round(0.5 * THROTTLE_STEPS) / THROTTLE_STEPS;
+        const half = drive("sedan", flat(SURFACE.grass), 20, H, { ...idleDrive(), throttle: 0.5 }, () => {});
+        assert.ok(Math.abs(along(half) - share * k.topSpeed) < 1e-6, `half throttle on grass holds ${along(half).toFixed(3)} of ${(share * k.topSpeed).toFixed(3)}`);
+        const seeded = makeCar("sedan");
+        seeded.spawnFacing(0, 0, 0, 50);
+        let last = 50;
+        let falling = true;
+        const sag = drive("sedan", flat(SURFACE.sand), 30, H, { ...idleDrive(), throttle: 0.9 }, (c) => {
+          if (along(c) > last) falling = false;
+          last = along(c);
+        }, seeded);
+        const law = terminalSpeed(k, rollingOver(SURFACES.sand.roll));
+        // The sag is the law's approach from above (`power / v − resist` per second, a few hundredths near the terminal): still falling and within 1 m/s at 30 s.
+        assert.ok(falling && along(sag) > law && along(sag) - law <= 1, `90 % throttle on sand sags to ${along(sag).toFixed(2)} (law ${law.toFixed(2)}, ${falling ? "still falling" : "rose"})`);
+      });
+
+      it("when the sedan freewheels in neutral, then on grass it sheds the whole of the grass's rolling resistance plus the air's drag, more than on asphalt", () => {
+        const decel = (surface: SurfaceId) => {
+          const car = makeCar("sedan");
+          car.spawnFacing(0, 0, 0, 20);
+          drive("sedan", flat(surface), 1, H, { ...idleDrive(), neutral: true }, () => {}, car);
+          return 20 - along(car);
+        };
+        const grass = decel(SURFACE.grass);
+        const asphalt = decel(SURFACE.asphalt);
+        const law = SURFACES.grass.roll * 9.81 + 0.0003 * 20 * 20;
+        assert.ok(Math.abs(grass / law - 1) <= 0.3, `neutral on grass sheds ${grass.toFixed(2)} m/s² (law about ${law.toFixed(2)})`);
+        assert.ok(grass > 3 * asphalt, `grass ${grass.toFixed(2)} against asphalt ${asphalt.toFixed(2)} m/s²`);
+      });
+
+      it("when the sedan's right wheels stand on grass and its left on asphalt, then it feels half the grass's extra rolling resistance", () => {
+        const g = new Ground();
+        const wide = { nu: 2, nv: 2, stepV: 2e7, v0: -1e7, heights: new Float32Array(4), ox: 0, oy: 0, oz: 0, reach: Infinity };
+        g.addGrid({ ...wide, step: 1e7, u0: 0, surface: SURFACE_IDS.indexOf(SURFACE.grass) });
+        g.addGrid({ ...wide, step: 1e7, u0: -1e7, surface: SURFACE_IDS.indexOf(SURFACE.asphalt) });
+        const decel = (ground: Ground) => {
+          const car = makeCar("sedan");
+          car.spawnFacing(0, 0, 0, 20);
+          drive("sedan", ground, 1, H, { ...idleDrive(), neutral: true }, () => {}, car);
+          return 20 - along(car);
+        };
+        const mixed = decel(g);
+        const asphalt = decel(flat(SURFACE.asphalt));
+        const grass = decel(flat(SURFACE.grass));
+        const half = asphalt + 0.5 * (grass - asphalt);
+        assert.ok(Math.abs(mixed / half - 1) <= 0.05, `mixed ${mixed.toFixed(3)} against half the grass's extra ${half.toFixed(3)} m/s²`);
       });
     });
   });

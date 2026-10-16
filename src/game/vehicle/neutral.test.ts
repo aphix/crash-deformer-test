@@ -4,6 +4,8 @@ import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
 import { applyDrive, DRIVE, idleDrive, type DriveInput } from "./car-drive.ts";
 import { DT, paint } from "./test-support.ts";
+import { SURFACES } from "../world/catalog.ts";
+import { FRICTION_G } from "../deform/physics-util.ts";
 
 /**
  * A thrown-out driver's car freewheels (`DriveInput.neutral`, Main/owner 2026-10-03: "continues in neutral"): no thrust,
@@ -33,8 +35,9 @@ describe("given a sedan doing 130 km/h on the flat, freewheeling in neutral (a t
     const liftDecel = (v0 - lift.speed) / SECS;
     const freeDecel = (v0 - free.speed) / SECS;
     t.diagnostic(`130 km/h, ${SECS} s: lift-off ${liftDecel.toFixed(2)} m/s² (${(lift.speed / KPH).toFixed(0)} km/h left), neutral ${freeDecel.toFixed(2)} m/s² (${(free.speed / KPH).toFixed(0)} km/h left)`);
-    // Rolling resistance + air drag alone: about 0.5 m/s² at this speed.
-    assert.ok(freeDecel > 0.3 * (DRIVE.roll + DRIVE.drag * v0 * v0) && freeDecel < 1.5 * (DRIVE.roll + DRIVE.drag * v0 * v0), `neutral sheds ${freeDecel.toFixed(2)} m/s²`);
+    // Rolling resistance (asphalt's Crr) + air drag alone: about 0.5 m/s² at this speed.
+    const roll = SURFACES.asphalt.roll * FRICTION_G;
+    assert.ok(freeDecel > 0.3 * (roll + DRIVE.drag * v0 * v0) && freeDecel < 1.5 * (roll + DRIVE.drag * v0 * v0), `neutral sheds ${freeDecel.toFixed(2)} m/s²`);
     assert.ok(liftDecel > 5 * freeDecel, `lift-off ${liftDecel.toFixed(2)} vs neutral ${freeDecel.toFixed(2)} m/s²`);
     assert.ok(free.speed > 0.9 * v0, `${(free.speed / KPH).toFixed(0)} km/h left of 130`);
   });

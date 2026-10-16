@@ -14,7 +14,7 @@ const FRAME = 1 / FRAME_HZ;
 const BULLET_KPH = { running: 49, stalled: 55 } as const;
 /** The sliding grip a tyre on flat asphalt gives (m/s²). */
 const SLIDING_GRIP = CRASH.muSlide * FRICTION_G;
-/** What the drive's speed change per second may exceed the sliding grip by: the freewheel's rolling resistance and air drag (`DRIVE.roll`, `DRIVE.drag`). */
+/** What the drive's speed change per second may exceed the sliding grip by: the freewheel's rolling resistance and air drag (`Surface.roll`, `DRIVE.drag`). */
 const ROLLING_ALLOWANCE = 1.1;
 /** Sideways speed (m/s) under which a slice says nothing of the tyres' grip: it would be cancelled whole in the slice. */
 const SIDEWAYS_FLOOR = 1;

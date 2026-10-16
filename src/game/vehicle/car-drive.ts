@@ -3,8 +3,8 @@ import type { DeformableCar } from "./car.ts";
 import { blankIntent, readIntent, shapeDrive, type DriveFeel } from "./drive-input.ts";
 import type { PadState } from "./gamepad.ts";
 import { CRASH, FRICTION_G, hypot2 } from "../deform/physics-util.ts";
-import { C_GRIP, HIT_SIZE } from "../world/surfaces.ts";
-import { assists, carClass, carDrivability, CLASSES, drivenAxles, enginePull, HANDLING, rotatingShare, SELF_RIGHT_SLOWEST, tractionLimit, type Assists, type Drivability } from "./vehicle-classes.ts";
+import { C_GRIP, C_SURF, HIT_SIZE, ROLLS } from "../world/surfaces.ts";
+import { assists, carClass, carDrivability, CLASSES, drivenAxles, enginePull, HANDLING, rollingOver, rotatingShare, SELF_RIGHT_SLOWEST, tractionLimit, type Assists, type Drivability } from "./vehicle-classes.ts";
 import { LOSS_SIZE, wheelLoss } from "./wheel-loss.ts";
 import { detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 import { FLIPPED_UP_Y, GRIP_YAW_CAP, SLIDE_SPEED } from "./constants.ts";
@@ -18,8 +18,8 @@ export type DriveInput = {
   ebrake: boolean;
   boost: boolean;
   /**
-   * Freewheeling (a car whose driver was thrown out): no thrust and no lift-off engine braking, only rolling resistance and
-   * air drag (`DRIVE.roll`, `DRIVE.drag`) slow it; tyre grip, the ground and gravity act as ever. Not part of `shapeDrive`:
+   * Freewheeling (a car whose driver was thrown out): no thrust and no lift-off engine braking, only the road's rolling resistance
+   * (`Surface.roll`) and air drag (`DRIVE.drag`) slow it; tyre grip, the ground and gravity act as ever. Not part of `shapeDrive`:
    * the race director sets it, and a highlight clip records it (flag 8 of the step's input byte).
    */
   neutral?: boolean;
@@ -39,8 +39,6 @@ export const DRIVE = {
   ebrakeDrag: 0.22,
   /** Lift-off engine braking (× class brake). */
   coast: 0.45,
-  /** Freewheel rolling resistance (m/s²): 0.015 g, a road tyre's coefficient. */
-  roll: 0.15,
   /** Freewheel air drag (1/m, × speed²): ½ρC_dA/m for a sedan, 0.3 m/s² at 32 m/s. */
   drag: 0.0003,
   /** No slide starts below this forward speed (m/s). */
@@ -180,17 +178,19 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
       // drag beats the pull); past it, lift-off engine braking. The push (and its lift-off braking) is what the handbrake's grip takes away.
       const pushing = dir > 0 ? speed <= want : speed >= want;
       let rate = k.brake * DRIVE.coast * (1 - ebrake);
-      if (pushing && Math.abs(want) >= v) {
+      if (want !== 0 && pushing && Math.abs(want) >= v) {
         // The engine's pull at the wheels' speed (`enginePull`: the launch pull, then constant power through every gear). Gripping, the body
         // takes it; spinning, the body takes the road's kinetic friction, `cap`, no more and no less (Uncharted 4 16:33–16:55).
         engine = enginePull(k, ws, realism) * scale * (1 - ebrake);
         rate = over > 0 || engine > cap ? cap : engine;
       }
+      // The road's rolling resistance works against the motion and never carries a car through rest.
+      const resisted = (s: number): number => s - Math.sign(s) * Math.min(Math.abs(s), resist * dt);
       if (pushing) {
-        const next = speed + dir * rate * dt - Math.sign(speed) * resist * dt;
+        const next = resisted(speed + dir * rate * dt);
         speed = dir > 0 ? Math.min(want, next) : Math.max(want, next);
       } else {
-        const next = speed - Math.sign(speed) * (rate + resist) * dt;
+        const next = resisted(speed - Math.sign(speed) * rate * dt);
         speed = dir > 0 ? Math.max(want, next) : Math.min(want, next);
       }
     }
@@ -281,11 +281,20 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const vz = car.velocity.z;
   const along = vx * fx0 + vz * fz0;
   const lat0 = vx * fz0 - vz * fx0;
-  // Each wheel bites with the grip of what it stands on (none where it hangs past its springs): an axle's is the mean of its two.
+  // Each wheel bites with the grip of what it stands on (none where it hangs past its springs): an axle's is the mean of its two. The rolling
+  // resistance is the mean of the standing wheels' surfaces' (a car past the l.232 return has one).
   const hit = car.wheelHit;
   const down = car.wheelsDown;
   _grip[0] = ((down & 1) !== 0 ? hit[C_GRIP]! : 0) / 2 + ((down & 2) !== 0 ? hit[HIT_SIZE + C_GRIP]! : 0) / 2;
   _grip[1] = ((down & 4) !== 0 ? hit[2 * HIT_SIZE + C_GRIP]! : 0) / 2 + ((down & 8) !== 0 ? hit[3 * HIT_SIZE + C_GRIP]! : 0) / 2;
+  let crr = 0;
+  let standing = 0;
+  for (let i = 0; i < 4; i++) {
+    if ((down & (1 << i)) === 0) continue;
+    crr += ROLLS[hit[i * HIT_SIZE + C_SURF]!]!;
+    standing++;
+  }
+  crr /= standing;
   const muF = _grip[0]! * _loss[3]!; // an axle with its wheels off grips like a body on the road
   const muR = _grip[1]! * _loss[4]!;
   // The traction reads what the standing wheels of each axle stand on: an axle with one wheel down reads that wheel (a wheel in the air is no tyre
@@ -306,8 +315,8 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   _pedal[12] = ebrake;
   _pedal[13] = boost;
   _pedal[14] = d.spinSpeed;
-  _pedal[15] = 0;
-  _pedal[16] = DRIVE.roll;
+  _pedal[15] = rollingOver(crr);
+  _pedal[16] = crr * FRICTION_G;
   pedals(k, dmg, input, _pedal);
   const top = _pedal[7]!;
   const speed = _pedal[8]!;

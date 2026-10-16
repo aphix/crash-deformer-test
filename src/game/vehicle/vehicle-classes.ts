@@ -8,6 +8,8 @@ import type { CarStyleId } from "./car-variants.ts";
 import { CLASS_HUBS, CLASS_LIFT } from "./constants.ts";
 import { WHEEL_POS } from "./car-mesh.ts";
 import { MU_TYRE } from "../world/surfaces.ts";
+import { SURFACES } from "../world/catalog.ts";
+import { FRICTION_G } from "../deform/physics-util.ts";
 
 export type VehicleClassId = "sedan" | "muscle" | "truck" | "monster" | "police";
 /** Netplay wire order (a snapshot sends the index): append only. */
@@ -415,6 +417,21 @@ export function carDrivability(car: DamagedCar, realism: number, out: Drivabilit
 }
 
 // --- planning helpers (race AI, tests) ---------------------------------------
+
+/** The rolling resistance (m/s²) a driven car feels on a surface of coefficient `crr`: its excess over asphalt's (the sourced launch and power already carry asphalt's share). */
+export function rollingOver(crr: number): number {
+  return (crr - SURFACES.asphalt.roll) * FRICTION_G;
+}
+
+/**
+ * Fastest a class holds flat out on a road costing `roll` m/s² over asphalt (`scale`: the boost's thrust): where its constant power meets the
+ * drag, `power · scale / roll`; Infinity when that is past the class top (the top, boosted or drafted, caps then).
+ */
+export function terminalSpeed(s: ClassStats, roll: number, scale = 1, realism = HANDLING.realism): number {
+  if (roll <= 0) return Infinity;
+  const v = (enginePower(s, realism) * scale) / roll;
+  return v >= s.topSpeed ? Infinity : v;
+}
 
 /** Fastest a class should take a corner of radius `r` (m) on grip `mu` without sliding or running out of lock. */
 export function cornerSpeed(s: ClassStats, r: number, mu = 1, realism = HANDLING.realism): number {

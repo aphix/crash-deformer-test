@@ -148,6 +148,9 @@ const EMPTY8 = new Uint8Array(0);
 
 const GRIPS = new Float64Array(SURFACE_IDS.length);
 for (let i = 0; i < SURFACE_IDS.length; i++) GRIPS[i] = SURFACES[SURFACE_IDS[i]!].grip;
+/** Each surface's rolling-resistance coefficient (`Surface.roll`) by surface index: the drive reads it off a wheel's contact (`C_SURF`). */
+export const ROLLS = new Float64Array(SURFACE_IDS.length);
+for (let i = 0; i < SURFACE_IDS.length; i++) ROLLS[i] = SURFACES[SURFACE_IDS[i]!].roll;
 
 /** The surface index of asphalt. */
 const ASPHALT = 0;
