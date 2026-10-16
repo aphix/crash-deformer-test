@@ -3,7 +3,7 @@ import { detAtan2, detCos, hypot2 } from "../kernel/physics-core.js";
 
 /** Procedural `DataTexture`s of the derby arena (no canvas: node tests build them), seeded so every build is identical. */
 /** Row 0 is the bottom (v = 0), column 0 the left (u = 0); sRGB, linear magnification, mipmapped. */
-export type Texel = readonly number[];
+type Texel = readonly number[];
 type Wrap = { horizontal: THREE.Wrapping; vertical: THREE.Wrapping };
 
 export const TEXTURE_WRAP = {
@@ -143,7 +143,7 @@ const BARRIER_SEAM_SHADE = 0.55;
 const BARRIER_BASE_ROWS = 28;
 const BARRIER_BASE_SHADE = 0.68;
 const BARRIER_CHIP_COUNT = 16;
-const BARRIER_CHIP_RADIUS = { least: 0.9, spread: 1.6 };
+const BARRIER_CHIP_RADIUS = { smallest: 0.9, widening: 1.6 };
 const BARRIER_CHIP_SHADE = 0.78;
 const BARRIER_SHOULDER_ROW = 84;
 const BARRIER_SHOULDER_LIFT = 1.09;
@@ -422,7 +422,7 @@ export function makeBarrierTexture(): THREE.DataTexture {
   const random = makeSeededRandom(SEEDS.barrier);
   const chips = new Float32Array(BARRIER_SIZE * BARRIER_SIZE);
   for (let chip = 0; chip < BARRIER_CHIP_COUNT; chip++) {
-    stampDisc(chips, BARRIER_SIZE, random() * BARRIER_SIZE, random() * BARRIER_SIZE, BARRIER_CHIP_RADIUS.least + random() * BARRIER_CHIP_RADIUS.spread);
+    stampDisc(chips, BARRIER_SIZE, random() * BARRIER_SIZE, random() * BARRIER_SIZE, BARRIER_CHIP_RADIUS.smallest + random() * BARRIER_CHIP_RADIUS.widening);
   }
   return makeTexture(
     BARRIER_SIZE,
