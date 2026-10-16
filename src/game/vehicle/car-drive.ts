@@ -591,6 +591,8 @@ export class DriverSeat {
    * (race mode: this browser's player car, never an AI or a remote peer's car).
    */
   drivable: ((index: number) => boolean) | null = null;
+  /** The camera is detached (the free view): the drive keys fly it, so a pedal or wheel press never takes the wheel from follow. */
+  detached = false;
 
   focus(index: number): void {
     this.carIndex = index;
@@ -638,7 +640,7 @@ export class DriverSeat {
     const active = i.gas >= 0.05 || i.brake >= 0.05 || Math.abs(i.wheel) >= 0.05;
     const fresh = active && !this.wasActive;
     this.wasActive = active;
-    if (!fresh || this.mode !== "follow" || this.carIndex < 0) return false;
+    if (!fresh || this.mode !== "follow" || this.carIndex < 0 || this.detached) return false;
     if (this.drivable && !this.drivable(this.carIndex)) return false;
     this.mode = "drive";
     return true;

@@ -137,6 +137,8 @@ export abstract class EngineScenes extends EngineDerby {
   /** `menu`: the player picked the scene (bar, key): Survival opens its course menu first. A `#` (`engine-share.ts`) starts the run at once, as every other scene starts. */
   protected applyScene(next: SceneId, menu = false): void {
     if (this.net.client) return;
+    // A new scene is a new place: the free eye, left where the last one was, would hang in the new one's walls or sky.
+    this.view.leaveFree();
     // The range and the garage are one-car scenes: the sandbox's field comes back after them (the range's wall is its own, never the user's).
     // The stack and the Lab run their own car counts and give the sandbox's back.
     const wasLab = this.showLab;

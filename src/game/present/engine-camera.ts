@@ -8,10 +8,11 @@ import { AutoCam, type AutoScene } from "./auto-cam.ts";
 import { CHASE, DriveCam, easeFov } from "./drive-cam.ts";
 import { CineCam, DutchCam, type Occluder, type Sight } from "./spectate-cam.ts";
 import { EyeClear } from "./eye-clear.ts";
+import { DRAG_PITCH_PER_PX, DRAG_YAW_PER_PX, FreeCam, type FreeInput, PAD_PITCH_RATE, PAD_YAW_RATE } from "./free-cam.ts";
 
-/** A followed (not driven) car's camera, cycled by View: the drive chase views, the trackside cinematic, the wheel-well dutch, the free orbit and Auto (`AutoCam` run live). A race opens on the chase, everything else on the orbit. */
-export type SpecView = SeatView | "cine" | "dutch" | "orbit" | "auto";
-const SPEC_VIEWS: readonly SpecView[] = ["third", "far", "first", "cine", "dutch", "orbit", "auto"];
+/** A followed (not driven) car's camera, cycled by View: the drive chase views, the trackside cinematic, the wheel-well dutch, the free orbit, Auto (`AutoCam` run live) and the free fly (`FreeCam`, detached from every car). A race opens on the chase, everything else on the orbit. */
+export type SpecView = SeatView | "cine" | "dutch" | "orbit" | "auto" | "free";
+const SPEC_VIEWS: readonly SpecView[] = ["third", "far", "first", "cine", "dutch", "orbit", "auto", "free"];
 
 /**
  * What the spectator cams read from the scene: `rivals` and `sight` when they pick a shot, `fixed` per frame for the chase views and
@@ -107,6 +108,12 @@ export class ChaseCamera {
   rim = Infinity;
   /** The followed car's cam; null = the scene's own (`specView`). */
   spec: SpecView | null = null;
+  /** The free view's eye (`frameFree`). */
+  readonly free = new FreeCam();
+  /** The view that was on before the free one, `userFramed` as it stood, and whether the next cycle step passes the free view by (`cycleSpec`). */
+  private specBeforeFree: SpecView | null = null;
+  private userFramedBeforeFree = false;
+  private skipFree = false;
   /** What framed the last frame, so a drag knows what to move: the orbit, a chase rig's look, or nothing (cine, dutch). */
   private rig: "orbit" | "chase" | "fixed" = "orbit";
   private readonly baseFov: number;
@@ -144,6 +151,9 @@ export class ChaseCamera {
   private pinchX = 0;
   private pinchY = 0;
   private pinchDist = 0;
+  /** The middle of the two fingers last frame: the free view pans by how far it moves. */
+  private panX = 0;
+  private panY = 0;
   /**
    * A scene that takes presses from the drag (the Lab's flick): `down` (client px, `t` ms) claims a press or leaves it to the
    * camera; a claimed press's moves (the `pointermove` itself, with the moves coalesced into it) and its release (`cancel`: the
@@ -306,8 +316,8 @@ export class ChaseCamera {
     const ry = this.pad.ry;
     const padTurn = rx !== 0 || ry !== 0;
     if (padTurn) {
-      this.angle -= rx * 2.2 * wallDt;
-      this.pitch = THREE.MathUtils.clamp(this.pitch + ry * 1.4 * wallDt, 0.08, 1.22);
+      this.angle -= rx * PAD_YAW_RATE * wallDt;
+      this.pitch = THREE.MathUtils.clamp(this.pitch + ry * PAD_PITCH_RATE * wallDt, 0.08, 1.22);
       this.userFramed = true;
     }
     if (spinRate > 0 && !this.dragging && !this.locked && !padTurn && !this.reduceMotion) this.angle += spinRate * wallDt;
@@ -388,20 +398,71 @@ export class ChaseCamera {
     return this.spec ?? (chase ? this.seat.view : "orbit");
   }
 
-  /** View while following: the next spectator cam. */
+  /** The free view holds the camera. */
+  get flying(): boolean {
+    return this.spec === "free";
+  }
+
+  /** Detach into the free view, from wherever the camera stands; leaving (`leaveFree`) puts back the view it came from. */
+  enterFree(): void {
+    if (this.flying) return;
+    this.specBeforeFree = this.spec;
+    this.spec = "free";
+    this.free.begun = false;
+  }
+
+  /** Back to the view before the free one; false when it was not on. */
+  leaveFree(): boolean {
+    if (!this.flying) return false;
+    this.spec = this.specBeforeFree;
+    if (this.free.begun) this.userFramed = this.userFramedBeforeFree;
+    this.free.begun = false;
+    return true;
+  }
+
+  /**
+   * View while following: the next spectator cam. From the free view it goes back to where it came from, and the next press
+   * carries on round the ring past the free view (else the ring's last view and the free view would only toggle).
+   */
   cycleSpec(chase: boolean): void {
-    this.spec = SPEC_VIEWS[(SPEC_VIEWS.indexOf(this.specView(chase)) + 1) % SPEC_VIEWS.length]!;
     this.cine.reset();
     this.auto.reset();
+    if (this.leaveFree()) {
+      this.skipFree = true;
+      return;
+    }
+    const at = SPEC_VIEWS.indexOf(this.specView(chase));
+    const next = SPEC_VIEWS[(at + 1) % SPEC_VIEWS.length]!;
+    const skip = next === "free" && this.skipFree;
+    this.skipFree = false;
+    if (next === "free" && !skip) this.enterFree();
+    else this.spec = skip ? SPEC_VIEWS[(at + 2) % SPEC_VIEWS.length]! : next;
+  }
+
+  /**
+   * The free view: the eye flies by `input` from where the camera stood when it began, over the scene's `free.extent`, level with
+   * nothing followed. It frames the shot itself, so the cinematic and the shot cams stand down (`userFramed`).
+   */
+  frameFree(input: FreeInput, wallDt: number): void {
+    this.fallWatch = false;
+    this.drive.release();
+    this.rig = "fixed";
+    if (!this.free.begun) {
+      this.userFramedBeforeFree = this.userFramed;
+      this.free.begin(this.camera);
+    }
+    this.userFramed = true;
+    this.free.step(this.camera, input, wallDt);
+    easeFov(this.camera, this.lens, wallDt);
   }
 
   /**
    * Frame a followed (not driven) car with `view`. The chase views keep a dragged look offset (a spectator framed it
    * on purpose and has no road to watch); the cinematic keeps the chase until it finds a clear spot. False for the
-   * orbit: the caller aims `look` and orbits.
+   * orbit: the caller aims `look` and orbits. False for the free view too, which frames nothing followed (`frameFree`).
    */
   frameSpectate(car: DeformableCar, view: SpecView, scene: SpecScene, wallDt: number, shake: boolean): boolean {
-    if (view === "orbit") return false;
+    if (view === "orbit" || view === "free") return false;
     this.fallWatch = false;
     if (view === "auto") {
       this.auto.update(this.camera, car, scene, wallDt);
@@ -542,6 +603,8 @@ export class ChaseCamera {
       this.pinchX = e.clientX;
       this.pinchY = e.clientY;
       this.pinchDist = hypot2(this.lastX - e.clientX, this.lastY - e.clientY);
+      this.panX = (this.lastX + e.clientX) / 2;
+      this.panY = (this.lastY + e.clientY) / 2;
       this.pointerTravel = Infinity;
       this.canvas.setPointerCapture(e.pointerId);
       return;
@@ -590,13 +653,14 @@ export class ChaseCamera {
       this.drive.nudge(dx, dy);
       return;
     }
-    if (this.dragging) this.orbitBy(dx, dy);
+    if (this.flying) this.free.lookBy(dx, dy);
+    else if (this.dragging) this.orbitBy(dx, dy);
   };
 
   /** Drag right turns the orbit right, drag down tips it over (same limits for a drag and for mouse look). */
   private orbitBy(dx: number, dy: number): void {
-    this.angle -= dx * 0.005;
-    this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.004, 0.08, 1.22);
+    this.angle -= dx * DRAG_YAW_PER_PX;
+    this.pitch = THREE.MathUtils.clamp(this.pitch + dy * DRAG_PITCH_PER_PX, 0.08, 1.22);
   }
 
   /**
@@ -604,17 +668,25 @@ export class ChaseCamera {
    * round a car in the other seats), with no button down. Not on the ride-along, which keeps its own shot.
    */
   lookBy(dx: number, dy: number): void {
-    if (this.rig === "chase") this.drive.nudge(dx, dy);
+    if (this.flying) this.free.lookBy(dx, dy);
+    else if (this.rig === "chase") this.drive.nudge(dx, dy);
     else if (this.rig === "orbit" && this.seat.mode !== "drive" && !this.ride) {
       this.orbitBy(dx, dy);
       this.userFramed = true;
     }
   }
 
-  /** Two fingers apart zoom in, together zoom out, on the wheel's radius range. */
+  /** Two fingers apart zoom in, together zoom out, on the wheel's radius range; the free view pans with their middle and flies forward or back with their spread. */
   private pinch(): void {
     const d = hypot2(this.lastX - this.pinchX, this.lastY - this.pinchY);
-    if (this.pinchDist > 0 && d > 0) this.radius = THREE.MathUtils.clamp((this.radius * this.pinchDist) / d, 4.2, 32);
+    if (this.flying) {
+      const middleX = (this.lastX + this.pinchX) / 2;
+      const middleY = (this.lastY + this.pinchY) / 2;
+      this.free.panBy(middleX - this.panX, middleY - this.panY);
+      this.free.dollyBy(d - this.pinchDist);
+      this.panX = middleX;
+      this.panY = middleY;
+    } else if (this.pinchDist > 0 && d > 0) this.radius = THREE.MathUtils.clamp((this.radius * this.pinchDist) / d, 4.2, 32);
     this.pinchDist = d;
     this.userFramed = true;
   }
@@ -644,8 +716,13 @@ export class ChaseCamera {
 
   private onWheel = (e: WheelEvent): void => {
     e.preventDefault();
+    this.userFramed = true;
+    // Free view: the wheel is the flight speed, not a zoom.
+    if (this.flying) {
+      this.free.speedBy(e.deltaY);
+      return;
+    }
     const scale = Math.exp(e.deltaY * 0.00115);
     this.radius = THREE.MathUtils.clamp(this.radius * scale, 4.2, 32);
-    this.userFramed = true;
   };
 }

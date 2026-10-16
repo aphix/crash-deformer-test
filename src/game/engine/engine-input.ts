@@ -573,7 +573,7 @@ export abstract class EngineInput extends EngineRigs {
     }
     this.keys.add(e.code);
     const driving = this.seat.mode === "drive";
-    if (this.seat.mode !== "global" && e.code.startsWith("Arrow")) e.preventDefault();
+    if ((this.seat.mode !== "global" || this.view.flying) && (e.code.startsWith("Arrow") || e.code === SEAT_KEYS.flyUp || e.code === SEAT_KEYS.flyDown)) e.preventDefault();
     // Every Space keydown, repeats included: an unprevented repeat arms a focused HUD button and the release clicks it.
     if (e.code === "Space") e.preventDefault();
     if (e.repeat) return;
@@ -587,7 +587,7 @@ export abstract class EngineInput extends EngineRigs {
     } else if (e.code === "Space") {
       if (!driving) this.togglePlay();
     } else if (e.code === SEAT_KEYS.stepOut) {
-      this.seat.esc();
+      if (!this.view.leaveFree()) this.seat.esc();
       this.emitHud();
     } else if (SEAT_KEYS.camera.includes(e.code)) {
       this.cycleCamera();
@@ -646,7 +646,8 @@ export abstract class EngineInput extends EngineRigs {
    */
   private raceKey(code: string): boolean {
     if (code === SEAT_KEYS.stepOut) {
-      this.raceCommand({ type: "pause" });
+      if (!this.view.leaveFree()) this.raceCommand({ type: "pause" });
+      else this.emitHud();
       return true;
     }
     if (code === SEAT_KEYS.reset) {
@@ -700,6 +701,7 @@ export abstract class EngineInput extends EngineRigs {
       this.stepReset(false, false, wallDt);
       return;
     }
+    this.seat.detached = this.view.flying;
     if (this.seat.sample(this.keys, pad)) this.emitHud();
     this.stepReset(this.race.active, (pad.held & (1 << PAD_BUTTON.down)) !== 0, wallDt, (pad.pressed & (1 << PAD_BUTTON.down)) !== 0);
     const hit = pad.pressed;
@@ -710,7 +712,7 @@ export abstract class EngineInput extends EngineRigs {
     }
     const driving = this.seat.mode === "drive";
     if ((hit & (1 << PAD_BUTTON.start)) !== 0) this.togglePlay();
-    if ((hit & (1 << PAD_BUTTON.back)) !== 0) this.seat.esc();
+    if ((hit & (1 << PAD_BUTTON.back)) !== 0 && !this.view.leaveFree()) this.seat.esc();
     if ((hit & (1 << PAD_BUTTON.lb)) !== 0) this.seat.cycle(-1, this.carCount);
     if ((hit & (1 << PAD_BUTTON.rb)) !== 0) this.seat.cycle(1, this.carCount);
     if ((hit & (1 << PAD_BUTTON.north)) !== 0) this.cycleCamera();
@@ -741,17 +743,22 @@ export abstract class EngineInput extends EngineRigs {
   private racePad(hit: number): void {
     const press = (b: number) => (hit & (1 << b)) !== 0;
     // Through raceCommand: a client may not pause (the host runs the race), so it can't get stuck in a pause it can't leave.
-    if (press(PAD_BUTTON.start) || press(PAD_BUTTON.back)) this.raceCommand({ type: "pause" });
+    const backed = press(PAD_BUTTON.back) && this.view.leaveFree();
+    if (press(PAD_BUTTON.start) || (press(PAD_BUTTON.back) && !backed)) this.raceCommand({ type: "pause" });
     if (press(PAD_BUTTON.lb)) this.race.cycle(-1);
     if (press(PAD_BUTTON.rb)) this.race.cycle(1);
     if (press(PAD_BUTTON.north)) this.cycleCamera();
     this.emitHud();
   }
 
-  /** View (V / T / Y, the HUD camera button): the driven car's chase view, or the followed car's spectator cam (the rigs' too: the orbit is their default). */
+  /**
+   * View (V / T / Y, the HUD camera button): the driven car's chase view, or the followed car's spectator cam (the rigs' too: the orbit is
+   * their default), the free view last among them. The whole field has no car to cycle round: View flies free from it and back.
+   */
   cycleCamera(): void {
     if (this.seat.mode === "drive") this.seat.cycleView();
     else if (this.seat.mode === "follow") this.view.cycleSpec(this.race.chase);
+    else if (!this.view.leaveFree()) this.view.enterFree();
     this.emitHud();
   }
 

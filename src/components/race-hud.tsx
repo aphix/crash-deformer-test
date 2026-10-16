@@ -187,27 +187,30 @@ function StandingRow({ row, lead, onWatch }: { row: RaceHudRow; lead: number; on
   );
 }
 
-/** Follow-cam chip above the dock while spectating: the car's name, previous / next, and the camera (`cam`, its name; `onCam` cycles it). */
-export function SpectateBar({ race, pad, cam, onCommand, onCam }: { race: RaceHud; pad: boolean; cam: string | null; onCommand: Send; onCam: () => void }) {
+/** Follow-cam chip above the dock while spectating: the car's name, previous / next, and the camera (`cam`, its name; `onCam` cycles it). In the free view `freeHelp` is its controls, in a line under the chip. */
+export function SpectateBar({ race, pad, cam, freeHelp, onCommand, onCam }: { race: RaceHud; pad: boolean; cam: string | null; freeHelp: string | null; onCommand: Send; onCam: () => void }) {
   if (race.spectating === null || race.menu !== null) return null;
   return (
-    <div className="hud-panel pointer-events-auto flex shrink-0 items-center gap-1 p-1" role="status">
-      <Button variant="ghost" size="icon" className="sm:size-8 pointer-coarse:size-11" aria-label="Previous car" onMouseDown={keepFocus} onClick={() => onCommand({ type: "cycle", dir: -1 })}>
-        <ChevronLeft />
-      </Button>
-      <div className="min-w-0 px-1 text-center">
-        <p className="hud-label">Spectating · {pad ? "LB / RB" : "Q / E"}</p>
-        <p className="truncate font-display text-base font-semibold leading-tight">{race.auto ? `Auto · ${race.spectating}` : race.spectating}</p>
-      </div>
-      <Button variant="ghost" size="icon" className="sm:size-8 pointer-coarse:size-11" aria-label="Next car" onMouseDown={keepFocus} onClick={() => onCommand({ type: "cycle", dir: 1 })}>
-        <ChevronRight />
-      </Button>
-      {cam ? (
-        <Button variant="ghost" className="h-10 gap-1.5 px-2 sm:h-8 pointer-coarse:h-11" aria-label="Camera view" title={`Camera view · ${pad ? "Y" : "V"}`} onMouseDown={keepFocus} onClick={onCam}>
-          <Video />
-          <span className="text-xs">{cam}</span>
+    <div className="flex flex-col items-start gap-1">
+      <div className="hud-panel pointer-events-auto flex shrink-0 items-center gap-1 p-1" role="status">
+        <Button variant="ghost" size="icon" className="sm:size-8 pointer-coarse:size-11" aria-label="Previous car" onMouseDown={keepFocus} onClick={() => onCommand({ type: "cycle", dir: -1 })}>
+          <ChevronLeft />
         </Button>
-      ) : null}
+        <div className="min-w-0 px-1 text-center">
+          <p className="hud-label">Spectating · {pad ? "LB / RB" : "Q / E"}</p>
+          <p className="truncate font-display text-base font-semibold leading-tight">{race.auto ? `Auto · ${race.spectating}` : race.spectating}</p>
+        </div>
+        <Button variant="ghost" size="icon" className="sm:size-8 pointer-coarse:size-11" aria-label="Next car" onMouseDown={keepFocus} onClick={() => onCommand({ type: "cycle", dir: 1 })}>
+          <ChevronRight />
+        </Button>
+        {cam ? (
+          <Button variant="ghost" className="h-10 gap-1.5 px-2 sm:h-8 pointer-coarse:h-11" aria-label="Camera view" title={`Camera view · ${pad ? "Y" : "V"}`} onMouseDown={keepFocus} onClick={onCam}>
+            <Video />
+            <span className="text-xs">{cam}</span>
+          </Button>
+        ) : null}
+      </div>
+      {freeHelp ? <p className="hud-ink max-w-md text-xs leading-snug text-fg/80">{freeHelp}</p> : null}
     </div>
   );
 }

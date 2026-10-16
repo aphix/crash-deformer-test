@@ -303,6 +303,11 @@ export abstract class RaceField {
     return this.track ? raceSight(this.track, this.placed) : null;
   }
 
+  /** The loaded course's bounds (m); null off a race. */
+  courseBounds(): Track["bounds"] | null {
+    return this.track?.bounds ?? null;
+  }
+
 
   /**
    * Player plus `aiCount` cars; ids are car indices, this browser's car is `self` (0). Cars seated by
