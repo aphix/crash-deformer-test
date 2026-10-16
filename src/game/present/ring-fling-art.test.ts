@@ -41,7 +41,6 @@ const HEIGHT_TOLERANCE = 0.001;
 /** How closely the art's smooth cups and rim follow the model's piecewise profile: the polygon's chord sag over the steepest wall and the rim ramp's bilinear rise both stay under 1.5 cm. */
 const SURFACE_TOLERANCE = 0.02;
 const ZONES: readonly RingZone[] = [...RING_CUPS, ...RING_POCKETS];
-const VERTICES_PER_QUAD = 4;
 const REAL_INCH_SCALED = 0.0254 * SKEE_SCALE;
 const REAL_BACKBOARD_HEIGHT_INCHES = 50;
 /** The throw the board is designed for (as in minigame-ring.test.ts): up to 22 m/s at 35 degrees from the lip. */
@@ -51,7 +50,7 @@ const GRAVITY = 9.80665;
 const BACKSTOP_RIM_CLEARANCE_FACTOR = 3;
 /** A numeral lies on its cup floor: over it, but by no more than this (m). */
 const DECAL_HOVER_MAX = 0.1;
-/** The lying dummy's width (m), as in minigame-ring.test.ts (present/ragdoll-body.ts PARTS): a numeral plate wider than it in both directions cannot be wholly covered by a dummy lying either way across the cup. */
+/** The lying dummy's width (m), as in minigame-ring.test.ts (present/ragdoll-body.ts PARTS): a numeral disc wider than it in both directions cannot be wholly covered by a dummy lying either way across the cup. */
 const DUMMY_LYING_WIDTH = 0.58;
 
 const RAY_START_HEIGHT = 100;
@@ -64,12 +63,18 @@ const PROBE_ANGLES = [Math.PI / 2, (3 * Math.PI) / 2];
 /** A round rim has at least this many vertices on each of its circles (a vertex every 7.5 degrees). */
 const MIN_RIM_VERTICES_PER_CIRCLE = 48;
 const NORMAL_TOLERANCE = 0.02;
-/** Red of the white cup walls in the mesh's colours, against the dark floor's: tells a wall vertex from a floor vertex at the same place. */
-const WALL_COLOUR_MIN_RED = 0.5;
+/** Red of the white cup walls in the mesh's linear colours, against the light grey floor's (0.69): tells a wall vertex from a floor vertex at the same place. */
+const WALL_COLOUR_MIN_RED = 0.8;
 /** Distances (m) to probe clear of a rim feature: in front of its start, just inside its slope; and beyond the corner arc. */
 const RIM_CLEAR_MARGIN = 0.3;
 const CORNER_CUT_OFF_PROBE = 0.3;
 const BOARD_TO_WHITE_LIGHTNESS_MAX = 0.6;
+/** Cup floors must be at least this light (linear lightness, 0 black to 1 white) for black numerals to read, and lighter than the board so they do not read as holes. */
+const CUP_FLOOR_LIGHTNESS_MIN = 0.5;
+/** A numeral disc has at least this many vertices (a circle of 48 segments and its centre). */
+const MIN_DISC_VERTICES = 49;
+/** A wing must reach at least this far (m) forward of the slab and outward past its end. */
+const MIN_WING_REACH = 1;
 
 type Vertex = { x: number; y: number; z: number };
 
@@ -206,7 +211,7 @@ describe("given the Ring Fling station's art in station-local coordinates", () =
     }
   });
 
-  it("when the colours are read, then the board is a mid tone clearly darker than the glossy white cups and rim, the cup floors are darker than the board, and the lane is darker still", () => {
+  it("when the colours are read, then the board is a mid tone clearly darker than the glossy white cups and rim, the cup floors are light (lighter than the board, a shade under the cups), and the lane is darker than the board", () => {
     const lightnessOf = (colour: THREE.Color) => colour.getHSL({ h: 0, s: 0, l: 0 }).l;
     const cup = RING_CUPS[0]!;
     const cupSkirtEdgeZ = cup.radius + RING_CUP_PROFILE.rimTopWidth + RING_CUP_PROFILE.skirtWidth;
@@ -218,41 +223,47 @@ describe("given the Ring Fling station's art in station-local coordinates", () =
     const laneLightness = lightnessOf(new THREE.Color(STATION_SURFACE_STYLES.ringFling.baseColour));
     assert.ok(boardLightness <= BOARD_TO_WHITE_LIGHTNESS_MAX * rimLightness, `board ${boardLightness} against cup rim ${rimLightness}`);
     assert.ok(boardLightness <= BOARD_TO_WHITE_LIGHTNESS_MAX * sideRimLightness, `board ${boardLightness} against side rim ${sideRimLightness}`);
-    assert.ok(floorLightness < boardLightness, `cup floor ${floorLightness} against board ${boardLightness}`);
+    assert.ok(floorLightness > boardLightness, `cup floor ${floorLightness} is no lighter than the board ${boardLightness}: it would read as a hole`);
+    assert.ok(floorLightness >= CUP_FLOOR_LIGHTNESS_MIN, `cup floor ${floorLightness} is too dark for black numerals`);
+    assert.ok(floorLightness < rimLightness, `cup floor ${floorLightness} against the cups' white ${rimLightness}`);
     assert.ok(laneLightness < boardLightness, `lane ${laneLightness} against board ${boardLightness}`);
   });
 
-  it("when the numeral plates are read, then there is one per cup and pocket, centred on it, wholly inside its floor circle, and each reads its zone's score", () => {
+  it("when the numeral discs are read, then there is one per cup and pocket, centred on it, lying wholly inside its floor circle, and each reads its zone's score", () => {
     const numerals = meshNamed(art, "ring-numerals");
     const vertices = verticesOf(numerals);
     const uv = numerals.geometry.getAttribute("uv");
     const atlas = recordingCanvases.find((canvas) => canvas.drawnTexts.some((drawn) => drawn.text === "10"))!;
-    assert.equal(vertices.length, ZONES.length * VERTICES_PER_QUAD, "one plate per zone");
+    const nearestZoneIndex = (vertex: Vertex) =>
+      ZONES.map((zone, zoneIndex) => ({ zoneIndex, distance: Math.hypot(vertex.x - zone.centreX, vertex.z - zone.centreZ) })).sort((first, second) => first.distance - second.distance)[0]!.zoneIndex;
     for (let zoneIndex = 0; zoneIndex < ZONES.length; zoneIndex++) {
       const zone = ZONES[zoneIndex]!;
-      const corners = vertices.slice(zoneIndex * VERTICES_PER_QUAD, (zoneIndex + 1) * VERTICES_PER_QUAD);
-      assert.ok(Math.abs(mean(corners.map((corner) => corner.x)) - zone.centreX) <= HEIGHT_TOLERANCE, `${zone.score} centre x`);
-      assert.ok(Math.abs(mean(corners.map((corner) => corner.z)) - zone.centreZ) <= HEIGHT_TOLERANCE, `${zone.score} centre z`);
+      const members = vertices.map((vertex, index) => ({ vertex, index })).filter(({ vertex }) => nearestZoneIndex(vertex) === zoneIndex);
+      assert.ok(members.length >= MIN_DISC_VERTICES, `${zone.score} disc has ${members.length} vertices`);
+      const corners = members.map(({ vertex }) => vertex);
+      assert.ok(Math.abs((Math.max(...corners.map((corner) => corner.x)) + Math.min(...corners.map((corner) => corner.x))) / 2 - zone.centreX) <= HEIGHT_TOLERANCE, `${zone.score} centre x`);
+      assert.ok(Math.abs((Math.max(...corners.map((corner) => corner.z)) + Math.min(...corners.map((corner) => corner.z))) / 2 - zone.centreZ) <= HEIGHT_TOLERANCE, `${zone.score} centre z`);
       const hover = mean(corners.map((corner) => corner.y)) - zone.floorHeight;
       assert.ok(hover > 0 && hover <= DECAL_HOVER_MAX, `${zone.score} hovers ${hover} m over its floor`);
       const floorRadius = zone.radius - RING_CUP_PROFILE.wallFootWidth;
       for (const corner of corners) {
         const reach = Math.hypot(corner.x - zone.centreX, corner.z - zone.centreZ);
-        assert.ok(reach <= floorRadius, `a ${zone.score} plate corner is ${reach} m out, the floor circle is ${floorRadius} m`);
+        assert.ok(reach <= floorRadius, `a ${zone.score} disc vertex is ${reach} m out, the floor circle is ${floorRadius} m`);
       }
       const alongThrow = Math.max(...corners.map((corner) => corner.x)) - Math.min(...corners.map((corner) => corner.x));
       const acrossLane = Math.max(...corners.map((corner) => corner.z)) - Math.min(...corners.map((corner) => corner.z));
-      assert.ok(Math.min(alongThrow, acrossLane) > DUMMY_LYING_WIDTH, `a ${zone.score} plate is ${alongThrow} x ${acrossLane} m: a dummy ${DUMMY_LYING_WIDTH} m wide, either way round, would cover all of it`);
-      const atlasX = mean(Array.from({ length: VERTICES_PER_QUAD }, (_, corner) => uv.getX(zoneIndex * VERTICES_PER_QUAD + corner))) * atlas.width;
-      const atlasY = (1 - mean(Array.from({ length: VERTICES_PER_QUAD }, (_, corner) => uv.getY(zoneIndex * VERTICES_PER_QUAD + corner)))) * atlas.height;
+      assert.ok(Math.min(alongThrow, acrossLane) > DUMMY_LYING_WIDTH, `a ${zone.score} disc is ${alongThrow} x ${acrossLane} m: a dummy ${DUMMY_LYING_WIDTH} m wide, either way round, would cover all of it`);
+      const atlasX = mean(members.map(({ index }) => uv.getX(index))) * atlas.width;
+      const atlasY = (1 - mean(members.map(({ index }) => uv.getY(index)))) * atlas.height;
       const [readText] = [...atlas.drawnTexts].sort((first, second) => Math.hypot(first.x - atlasX, first.y - atlasY) - Math.hypot(second.x - atlasX, second.y - atlasY));
-      assert.equal(readText!.text, String(zone.score), `the plate at the ${zone.score} zone reads ${readText!.text}`);
+      assert.equal(readText!.text, String(zone.score), `the disc at the ${zone.score} zone reads ${readText!.text}`);
     }
   });
 
-  it("when the numerals' atlas and the backboard's face were drawn, then every score and the title were written", () => {
+  it("when the numerals' atlas and the backboard's face were drawn, then every score and the title were written and the score strip shows dashes, never a number", () => {
     const writtenTexts = recordingCanvases.flatMap((canvas) => canvas.drawnTexts.map((drawn) => drawn.text));
-    for (const score of ["10", "20", "30", "40", "50", "100", "RING FLING"]) assert.ok(writtenTexts.includes(score), `"${score}" is drawn`);
+    for (const text of ["10", "20", "30", "40", "50", "100", "RING FLING", "HIGH SCORE", "---"]) assert.ok(writtenTexts.includes(text), `"${text}" is drawn`);
+    assert.ok(!writtenTexts.includes("000"), "the strip does not claim a score");
   });
 
   it("when the backboard is read, then its front face stands at the backstop's distance with the stated height, thickness and a span wider than the board", () => {
@@ -268,11 +279,28 @@ describe("given the Ring Fling station's art in station-local coordinates", () =
     assert.ok(Math.max(...faceX) < frontX && frontX - Math.max(...faceX) < RING_BACKSTOP.thickness, "the face hovers a hair in front of the slab, facing the lip");
   });
 
-  it("when the station is drawn, then it costs no more than the draw budget and the numerals are one merged mesh", () => {
+  it("when the backboard's wings are read, then one flanks each end of the slab, splayed forward and outward, clear of the board and lower than the slab", () => {
+    const wings = verticesOf(meshNamed(art, "ring-backboard-wings"));
+    const frontX = RING_BOARD_BOUNDS.maxX + RING_BACKSTOP.distancePastBoard;
+    const slabHalfWidth = (RING_BOARD_BOUNDS.maxZ - RING_BOARD_BOUNDS.minZ) / 2 + RING_RAIL_PROFILE.height;
+    for (const side of [-1, 1]) {
+      const wing = wings.filter((vertex) => Math.sign(vertex.z) === side);
+      assert.ok(wing.length > 0, `a wing on the ${side} side`);
+      assert.ok(Math.min(...wing.map((vertex) => vertex.x)) < frontX - MIN_WING_REACH, `the ${side} wing reaches forward of the slab`);
+      assert.ok(Math.max(...wing.map((vertex) => vertex.x)) <= frontX + RING_BACKSTOP.thickness + HEIGHT_TOLERANCE, `the ${side} wing stays in front of the slab's back face`);
+      assert.ok(Math.max(...wing.map((vertex) => Math.abs(vertex.z))) > slabHalfWidth + MIN_WING_REACH, `the ${side} wing splays outward past the slab's end`);
+      assert.ok(Math.min(...wing.map((vertex) => Math.abs(vertex.z))) >= RING_BOARD_BOUNDS.maxZ, `the ${side} wing stands clear of the board`);
+      assert.ok(Math.max(...wing.map((vertex) => vertex.y)) < RING_BACKSTOP.height, `the ${side} wing is lower than the slab`);
+      assert.ok(Math.abs(Math.min(...wing.map((vertex) => vertex.y))) <= HEIGHT_TOLERANCE, `the ${side} wing stands on the pad`);
+    }
+  });
+
+  it("when the station is drawn, then it costs no more than the draw budget, the numerals are one merged mesh, no two meshes share a geometry and the black pieces share one material", () => {
     const meshes = allMeshes(art);
     assert.ok(meshes.length <= RING_FLING_DRAW_BUDGET, `${meshes.length} meshes, budget ${RING_FLING_DRAW_BUDGET}`);
     assert.equal(meshes.filter((mesh) => mesh.name === "ring-numerals").length, 1, "all numerals in one mesh");
-    assert.equal(new Set(meshes.map((mesh) => mesh.material)).size, meshes.length, "each mesh has one material, none duplicated per cup");
+    assert.equal(new Set(meshes.map((mesh) => mesh.geometry)).size, meshes.length, "one geometry per mesh, none per cup");
+    assert.equal(meshNamed(art, "ring-backboard").material, meshNamed(art, "ring-backboard-wings").material, "the slab and the wings share a material");
   });
 });
 

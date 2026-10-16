@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { hypot2 } from "../kernel/physics-core.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   RING_BACKSTOP,
@@ -21,19 +20,19 @@ import { makeStationSurface, STATION_SURFACE_STYLES } from "./minigame-surface-a
  * The Ring Fling station in station-local coordinates (+x throw, x = 0 the lip, z = 0 the lane centre, y from the pad): the dark
  * lane's surface; the target board built analytically from the model's own numbers (a sloped wood plane with a wooden skirt, and in
  * glossy white a smooth round cup or pocket at each `RING_CUPS` / `RING_POCKETS` entry swept from `RING_CUP_PROFILE`, and the raised
- * rim swept from `RING_RAIL_PROFILE` along both sides and round the back corners); a numeral plate inside every cup and pocket
- * floor; and the tall black backboard with the red title and a lit score strip (the physics backstop stands where `RING_BACKSTOP`
- * puts it). Six draws.
+ * rim swept from `RING_RAIL_PROFILE` along both sides and round the back corners); a numeral disc decal inside every cup and pocket
+ * floor; and the tall black backboard with two splayed wings, the red title and a lit score strip (the physics backstop stands where
+ * `RING_BACKSTOP` puts it). Seven draws.
  */
 
-/** Most draws the whole station may cost: the surface, the wood board, the white cups and rim, the numerals, the backboard and its face. */
+/** Most draws the whole station may cost: the surface, the wood board, the white cups and rim, the numerals, the backboard, its wings and its face. */
 export const RING_FLING_DRAW_BUDGET = 10;
 
-/** The wood board is a mid tone, clearly darker than the glossy white cups and rim; the cup floors are darker still, the lane darker again. */
+/** The wood board is a mid tone, clearly darker than the glossy white cups and rim; the cup floors are light grey, a shade under the cups' white, so the black numerals read on them; the lane is darker than the board. */
 const WOOD_BOARD_COLOUR = 0x9a6a3a;
 const WOOD_SKIRT_COLOUR = 0x73502e;
 const WHITE_COLOUR = 0xf4f4f0;
-const CUP_FLOOR_COLOUR = 0x34363b;
+const CUP_FLOOR_COLOUR = 0xd8d8d0;
 const BACKBOARD_COLOUR = 0x16171b;
 const WOOD_ROUGHNESS = 0.7;
 const GLOSSY_WHITE_ROUGHNESS = 0.25;
@@ -44,18 +43,23 @@ const CUP_SEGMENTS = 64;
 const CORNER_ARC_SEGMENTS = 32;
 const RIM_RAMP_STEPS = 24;
 
-/** The numerals' atlas: one 2:1 cell per score, left to right then down, a white plate with the black numeral on it. */
-const NUMERAL_CELL_WIDTH = 256;
-const NUMERAL_CELL_HEIGHT = 128;
+/** The numerals' atlas: one square cell per score, left to right then down; a cell holds the numeral's black ink on transparent. */
+const NUMERAL_CELL_SIZE = 256;
 const NUMERAL_ATLAS_COLUMNS = 3;
-/** A numeral plate's corners reach this share of its cup's floor radius from the cup's centre: the plate lies wholly inside the floor circle. */
-const NUMERAL_PLATE_CORNER_REACH = 0.95;
-/** Height (m) a numeral plate hovers over its cup floor: clear of z-fighting. */
+/** Each numeral's disc decal is this share of its cup's floor radius across: it lies wholly inside the floor circle. */
+const NUMERAL_DISC_PER_FLOOR = 0.9;
+const NUMERAL_DISC_SEGMENTS = 48;
+/** Height (m) a numeral disc hovers over its cup floor: clear of z-fighting. */
 const NUMERAL_LIFT = 0.02;
-const NUMERAL_FONT_PER_CELL_HEIGHT = 0.8;
-const NUMERAL_TEXT_PER_CELL_WIDTH = 0.9;
-const NUMERAL_PLATE_COLOUR = "#f7f7f2";
+/** The numeral's font size and widest text, as shares of its cell; "100" at this size fits the disc's circle in the cell. */
+const NUMERAL_FONT_PER_CELL = 0.5;
+const NUMERAL_TEXT_PER_CELL = 0.8;
 const NUMERAL_INK_COLOUR = "#000000";
+/** A texel at least this opaque is the numeral; the rest of the disc is cut away. */
+const NUMERAL_ALPHA_TEST = 0.5;
+
+/** The backboard's two side wings: how far (degrees) each flares out from straight forward, its length per backboard width, and its height per backboard height. */
+const BACKBOARD_WING = { flareDegrees: 30, lengthPerBackboardWidth: 0.35, heightPerBackboardHeight: 0.55 } as const;
 
 /** The backboard's face: how far (m) it hovers in front of the panel, and its texture's width (px; the height follows the panel's proportions). */
 const FACE_LIFT = 0.02;
@@ -63,15 +67,15 @@ const FACE_CANVAS_WIDTH = 512;
 const TITLE_TEXT = "RING FLING";
 const TITLE_RED = "#d11f1f";
 const SCORE_PANEL_TEXT = "HIGH SCORE";
-const SCORE_PANEL_DIGITS = "000";
-/** Face layout as fractions of the panel: the score strip's box, the title's centre line and the size of the title and the strip's digits. */
+const SCORE_PANEL_PLACEHOLDER = "---";
+/** Face layout as fractions of the panel: the score strip's box, the title's centre line and the size of the title and the strip's dashes. */
 const SCORE_STRIP = { left: 0.2, right: 0.8, top: 0.04, bottom: 0.2 } as const;
 const TITLE_CENTRE_Y = 0.36;
 const TITLE_FONT_PER_WIDTH = 0.13;
 const TITLE_TEXT_PER_WIDTH = 0.86;
-/** The strip's two lines, each a font size and a baseline as fractions of the strip's height: the small label over the big digits. */
+/** The strip's two lines, each a font size and a baseline as fractions of the strip's height: the small label over the dash row (it claims no score). */
 const SCORE_LABEL_LINE = { fontPerHeight: 0.25, centreYPerHeight: 0.28 } as const;
-const SCORE_DIGITS_LINE = { fontPerHeight: 0.5, centreYPerHeight: 0.68 } as const;
+const SCORE_PLACEHOLDER_LINE = { fontPerHeight: 0.5, centreYPerHeight: 0.68 } as const;
 
 const COMPONENTS = 3;
 
@@ -271,36 +275,37 @@ function makeWoodGeometry(): THREE.BufferGeometry {
   return mergedAndDisposed([plane, sweepStrip([top, foot], false, WOOD_SKIRT_COLOUR, facesOutward)]);
 }
 
-/** One numeral per atlas cell: a near-white plate with the black score, centred in the cell. */
+/** One numeral per atlas cell: the black score on a transparent background, centred in the cell (the decal's circle then cuts it from the floor). */
 function drawNumeralAtlas(context: CanvasRenderingContext2D): void {
   context.textAlign = "center";
   context.textBaseline = "middle";
-  context.font = `bold ${NUMERAL_CELL_HEIGHT * NUMERAL_FONT_PER_CELL_HEIGHT}px sans-serif`;
+  context.font = `bold ${NUMERAL_CELL_SIZE * NUMERAL_FONT_PER_CELL}px sans-serif`;
+  context.fillStyle = NUMERAL_INK_COLOUR;
   for (let cell = 0; cell < NUMERAL_SCORES.length; cell++) {
-    const left = (cell % NUMERAL_ATLAS_COLUMNS) * NUMERAL_CELL_WIDTH;
-    const top = Math.floor(cell / NUMERAL_ATLAS_COLUMNS) * NUMERAL_CELL_HEIGHT;
-    context.fillStyle = NUMERAL_PLATE_COLOUR;
-    context.fillRect(left, top, NUMERAL_CELL_WIDTH, NUMERAL_CELL_HEIGHT);
-    context.fillStyle = NUMERAL_INK_COLOUR;
-    context.fillText(String(NUMERAL_SCORES[cell]), left + NUMERAL_CELL_WIDTH / 2, top + NUMERAL_CELL_HEIGHT / 2, NUMERAL_CELL_WIDTH * NUMERAL_TEXT_PER_CELL_WIDTH);
+    const left = (cell % NUMERAL_ATLAS_COLUMNS) * NUMERAL_CELL_SIZE;
+    const top = Math.floor(cell / NUMERAL_ATLAS_COLUMNS) * NUMERAL_CELL_SIZE;
+    context.fillText(String(NUMERAL_SCORES[cell]), left + NUMERAL_CELL_SIZE / 2, top + NUMERAL_CELL_SIZE / 2, NUMERAL_CELL_SIZE * NUMERAL_TEXT_PER_CELL);
   }
 }
 
-/** One flat plate per zone at its centre, sized so its corners reach `NUMERAL_PLATE_CORNER_REACH` of the floor radius, reading upright from the lip (text up = +x), textured from the zone's score cell of the atlas. */
+/**
+ * One disc decal per zone at its centre, `NUMERAL_DISC_PER_FLOOR` of the floor radius across, so it lies wholly inside the floor
+ * circle; reading upright from the lip (text up = +x); each disc maps the zone's own square atlas cell, so only the numeral shows.
+ */
 function makeNumeralGeometry(): THREE.BufferGeometry {
-  const plateWidthPerReach = 1 / hypot2(1, NUMERAL_CELL_HEIGHT / NUMERAL_CELL_WIDTH);
-  const plates = ZONES.map((zone) => {
-    const width = 2 * NUMERAL_PLATE_CORNER_REACH * floorRadiusOf(zone) * plateWidthPerReach;
-    const height = (width * NUMERAL_CELL_HEIGHT) / NUMERAL_CELL_WIDTH;
-    const plate = new THREE.PlaneGeometry(width, height).rotateX(-Math.PI / 2).rotateY(-Math.PI / 2).translate(zone.centreX, zone.floorHeight + NUMERAL_LIFT, zone.centreZ);
+  const discs = ZONES.map((zone) => {
+    const disc = new THREE.CircleGeometry(NUMERAL_DISC_PER_FLOOR * floorRadiusOf(zone), NUMERAL_DISC_SEGMENTS)
+      .rotateX(-Math.PI / 2)
+      .rotateY(-Math.PI / 2)
+      .translate(zone.centreX, zone.floorHeight + NUMERAL_LIFT, zone.centreZ);
     const cell = NUMERAL_SCORES.indexOf(zone.score);
     const column = cell % NUMERAL_ATLAS_COLUMNS;
     const row = Math.floor(cell / NUMERAL_ATLAS_COLUMNS);
-    const uv = plate.getAttribute("uv");
+    const uv = disc.getAttribute("uv");
     for (let corner = 0; corner < uv.count; corner++) uv.setXY(corner, (column + uv.getX(corner)) / NUMERAL_ATLAS_COLUMNS, 1 - (row + 1 - uv.getY(corner)) / NUMERAL_ATLAS_ROWS);
-    return plate;
+    return disc;
   });
-  return mergedAndDisposed(plates);
+  return mergedAndDisposed(discs);
 }
 
 /** The backboard's face: the red title and the lit score strip on black. */
@@ -321,8 +326,8 @@ function drawBackboardFace(context: CanvasRenderingContext2D, widthPixels: numbe
   context.font = `bold ${strip.height * SCORE_LABEL_LINE.fontPerHeight}px sans-serif`;
   context.fillText(SCORE_PANEL_TEXT, strip.left + strip.width / 2, strip.top + strip.height * SCORE_LABEL_LINE.centreYPerHeight, strip.width);
   context.fillStyle = CANVAS_WHITE;
-  context.font = `bold ${strip.height * SCORE_DIGITS_LINE.fontPerHeight}px sans-serif`;
-  context.fillText(SCORE_PANEL_DIGITS, strip.left + strip.width / 2, strip.top + strip.height * SCORE_DIGITS_LINE.centreYPerHeight, strip.width);
+  context.font = `bold ${strip.height * SCORE_PLACEHOLDER_LINE.fontPerHeight}px sans-serif`;
+  context.fillText(SCORE_PANEL_PLACEHOLDER, strip.left + strip.width / 2, strip.top + strip.height * SCORE_PLACEHOLDER_LINE.centreYPerHeight, strip.width);
   context.fillStyle = TITLE_RED;
   context.font = `bold ${widthPixels * TITLE_FONT_PER_WIDTH}px sans-serif`;
   context.fillText(TITLE_TEXT, widthPixels / 2, TITLE_CENTRE_Y * heightPixels, widthPixels * TITLE_TEXT_PER_WIDTH);
@@ -341,14 +346,36 @@ function meshOf(name: string, geometry: THREE.BufferGeometry, material: THREE.Ma
   return mesh;
 }
 
-/** The backboard: a black slab whose front face stands at `RING_BOARD_BOUNDS.maxX + RING_BACKSTOP.distancePastBoard`, spanning the board plus the rim's height either side, with its face texture a hair in front. */
+/**
+ * The backboard: a black slab whose front face stands at `RING_BOARD_BOUNDS.maxX + RING_BACKSTOP.distancePastBoard`, spanning the
+ * board plus the rim's height either side, with its face texture a hair in front; and two black wings, one off each end of the slab,
+ * splayed forward and outward like the machine's side panels (art only: the slab's `RING_BACKSTOP` is the physics).
+ */
 function makeBackboard(): THREE.Mesh[] {
   const width = RING_BOARD_BOUNDS.maxZ - RING_BOARD_BOUNDS.minZ + 2 * RING_RAIL_PROFILE.height;
   const frontX = RING_BOARD_BOUNDS.maxX + RING_BACKSTOP.distancePastBoard;
+  const blackMaterial = new THREE.MeshStandardMaterial({ color: BACKBOARD_COLOUR, roughness: 0.6, metalness: 0 });
   const slab = meshOf(
     "ring-backboard",
     new THREE.BoxGeometry(RING_BACKSTOP.thickness, RING_BACKSTOP.height, width).translate(frontX + RING_BACKSTOP.thickness / 2, RING_BACKSTOP.height / 2, 0),
-    new THREE.MeshStandardMaterial({ color: BACKBOARD_COLOUR, roughness: 0.6, metalness: 0 }),
+    blackMaterial,
+    { cast: true, receive: true },
+  );
+  const wingLength = BACKBOARD_WING.lengthPerBackboardWidth * width;
+  const wingHeight = BACKBOARD_WING.heightPerBackboardHeight * RING_BACKSTOP.height;
+  const flare = (BACKBOARD_WING.flareDegrees * Math.PI) / 180;
+  const wings = meshOf(
+    "ring-backboard-wings",
+    mergedAndDisposed(
+      ([-1, 1] as const).map((side) => {
+        const alongX = -Math.cos(flare);
+        const alongZ = side * Math.sin(flare);
+        return new THREE.BoxGeometry(wingLength, wingHeight, RING_BACKSTOP.thickness)
+          .rotateY(Math.atan2(-alongZ, alongX))
+          .translate(frontX + (alongX * wingLength) / 2, wingHeight / 2, side * (width / 2) + (alongZ * wingLength) / 2);
+      }),
+    ),
+    blackMaterial,
     { cast: true, receive: true },
   );
   const faceCanvasHeight = Math.round((FACE_CANVAS_WIDTH * RING_BACKSTOP.height) / width);
@@ -360,7 +387,7 @@ function makeBackboard(): THREE.Mesh[] {
     new THREE.MeshStandardMaterial({ map: faceTexture, emissiveMap: faceTexture, emissive: 0xffffff, roughness: 0.5, metalness: 0 }),
     { cast: false, receive: false },
   );
-  return [slab, face];
+  return [slab, wings, face];
 }
 
 export function makeRingFlingArt(): THREE.Group {
@@ -369,8 +396,8 @@ export function makeRingFlingArt(): THREE.Group {
   art.add(makeStationSurface(MINIGAME_MODE.ringFling, STATION_SURFACE_STYLES.ringFling));
   art.add(meshOf("ring-board-wood", makeWoodGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: WOOD_ROUGHNESS, metalness: 0, side: THREE.DoubleSide }), { cast: false, receive: true }));
   art.add(meshOf("ring-board-white", makeWhiteGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: GLOSSY_WHITE_ROUGHNESS, metalness: 0 }), { cast: true, receive: true }));
-  const numeralTexture = clamped(canvasTexture(NUMERAL_CELL_WIDTH * NUMERAL_ATLAS_COLUMNS, NUMERAL_CELL_HEIGHT * NUMERAL_ATLAS_ROWS, drawNumeralAtlas));
-  art.add(meshOf("ring-numerals", makeNumeralGeometry(), new THREE.MeshStandardMaterial({ map: numeralTexture, roughness: WOOD_ROUGHNESS, metalness: 0 }), { cast: false, receive: true }));
+  const numeralTexture = clamped(canvasTexture(NUMERAL_CELL_SIZE * NUMERAL_ATLAS_COLUMNS, NUMERAL_CELL_SIZE * NUMERAL_ATLAS_ROWS, drawNumeralAtlas));
+  art.add(meshOf("ring-numerals", makeNumeralGeometry(), new THREE.MeshStandardMaterial({ map: numeralTexture, alphaTest: NUMERAL_ALPHA_TEST, roughness: WOOD_ROUGHNESS, metalness: 0 }), { cast: false, receive: true }));
   for (const piece of makeBackboard()) art.add(piece);
   let draws = 0;
   art.traverse((object) => {
