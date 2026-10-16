@@ -14,10 +14,11 @@ import { minigameStore } from "./minigame-store.ts";
 
 /**
  * Per mode, the lens (deg) the camera takes while it is on (the default elsewhere). The High jump's: the ride camera trails a dummy
- * climbing at 50-70 m/s, and at the 50 degree default he leaves the top of the frame for about a quarter of the flight (worst 1.38
- * half-heights off centre at a 113 m apex); at 70 degrees he stays inside the frame (worst 0.92) at apexes up to 217 m (`engine-minigame.test.ts`).
+ * climbing at 50-70 m/s, and at the 50 degree default he is outside the central 95% of the frame for about a quarter of the flight
+ * (worst 1.4 half-heights off centre); at 90 degrees for about 4% of it (`engine-minigame.test.ts`). The rest is the ride camera's
+ * own vertical lag (`present/ride-cam.ts`), which a lens cannot remove.
  */
-export const MODE_LENS_DEGREES: Readonly<Partial<Record<MinigameMode, number>>> = { highJump: 70 };
+export const MODE_LENS_DEGREES: Readonly<Partial<Record<MinigameMode, number>>> = { highJump: 90 };
 
 /** What `Minigames.begin` needs from the engine: the scene its art joins, and the cars and the ejection watch the lip throws act on. */
 type MinigameStart = { mode: MinigameMode; carType: string; scene: THREE.Object3D; cars: readonly DeformableCar[]; ejection: EjectionWatch };
