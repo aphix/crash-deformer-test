@@ -188,6 +188,59 @@ describe("given the tyre stack texture", () => {
   }
 });
 
+describe("given the tyre stack texture's finish", () => {
+  const TYRE_CENTRE = 32;
+  const TREAD_RADIUS = 27;
+  const SIDEWALL_REACH = 12;
+  const RING_STEPS = 360;
+  const BLOCK_EDGE_RATIO = 1.6;
+  const LEAST_BLOCK_EDGES = 40;
+  const TREAD_RING_AT_ANGLE_ZERO = [
+    [59, 32],
+    [123, 32],
+    [91, 96],
+    [27, 96],
+  ] as const;
+  const LEAST_GREY_SPREAD = 10;
+
+  it("when the tread ring is walked round one degree at a time, then neighbouring texels jump by 1.6x or more at least 40 times (tread blocks and grooves)", () => {
+    const texture = textureOf("tyre");
+    const ring = Array.from({ length: RING_STEPS }, (_, step) => {
+      const angle = (step * 2 * Math.PI) / RING_STEPS;
+      return luminanceAt(texture, TYRE_CENTRE + Math.round(TREAD_RADIUS * Math.cos(angle)), TYRE_CENTRE + Math.round(TREAD_RADIUS * Math.sin(angle)));
+    });
+    let edges = 0;
+    for (let step = 0; step < RING_STEPS; step++) {
+      const here = ring[step];
+      const next = ring[(step + 1) % RING_STEPS];
+      if (Math.max(here / next, next / here) >= BLOCK_EDGE_RATIO) edges++;
+    }
+    assert.ok(edges >= LEAST_BLOCK_EDGES, "block edges round the ring");
+  });
+
+  it("when the sidewall's upper left meets its lower right, then the upper left is lighter (dusty highlight)", () => {
+    const texture = textureOf("tyre");
+    const upperLeft = luminanceAt(texture, TYRE_CENTRE - SIDEWALL_REACH, TYRE_CENTRE + SIDEWALL_REACH);
+    const lowerRight = luminanceAt(texture, TYRE_CENTRE + SIDEWALL_REACH, TYRE_CENTRE - SIDEWALL_REACH);
+    assert.ok(upperLeft > lowerRight * 1.4, "upper-left sidewall luminance over lower-right");
+  });
+
+  it("when four tyres of the tile are read at the same point of their tread, then their greys differ by 10 levels or more", () => {
+    const texture = textureOf("tyre");
+    const greys = TREAD_RING_AT_ANGLE_ZERO.map(([column, row]) => luminanceAt(texture, column, row));
+    assert.ok(Math.max(...greys) - Math.min(...greys) >= LEAST_GREY_SPREAD, "spread of the four greys (levels)");
+  });
+
+  it("when the darkest texel is found, then it is the gap between tyres and darker than a tyre's hole", () => {
+    const texture = textureOf("tyre");
+    let darkest = Infinity;
+    for (let row = 0; row < texture.image.height; row++) {
+      for (let column = 0; column < texture.image.width; column++) darkest = Math.min(darkest, luminanceAt(texture, column, row));
+    }
+    assert.ok(darkest < luminanceAt(texture, TYRE_CENTRE, TYRE_CENTRE), "darkest texel under the hole of the tyre at (32, 32)");
+  });
+});
+
 describe("given the rubber texture", () => {
   const STUD_CENTRES = [8, 24, 40, 56];
   const BETWEEN_STUDS = [16, 32, 48];
