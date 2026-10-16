@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { wrapPi } from "../kernel/scalar.ts";
@@ -34,6 +34,10 @@ const LEAVE_T = 1;
 const smoother = (b: number): number => b * b * b * (b * (b * 6 - 15) + 10);
 /** An eye further than this (m) from the camera's is cut to, not flown to. */
 const CUT_FAR = 90;
+/** A dummy faster than this (m/s) is across the frame (about 2 m at the follow distance) within the shortest ease: with a `Framing.lead` the shot change cuts instead. */
+const OUTRUN_SPEED = 3;
+/** The `Framing.lead` the minigames pass (s): about the aim's own 1/12 s lag behind a dummy climbing at up to 60 m/s, so he stays in the frame's centre 95% at the default lens. */
+export const MINIGAME_AIM_LEAD = 0.1;
 /** The aim turns at most this fast (rad/s): a dummy passing under the eye would whip a free aim past 15 rad/s. */
 const MAX_TURN = 4;
 /** The follow frame turns at most this fast (rad/s) with the dummies' travel: a dummy leaving the group never swings the eye round the rest. */
@@ -65,12 +69,13 @@ type RideShot = "glass" | "follow" | "trackside";
 /** What a ride frame did: `none` no ride, `shot` the camera is placed, `held` the user's orbit has it (aim: `RideCam.look`). */
 export type RideFrame = "none" | "shot" | "held";
 
-/** One frame's framing, from the dummies: their heads' centre, spread (m) and mean flat velocity (`n` of them). */
+/** One frame's framing, from the dummies: their heads' centre, spread (m) and summed velocity (`n` of them). */
 type Framing = {
   c: THREE.Vector3;
   spread: number;
   n: number;
   vx: number;
+  vy: number;
   vz: number;
   /** Always behind and never trackside (the range: its signs read down the throw). */
   hold: boolean;
@@ -82,9 +87,16 @@ type Framing = {
   lens: number;
   /** The scene's solids, read only when a shot is picked. */
   sight: () => Sight;
+  /**
+   * Seconds of the dummies' mean velocity the aim runs ahead of their heads, so a fast climber stays framed; 0 (every
+   * scene but the minigames): the aim is the heads. Positive also cuts, not eases, a shot change to a dummy faster than
+   * `OUTRUN_SPEED`: a flight of the eye cannot keep up with him.
+   */
+  lead: number;
 };
 
 const _p = new THREE.Vector3();
+const _aim = new THREE.Vector3();
 const _eye = new THREE.Vector3();
 const _vel = new THREE.Vector3();
 
@@ -92,7 +104,7 @@ export class RideCam {
   shot: RideShot = "follow";
   /** The aim, eased toward the dummies' heads; the orbit looks at it while the user holds the camera. */
   readonly look = new THREE.Vector3();
-  readonly framing: Framing = { c: new THREE.Vector3(), spread: 0, n: 1, vx: 0, vz: 0, hold: false, held: false, cut: false, lens: 50, sight: () => ({ ground: activeGround(), path: null, wallTop: 0, rim: Infinity, occ: [] }) };
+  readonly framing: Framing = { c: new THREE.Vector3(), spread: 0, n: 1, vx: 0, vy: 0, vz: 0, hold: false, held: false, cut: false, lens: 50, sight: () => ({ ground: activeGround(), path: null, wallTop: 0, rim: Infinity, occ: [] }), lead: 0 };
   /** The shot's eye (smoothed for the follow shot, fixed for the others). */
   private readonly pos = new THREE.Vector3();
   private readonly eye = new THREE.Vector3();
@@ -205,7 +217,7 @@ export class RideCam {
     } else if (f.cut) {
       this.change(camera, f, "follow");
     }
-    this.look.lerp(f.c, 1 - Math.exp(-12 * dt));
+    this.look.lerp(this.aimPoint(_aim, f), 1 - Math.exp(-12 * dt));
     if (f.held) {
       this.resume = true;
       return "held";
@@ -215,7 +227,7 @@ export class RideCam {
       this.resume = false;
       this.snap = true;
       if (this.shot === "follow") this.followEye(this.pos, f);
-      this.startBlend(camera);
+      this.startBlend(camera, f);
     }
     this.age += dt;
     this.rotate(camera, dt, f);
@@ -223,19 +235,26 @@ export class RideCam {
     return "shot";
   }
 
-  /** Ease from the camera's pose to the shot's (`pos`, already set), unless it is across the field. */
-  private startBlend(camera: THREE.PerspectiveCamera): void {
+  /** Ease from the camera's pose to the shot's (`pos`, already set), unless it is across the field or he outruns the ease. */
+  private startBlend(camera: THREE.PerspectiveCamera, f: Framing): void {
     this.from.copy(camera.position);
     this.fromQ.copy(camera.quaternion);
     const fly = this.from.distanceTo(this.pos);
-    this.blend = fly > CUT_FAR ? 1 : 0;
+    this.blend = fly > CUT_FAR || (f.lead > 0 && hypot3(f.vx, f.vy, f.vz) > OUTRUN_SPEED * f.n) ? 1 : 0;
     this.blendT = THREE.MathUtils.clamp(fly / FLY_SPEED, BLEND_T, BLEND_MAX);
+  }
+
+  /** Where the aim eases to: the heads' centre, `f.lead` s of their mean velocity ahead. */
+  private aimPoint(out: THREE.Vector3, f: Framing): THREE.Vector3 {
+    if (f.lead === 0) return out.copy(f.c);
+    const ahead = f.lead / f.n;
+    return out.set(f.c.x + f.vx * ahead, f.c.y + f.vy * ahead, f.c.z + f.vz * ahead);
   }
 
   /** Cut to `shot`, easing from where the camera is (unless the user holds it: the return from the orbit eases then). */
   private change(camera: THREE.PerspectiveCamera, f: Framing, shot: RideShot): void {
     this.enter(f, shot);
-    if (!f.held) this.startBlend(camera);
+    if (!f.held) this.startBlend(camera, f);
   }
 
   private enter(f: Framing, shot: RideShot): void {
