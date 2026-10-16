@@ -289,12 +289,15 @@ describe("given boxes a dummy has scattered", () => {
     for (let frame = 0; frame < HIT_FRAMES; frame++) sys.update(FRAME, [], true, false, null);
     const awakeAtRelease = boxBodiesOf(sys).filter((body) => !body.isSleeping()).length;
     sys.releaseThrown();
+    sys.update(FRAME, [], true, false, null);
+    const stepWithBoxesAlone = sys["step"];
     for (let frame = 0; frame < 20 * FRAME_HZ; frame++) sys.update(FRAME, [], true, false, null);
     const lowest = Math.min(...boxBodiesOf(sys).map((body, i) => body.translation().y - Math.min(PLACEMENTS[i]!.width, PLACEMENTS[i]!.height, PLACEMENTS[i]!.depth) / 2));
     const asleep = allAsleep(sys);
     const poolAsleep = sys["boxes"].asleep();
     sys.dispose();
     assert.ok(awakeAtRelease > 0, "boxes were still moving when he went");
+    assert.equal(stepWithBoxesAlone, STEP, "boxes tumbling alone are stepped as finely as a dummy is: they have no continuous collision detection");
     assert.ok(asleep && poolAsleep, "every box ended asleep");
     assert.ok(lowest > -BOX_SETTLE_SOAK, `a box ended with its lowest face ${lowest.toFixed(3)} m: under the pad`);
   });
@@ -311,6 +314,30 @@ describe("given boxes a dummy has scattered", () => {
     sys.dispose();
     assert.ok(awakeWhenDummySlept >= 0, "he fell asleep");
     assert.ok(asleep, "every box ended asleep");
+  });
+});
+
+/** A shove (m/s) like the ones that matter to the damping's derivation, and the share of the undamped slide a damped carton may still travel (measured 0.47). */
+const SHOVE_SPEED = 10;
+const DAMPED_SLIDE_SHARE_MAX = 0.6;
+const SHOVE_SECONDS = 5;
+
+describe("given two cartons on the flat ground beside the pile, one with its air drag taken off", () => {
+  it("when both are shoved along the pad at 10 m/s, then the carton with air drag slides under 0.6 of what the other does", async () => {
+    const sys = await system([]);
+    const lane = [-4, 4].map((offset) => ({ x: anchor.x + 14, y: 1, z: anchor.z + offset, yaw: 0, width: 2, height: 2, depth: 2 }));
+    sys.setBoxes(lane);
+    flyFarAway(sys);
+    const [damped, undamped] = boxBodiesOf(sys);
+    undamped!.setLinearDamping(0);
+    undamped!.setAngularDamping(0);
+    for (const body of [damped!, undamped!]) body.setLinvel({ x: SHOVE_SPEED, y: 0, z: 0 }, true);
+    for (let frame = 0; frame < SHOVE_SECONDS * FRAME_HZ; frame++) sys.update(FRAME, [], true, false, null);
+    const dampedSlide = damped!.translation().x - lane[0]!.x;
+    const undampedSlide = undamped!.translation().x - lane[1]!.x;
+    sys.dispose();
+    assert.ok(undampedSlide > 1, `the control slid ${undampedSlide.toFixed(2)} m: it was shoved`);
+    assert.ok(dampedSlide < DAMPED_SLIDE_SHARE_MAX * undampedSlide, `with air drag it slid ${dampedSlide.toFixed(2)} m against ${undampedSlide.toFixed(2)} m without`);
   });
 });
 

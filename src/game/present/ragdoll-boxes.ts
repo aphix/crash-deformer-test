@@ -26,7 +26,7 @@ const CARDBOARD_KG_PER_SQUARE_METRE = 0.55;
  * drag: its fall speed is under 6 m/s, and without any (the dummy's 0.05 per s) a shoved box slid 40 m (measured).
  */
 const CARDBOARD_DAMPING = 1.9;
-/** Cardboard's grip; its Max rule holds it against the dummy's own Min-rule 0.12 (`SLIDE`), without which 15-25 m/s landings skated 4-8 m past the pile (measured). */
+/** Cardboard's grip; its Max rule holds it against the dummy's own Min-rule 0.12 (`SLIDE`), without which a dummy skated over the stacks and 10 of 15 drops moved no box (measured). */
 const CARDBOARD_FRICTION = 0.6;
 /** A carton hardly bounces. */
 const CARDBOARD_RESTITUTION = 0.05;
