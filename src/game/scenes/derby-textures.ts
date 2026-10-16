@@ -1,7 +1,5 @@
 import * as THREE from "three";
-import { detCos, detSin, hypot2 } from "../kernel/physics-core.js";
-import { CAR_HALF } from "../vehicle/car-mesh.ts";
-import { DERBY_ARENA } from "./constants.ts";
+import { detCos, hypot2 } from "../kernel/physics-core.js";
 
 /** Procedural `DataTexture`s of the derby arena (no canvas: node tests build them), seeded so every build is identical. */
 /** Row 0 is the bottom (v = 0), column 0 the left (u = 0); sRGB, linear magnification, mipmapped. */
@@ -23,61 +21,9 @@ const COOL_TINT = 1.06;
 const RANDOM_MULTIPLIER = 1664525;
 const RANDOM_INCREMENT = 1013904223;
 const RANDOM_RANGE = 2 ** 32;
-const SEEDS = { dirt: 4117, plank: 91, corrugated: 7731, tyre: 5, rubber: 23, wall: 2718, barrier: 77, glass: 31 } as const;
+const SEEDS = { plank: 91, corrugated: 7731, tyre: 5, rubber: 23, wall: 2718, barrier: 77, glass: 31 } as const;
 
-/** Dirt floor: plan texture size (texels), covering the square `2 x (radius + 1)` m: the floor reaches one metre past the radius. */
-const DIRT_SIZE = 1024;
-export const DIRT_EXTENT = DERBY_ARENA.radius + 1;
-const DIRT_METRES_PER_TEXEL = (2 * DIRT_EXTENT) / DIRT_SIZE;
-/** Mid grey: the floor's vertex colour supplies the brown hue. */
-const DIRT_BASE_GREY = 190;
-/** Per texel grit spread (channel levels), small: the dirt must not read as speckle. */
-const DIRT_GRIT_SPREAD = 10;
-/** Smooth layers of the dirt: cells across the whole square (blotches 16 m, mottling 6 m, patches 2 m, clods 0.6 m) and their spread (channel levels). */
-const DIRT_NOISE_LAYERS = [
-  { cells: 5, spread: 40 },
-  { cells: 13, spread: 30 },
-  { cells: 40, spread: 22 },
-  { cells: 130, spread: 22 },
-] as const;
-/** Damp patches: noise cells across the square, the noise band they appear in (wide: soft edges), the share of the dirt they darken. */
-const DIRT_DAMP = { cells: 7, from: 0.4, to: 0.85, darken: 0.16 };
-
-/** Tyre tracks: stroke width (plan 0.3 m), the gauge a pair is laid at (the car's wheel pair, plan `2 x CAR_HALF.x`), the pushed-up edge width (m). */
-const TRACK_HALF_WIDTH = 0.15;
-export const TRACK_GAUGE = 2 * CAR_HALF.x;
-const TRACK_RIDGE_WIDTH = 0.14;
-/** Stamp spacing along a path (m): under one dirt texel, so a stroke is solid; and the share of an open path's length each end fades over. */
-const TRACK_STEP = 0.06;
-const TRACK_END_FADE = 0.06;
-/** Share of the dirt a full-strength track removes; the lift (channel levels) of an edge. */
-const TRACK_DARKEN = 0.62;
-const TRACK_RIDGE_LIFT = 36;
-/** A track fades along its length (noise cells across the square, the noise band, the share left at the weakest). */
-const TRACK_FADE_CELLS = 40;
-const TRACK_FADE_BAND = [0.25, 0.65] as const;
-const TRACK_FADE_FLOOR = 0.4;
-/** Share of the core width (from the middle) that is fully dark before the soft edge. */
-const TRACK_CORE_SHARE = 0.55;
-const TRACK_PAIR_SIDES = [-1, 1] as const;
-/** Each path is driven several laps: sideways offsets (m) of the laps, the strength of a later lap, the wander cycles along a path and the phase a lap shifts them by. */
-const TRACK_LAP_OFFSETS = [0, 0.38, -0.31] as const;
-const TRACK_LAP_STRENGTH = 0.75;
-const TRACK_WANDER_CYCLES = 7;
-const TRACK_LAP_PHASE = 0.37;
-
-export type TrackPath = { x: number; z: number; radiusX: number; radiusZ: number; tilt: number; figureEight: boolean; startRadians: number; sweepRadians: number; strength: number; wander: number };
 const FULL_TURN = 2 * Math.PI;
-/** Flat-data driving lines laid across the arena (m, radians): loops, figure-eights and arcs, all inside radius 36; `wander` is the sideways drift (m). */
-export const DIRT_TRACK_PATHS: readonly TrackPath[] = [
-  { x: -2, z: 2, radiusX: 26, radiusZ: 22, tilt: 0.3, figureEight: false, startRadians: 0, sweepRadians: FULL_TURN, strength: 1, wander: 0.18 },
-  { x: 6, z: -6, radiusX: 18, radiusZ: 10, tilt: -0.5, figureEight: true, startRadians: 0, sweepRadians: FULL_TURN, strength: 0.9, wander: 0.15 },
-  { x: 0, z: 4, radiusX: 30, radiusZ: 27, tilt: 0, figureEight: false, startRadians: 0.6, sweepRadians: 3.2, strength: 0.7, wander: 0.22 },
-  { x: -14, z: -14, radiusX: 9, radiusZ: 7, tilt: 0.8, figureEight: false, startRadians: 0, sweepRadians: FULL_TURN, strength: 1, wander: 0.12 },
-  { x: -8, z: 12, radiusX: 12, radiusZ: 7, tilt: 1.2, figureEight: true, startRadians: 0, sweepRadians: FULL_TURN, strength: 0.8, wander: 0.14 },
-  { x: 8, z: 0, radiusX: 27, radiusZ: 24, tilt: 0.6, figureEight: false, startRadians: 3.14, sweepRadians: 3.8, strength: 0.65, wander: 0.2 },
-];
-
 /** Planks: texture size, the tile (m, a 1 m board), planks across a tile (0.25 m each), dark gap (texels, each side of an edge: 1.5 cm), nail size and inset from a board end (texels). */
 const PLANK_SIZE = 256;
 const PLANK_COUNT = 4;
@@ -104,7 +50,7 @@ const PLANK_NAIL_COLOUR = [58, 52, 48];
 const CORRUGATED_SIZE = 128;
 const CORRUGATED_RIBS = 5;
 const CORRUGATED_RIB_DEPTH = 0.5;
-const CORRUGATED_GRAIN = 0.06;
+const CORRUGATED_GRAIN = 0.015;
 const CORRUGATED_BASE = [228, 228, 226];
 /** Door-end seam (column, texels wide) and its locking bar (columns). */
 const CORRUGATED_SEAM_COLUMN = 64;
@@ -113,14 +59,14 @@ const CORRUGATED_BAR_COLUMNS = { first: 54, last: 59 };
 const CORRUGATED_SEAM_SHADE = 0.3;
 const CORRUGATED_BAR_SHADE = 1.18;
 /** Rust streaks running down: count, width range, length range (texels). */
-const RUST_STREAK_COUNT = 6;
-const RUST_WIDTH = { least: 2, spread: 4 };
-const RUST_LENGTH = { least: 24, spread: 80 };
-/** Rust tint (channel multipliers) and the blotch noise cells and threshold. */
-const RUST_TINT = [0.82, 0.54, 0.38];
+const RUST_STREAK_COUNT = 8;
+const RUST_WIDTH = { least: 3, spread: 6 };
+const RUST_LENGTH = { least: 30, spread: 80 };
+/** Rust tint (channel multipliers): dark enough to read on the blue, red and rusted instance colours alike. */
+const RUST_TINT = [0.58, 0.32, 0.18];
 const RUST_BLOTCH_CELLS = 9;
-const RUST_BLOTCH_FROM = 0.7;
-const RUST_BLOTCH_TO = 0.9;
+const RUST_BLOTCH_FROM = 0.75;
+const RUST_BLOTCH_TO = 0.93;
 /** A streak's top starts at least this share up the tile; it fades over the part of its length beyond this fraction. */
 const RUST_TOP_FROM = 0.5;
 const RUST_FADE_FROM = 0.4;
@@ -257,7 +203,7 @@ function wrapDistance(first: number, second: number, period: number): number {
 }
 
 /** 0 below `from`, 1 above `to`, smooth between. */
-function ramp(from: number, to: number, value: number): number {
+export function ramp(from: number, to: number, value: number): number {
   const share = Math.min(1, Math.max(0, (value - from) / (to - from)));
   return share * share * (3 - 2 * share);
 }
@@ -267,7 +213,7 @@ function scaled(colour: readonly number[], factor: number): Texel {
 }
 
 /** Smooth value noise over the unit square, wrapping at its edges so a tile stays seamless; `at(u, v)` is 0-1. */
-function makeValueNoise(random: () => number, cellsAcross: number, cellsDown: number): (u: number, v: number) => number {
+export function makeValueNoise(random: () => number, cellsAcross: number, cellsDown: number): (u: number, v: number) => number {
   const lattice = Float32Array.from({ length: cellsAcross * cellsDown }, random);
   return (u, v) => {
     const x = u * cellsAcross;
@@ -295,96 +241,6 @@ function stampDisc(mask: Float32Array, size: number, centreColumn: number, centr
       mask[wrapped(row, size) * size + wrapped(column, size)] = 1;
     }
   }
-}
-
-/** A point of a driving line at `fraction` (0-1) of its sweep, with its unit heading; `lap` shifts it sideways (`TRACK_LAP_OFFSETS`) and changes its wander. */
-export function pointOnPath(path: TrackPath, fraction: number, lap = 0) {
-  const angle = path.startRadians + path.sweepRadians * fraction;
-  const localX = path.radiusX * detSin(angle);
-  const localZ = path.figureEight ? path.radiusZ * detSin(2 * angle) : path.radiusZ * detCos(angle);
-  const slopeX = path.radiusX * detCos(angle);
-  const slopeZ = path.figureEight ? 2 * path.radiusZ * detCos(2 * angle) : -path.radiusZ * detSin(angle);
-  const cosine = detCos(path.tilt);
-  const sine = detSin(path.tilt);
-  const heading = hypot2(slopeX, slopeZ);
-  const headingX = (slopeX * cosine - slopeZ * sine) / heading;
-  const headingZ = (slopeX * sine + slopeZ * cosine) / heading;
-  const sideways = path.wander * detSin(FULL_TURN * (TRACK_WANDER_CYCLES * fraction + lap * TRACK_LAP_PHASE)) + TRACK_LAP_OFFSETS[lap];
-  return {
-    x: path.x + localX * cosine - localZ * sine - headingZ * sideways,
-    z: path.z + localX * sine + localZ * cosine + headingX * sideways,
-    headingX,
-    headingZ,
-  };
-}
-
-type TrackLayers = { groove: Float32Array; ridge: Float32Array };
-
-/** One tyre contact: the groove (dark core) and the pushed-up edge around the world point, each keeping its strongest stamp. */
-function stampTrack(layers: TrackLayers, worldX: number, worldZ: number, strength: number): void {
-  const centreColumn = (worldX + DIRT_EXTENT) / DIRT_METRES_PER_TEXEL;
-  const centreRow = (worldZ + DIRT_EXTENT) / DIRT_METRES_PER_TEXEL;
-  const reach = Math.ceil((TRACK_HALF_WIDTH + TRACK_RIDGE_WIDTH) / DIRT_METRES_PER_TEXEL);
-  const ridgePeak = TRACK_HALF_WIDTH + TRACK_RIDGE_WIDTH / 2;
-  const lastRow = Math.min(DIRT_SIZE - 1, Math.floor(centreRow) + reach);
-  const lastColumn = Math.min(DIRT_SIZE - 1, Math.floor(centreColumn) + reach);
-  for (let row = Math.max(0, Math.floor(centreRow) - reach); row <= lastRow; row++) {
-    for (let column = Math.max(0, Math.floor(centreColumn) - reach); column <= lastColumn; column++) {
-      const distance = hypot2(column + 0.5 - centreColumn, row + 0.5 - centreRow) * DIRT_METRES_PER_TEXEL;
-      if (distance > TRACK_HALF_WIDTH + TRACK_RIDGE_WIDTH) continue;
-      const index = row * DIRT_SIZE + column;
-      const groove = strength * (1 - ramp(TRACK_HALF_WIDTH * TRACK_CORE_SHARE, TRACK_HALF_WIDTH, distance));
-      const ridge = strength * Math.max(0, 1 - Math.abs(distance - ridgePeak) / (TRACK_RIDGE_WIDTH / 2));
-      if (groove > layers.groove[index]) layers.groove[index] = groove;
-      if (ridge > layers.ridge[index]) layers.ridge[index] = ridge;
-    }
-  }
-}
-
-/** Every path driven `TRACK_LAP_OFFSETS.length` laps as a pair of strokes `TRACK_GAUGE` apart, faded along its length by `fade`. */
-function paintTracks(fade: (u: number, v: number) => number): TrackLayers {
-  const layers = { groove: new Float32Array(DIRT_SIZE * DIRT_SIZE), ridge: new Float32Array(DIRT_SIZE * DIRT_SIZE) };
-  for (const path of DIRT_TRACK_PATHS) {
-    const turns = path.figureEight ? 2 : 1;
-    const samples = Math.ceil((path.sweepRadians * Math.max(path.radiusX, path.radiusZ) * turns) / TRACK_STEP);
-    for (let lap = 0; lap < TRACK_LAP_OFFSETS.length; lap++) {
-      const lapStrength = path.strength * (lap === 0 ? 1 : TRACK_LAP_STRENGTH);
-      for (let sample = 0; sample <= samples; sample++) {
-        const point = pointOnPath(path, sample / samples, lap);
-        const fadeNoise = fade((point.x + DIRT_EXTENT) / (2 * DIRT_EXTENT), (point.z + DIRT_EXTENT) / (2 * DIRT_EXTENT));
-        const along = sample / samples;
-        const endFade = path.sweepRadians < FULL_TURN ? Math.min(ramp(0, TRACK_END_FADE, along), ramp(0, TRACK_END_FADE, 1 - along)) : 1;
-        const strength = lapStrength * endFade * (TRACK_FADE_FLOOR + (1 - TRACK_FADE_FLOOR) * ramp(TRACK_FADE_BAND[0], TRACK_FADE_BAND[1], fadeNoise));
-        for (const side of TRACK_PAIR_SIDES) {
-          stampTrack(layers, point.x - point.headingZ * side * (TRACK_GAUGE / 2), point.z + point.headingX * side * (TRACK_GAUGE / 2), strength);
-        }
-      }
-    }
-  }
-  return layers;
-}
-
-/** Compacted dirt in grey: blotches, mottling, damp patches, clods, fine grit and the tyre tracks of `DIRT_TRACK_PATHS`; column = +x, row = +z over `DIRT_EXTENT` each way. */
-export function makeDirtTexture(): THREE.DataTexture {
-  const random = makeSeededRandom(SEEDS.dirt);
-  const layers = DIRT_NOISE_LAYERS.map(({ cells, spread }) => ({ noise: makeValueNoise(random, cells, cells), spread }));
-  const damp = makeValueNoise(random, DIRT_DAMP.cells, DIRT_DAMP.cells);
-  const { groove, ridge } = paintTracks(makeValueNoise(random, TRACK_FADE_CELLS, TRACK_FADE_CELLS));
-  return makeTexture(
-    DIRT_SIZE,
-    DIRT_SIZE,
-    (column, row) => {
-      const u = (column + 0.5) / DIRT_SIZE;
-      const v = (row + 0.5) / DIRT_SIZE;
-      let level = DIRT_BASE_GREY + (random() - 0.5) * DIRT_GRIT_SPREAD;
-      for (const layer of layers) level += (layer.noise(u, v) - 0.5) * layer.spread;
-      level *= 1 - ramp(DIRT_DAMP.from, DIRT_DAMP.to, damp(u, v)) * DIRT_DAMP.darken;
-      const index = row * DIRT_SIZE + column;
-      level = level * (1 - groove[index] * TRACK_DARKEN) + ridge[index] * (1 - groove[index]) * TRACK_RIDGE_LIFT;
-      return [level, level, level];
-    },
-    TEXTURE_WRAP.clamp,
-  );
 }
 
 /** Four planks of a 1 m tile across (rows), staggered butt joints, dark gaps, grain along each board, a nail near each board end. */

@@ -2,26 +2,20 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import {
-  DIRT_EXTENT,
-  DIRT_TRACK_PATHS,
   GLASS_CELL_ALPHA,
   GLASS_STREAK_ALPHA,
   HAZARD_BAND_METRES,
-  TRACK_GAUGE,
   WALL_HEIGHT_METRES,
   makeBarrierTexture,
   makeConcreteWallTexture,
   makeCorrugatedTexture,
-  makeDirtTexture,
   makeGlassTexture,
   makePlankTexture,
   makeRubberTexture,
   makeTyreStackTexture,
-  pointOnPath,
 } from "./derby-textures.ts";
 
 const BUILDERS = {
-  dirt: makeDirtTexture,
   plank: makePlankTexture,
   corrugated: makeCorrugatedTexture,
   tyre: makeTyreStackTexture,
@@ -66,12 +60,6 @@ function columnMean(texture: THREE.DataTexture, column: number, fromRow: number,
   return total / (toRow - fromRow);
 }
 
-function dirtLuminanceAt(texture: THREE.DataTexture, worldX: number, worldZ: number): number {
-  const column = Math.floor(((worldX + DIRT_EXTENT) / (2 * DIRT_EXTENT)) * texture.image.width);
-  const row = Math.floor(((worldZ + DIRT_EXTENT) / (2 * DIRT_EXTENT)) * texture.image.height);
-  return luminanceAt(texture, column, row);
-}
-
 function firstMismatch(first: THREE.DataTexture, second: THREE.DataTexture): number {
   for (let index = 0; index < first.image.data.length; index++) {
     if (first.image.data[index] !== second.image.data[index]) return index;
@@ -81,7 +69,6 @@ function firstMismatch(first: THREE.DataTexture, second: THREE.DataTexture): num
 
 describe("given each procedural arena texture", () => {
   const shapeCases = [
-    { it: "when the dirt is built, then it is 1024 x 1024, clamped, opaque", builder: "dirt", width: 1024, height: 1024, wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping, hasTranslucentTexel: false },
     { it: "when the planks are built, then they are 256 x 256, repeating, opaque", builder: "plank", width: 256, height: 256, wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping, hasTranslucentTexel: false },
     { it: "when the corrugated metal is built, then it is 128 x 128, repeating, opaque", builder: "corrugated", width: 128, height: 128, wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping, hasTranslucentTexel: false },
     { it: "when the tyre stack is built, then it is 128 x 128, repeating, opaque", builder: "tyre", width: 128, height: 128, wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping, hasTranslucentTexel: false },
@@ -109,7 +96,6 @@ describe("given each procedural arena texture", () => {
   }
 
   const determinismCases = [
-    { it: "when the dirt texture is built twice, then no texel differs", builder: "dirt" },
     { it: "when the plank texture is built twice, then no texel differs", builder: "plank" },
     { it: "when the corrugated texture is built twice, then no texel differs", builder: "corrugated" },
     { it: "when the tyre texture is built twice, then no texel differs", builder: "tyre" },
@@ -159,6 +145,27 @@ describe("given the corrugated metal texture", () => {
       assert.ok(columnMean(texture, testCase.crestColumn, 0, height) > columnMean(texture, testCase.troughColumn, 0, height), "crest column mean over trough column mean");
     });
   }
+});
+
+describe("given the corrugated metal texture with rust", () => {
+  const RUST_RED_OVER_BLUE = 1.5;
+  const PLAIN_METAL_RED = 228;
+  const RUST_DARKER_THAN_PLAIN_SHARE = 0.75;
+  it("when its texels are scanned, then rust streaks are present as brown texels darker than the plain metal", () => {
+    const texture = textureOf("corrugated");
+    let rustTexels = 0;
+    let plainTexels = 0;
+    for (let row = 0; row < texture.image.height; row++) {
+      for (let column = 0; column < texture.image.width; column++) {
+        const red = channelAt(texture, column, row, 0);
+        const blue = channelAt(texture, column, row, BLUE_INDEX);
+        if (red > blue * RUST_RED_OVER_BLUE && red < PLAIN_METAL_RED * RUST_DARKER_THAN_PLAIN_SHARE) rustTexels++;
+        else if (red <= blue * RUST_RED_OVER_BLUE) plainTexels++;
+      }
+    }
+    assert.ok(rustTexels > 0, "rust texels");
+    assert.ok(plainTexels > rustTexels, "plain metal texels outnumber rust texels");
+  });
 });
 
 describe("given the tyre stack texture", () => {
@@ -308,73 +315,5 @@ describe("given the glass texture", () => {
       if (alpha < OPAQUE && alpha > strongestInterior) strongestInterior = alpha;
     }
     assert.equal(strongestInterior, GLASS_STREAK_ALPHA, "strongest interior alpha");
-  });
-});
-
-describe("given the dirt texture and its tyre track paths", () => {
-  const TRACK_SAMPLES = 150;
-  const OFF_LOOP_SAMPLES = 600;
-  const MIN_METRES_OFF = 1;
-  const LATTICE_STEP = 1.5;
-  const LATTICE_REACH = 33;
-  const TRACK_DARKER_SHARE = 0.85;
-  const RIDGE_OFFSET = 0.22;
-  const PLAIN_OFFSET = 0.9;
-  const GRIT_ADJACENT_LIMIT = 6;
-  const lapOffsetOfOuterLap = 1;
-
-  function strokePoints(lap: number, samples: number) {
-    const points = [];
-    for (const path of DIRT_TRACK_PATHS) {
-      for (let sample = 0; sample < samples; sample++) {
-        const point = pointOnPath(path, sample / samples, lap);
-        for (const side of [-1, 1]) {
-          points.push({ x: point.x - point.headingZ * side * (TRACK_GAUGE / 2), z: point.z + point.headingX * side * (TRACK_GAUGE / 2), side, headingX: point.headingX, headingZ: point.headingZ });
-        }
-      }
-    }
-    return points;
-  }
-
-  function offLoopMeanLuminance(texture: THREE.DataTexture): number {
-    const strokes = [0, 1, 2].flatMap((lap) => strokePoints(lap, OFF_LOOP_SAMPLES));
-    let total = 0;
-    let count = 0;
-    for (let worldX = -LATTICE_REACH; worldX <= LATTICE_REACH; worldX += LATTICE_STEP) {
-      for (let worldZ = -LATTICE_REACH; worldZ <= LATTICE_REACH; worldZ += LATTICE_STEP) {
-        if (strokes.some((stroke) => (stroke.x - worldX) ** 2 + (stroke.z - worldZ) ** 2 < MIN_METRES_OFF ** 2)) continue;
-        total += dirtLuminanceAt(texture, worldX, worldZ);
-        count++;
-      }
-    }
-    return total / count;
-  }
-
-  it("when texels on the track strokes meet dirt a metre off every loop, then the tracks are darker on average", () => {
-    const texture = textureOf("dirt");
-    const onTrack = strokePoints(0, TRACK_SAMPLES);
-    let total = 0;
-    for (const stroke of onTrack) total += dirtLuminanceAt(texture, stroke.x, stroke.z);
-    assert.ok(total / onTrack.length < offLoopMeanLuminance(texture) * TRACK_DARKER_SHARE, "mean track luminance under mean off-loop luminance");
-  });
-
-  it("when the pushed-up edge outside the outermost lap meets plain dirt beside it, then the edge is lighter on average", () => {
-    const texture = textureOf("dirt");
-    const outerLap = strokePoints(lapOffsetOfOuterLap, TRACK_SAMPLES).filter((stroke) => stroke.side === 1);
-    let edgeTotal = 0;
-    let plainTotal = 0;
-    for (const stroke of outerLap) {
-      edgeTotal += dirtLuminanceAt(texture, stroke.x - stroke.headingZ * RIDGE_OFFSET, stroke.z + stroke.headingX * RIDGE_OFFSET);
-      plainTotal += dirtLuminanceAt(texture, stroke.x - stroke.headingZ * PLAIN_OFFSET, stroke.z + stroke.headingX * PLAIN_OFFSET);
-    }
-    assert.ok(edgeTotal / outerLap.length > plainTotal / outerLap.length, "mean edge luminance over mean plain luminance");
-  });
-
-  it("when horizontally adjacent texels of plain dirt are compared, then they differ by little (smooth, not speckle)", () => {
-    const texture = textureOf("dirt");
-    const PROBE_ROW = 16;
-    let difference = 0;
-    for (let column = 0; column < texture.image.width - 1; column++) difference += Math.abs(luminanceAt(texture, column, PROBE_ROW) - luminanceAt(texture, column + 1, PROBE_ROW));
-    assert.ok(difference / (texture.image.width - 1) < GRIT_ADJACENT_LIMIT, "mean adjacent texel difference");
   });
 });
