@@ -31,6 +31,7 @@ import { VIP_LOOK } from "../present/people.ts";
 import { throwComing } from "../present/ragdoll-trigger.ts";
 import { ChaseCamera, centroid, SHAKE_DECAY_PER_S, type SpecScene } from "../present/engine-camera.ts";
 import { blankFreeInput, sceneExtent } from "../present/free-cam.ts";
+import { MINIGAME_AIM_LEAD } from "../present/ride-cam.ts";
 import { THROW_BOOST } from "../scenes/minigame-constants.ts";
 import { readFreeInput } from "./engine-free.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
@@ -813,7 +814,7 @@ export class CrashEngine extends EngineGarage {
     const watched = this.followedCar() ? this.seat.carIndex : -1;
     const held = this.view.rideHeld(this.ragdolls.rideAlong, wallDt);
     const waits = this.cine.holding && !this.showRange;
-    const ride = waits ? "none" : this.ragdolls.frameCamera(this.camera, wallDt, this.showRange, watched, held, this.view.lens, this.specScene.sight);
+    const ride = waits ? "none" : this.ragdolls.frameCamera(this.camera, wallDt, this.showRange, watched, held, this.view.lens, this.specScene.sight, this.minigameMode === null ? 0 : MINIGAME_AIM_LEAD);
     this.view.frameRide(ride === "none" ? null : this.ragdolls.rideLook);
     if (ride === "held") this.view.orbit(wallDt, 0, false);
     if (ride !== "none" || cut) return;

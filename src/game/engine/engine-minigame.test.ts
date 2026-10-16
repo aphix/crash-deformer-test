@@ -6,6 +6,7 @@ import "../kernel/rapier-node.test-util.ts";
 import type { MinigameHudState } from "../scenes/minigame-session.ts";
 import { HudStore } from "../hud/hud-store.ts";
 import { FRAME_HZ } from "../kernel/constants.ts";
+import { MINIGAME_AIM_LEAD } from "../present/ride-cam.ts";
 import { BOX_POSE_FLOATS } from "../present/ragdoll-boxes.ts";
 import { DISC_RADIUS, activeGround, setGround, type Ground } from "../world/ground.ts";
 import { MINIGAME_MODES, REST_HOLD, STATION_ANCHORS, THROW_BOOST, type MinigameMode } from "../scenes/minigame-constants.ts";
@@ -33,8 +34,6 @@ const START_TOLERANCE = 0.05;
 /** The parked car shows within this share of the frame's half-size from its middle, and the eye stands within this many metres of it. */
 const PARKED_CAR_FRAME_LIMIT = 0.5;
 const PARKED_CAR_EYE_DISTANCE_LIMIT = 30;
-/** The High jump's dummy may be outside the central 95% of the frame for at most this share of his flight (the ride camera lags his climb; 50 degrees measures about 0.25). */
-const MAX_SHARE_OUT_OF_FRAME = 0.05;
 
 /** An in-memory `localStorage`, the browser's key/value store. */
 function memoryStorage(): Storage {
@@ -411,8 +410,8 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
   describe("given the High jump's dummy climbing to a great height", () => {
     const FRAME_EDGE = 0.95;
     const cases = [
-      { it: "when he is thrown as the sim throws him, then he is inside the central frame for all but a twentieth of his flight to rest", upward: 1 },
-      { it: "when he is thrown with a 1.6 times faster climb (about twice the apex), then he is still inside the central frame for all but a twentieth of it", upward: 1.6 },
+      { it: "when he is thrown as the sim throws him, then he is inside the central frame in every frame of his flight to rest", upward: 1 },
+      { it: "when he is thrown with a 1.2 times faster climb (about 58 m/s up), then he is still inside the central frame in every frame", upward: 1.2 },
     ] as const;
     for (const testCase of cases) {
       it(testCase.it, () => {
@@ -447,7 +446,38 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
         releaseThrottle();
         ragdolls.launch = spy;
         assert.ok(framesSeen > 100, `${framesSeen} frames of flight`);
-        assert.ok(framesOut <= MAX_SHARE_OUT_OF_FRAME * framesSeen, `${framesOut} frames out of ${framesSeen}, worst ${worstOffCentre} half-heights off centre; first: ${firstOut}`);
+        assert.equal(framesOut, 0, `${framesOut} frames out of ${framesSeen}, worst ${worstOffCentre} half-heights off centre; first: ${firstOut}`);
+      });
+    }
+  });
+
+  describe("given the ride camera framing a dummy", () => {
+    const leads: { it: string; mode: MinigameMode | null; expectedLead: number }[] = [
+      { it: "when a High jump dummy is framed, then the aim lead is MINIGAME_AIM_LEAD", mode: "highJump", expectedLead: MINIGAME_AIM_LEAD },
+      { it: "when a Long jump dummy is framed, then the aim lead is MINIGAME_AIM_LEAD", mode: "longJump", expectedLead: MINIGAME_AIM_LEAD },
+      { it: "when the attract Range's dummy is framed, then there is no aim lead", mode: null, expectedLead: 0 },
+    ];
+    for (const testCase of leads) {
+      it(testCase.it, () => {
+        const ragdolls = engine["ragdolls"];
+        const original = ragdolls.frameCamera;
+        const seen: number[] = [];
+        ragdolls.frameCamera = (camera, wallDt, hold, watched, held, lens, sight, lead) => {
+          seen.push(lead ?? 0);
+          return original.call(ragdolls, camera, wallDt, hold, watched, held, lens, sight, lead);
+        };
+        if (testCase.mode === null) engine.exitMinigame();
+        else engine.startMinigame(testCase.mode);
+        engine["looping"] = false;
+        engine["keys"].add(THROTTLE_KEY);
+        for (let frame = 0; frame < 20 * FRAME_HZ && ragdolls.latest(new THREE.Vector3()) < 0; frame++) engine.advance(FRAME, { frameDt: FRAME });
+        run(1);
+        releaseThrottle();
+        ragdolls.frameCamera = original;
+        engine["looping"] = true;
+        assert.ok(ragdolls.latest(new THREE.Vector3()) >= 0, "a dummy is out");
+        assert.ok(seen.length > 0, "the camera framed him");
+        for (const lead of seen) assert.equal(lead, testCase.expectedLead, "the lead passed");
       });
     }
   });
