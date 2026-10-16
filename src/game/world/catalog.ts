@@ -47,6 +47,7 @@ export const PREFAB_IDS = [
   PREFAB.billboard,
   PREFAB.lamp,
   PREFAB.gantry,
+  PREFAB.chevron,
   PREFAB.monument,
   PREFAB.stucco,
   PREFAB.palm,
@@ -288,6 +289,14 @@ export const FOUNTAIN = { basin: { r: 6, y1: 0.72 }, water: { r: 5.5, y0: 0.6 },
 /** One 10 m length of iron fence (m, along x): a stone kerb, the railings as one dark panel, a post at each end. */
 export const FENCE = { kerb: { hx: 5, hz: 0.3, y1: 0.6 }, rails: { hx: 5, hz: 0.05, y1: 2.2 }, post: { half: 0.15, x: 4.85, y1: 2.5 } } as const;
 
+/**
+ * The chevron alignment board (m): a black board `width` wide (local z) and `height` tall on a thin post, its top `top` over the
+ * ground, `thick` through (local x, the strokes' thickness). Both faces carry the chevron, apex toward local −Z: the +X face reads
+ * ">", the −X face "<", so a placement turns it by yaw to put the face a driver sees with the glyph for the turn: the world arrow
+ * is (−sin yaw, −cos yaw). `present/prefabs.ts` draws it, `PREFABS.chevron.size` is its box.
+ */
+export const CHEVRON = { width: 1.2, height: 0.9, top: 1.6, thick: 0.08 } as const;
+
 type PrefabSpec = {
   /**
    * solid: immovable, cars are pushed out (walls, rocks, buildings).
@@ -428,6 +437,7 @@ export const PREFABS: Record<PrefabId, PrefabSpec> = {
     mass: 0,
   },
   gantry: { body: "none", collider: [], foot: 0, size: [1, 6, 1], mass: 0 },
+  chevron: { body: "none", collider: [], foot: 0, size: [CHEVRON.thick, CHEVRON.top, CHEVRON.width], mass: 0 },
   // The Havana course: a stepped star-plan tower, pastel flat-roofed blocks (the building's shape), palms, stucco walls (long axis +Z), a dumpster (long axis +X).
   monument: {
     body: "solid",

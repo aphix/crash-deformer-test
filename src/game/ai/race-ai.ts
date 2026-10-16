@@ -8,6 +8,7 @@ import { personality, type Personality } from "./personality.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { SURFACE_IDS, SURFACES, type Surface } from "../world/catalog.ts";
 import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath, type TrackPoint } from "../world/track.ts";
+import { junctionsOf } from "../world/junctions.ts";
 import { classStats, cornerSpeed, rollingOver, terminalSpeed, type ClassStats } from "../vehicle/vehicle-classes.ts";
 import { clamp, hash01, wrapPi } from "../kernel/scalar.ts";
 
@@ -233,22 +234,12 @@ export class RaceBrain {
     this.slipBrake.fill(1);
     this.shaken.fill(1);
     for (let i = 0; i < MAX_CARS; i++) this.traits.push(personality(i));
-    const p = blankProjection();
-    this.mouthS = track.shortcuts.map((sc) => projectPath(track.path, sc.path.x[0]!, sc.path.z[0]!, -1, p).s);
-    this.exitS = track.shortcuts.map((sc) => {
-      const e = sc.path.count - 1;
-      return projectPath(track.path, sc.path.x[e]!, sc.path.z[e]!, -1, p).s;
-    });
-    this.mouthYaw = track.shortcuts.map((sc) => detAtan2(sc.path.x[1]! - sc.path.x[0]!, sc.path.z[1]! - sc.path.z[0]!));
-    this.mouthTurn = track.shortcuts.map((_, k) => {
-      const at = track.pointAt(this.mouthS[k]!, this.pt);
-      return Math.abs(wrapPi(this.mouthYaw[k]! - detAtan2(at.tx, at.tz)));
-    });
-    this.exitTurn = track.shortcuts.map((sc, k) => {
-      const e = sc.path.count - 1;
-      const back = track.pointAt(this.exitS[k]!, this.pt);
-      return Math.abs(wrapPi(detAtan2(back.tx, back.tz) - detAtan2(sc.path.x[e]! - sc.path.x[e - 1]!, sc.path.z[e]! - sc.path.z[e - 1]!)));
-    });
+    const junctions = junctionsOf(track);
+    this.mouthS = junctions.map((j) => j.mouthS);
+    this.exitS = junctions.map((j) => j.exitS);
+    this.mouthYaw = junctions.map((j) => j.mouthYaw);
+    this.mouthTurn = junctions.map((j) => Math.abs(j.mouthTurn));
+    this.exitTurn = junctions.map((j) => Math.abs(j.exitTurn));
     this.reset();
   }
 

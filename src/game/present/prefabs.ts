@@ -1,8 +1,8 @@
 import * as THREE from "three";
-import { detCos, detSin } from "../kernel/physics-core.js";
+import { detCos, detSin, hypot2 } from "../kernel/physics-core.js";
 import { makeAsphalt, makeJerseyBarrier, makeLamp } from "./engine-world.ts";
 import { tagSurface } from "./ultra/surface-tag.ts";
-import { FENCE, MARBLE, OBELISK, obeliskHalf, STAR_INNER, type PrefabId } from "../world/catalog.ts";
+import { CHEVRON, FENCE, MARBLE, OBELISK, obeliskHalf, STAR_INNER, type PrefabId } from "../world/catalog.ts";
 import { box, cyl, MARBLE_SHADE, painted, type Piece, type PrefabMaterials, type PrefabPart, squareFrustum } from "./prefab-pieces.ts";
 import { basin, capitol, capitolPoolParts, flagpole, fountain, lincoln, monumentPieces, pool, whiteHouse } from "./prefabs-mall.ts";
 import { PREFAB } from "../world/constants.ts";
@@ -21,6 +21,7 @@ const C = {
   black: 0x1b1c20,
   white: 0xe8e6e0,
   orange: 0xff6a1a,
+  yellow: 0xf2c400,
   concrete: 0xb7b1a4,
   concreteDark: 0xa39d90,
   barrier: 0xc4bfb3,
@@ -448,6 +449,31 @@ function pylon(): Piece[] {
   return out;
 }
 
+/**
+ * The chevron board's drawing (m): each arm of the ">" runs `run` along the board and `rise` up or down it from the apex, `stroke`
+ * wide, and stands `proud` over the board's two faces so the arrow reads from both; the post is `post` wide. Tuned by eye in a race screenshot.
+ */
+const CHEVRON_DRAW = { run: 0.4, rise: 0.3, stroke: 0.12, proud: 0.01, post: 0.08 };
+
+/**
+ * One chevron alignment board on its post: black, a bold yellow chevron whose apex points to local −Z. Seen from the +X face
+ * (the front) it reads ">", from the −X face "<": either face points the same way in the world, along local −Z, so a turn to
+ * the driver's right shows the front and a turn to the left shows the back.
+ */
+function chevron(): Piece[] {
+  const { width, height, top, thick } = CHEVRON;
+  const { run, rise, stroke, proud, post } = CHEVRON_DRAW;
+  const centre = top - height / 2;
+  const slope = Math.atan2(rise, run);
+  const arm = (side: 1 | -1): Piece => [new THREE.BoxGeometry(thick, stroke, hypot2(run, rise)).rotateX(-side * slope).translate(0, centre + (side * rise) / 2, 0), C.yellow];
+  return [
+    [box(thick - 2 * proud, height, width, 0, centre, 0), C.black],
+    [box(thick - 2 * proud, top - height, post, 0, (top - height) / 2, 0), C.metal],
+    arm(1),
+    arm(-1),
+  ];
+}
+
 /** Free a group's geometries, and the materials and maps not listed in `keep`. */
 function disposeGroup(g: THREE.Group, keep: readonly THREE.Material[] = []): void {
   g.traverse((o) => {
@@ -561,5 +587,7 @@ export function prefabParts(id: PrefabId, mats: PrefabMaterials): PrefabPart[] {
       return lamp(mats.plain);
     case PREFAB.gantry:
       return one(pylon(), mats.plain);
+    case PREFAB.chevron:
+      return one(chevron(), mats.plain);
   }
 }

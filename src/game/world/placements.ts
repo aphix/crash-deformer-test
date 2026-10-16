@@ -1,5 +1,8 @@
 import { hypot2, detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
+import { wrapPi } from "../kernel/scalar.ts";
 import { PREFABS, type PrefabId } from "./catalog.ts";
+import { CHEVRON_GAP, CHEVRON_RUN, CHEVRON_SLOTS, CHEVRON_STANDOFF, CHEVRON_TURN, PREFAB } from "./constants.ts";
+import { junctionsOf } from "./junctions.ts";
 import { ALONG_BOTH } from "./track-schema.ts";
 import { KNOCK, PROP, Surface, WALL } from "./surfaces.ts";
 import { blankPoint, blankProjection, blankSegment, pointOn, projectPath, segmentAt, type Projection, type Track, type TrackPath } from "./track.ts";
@@ -154,11 +157,64 @@ function standY(track: Track, x: number, z: number): number {
   return top;
 }
 
+/** Index of the segment of `path` that arc length `s` falls in (wrapped on a loop, clamped on an open path). */
+function segmentIndexAt(path: TrackPath, s: number): number {
+  const L = path.length;
+  const segs = path.closed ? path.count : path.count - 1;
+  const u = Math.floor((path.closed ? ((s % L) + L) % L : Math.max(0, Math.min(L, s))) * (segs / L));
+  return path.closed ? u % path.count : Math.min(path.count - 1, u);
+}
+
+/**
+ * `CHEVRON_RUN` chevron boards on the main loop's outer edge of a turn, the first slot at arc length `startS` and each `stride` m
+ * further along the loop, beyond the run-off by `CHEVRON_STANDOFF`. `heading` is the driver's yaw as the boards come into view and
+ * `turn` (rad, + left) the turn they announce: each board stands square to the driver with its arrow a quarter turn off `heading`
+ * toward the turn. A slot that would put a board onto any road or its run-off, onto a bridge or into a tunnel stays empty.
+ */
+function placeChevronRun(track: Track, corridors: readonly TrackPath[], startS: number, stride: number, heading: number, turn: number, out: Placed[]): void {
+  const path = track.path;
+  const pt = blankPoint();
+  const outside = turn > 0 ? -1 : 1;
+  const yaw = wrapPi(heading + Math.sign(turn) * (Math.PI / 2) - Math.PI);
+  const [thick, , width] = PREFABS[PREFAB.chevron].size;
+  let standing = 0;
+  for (let slot = 0; slot < CHEVRON_SLOTS && standing < CHEVRON_RUN; slot++) {
+    const s = startS + slot * stride;
+    pointOn(path, s, pt);
+    const k = segmentIndexAt(path, s);
+    if (path.deck[k] || path.tunnel[k]) continue;
+    const lat = outside * (pt.half + (outside > 0 ? path.runL[k]! : path.runR[k]!) + CHEVRON_STANDOFF + width / 2);
+    const x = pt.x + pt.tz * lat;
+    const z = pt.z - pt.tx * lat;
+    if (corridors.some((c) => boxClear(c, x, z, yaw, thick / 2, width / 2) < 0)) continue;
+    out.push({ prefab: PREFAB.chevron, x, y: standY(track, x, z), z, yaw, sx: 1, sy: 1, sz: 1 });
+    standing++;
+  }
+}
+
+/**
+ * The chevron signs of every shortcut junction that turns more than `CHEVRON_TURN`: a run leading up to the mouth, on the outside of
+ * the turn from the loop onto the shortcut, and a run leading on from the rejoin, on the outside of the turn from the shortcut's end
+ * back onto the loop. They go last in the list, so no other placement's index (a knock prop's collider id) moves; per shortcut in order,
+ * the mouth's run (if it turns enough) and then the rejoin's, `CHEVRON_RUN` boards each.
+ */
+function placeChevrons(track: Track, out: Placed[]): void {
+  const corridors = track.paths();
+  const pt = blankPoint();
+  for (const junction of junctionsOf(track)) {
+    if (Math.abs(junction.mouthTurn) > CHEVRON_TURN) {
+      const main = track.pointAt(junction.mouthS, pt);
+      placeChevronRun(track, corridors, junction.mouthS, -CHEVRON_GAP, detAtan2(main.tx, main.tz), junction.mouthTurn, out);
+    }
+    if (Math.abs(junction.exitTurn) > CHEVRON_TURN) placeChevronRun(track, corridors, junction.exitS, CHEVRON_GAP, junction.exitYaw, junction.exitTurn, out);
+  }
+}
+
 /**
  * Every prop of the track, in order: `props` as written, then `along` repeats (beside the race
  * loop, or a traffic route's centreline with `route`; copies on any other road, beside a bridge
  * span or in a tunnel are skipped), then seeded `scatter` (clear of every road: loop, shortcuts,
- * routes). y: see `standY` (ground level, or a deck for a prop on a bridge).
+ * routes), then the chevron runs of the shortcut junctions (`placeChevrons`). y: see `standY` (ground level, or a deck for a prop on a bridge).
  */
 export function placeProps(track: Track): Placed[] {
   const json = track.json;
@@ -200,7 +256,6 @@ export function placeProps(track: Track): Placed[] {
     // A whole loop spreads its copies evenly so the seam at `from` has no short gap.
     const n = whole ? Math.max(1, Math.round(L / a.every)) : Math.floor(span / a.every + 1e-9) + 1;
     const step = whole ? L / n : a.every;
-    const segs = path.closed ? path.count : path.count - 1;
     const others = corridors.filter((c) => c !== path);
     const r = PREFABS[a.prefab].foot * a.scale;
     // On its own corridor the drawn footprint (oriented box) must clear the road and runoff too: on a
@@ -213,8 +268,7 @@ export function placeProps(track: Track): Placed[] {
     for (let j = 0; j < n; j++) {
       const s = from + j * step;
       pointOn(path, s, pt);
-      const u = Math.floor((path.closed ? (((s % L) + L) % L) : Math.max(0, Math.min(L, s))) * (segs / L));
-      const k = path.closed ? u % path.count : Math.min(path.count - 1, u);
+      const k = segmentIndexAt(path, s);
       // Nothing beside a bridge span (it would stand on the ground far below) or inside a tunnel.
       if (path.deck[k] || path.tunnel[k]) continue;
       const heading = detAtan2(pt.tx, pt.tz);
@@ -263,6 +317,7 @@ export function placeProps(track: Track): Placed[] {
       }
     }
   }
+  placeChevrons(track, out);
   return out;
 }
 

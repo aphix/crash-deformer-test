@@ -13,7 +13,7 @@ HUD with a focus view, controller-driven menus, and a campaign over every course
 | `world/track-schema.ts` | zod schema of the track JSON, `parseTrack`, `TrackFile` |
 | `world/track.ts` | `Track`: arc-length samples, gates, grid, projection, wall clip, routes, crossing checks; `TrackGround` heightfield + bridge decks |
 | `world/tracks/*.json`, `tracks/index.ts` | the courses; `TRACKS` (menu order), `CAMPAIGN`, `OFF_MENU` |
-| `world/placements.ts` | `placeProps`, `propColliders` |
+| `world/placements.ts`, `world/junctions.ts` | `placeProps`, `propColliders`; `junctionsOf` (where each shortcut leaves and rejoins the loop, and its turn there) |
 | `match/types.ts` | contracts: entrants, options, poses, records, events, snapshot, HUD read model, commands |
 | `match/session.ts` | `RaceSession`: the rules |
 | `match/campaign.ts` | `Campaign`: points, standings, grids, pegged rival aggression |
@@ -70,6 +70,15 @@ timer, a projection hint, and `draft` / `drafts`. All plain JSON.
   (`Track.onRoad`), a main gate leaves a shortcut only **on** the main road, and where several shortcuts leave one
   checkpoint the car is on the nearest.
 - Ranking distance `progress = lap·L + s'`, `s'` clamped between the last passed gate and `next` the same lap.
+- Chevron signs (`chevron` prefab, scenery: no collider, one instanced mesh for every board of a course). A shortcut end whose turn
+  from the way drivers come in to the way they must go (`junctionsOf`, `world/junctions.ts`, also read by the race AI) is more
+  than `CHEVRON_TURN` (30°) gets a run of `CHEVRON_RUN` (4) boards `CHEVRON_GAP` (6 m) apart, from `placeProps` after every other
+  placement: at a mouth, on the outside edge of the turn from the loop onto the shortcut, leading up to the mouth; at a rejoin,
+  on the outside edge of the turn from the shortcut back onto the loop, leading on from it. Each stands `CHEVRON_STANDOFF` (1 m)
+  past the run-off, square to the drivers it is for, its arrow a quarter turn toward the turn (the +X face reads `>`, the −X face
+  `<`; both point along local −Z). A slot on a cross street, a bridge or in a tunnel stays empty and the run takes the next
+  (`CHEVRON_SLOTS`). `chevrons.test.ts` pins each junction's run, facing, arrow side and place; `course-intrusion.test.ts` holds
+  the boards beyond the run-off like every other prop.
 
 ## Positions
 
@@ -457,7 +466,7 @@ self-crossing with neither level a deck, less than 4.5 m between levels, and a c
 | `guards` | `{ lawn: [[x, z], ...], doors: [{x, z, yaw}], count }?` | guarded grounds (`scenes/lawn-guard.ts`): a car on the `lawn` polygon raises the alarm and `count` guards come out of the `doors` (facing out of the house) to fire on it; once the course's secret is out they stand down and its VIP comes out instead (`present/people.ts`, `VipEscort`) |
 
 Prefabs: knock `cone, tyre-stack, hay-bale, crate`; solid `barrier-block, rock, tree, building, grandstand, billboard, lamp`;
-scenery `gantry`, plus the courses' own (Havana's stucco, palm, monument, wall, dumpster; the National Mall's obelisk, capitol,
+scenery `gantry` and `chevron` (placed by `placeProps` at shortcut junctions, not by the JSON), plus the courses' own (Havana's stucco, palm, monument, wall, dumpster; the National Mall's obelisk, capitol,
 marble (a plain block a placement's `size` stretches to a whole museum without stretching any windows), white-house, fountain, fence, reflecting-pool and basin (the pools, their water on its own glossy material; a stone kerb round a floor 10 cm under the water, never stone filled up to the rim, whose top would lie a centimetre under the water's and flicker overhead: `poolStone`), lincoln, capitol-pool (the Capitol Reflecting Pool's wedge: a rim of turned bricks round a flat water sheet), and grant-memorial, peace-monument and garfield-monument (marble and bronze bricks, drawn and bounded alike: `world/landmarks.ts`), and flagpole (a pole flying the Stars and Stripes)). A prefab's front is its local +X;
 `along` copies face the road. The start gantry is built by `TrackArt` at s = 0.
 

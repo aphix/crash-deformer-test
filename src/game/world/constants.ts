@@ -25,6 +25,7 @@ export const PREFAB = {
   billboard: "billboard",
   lamp: "lamp",
   gantry: "gantry",
+  chevron: "chevron",
   monument: "monument",
   stucco: "stucco",
   palm: "palm",
@@ -45,6 +46,20 @@ export const PREFAB = {
   garfieldMonument: "garfield-monument",
   flagpole: "flagpole",
 } as const;
+
+/**
+ * Chevron signs at a shortcut junction that turns more than `CHEVRON_TURN` (rad): `placeProps` stands a run of `CHEVRON_RUN` boards, one
+ * per `CHEVRON_GAP` m slot, at its mouth and at its rejoin. Guessed, tuned by eye: the owner's "> > > > >" at a near-90 degree split reads at the pace
+ * the AI drives (18 m/s), where four boards are 18 m of line, a second of it.
+ */
+export const CHEVRON_RUN = 4;
+export const CHEVRON_GAP = 6;
+/** Slots a run tries to find its `CHEVRON_RUN` boards in: a cross street or a bridge takes a slot, rarely two. */
+export const CHEVRON_SLOTS = 2 * CHEVRON_RUN;
+/** A fork turning less than this (30 degrees) reads as the road bending on, so it gets no sign. Guessed. */
+export const CHEVRON_TURN = Math.PI / 6;
+/** Clear ground (m) between a run-off's outer edge and the nearest edge of a board: ten times the 0.1 m the intrusion bar allows, so a board never reads as on the run-off. Guessed. */
+export const CHEVRON_STANDOFF = 1;
 
 /** The campaign's course ids, the `id` of each `tracks/*.json` (`CAMPAIGN` in tracks/index.ts races them in order). */
 export const TRACK_ID = {
