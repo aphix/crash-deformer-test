@@ -16,9 +16,9 @@ import {
   writeSnapshot,
   writeWreck,
   Writer,
-  writeDerby, packEject, type GameKind, type LobbyGate,
+  writeDerby, packEject, MAX_PLAYLIST, type GameKind, type LobbyGate,
 } from "./codec.ts";
-import { NET_TX, PHASES, type NetGame, type NetRace, type NetRole, type NetStatus, type NetTx, type PublicKind } from "./net-ports.ts";
+import { NET_TX, PHASES, type CourseMenu, type HostRoom, type NetGame, type NetRace, type NetRole, type NetStatus, type NetTx, type PublicKind } from "./net-ports.ts";
 import { cleanName } from "../match/types.ts";
 import { packLook, readLook } from "./look-codec.ts";
 import { RtcTransport } from "./rtc-transport.ts";
@@ -29,7 +29,7 @@ import { packRoster } from "./roster-codec.ts";
 import { ROOM_MAX } from "../../lib/multiplayer/rooms.ts";
 import { fetchRooms, findMatch, matchStage, publicMeta, publicRoomName, WEAK_AI, WEAK_DERBY_FIELD, type MatchDeps } from "./matchmaking.ts";
 import {
-  DEFAULT_MIN_PLAYERS,
+  BETWEEN_ROUNDS_S, DEFAULT_MIN_PLAYERS,
   HELLO_EVERY, HOLD_EVERY_MS, INPUT_STALE_MS, KEYFRAME_EVERY, LOBBY_S,
   PUBLIC_DERBY_FIELD, RACE_EVERY, REDUNDANT, REFUSED, RESULTS_HOLD, SEND_HZ, SLOT_GRACE_MS,
 } from "./net-constants.ts";
@@ -106,9 +106,12 @@ export class NetPlay extends NetPlayClient {
   private finishedFor = 0;
   /** Host: the Havana lobby is up (no game running yet). */
   private lobbyOn = false;
-  /** Host: players the Go switch needs (`setMinPlayers`), and the game it starts in a private room (`setLobbyKind`; a public room's is its kind). */
+  /** Host: players the Go switch needs (`setMinPlayers`), the game it starts (`hostRoom`, and in a private room `setLobbyKind`; a public room's is its kind) and a campaign's courses in play order (`setPlaylist`). */
   private minPlayers = DEFAULT_MIN_PLAYERS;
   private lobbyKind: GameKind = "race";
+  private playlist: string[] = [];
+  /** Host: whether a campaign moves on by itself `BETWEEN_ROUNDS_S` after a round ended (`setAutoNext`); the host's own Next always moves it at once. */
+  private autoNext = true;
   /** A closed tab never runs the engine's dispose: leave the room so the relay drops us at once. */
   private readonly onPageHide = (): void => this.leave();
   /** A hidden tab draws no frames: a guest idles its car, a host tells its guests it is paused. */
@@ -202,7 +205,7 @@ export class NetPlay extends NetPlayClient {
     this.publicKind = kind;
     this.derbyField = weak ? WEAK_DERBY_FIELD : PUBLIC_DERBY_FIELD;
     // The weak device's smaller field is the room's own rules; the player's options stay as they were.
-    if (weak && kind === "race") this.game.race()?.command({ type: "program", options: { aiCount: WEAK_AI } });
+    if (weak && (kind === "race" || kind === "campaign")) this.game.race()?.command({ type: "program", options: { aiCount: WEAK_AI } });
     this.lobbyLeft = LOBBY_S;
   }
 
@@ -218,15 +221,28 @@ export class NetPlay extends NetPlayClient {
     const kind = this.publicKind;
     if (this.role !== "host" || !kind) return "";
     const stage = this.lobbyOn ? "lobby" : matchStage(this.game, kind);
-    return stage ? publicMeta(stage, kind === "race" ? (this.game.race()?.options.trackId ?? "") : "") : "";
+    return stage ? publicMeta(stage, this.metaCourse(kind)) : "";
   }
 
-  /** Whether the Go switch works: the host is waiting in the lobby with at least `minPlayers` players. */
+  /** What the room's list row names after its game: a race's course, a Survival run's, a campaign's number of courses, nothing for a derby. */
+  private metaCourse(kind: GameKind): string {
+    const race = this.game.race();
+    if (kind === "race") return race?.options.trackId ?? "";
+    if (kind === "survival") return race?.courseId ?? "";
+    return kind === "campaign" ? String(this.playlist.length) : "";
+  }
+
+  /** Whether the Go switch works: the host is waiting in the lobby with at least `minPlayers` players (and, for a campaign, a playlist to run). */
   canGo(): boolean {
-    return this.role === "host" && this.lobbyOn && this.slots.size + 1 >= this.minPlayers;
+    return this.role === "host" && this.lobbyOn && this.slots.size + 1 >= this.minPlayers && this.hasGame();
   }
 
-  /** Host: the Go switch. Starts the room's game (a race on the race options' course, Survival, or a derby) with everyone seated; false while `canGo` is not. */
+  /** Whether the game the room runs has what it needs to start: a campaign's playlist is not empty. */
+  private hasGame(): boolean {
+    return (this.publicKind ?? this.lobbyKind) !== "campaign" || this.playlist.length > 0;
+  }
+
+  /** Host: the Go switch. Starts the room's game (a race on the race options' course, a campaign over its playlist, Survival, or a derby) with everyone seated; false while `canGo` is not. */
   go(): boolean {
     if (!this.canGo()) return false;
     this.startGame();
@@ -248,6 +264,53 @@ export class NetPlay extends NetPlayClient {
     if (this.role === "host" && this.lobbyOn) this.game.race()?.command({ type: "survivalCourse", id });
   }
 
+  /** Host, lobby: the course a single race runs on (the race options' `trackId`); the lobby stays where it is. */
+  setRaceCourse(id: string): void {
+    if (this.role === "host" && this.lobbyOn) this.game.race()?.command({ type: "options", options: { trackId: id } });
+  }
+
+  /** Host, lobby: the campaign's courses in play order; ids the course menu does not list and repeats drop. */
+  setPlaylist(ids: readonly string[]): void {
+    if (this.role !== "host" || !this.lobbyOn) return;
+    const known = new Set(this.courseMenu().courses.map((c) => c.id));
+    this.playlist = ids.filter((id, i) => known.has(id) && ids.indexOf(id) === i).slice(0, MAX_PLAYLIST);
+  }
+
+  /** Host: whether a campaign moves on from its results by itself after `BETWEEN_ROUNDS_S`. */
+  setAutoNext(on: boolean): void {
+    if (this.role === "host") this.autoNext = on;
+  }
+
+  /** The courses a host picks from, with or without race mode on. */
+  courseMenu(): CourseMenu {
+    return this.game.courseMenu();
+  }
+
+  /**
+   * The one way to host, for every game: a public room (listed on the relay, `code` null) or a private one (unlisted, joined by `code`, the
+   * room's password) in the Havana lobby, with the game, its course or playlist, the players Go waits for and the campaign's auto-advance set.
+   */
+  hostRoom(o: HostRoom): void {
+    if (o.code === null) this.publicHost(o.kind);
+    else {
+      this.host(o.code, o.tx);
+      this.lobbyKind = o.kind;
+    }
+    this.setMinPlayers(o.minPlayers);
+    this.setAutoNext(o.autoNext);
+    this.setPlaylist(o.playlist);
+    if (o.kind === "race") this.setRaceCourse(o.course);
+    else if (o.kind === "survival") this.setLobbyCourse(o.course);
+  }
+
+  /** The course the lobby's start gate names: the one a race or a Survival run goes to ("" for the other games). */
+  private gateCourse(): string {
+    const race = this.game.race();
+    const kind = this.publicKind ?? this.lobbyKind;
+    if (kind === "race") return race?.options.trackId ?? "";
+    return kind === "survival" ? (race?.courseId ?? "") : "";
+  }
+
   /** Host, lobby: every car back at its spawn and repaired, every prop and piece of debris back (replicated to the guests through `clearGen`). */
   resetScene(): void {
     if (this.role === "host" && this.lobbyOn) this.game.resetLobbyScene();
@@ -261,20 +324,23 @@ export class NetPlay extends NetPlayClient {
     this.finishedFor = 0;
     this.syncSeats();
     if (kind === "race") this.game.startRace();
-    else if (kind === "survival") this.game.enterRace(true);
+    else if (kind === "campaign") {
+      const race = this.game.race();
+      race?.command({ type: "options", options: { campaign: this.playlist } });
+      race?.command({ type: "campaign" });
+    } else if (kind === "survival") this.game.enterRace(true);
     else this.game.startDerby(this.derbyField);
   }
 
   /** The lobby's start gate as the panel shows it (null outside the lobby): a client's is the host's, as its last race message said. */
   private currentGate(): (LobbyGate & { players: number }) | null {
-    if (this.role === "host") return this.lobbyOn ? { min: this.minPlayers, kind: this.publicKind ?? this.lobbyKind, players: this.slots.size + 1 } : null;
+    if (this.role === "host") return this.lobbyOn ? { min: this.minPlayers, kind: this.publicKind ?? this.lobbyKind, course: this.gateCourse(), playlist: this.playlist, players: this.slots.size + 1 } : null;
     return this.heardGate && { ...this.heardGate, players: (this.transport?.peers().length ?? 0) + 1 };
   }
 
   /** The course the director shows and the Survival courses to pick from, as the lobby panel reads them. */
   private currentSurvivalCourse(): NetStatus["survivalCourse"] {
-    const race = this.game.race();
-    return { id: race?.courseId ?? "", courses: race?.survivalCourses ?? [] };
+    return { id: this.game.race()?.courseId ?? "", courses: this.courseMenu().survival };
   }
 
   /** The player leaves, or the page closes: the session is over, so its dead rooms are forgotten. */
@@ -326,6 +392,9 @@ export class NetPlay extends NetPlayClient {
     this.lobbyOn = false;
     this.minPlayers = DEFAULT_MIN_PLAYERS;
     this.lobbyKind = "race";
+    this.playlist = [];
+    this.autoNext = true;
+    this.nextLeft = null;
     this.heardGate = null;
   }
 
@@ -359,6 +428,8 @@ export class NetPlay extends NetPlayClient {
       selfId: this.transport?.selfId ?? "",
       car: this.car,
       lobby: this.lobbyLeft == null ? null : Math.max(0, Math.ceil(this.lobbyLeft)),
+      nextIn: this.nextLeft == null ? null : Math.max(0, Math.ceil(this.nextLeft)),
+      autoNext: this.role === "host" && (this.publicKind ?? this.lobbyKind) === "campaign" ? this.autoNext : null,
       gate: this.currentGate(),
       survivalCourse: this.currentSurvivalCourse(),
       peers: this.transport?.peers() ?? [],
@@ -607,15 +678,20 @@ export class NetPlay extends NetPlayClient {
   /**
    * The host's room cycle. A public match: the lobby waits for `minPlayers` players, then counts down (`LOBBY_S`, sooner once the room is
    * full) and starts the match with every peer seated and the AI in the empty slots; the Go switch starts it early. A private room's lobby
-   * waits for Go. A finished game of either shows its result for `RESULTS_HOLD` s, then everyone is back in the lobby.
+   * waits for Go. A finished game of either shows its result for `RESULTS_HOLD` s, then everyone is back in the lobby. A campaign runs
+   * its rounds in between (`runCampaign`) and is over when its last standings are left.
    */
   private runRoom(wallDt: number): void {
     const kind = this.publicKind;
     if (this.lobbyOn) {
       if (!kind) return;
-      // A room short of players holds its countdown at the full `LOBBY_S`.
-      this.lobbyLeft = this.slots.size + 1 < this.minPlayers ? LOBBY_S : (this.lobbyLeft ?? LOBBY_S) - wallDt;
+      // A room short of players (or a campaign with no courses) holds its countdown at the full `LOBBY_S`.
+      this.lobbyLeft = this.slots.size + 1 < this.minPlayers || !this.hasGame() ? LOBBY_S : (this.lobbyLeft ?? LOBBY_S) - wallDt;
       if (this.lobbyLeft <= 0 || this.slots.size >= ROOM_MAX - 1) this.startGame();
+      return;
+    }
+    if ((kind ?? this.lobbyKind) === "campaign") {
+      this.runCampaign(wallDt);
       return;
     }
     if (matchStage(this.game, kind ?? (this.lobbyKind === "derby" ? "derby" : "race")) !== "over") {
@@ -630,10 +706,41 @@ export class NetPlay extends NetPlayClient {
     this.openLobby();
   }
 
+  /**
+   * A campaign between and after its rounds. A round that has ended shows its results, the highlight reel and the standings for
+   * `BETWEEN_ROUNDS_S` in all (`nextLeft` counts it down to every peer) and then the director moves on, unless the host switched auto-advance
+   * off: it then waits for the host's Next. The room is back in the lobby once the campaign's last standings are left.
+   */
+  private runCampaign(wallDt: number): void {
+    const race = this.game.race();
+    this.nextLeft = null;
+    if (!race) return;
+    if (race.phase === null) {
+      this.finishedFor = 0;
+      this.lobbyLeft = this.publicKind ? LOBBY_S : null;
+      this.openLobby();
+      return;
+    }
+    if (race.phase !== "finished") {
+      this.finishedFor = 0;
+      return;
+    }
+    // Off, the room waits for the host's Next, and switching it on again gives a fresh minute.
+    if (!this.autoNext) {
+      this.finishedFor = 0;
+      return;
+    }
+    this.finishedFor += wallDt;
+    this.nextLeft = Math.max(0, Math.ceil(BETWEEN_ROUNDS_S - this.finishedFor));
+    if (this.finishedFor < BETWEEN_ROUNDS_S) return;
+    this.finishedFor = 0;
+    race.advance();
+  }
+
   /** The rules state (or, in the lobby, the course, countdown and start gate) to every client. */
   private sendRace(race: NetRace, t: NetTransport): void {
-    const gate = this.lobbyOn ? { min: this.minPlayers, kind: this.publicKind ?? this.lobbyKind } : null;
-    const msg = writeRace({ lobby: this.lobbyLeft, trackId: race.courseId, look: race.look, gate, snap: race.snapshot() });
+    const gate = this.currentGate();
+    const msg = writeRace({ lobby: this.lobbyLeft, trackId: race.courseId, look: race.look, gate: gate && { min: gate.min, kind: gate.kind, course: gate.course, playlist: gate.playlist }, next: this.nextLeft, snap: race.snapshot() });
     t.send(msg);
     this.statBytes += msg.length;
   }

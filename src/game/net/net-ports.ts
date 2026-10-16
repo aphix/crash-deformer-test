@@ -5,7 +5,7 @@ import type { CarStyleId } from "../vehicle/car-variants.ts";
 import type { RaceCommand, RaceOptions, RacePhase, RaceSnapshot } from "../match/types.ts";
 import type { CrashPhase } from "../match/phase.ts";
 import type { VehicleClassId } from "../vehicle/vehicle-classes.ts";
-import type { DerbyNetState, LobbyGate } from "./codec.ts";
+import type { DerbyNetState, GameKind, LobbyGate } from "./codec.ts";
 import type { Reel } from "../match/highlights.ts";
 import type { NetPeer } from "./transport.ts";
 import type { LookData } from "./look-codec.ts";
@@ -29,10 +29,26 @@ export interface NetRace {
   showLobby(trackId: string): void;
   seatLobby(self: number): void;
   command(cmd: RaceCommand): void;
+  /** Host, between a campaign's rounds: moves on from the results or standings (scores the round, starts the next; after the last, back to the setup menu). */
+  advance(): void;
 }
 
-/** Which public match a room runs; the room name says (`pub-race-…`, `pub-derby-…`). */
-export type PublicKind = "race" | "derby";
+/** A course a host can pick: what the setup menu lists. */
+interface CourseInfo {
+  id: string;
+  name: string;
+  blurb: string;
+}
+
+/** The courses a host picks from: the race menu's, and the ones Survival is played on. */
+export interface CourseMenu {
+  courses: readonly CourseInfo[];
+  survival: readonly CourseInfo[];
+}
+
+/** Which game a public room runs; the room name says (`pub-race-…`, `pub-campaign-…`, `pub-survival-…`, `pub-derby-…`). */
+export type PublicKind = GameKind;
+
 /** Where a public match stands on the host: waiting for players, running, or showing its result. */
 export type MatchStage = "lobby" | "running" | "over";
 
@@ -102,6 +118,8 @@ export interface NetGame {
   wearLook(i: number, look: LookData | null): void;
   /** Leaving the room: every other player's look comes off. */
   dropLooks(): void;
+  /** The courses a host picks from, race mode on or not. */
+  courseMenu(): CourseMenu;
   readonly seat: DriverSeat;
 }
 
@@ -110,12 +128,28 @@ export type NetRole = "off" | "host" | "client";
 export const NET_TX = { bc: "bc", rtc: "rtc" } as const;
 export type NetTx = (typeof NET_TX)[keyof typeof NET_TX];
 
+/** `NetPlay.hostRoom`: everything a host sets before its room opens in the Havana lobby; the same pick for every game. */
+export interface HostRoom {
+  kind: GameKind;
+  /** The room's password: private rooms are unlisted and joined by it; null makes a public room, listed for anyone. */
+  code: string | null;
+  tx: NetTx;
+  /** Players (the host included) Go waits for. */
+  minPlayers: number;
+  /** The course a race or a Survival run is on (ignored by the other games). */
+  course: string;
+  /** A campaign's courses in play order. */
+  playlist: readonly string[];
+  /** Whether a campaign moves on by itself after `BETWEEN_ROUNDS_S`. */
+  autoNext: boolean;
+}
+
 /** `NetPlay.status()`: what the online entry's chip and panel show. */
 export interface NetStatus {
   role: NetRole;
-  /** A public room's match (`publicMatch`): anyone pressing that Public button may land in it. */
+  /** The game a public room runs (`publicHost`, a live-list Join): listed on the relay, anyone may join it; null for a private room. */
   public: PublicKind | null;
-  /** Play online is still looking for a room to join or host (`publicMatch`). */
+  /** `publicMatch` is still looking for a room to join or host. */
   finding: boolean;
   room: string;
   tx: NetTx;
@@ -124,6 +158,10 @@ export interface NetStatus {
   car: number;
   /** Seconds until a public match starts (host lobby, mirrored to clients), null otherwise. */
   lobby: number | null;
+  /** Seconds until the host moves a campaign on from the round it just ran (mirrored to clients), null when it waits for the host's Next or no campaign is between rounds. */
+  nextIn: number | null;
+  /** Host of a campaign room: whether the campaign moves on by itself after the between-rounds minute (`setAutoNext`); null for a guest and for every other game. */
+  autoNext: boolean | null;
   /** The lobby's start gate (players needed, players here, the game Go starts); null once a game runs or outside a lobby. */
   gate: (LobbyGate & { players: number }) | null;
   /** The course the lobby shows (the one a Survival run starts on) and the Survival courses a host's panel picks from; empty outside race mode. */

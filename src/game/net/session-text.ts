@@ -26,6 +26,7 @@ export function sessionText(status: NetStatus, seconds = true): string {
   if (problem) return problem;
   const players = status.peers.length + 1;
   const where = status.public ? (status.role === "host" ? "Hosting" : "Joined") : `Room ${status.room}`;
+  if (status.nextIn !== null) return `${where} · ${players}/${ROOM_MAX} · ${seconds ? `next round in ${status.nextIn} s` : "between rounds"}`;
   const gate = status.gate;
   if (gate) {
     const need = gate.min - gate.players;

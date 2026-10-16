@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 const CONTROL = "h-11 sm:h-8";
 
 /**
- * The room this browser hosts or has joined, as something to read out and pass on: the code big, a one-tap Copy link
+ * The room this browser hosts or has joined, as something to read out and pass on: its password (the room code) big, a one-tap Copy link
  * (the page URL with `#room=CODE`: opening it joins) and, where the browser has it (phones), the system Share sheet.
  * A browser that refuses the clipboard (plain http, a locked-down frame) gets the link in a selected box instead.
  * A guest whose room has no host (`problem: "no-host"`) can host it.
@@ -48,7 +48,7 @@ export function RoomShare({ engine, status }: { engine: RefObject<CrashEngine | 
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-1.5">
-        <p className={codeClass} aria-label="Room code">
+        <p className={codeClass} aria-label="Room password">
           {label}
         </p>
         <Button variant="secondary" className={cn(CONTROL, "shrink-0 gap-1.5 px-3 text-xs")} onClick={write} aria-label="Copy room link" aria-live="polite">

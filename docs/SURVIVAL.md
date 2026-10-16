@@ -14,9 +14,9 @@ stopwatch that is the score. Survive as long as possible while more and more cop
   mode, not a race option. The pick starts as Havana until the player picks the Mall and is kept for the next entry. A link starts the run at once instead:
   `#scene=survival&track=<id>` boots straight into a run on that course (`scene=survival` alone, on the picked one, Havana at boot), and the `#` follows the
   run's course (`engine-share.ts`, [`CONTROLS.md`](CONTROLS.md)); editing `track=` in the open page restarts the run on it.
-- **Single player or a team.** A private room's host may run it: the button stays on while hosting, and every peer seated at the
-  run's start plays it as one team (see **Co-op** below). A public room refuses it (`EngineScenes.setScene`: it runs the race or
-  derby its name says), a guest cannot pick it (it follows its host's scene), and a guest's own run ends when it joins a room
+- **Single player or a team.** A room's host may run it, public or private (the hosting panel's game pick: [`MULTIPLAYER.md`](MULTIPLAYER.md) "Hosting and joining"): every peer seated at the
+  run's start plays it as one team (see **Co-op** below). A room runs the game it was hosted as, so the scene bar's Survival button does nothing in a public
+  room (`EngineScenes.setScene`), a guest cannot pick it (it follows its host's scene), and a guest's own run ends when it joins a room
   (`EngineScenes.stepSceneFade`).
 - **A run:** the player starts at `survival.start` of the course file, four to six cops in `survival.formation` behind it.
   The race's grid and red-yellow-green countdown run first (`RaceSession`); the cops are held on the brake until the green.
