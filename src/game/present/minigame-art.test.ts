@@ -15,7 +15,7 @@ import { BOX_POSE_FLOATS } from "./ragdoll-boxes.ts";
 import { makeRingFlingArt, RING_FLING_DRAW_BUDGET } from "./ring-fling-art.ts";
 
 /** Made-up measurements (m): the layout's own functions turn them into posts, boards, net and boxes. */
-const MEASURED = { apexHeight: 18, apexDistance: 14, landingDistance: 22 };
+const MEASURED = { crossingHeight: 18, landingDistance: 22 };
 const LIP_Y = 7;
 /** Two normalised quaternions that agree to ~1e-7 per component have a dot within ~1e-14 of 1: this bar is far looser than that and far tighter than any real turn. */
 const QUATERNION_DOT_TOLERANCE = 1e-9;

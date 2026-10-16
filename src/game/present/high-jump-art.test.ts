@@ -13,9 +13,9 @@ const LIP_Y = 7;
  * base thickness, the owner's best run (about 155 m) and a frame taller than any run (230 m).
  */
 const CASES = [
-  { name: "a 18 m apex", measured: { apexHeight: 18, apexDistance: 14, landingDistance: 22 } },
-  { name: "a 155 m apex", measured: { apexHeight: 155, apexDistance: 70, landingDistance: 95 } },
-  { name: "a 230 m apex", measured: { apexHeight: 230, apexDistance: 80, landingDistance: 110 } },
+  { name: "a 18 m crossing", measured: { crossingHeight: 18, landingDistance: 22 } },
+  { name: "a 155 m crossing", measured: { crossingHeight: 155, landingDistance: 30 } },
+  { name: "a 230 m crossing", measured: { crossingHeight: 230, landingDistance: 34 } },
 ] as const;
 /** Geometry is built from f32 buffers: a position of up to a few hundred metres is good to about 30 micrometres. */
 const POSITION_TOLERANCE = 1e-4;
