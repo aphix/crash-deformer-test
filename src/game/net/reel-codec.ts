@@ -201,9 +201,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 105: the tyres' drive (the yaw and velocity change `applyDrive` gives) fades with how far the surface under the wheels in contact carries the car (`standingBite`: nothing as the surface turns edge-on to the tread, a car on its side or roof, or to a wall that bears no weight, whole once it is within 65° of the wheel's under-axis) where 102 cut it dead below a body up·world-up of 0.35: a replay of a clip of 104 or before drives a car leaning or part-way over (up·world-up 0.35 to 0.42) or banked past 70° differently.
  * 106: the derby arena is rebuilt (a 12 m concrete-and-glass wall where it was 10 m, four bowl ramps at the wall rising 2.5-3.0 m, a 12 x 12 x 2.2 table-top, a pit plateau, the props re-laid, the spawn ring skipping the ramps, every prism reaching 3.36 m below the floor) and a wreck's seat step on its cell
  * keeps its world-vertical part by 1 - sin⁴ of the body's tilt (`followGroup`: whole upright or roof-down, none on the side or nose, where a body axis is the world vertical and the step sank the wreck 4-5 mm a step against the floor, 0.9 to -4.4 m in derby seed 8): a replay of a clip of 105 or before plays on different derby ground and moves a tilted wreck in contact differently.
+ * 107: a thrown driver keeps the car's vertical velocity (`v.y = pre.y + THROW_UP`, it was the constant pop; the watch's velocity ring stores y), so a car leaving a ramp or kicker throws its driver along its climb; flat-ground throws are as before. The range's mini games add a forced throw
+ * at a ramp's lip (`EjectionWatch.throwDriverNow`), which no other scene reaches: a replay of a clip of 106 or before throws a driver out of a car moving up or down (derby jumps, ramps, slopes) differently.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 106;
+const REPLAY_VERSION = 107;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
