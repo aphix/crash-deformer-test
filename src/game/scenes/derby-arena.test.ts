@@ -5,7 +5,7 @@ import { PR_BASE, PR_HX, PR_HZ, PR_TOP, PR_X, PR_YAW, PR_Z } from "../world/pris
 import { P_STRIDE, PRISM, Q_KIND, Q_STRIDE } from "../world/surfaces.ts";
 import { DERBY_ARENA } from "./constants.ts";
 import { makeDerbyArena } from "./derby-arena.ts";
-import { DERBY_BOXES, DERBY_PROP, DERBY_RAMPS, DerbyGround } from "./derby-ground.ts";
+import { DERBY_BOXES, DERBY_PROP, DERBY_RAMPS, DERBY_TABLE_TOP, DerbyGround } from "./derby-ground.ts";
 
 /** Metres (and radians) two drawn numbers may differ by and still be one: the instance matrices are Float32. */
 const TOLERANCE = 1e-4;
@@ -215,6 +215,63 @@ function cellsOf(mesh: THREE.Mesh): Map<string, string> {
   }
   return cells;
 }
+
+/** The least a floor vertex's colour may be, of the floor's mean in each channel (linear light): the scrap hump is damp earth, not a black blob. */
+const LEAST_FLOOR_SHARE = 0.25;
+
+describe("derby arena floor colour", () => {
+  const colours = meshNamed("derby-floor").geometry.getAttribute("color");
+  const channels = [0, 1, 2].map((channel) => ({ channel, read: (vertex: number) => colours.getComponent(vertex, channel) }));
+
+  for (const { channel, read } of channels) {
+    it(`given the drawn floor, when each vertex's colour channel ${channel} is read, then none is under ${LEAST_FLOOR_SHARE} of the floor's mean`, () => {
+      let total = 0;
+      for (let vertex = 0; vertex < colours.count; vertex++) total += read(vertex);
+      const mean = total / colours.count;
+      let darkest = Infinity;
+      for (let vertex = 0; vertex < colours.count; vertex++) darkest = Math.min(darkest, read(vertex));
+      assert.ok(darkest >= mean * LEAST_FLOOR_SHARE, `darkest ${darkest} of mean ${mean}`);
+    });
+  }
+});
+
+/** The level floor compared with: vertices at height 0 this near (m) the middle, clear of every rise and prop. */
+const LEVEL_FLOOR_REACH = 8;
+/** The table-top's mid slope: this far (m, from to) past the flat top's far edge, across the top's width (it falls 2.2 m over 8.5 m, so it is about half height here). */
+const SLOPE_FROM = 2;
+const SLOPE_TO = 7;
+
+describe("derby arena plateau colour", () => {
+  const floor = meshNamed("derby-floor");
+  const positions = floor.geometry.getAttribute("position");
+  const colours = floor.geometry.getAttribute("color");
+  const meanRed = (select: (vertex: number) => boolean): number => {
+    let total = 0;
+    let count = 0;
+    for (let vertex = 0; vertex < positions.count; vertex++) {
+      if (!select(vertex)) continue;
+      total += colours.getX(vertex);
+      count++;
+    }
+    assert.ok(count > 0, "some vertices were compared");
+    return total / count;
+  };
+  const withinHalfWidth = (vertex: number) => Math.abs(positions.getX(vertex) - DERBY_TABLE_TOP.x) <= DERBY_TABLE_TOP.halfX;
+  const beyondTop = (vertex: number) => positions.getZ(vertex) - DERBY_TABLE_TOP.z - DERBY_TABLE_TOP.halfZ;
+  const level = (vertex: number) => positions.getY(vertex) === 0 && Math.hypot(positions.getX(vertex), positions.getZ(vertex)) <= LEVEL_FLOOR_REACH;
+  const plateauCases = [
+    { name: "flat top", select: (vertex: number) => withinHalfWidth(vertex) && beyondTop(vertex) <= 0 && beyondTop(vertex) >= -2 * DERBY_TABLE_TOP.halfZ, least: 1.2, most: Infinity },
+    { name: "mid slope", select: (vertex: number) => withinHalfWidth(vertex) && beyondTop(vertex) >= SLOPE_FROM && beyondTop(vertex) <= SLOPE_TO, least: 0, most: 0.9 },
+  ];
+
+  for (const { name, select, least, most } of plateauCases) {
+    it(`given the drawn floor, when the table-top's ${name} is compared with the level floor, then its mean red is ${least} to ${most} times the floor's`, () => {
+      const ratio = meanRed(select) / meanRed(level);
+      assert.ok(ratio >= least, `${name} ratio ${ratio} under ${least}`);
+      assert.ok(ratio <= most, `${name} ratio ${ratio} over ${most}`);
+    });
+  }
+});
 
 describe("derby arena ramp decks", () => {
   const decks = meshNamed("derby-ramp-decks");
