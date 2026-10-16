@@ -208,13 +208,16 @@ export abstract class DeformState extends DeformHit {
     // wear kill below sums it as slack). Only within PACK_QUIET of the hit's start: a touch later wakes the quiet clock and the
     // lattice's own transient over a crest (the body follows the cell, the block 15 mm toward the cabin) is no hit's travel.
     const back = Math.max(el.rest.z - el.local.z, er.rest.z - er.local.z);
+    const inHit = this.sinceHit() <= PACK_QUIET;
     let counted = 0;
     if (noseHit) counted = back;
-    else if (this.quietTime() <= PLANT_QUIET && this.sinceHit() <= PACK_QUIET) counted = back - Math.max(0, this.at.cell.rest.z - this.at.cell.local.z);
+    else if (this.quietTime() <= PLANT_QUIET && inHit) counted = back - Math.max(0, this.at.cell.rest.z - this.at.cell.local.z);
     let travel = Math.min(back, Math.max(0, counted));
     // A rear hit has to cross the cabin to get here: its push along the hit counts too, so the same travel
-    // kills a nose around 50 km/h and a tail much later. A side hit shoves the block sideways only.
-    if (this.impactInward.z > Math.abs(this.impactInward.x)) travel = Math.max(travel, el.local.z - el.rest.z, er.local.z - er.rest.z);
+    // kills a nose around 50 km/h and a tail much later. A side hit shoves the block sideways only. Like the read
+    // above it is the hit's own (within PACK_QUIET of its start): a touch later wakes the lattice, which sets on a bank
+    // by 21 mm along the nose (cell down 60 mm, block 65 mm across) at roll 20 deg, and that is no hit's travel.
+    if (inHit && this.impactInward.z > Math.abs(this.impactInward.x)) travel = Math.max(travel, el.local.z - el.rest.z, er.local.z - er.rest.z);
     // A nose hit moves the block as far as one hit at the nose's energy-equivalent speed (Σ EBS², rearmHit)
     // reaches: the stroke past the crumple, less a single hit's dynamic shortfall. A first hit counts its
     // geometric peak up to that, which kept single-hit kills monotone (0.4: 49.5 km/h peaked 0.155 m and

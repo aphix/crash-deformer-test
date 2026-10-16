@@ -175,9 +175,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 95: a wreck whose engine a side hit cut (`stalledS`: nobody drives it, its tyres are dragged) keeps its own spin when its contact window closes: the rule that zeroed a wreck's spin
  * there held for every wreck with a live drivetrain, so a replayed side-hit wreck turns on, slowing on its dragged wheels, where it ran on straight at its speed with the spin gone;
  * a clip of 94 or before replays such a wreck differently.
+ * 96: a rear hit's push on the engine block counts as the drivetrain's travel only within `PACK_QUIET` of the hit's start (it counted at any time while something touched the car), so a car hit
+ * from behind and touched later (a wall, a pusher, a ramp's flank) on a bank no longer reads the awakened lattice's set as 21 mm of crush: a replay of a clip of 95 or before reads that car's drivetrain health differently.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 95;
+const REPLAY_VERSION = 96;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

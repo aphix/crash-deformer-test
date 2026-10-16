@@ -49,6 +49,23 @@ describe("given a car that was hit once earlier and drives on, which the ground 
     }
   }
 
+  // A car touched every frame up the stunt bowl's banks (s 200-340, roll to 20 deg) adds nothing to its block's travel. A touch wakes
+  // the lattice, which sets on a bank (the cell sinks 60 mm, the block slides 65 mm across and 21 mm along the nose at roll 20 deg):
+  // a rear hit's block read counted that set as its push (20.7-21.2 mm at 20, 25 and 30 m/s), and a side hit's read against the cabin
+  // without the frame's offset counts it as crush (6.6 mm at 20 m/s, 23 mm at 30).
+  for (const hit of ["side", "rear"] as const) {
+    for (const pace of [20, 25, 30]) {
+      it(`when a sedan hit on its ${hit} is touched all the way up the stunt bowl's banks (s 200-340) at ${pace} m/s, then the touch adds under 5 mm of engine-block travel`, (t) => {
+        const r = crashedRun(stunt, "sedan", pace, hit, 200, 345, [200, 340]);
+        t.diagnostic(`${hit} ${pace} m/s: block travel ${(r.settled * 1000).toFixed(1)} -> ${(r.end * 1000).toFixed(1)} mm`);
+        assert.ok(r.endS > 340, `the run reached s ${r.endS.toFixed(0)}`);
+        assert.ok(r.end - r.settled <= DRIFT, `the touch moved the block ${((r.end - r.settled) * 1000).toFixed(1)} mm`);
+        assert.ok(r.alive, "the engine died");
+        assert.deepEqual(r.thrown, []);
+      });
+    }
+  }
+
   // The loops the owner named: the stunt bowl (banks to 15 deg) and crest, the oval's banks, the rally hairpin and its climbs. Every other course's whole loop is in ejection-slope.ai-long-run.ts.
   for (const course of NAMED_LOOPS) {
     for (const pace of [25, 32]) {
