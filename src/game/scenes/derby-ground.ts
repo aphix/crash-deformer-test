@@ -192,7 +192,7 @@ export const DERBY_BOXES: readonly DerbyBox[] = [
 ];
 
 /** A prism's plan box alone (centre, yaw, half extents): what `layoutDerby` blocks bearings with. */
-export type SpawnBox = { x: number; z: number; yaw: number; hx: number; hz: number };
+type SpawnBox = { x: number; z: number; yaw: number; hx: number; hz: number };
 
 /** Distance (m) from the middle to the nearest point of a box. */
 function nearestReach(b: SpawnBox): number {
