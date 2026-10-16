@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { hypot2 } from "../kernel/physics-core.js";
 import { LANDING_HEIGHT, MINIGAME_MODE, STATION_HALF_WIDTH } from "../scenes/minigame-constants.ts";
 import { climbFootX, floorHeightAt, stationFrontX } from "../scenes/minigame-profile.ts";
 import { BOARD_FINE_STEP, CAPTURE_HALF_WIDTH, FRAME_BOARD_THICKNESS, POST_HALF_SPAN, POST_THICKNESS, type HeightBoard, type HighJumpLayout } from "../scenes/minigame-high-jump.ts";
@@ -122,11 +123,11 @@ const NET_CABLE_SPACING = 20;
 
 /**
  * The kicker's cosmetic supports on each flank of the station's band (whose side walls are the dark slate): ribs every `pitch` m
- * (about; the run is split evenly) from the climb's foot to the lip, each `width` wide outside the wall and `depth` along the run,
+ * (about; the run is split evenly) from the climb's foot to the lip, each `outset` wide outside the wall and `depth` along the run,
  * a beam `beam` thick laid on the floor's edge in steps of `beamStep` m of run (a chord of the arc each, so it hugs the floor even at the lip's
  * 60 degrees), ribs shorter than `minHeight` skipped.
  */
-const KICKER_RIB = { pitch: 3, depth: 0.3, width: 0.4, beam: 0.5, beamStep: 0.5, minHeight: 0.3 } as const;
+const KICKER_RIB = { pitch: 3, depth: 0.3, outset: 0.4, beam: 0.5, beamStep: 0.5, minHeight: 0.3 } as const;
 /** The fascia over the lip's back face: its thickness and how far it stands off the face (m), against z-fighting. */
 const LIP_FASCIA = { thickness: 0.2, lift: 0.02 } as const;
 
@@ -244,13 +245,13 @@ function kickerSupportGeometry(): THREE.BufferGeometry[] {
   const footX = climbFootX(HIGH_JUMP);
   const ribCount = Math.max(1, Math.round(-footX / KICKER_RIB.pitch));
   const ribXs = Array.from({ length: ribCount + 1 }, (_, ribIndex) => footX + (ribIndex * -footX) / ribCount);
-  const flankZ = (side: number) => side * (STATION_HALF_WIDTH + KICKER_RIB.width / 2);
+  const flankZ = (side: number) => side * (STATION_HALF_WIDTH + KICKER_RIB.outset / 2);
   const ribs = [-1, 1].flatMap((side) =>
     ribXs.flatMap((ribX) => {
       const floorY = floorHeightAt(HIGH_JUMP, ribX, 0);
       const low = Math.min(floorY, LANDING_HEIGHT);
       const high = Math.max(floorY, LANDING_HEIGHT);
-      return high - low < KICKER_RIB.minHeight ? [] : [timberBox(KICKER_RIB.depth, high - low, KICKER_RIB.width, ribX, (low + high) / 2, flankZ(side))];
+      return high - low < KICKER_RIB.minHeight ? [] : [timberBox(KICKER_RIB.depth, high - low, KICKER_RIB.outset, ribX, (low + high) / 2, flankZ(side))];
     }),
   );
   const beamCount = Math.ceil(-footX / KICKER_RIB.beamStep);
@@ -260,7 +261,7 @@ function kickerSupportGeometry(): THREE.BufferGeometry[] {
       const fromX = beamXs[index]!;
       const fromY = floorHeightAt(HIGH_JUMP, fromX, 0);
       const toY = floorHeightAt(HIGH_JUMP, beamX, 0);
-      return timberBox(Math.hypot(beamX - fromX, toY - fromY) + KICKER_RIB.depth, KICKER_RIB.beam, KICKER_RIB.width, (fromX + beamX) / 2, (fromY + toY) / 2, flankZ(side), Math.atan2(toY - fromY, beamX - fromX));
+      return timberBox(hypot2(beamX - fromX, toY - fromY) + KICKER_RIB.depth, KICKER_RIB.beam, KICKER_RIB.outset, (fromX + beamX) / 2, (fromY + toY) / 2, flankZ(side), Math.atan2(toY - fromY, beamX - fromX));
     }),
   );
   return [...ribs, ...beams];
@@ -271,7 +272,7 @@ function lipFasciaGeometry(): THREE.BufferGeometry {
   const frontX = stationFrontX(HIGH_JUMP);
   const lipFloorY = floorHeightAt(HIGH_JUMP, 0, 0);
   const dropY = LANDING_HEIGHT - lipFloorY;
-  const length = Math.hypot(frontX, dropY);
+  const length = hypot2(frontX, dropY);
   const outwardX = -dropY / length;
   const outwardY = frontX / length;
   const offset = LIP_FASCIA.thickness / 2 + LIP_FASCIA.lift;

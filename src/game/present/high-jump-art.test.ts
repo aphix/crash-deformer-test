@@ -232,11 +232,10 @@ describe("given the High jump's art built from a layout", () => {
       for (let poleIndex = 1; poleIndex < frontRow.length; poleIndex++) {
         assert.ok(frontRow[poleIndex]!.centre - frontRow[poleIndex - 1]!.centre <= NET_POLE_SPACING_METRES + POSITION_TOLERANCE, `poles ${poleIndex - 1} and ${poleIndex} are too far apart`);
       }
-      assert.deepEqual(
-        backRow.map((pole) => pole.centre.toFixed(3)),
-        frontRow.map((pole) => pole.centre.toFixed(3)),
-        "a back pole behind every pole",
-      );
+      assert.equal(backRow.length, frontRow.length, "a back pole behind every pole");
+      for (let poleIndex = 0; poleIndex < frontRow.length; poleIndex++) {
+        assert.equal(backRow[poleIndex]!.centre.toFixed(3), frontRow[poleIndex]!.centre.toFixed(3), `back pole ${poleIndex} stands behind its front pole`);
+      }
       assert.ok(Math.min(...frontRow.map((pole) => pole.width)) >= MIN_NET_POLE_THICKNESS, `net poles ${frontRow.map((pole) => pole.width)} m thick`);
       const frontTops = frame.filter((point) => Math.abs(point.x - layout.netX) < 1 && point.y > LANDING_HEIGHT + 1);
       assert.ok(boundsOf(frontTops).max.y >= LANDING_HEIGHT + layout.netHeight, "the poles reach the net's top");
