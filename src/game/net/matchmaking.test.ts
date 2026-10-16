@@ -126,7 +126,7 @@ describe("given the room list a relay returns to a player looking for a race roo
       openRooms(list, null).map((r) => [r.kind, codeOf(r.room), r.course]).sort(),
       [["campaign", "B", "3"], ["derby", "D", ""], ["race", "A", "oval"], ["survival", "C", "havana"]],
     );
-    for (const [kind, code] of [["race", "A"], ["campaign", "B"], ["survival", "C"], ["derby", "D"]] as const) assert.deepEqual(openRooms(list, kind).map((r) => codeOf(r.room)), [code], kind);
+    for (const [kind, code] of [["race", "A"], ["campaign", "B"], ["survival", "C"], ["derby", "D"]] as const) assert.equal(openRooms(list, kind).map((r) => codeOf(r.room)).join(), code, kind);
   });
 });
 

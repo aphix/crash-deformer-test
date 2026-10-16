@@ -1264,7 +1264,7 @@ describe("given a room hosted through the one hosting flow, whatever the game", 
     assert.equal(r.guests[0]!.status().car, 1, "the right password is seated");
     assert.equal(wrong.status().car, -1, "the wrong one gets no car");
     assert.equal(wrong.status().problem, "no-host", "and is told nobody hosts there");
-    assert.deepEqual(r.host.status().peers.map((p) => p.id), [r.guests[0]!.status().selfId], "the host never saw it");
+    assert.equal(r.host.status().peers.map((p) => p.id).join(), r.guests[0]!.status().selfId, "the host never saw it");
     assert.equal(r.host.status().public, null);
     assert.equal(r.rooms.hubs.get("PW")!.metas.get(r.host.status().selfId)!(), "", "a private room carries no relay tag");
     const pub = hosted({ ...CAMPAIGN_ROOM, code: null });

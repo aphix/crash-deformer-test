@@ -108,7 +108,7 @@ Top left: the standings with gaps. Top right: lap, position, the race time besid
 | Fullscreen | (the browser's own F11) | | Fullscreen |
 | Key list; its **Credits** button opens the credits dialog (the soundtrack's attribution from the music folder's manifest, the engine sound's MIT notice; Esc or Close dismisses it) | | | ? |
 | Multiplayer | | | Net |
-| Play online (join the best open race, else host), live races list, Join / Host, Leave (race mode, top-left under the title) | | | Play online, "N live", Join, Host, Leave |
+| Online: the Host tab (game: Race, Campaign, Survival or Derby, with its course or campaign playlist; Public or Private with a password; players to wait for) and the Join tab (the live list of every game's open rooms, or a password); in a room the chip, Leave, and the panel with the lobby's Go (top-left under the title, or in the corner of whichever race menu is open) | | | Online, Host, Join, Leave |
 
 Control particles (P): size = mass, lime → red = plastic travel, magenta = contact, yellow line = shape-match pull (short pulls drawn up to 4×), blue line = rest → now; the bar above each car marks its worst travel.
 

@@ -211,12 +211,12 @@ describe("given the signaling relay running on a freshly migrated database, with
       return { status: res.status, rooms: body.rooms ?? [] };
     };
     const mine = (rooms: { room: string; meta: string }[]) => rooms.filter((r) => r.room.endsWith("-ALLK01"));
-    assert.deepEqual(
-      mine((await list("")).rooms).map((r) => [r.room, r.meta]).sort(),
-      games.map(([, room, meta]) => [room, meta]).sort(),
+    assert.equal(
+      mine((await list("")).rooms).map((r) => `${r.room} ${r.meta}`).sort().join(", "),
+      "pub-campaign-ALLK01 lobby.3, pub-derby-ALLK01 lobby, pub-race-ALLK01 lobby.oval, pub-survival-ALLK01 running.havana",
       "every game's room is listed with its host's tag",
     );
-    for (const [game, room] of games) assert.deepEqual(mine((await list(`&kind=${game}`)).rooms).map((r) => r.room), [room], `kind=${game} lists only ${game}`);
+    for (const [game, room] of games) assert.equal(mine((await list(`&kind=${game}`)).rooms).map((r) => r.room).join(), room, `kind=${game} lists only ${game}`);
     assert.equal((await list("")).rooms.some((r) => r.room === "SECRET77"), false, "a private room is not listed");
     assert.equal((await list("&kind=tournament")).status, 400);
   });

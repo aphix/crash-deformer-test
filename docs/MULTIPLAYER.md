@@ -97,7 +97,7 @@ out-of-the-pane direction, orientation) and his velocity relative to the car, th
 `Ejection` the host's sim made (`EjectionWatch`, [RACE_DESIGN.md](RACE_DESIGN.md)), every number f32-exact. A client queues it
 (`EjectQueue`) and launches the dummy when its draw time (the host clock `INTERP_DELAY` behind) reaches the event's, so he
 leaves with the car it is drawn leaving; a reel that plays drops it. 100 bytes, a handful a race.
-`NET_VERSION` (`codec.ts`, now 25; 25 added the wheelspin byte, 10 moved the reel to `MSG.reelPart` frames, 8 added `look`/`driverOut`/`MSG.eject`) is bumped on any layout change:
+`NET_VERSION` (`codec.ts`, now 26; 26 added the campaign game kind, the lobby gate's course and playlist and the between-rounds clock, 25 the wheelspin byte, 10 moved the reel to `MSG.reelPart` frames, 8 added `look`/`driverOut`/`MSG.eject`) is bumped on any layout change:
 a host answers another build's hello with a refusal and a client refuses another build's assign, so
 mixed builds (an auto-deploy mid-session) say "reload" instead of misreading snapshots.
 
@@ -143,24 +143,45 @@ goes (SCTP fragments it) but a lost fragment loses the whole keyframe, so the cl
 next one (1 s). Splitting per car is the fix if large crashed fields show that. Inputs cost 150 B/s per client. The host sends at
 most one snapshot per rendered frame, so a host below 30 fps sends at its frame rate.
 
+## Hosting and joining (one flow for every game)
+
+One online entry (`src/components/online-entry.tsx`) hosts and joins a **race**, a **campaign**, **Survival** and a **derby** the same way. Offline it is a single "Online" button; its panel has two tabs.
+
+- **Host** (`online-host.tsx` → `NetPlay.hostRoom(HostRoom)`): the game; its options (`game-options.tsx`: a race and Survival take a course, a campaign the playlist, a derby nothing); **Public** (listed for anyone) or **Private**; for a private room the **password**, which is the room code (typed, or 8 generated characters), with the link and QR code to pass on; the **players to wait for** (the lobby stepper, 1 to `ROOM_MAX`); then Host opens the Havana lobby. A campaign needs at least one course ticked.
+- **Join** (`online-join.tsx`): the live list of every game's open public rooms (`GET api/rtc?list=public`, no `kind`: each row names its game, its course or its number of courses, players/8 and stage) with a Join button, and, under it, a private room's password with Join room. `NetPlay.publicJoin(room, kind)` / `join(code, tx)` are the only joins; links (`#room=CODE`) and a retried guest (`Host this room`) route to the same calls.
+- **Public or private is the relay's, not the game's.** A public room is named `pub-<kind>-v<NET_VERSION>-XXXXXX` (kind `race`, `campaign`, `survival` or `derby`) and its host tags every poll `<stage>.<course>` (a race `lobby.oval`, Survival `lobby.havana`, a campaign `lobby.3` for three courses, a derby `lobby`); the relay lists only `pub-` rooms (`KIND` in `signaling.server.ts` filters one game when asked). A private room's code never starts with `pub-` (the field allows `[A-Z0-9]`, ≤ 12), so it is never listed and carries no tag. The **password is the code**: a guest under another password lands in an empty room and its chip says "Nobody is hosting this room"; there is no listed-and-locked room and no password field in `hello`.
+- **Players to wait for** is the lobby's `minPlayers` for every game and both kinds of room (the Host form sets it, the lobby gate's stepper changes it): Go works at that many players, and a public lobby's countdown holds at `LOBBY_S` below it.
+- **The lobby is the same for every game.** `LobbyGate` shows the host's game, its course or playlist (everyone reads them from the gate), and gives the host the same `GameOptions` the Host form has, the players stepper, Go and Reset scene. A private room's host may change the game there; a public room's game is the one its name says.
+- **Where the entry sits.** Under the title; while any race menu is open (setup, pause, results, standings, Survival's) it moves into that menu's header corner (`online-slot.ts`, `MenuShell`), inside the menu's box, so it is never covered by the menu's backdrop and never over its text. The panel is `fixed` to the screen under the pill and keeps its keys to itself (Esc closes it; Enter and arrows do not reach the menu behind).
+
+### Campaign over the network
+
+The host owns one `Campaign` (the existing co-op campaign, below); what the network adds is how it is chosen, started and moved on.
+
+- **Playlist:** the host's pick in the Host form or the lobby (`NetPlay.setPlaylist`, tap order is play order; ids the course menu does not list and repeats drop, at most `MAX_PLAYLIST` = 16). It rides `RaceNetState.gate.playlist` (with `gate.course`, the course of a race or Survival run) to every guest, and a public room lists the number of courses in its tag.
+- **Go** (`kind` `campaign`) seats everyone, sets `RaceOptions.campaign` to the playlist and sends the director `{ type: "campaign" }`: every peer races course 1 on the host's field (the peers seated at that moment; a later peer spectates and joins with the next campaign). Go does nothing while the playlist is empty.
+- **Course changes need no message of their own:** each round's snapshot carries `trackId` and the campaign table (`round`, `tracks`, standings), so a guest loads the next course when its snapshot's course changes, and the standings screen follows the host's `standings` flag.
+- **Between rounds** a round's whole stretch (results, the highlight reel, standings) lasts `BETWEEN_ROUNDS_S` = 60 s from the moment the round ends, then the host's director moves on (`NetRace.advance`: score the round, or replay it when no human finished first as in a solo campaign, then the next course; after the last course the setup menu, which the room replaces with the lobby). The race message's `next` is the seconds left, so every peer's chip reads "next round in N s". The host's **Next** works at any time and skips ahead. The panel's checkbox **Auto next after 1 minute** (host only, default on, kept in this browser under `crush.net.autonext`) switches the clock off: the room then stays on the results until the host presses Next, and switching it on again gives a fresh minute.
+- **After the last round** (the host leaves its last standings, or the clock runs out) everyone is back in the Havana lobby with the same playlist ready; a public room's countdown starts again.
+- **Wire:** `NET_VERSION` 26: `GAME_KINDS` gains `campaign`, the gate carries `course` and `playlist`, and the race message `next`. REPLAY is unchanged. An older peer refuses a 26 host's hello (and vice versa), as for any version bump.
+
 ## Rooms, joining, migration
 
-- **Private room**: a code typed into the online entry's panel (`[A-Z0-9]`, ≤ 12) or, left empty, generated: 8
+- **Private room**: the password (the room code) typed into the Host form (`[A-Z0-9]`, ≤ 12) or, left empty, generated: 8
   characters from `crypto.getRandomValues` over a 32-character alphabet (40 bits), so live rooms
   can't be found by guessing (the old 4 characters from `Math.random` were ~1.7 M codes). The form
-  is in the online entry's panel (Host / Join, link "Internet (WebRTC)" or "This browser (tabs)"). The room's code is shown big with "Copy link" (and "Share" where the browser has it): `origin + BASE_URL + #room=CODE` (plus `&tx=bc` for tabs), the share hash ([`CONTROLS.md`](CONTROLS.md#shareable-url)), which joins on load; the older `?net=join&room=CODE` still joins too (`useDeepLinkJoin`, once per page load, in any scene, bench pages included). `?net=host&room=CODE`
-  only fills in the panel (hosting takes a click). A link's code (query or `#`) is uppercased as the field does, and
+  is in the online entry's Host tab (Private; link "Internet (WebRTC)" or "This browser (tabs)"; the Join tab takes the same password). The room's code is shown big with "Copy link" (and "Share" where the browser has it): `origin + BASE_URL + #room=CODE` (plus `&tx=bc` for tabs), the share hash ([`CONTROLS.md`](CONTROLS.md#shareable-url)), which joins on load; the older `?net=join&room=CODE` still joins too (`useDeepLinkJoin`, once per page load, in any scene, bench pages included). `?net=host&room=CODE`
+  only fills in the Host form with a private room under that password (hosting takes a click). A link's code (query or `#`) is uppercased as the field does, and
   one the field would refuse (a `pub-…` name, longer than 12) is ignored, so a crafted link can't
   make a visitor host a public room or poll a dead code forever. Every net URL is built from `import.meta.env.BASE_URL`, so
   the app works under a base path (`APP_BASE=/crush/` on the VPS). Under WebRTC the panel also
   shows the link as a QR code (`src/lib/qr.ts`: ~200-line dependency-free encoder, byte mode, level
   M, versions 1–10). Verified: 49 strings of 1–210 bytes across versions 1–10 decode with jsQR, and
   the on-screen QR decodes to the copied link, including under `vite dev --base /crush/`.
-- **Public race / Play online**: one tap finds a room (see "Matchmaking" below): the relay lists open public rooms
-  (`GET api/rtc?list=public&kind=race`: rooms named `pub-race-v<NET_VERSION>-XXXXXX` with a free seat whose
+- **Public rooms** (all four games): the relay lists open public rooms
+  (`GET api/rtc?list=public[&kind=…]`: rooms named `pub-<kind>-v<NET_VERSION>-XXXXXX` with a free seat whose
   `host`-tagged peer polled in the last 15 s, most distinct addresses (`addrs`) first, ties in random order, each with
-  its player count and its host's match tag), and the client joins the best one or hosts a new room on the race course
-  when none is open. The client ranks by `addrs` too (then the lexically first name, the same room on every screen):
+  its player count and its host's match tag), and a player joins one from the Join tab, or the matchmaker (`publicMatch`, used when a joined room's host died) joins the best open room of the game or hosts a new one. The client ranks by `addrs` too (then the lexically first name, the same room on every screen):
   `players` only shows and tests for a full room, since one address can pad a room with idle peers. A host's tag is
   on its very first poll (`P2PRoom.join` waits one microtask, so the mode a public host enters in the same call is
   in it): the relay row is created tagged. Measured (Chromium, `vite dev`): the room is listed with `lobby.oval` 19 ms
@@ -215,44 +236,27 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
       one room of five, the other 3 in two rooms, with no player alone and no guest stranded.
       Two Chromium pages over WebRTC (`vite dev`, both capable): Play online in the same instant, 2 of 2 runs merged
       into one relay room of two in 3.1 s and 2.8 s.
-    - *Host tag*: a public host sends `meta=<stage>.<course>` (`lobby.oval`, `running.oval`, `over.rally`; a derby
+    - *Host tag*: a public host sends `meta=<stage>.<course>` (`lobby.oval`, `running.oval`, `over.rally`; Survival `lobby.havana`; a campaign the number of its courses, `lobby.3`; a derby
       sends no course) on every relay poll, stored on its peer row (`migrations/0005_webrtc_peer_meta.sql`,
       ≤ 32 chars of `[a-z0-9._-]`, replaced by the next poll, kept by one without a tag, never read from a
       guest) and listed beside the room. A relay without the column lists rooms without a tag: they rank like
       a lobby room and the list names them "Open"; so does a new host for its first ~2 s (its registering poll
       goes out before its race is up; the next heartbeat carries the tag).
-  - **Online entry** (`src/components/online-entry.tsx`): the one button for public and private play, in every scene except
+  - **Online entry** (`src/components/online-entry.tsx`; "Hosting and joining" above has the flow): the one button for public and private play, in every scene except
     the solo clip view, the results reel and `?bench=` pages (no online UI there). It sits in the title's column of the HUD
-    grid (`hud.tsx`), directly under the title at the top left, so no offset is guessed; in the race setup card it sits in the
-    card's top-right corner instead (the card is a full-screen sheet on phones). Race mode shows "Play online" and the open
-    races ("3 live"; during a race only the count); every other scene shows one "Online" button. Either opens a panel hanging
-    below it (left-aligned; right-aligned in the setup card) that scrolls inside the height left under the pill, so it never
-    runs off a short screen, and on a phone on its side (`phone-landscape`) lays its two blocks side by side so it ends above the
-    thumb pad. Offline it holds, in order: race mode's open races (course, players/8 and state per room with a Join button),
-    Play online, Public derby and, in race mode, Host race (`publicHost`: a room of its own at once); then the private room form
-    (Room, Link, Host / Join). The list polls the relay every
-    10 s collapsed, 4 s open, never while the tab is hidden, outside race mode or while a session is on, and doubles its wait (to
-    60 s) after each failure (`RoomPoller`; the relay allows 10 requests/s per address). In a session the
-    entry is a status chip ("Finding a race…", "Room K7M2QX9P · 2/8 · race on", "Waiting for players · starts in 9 s",
-    "Joined · 3/8 · race on", or the session's trouble: "Room full", "Host paused", …; `sessionText`) with Leave and a chevron that opens the
-    session panel: a private room's code with Copy link and Share and its QR code, then players, car, snapshot rate, the lobby
-    countdown and each peer's ping. Leave in race mode closes a guest's race mode (it ran on its host's) and sends a host back to
+    grid (`hud.tsx`), directly under the title at the top left, and moves into the corner of the open race menu's header (`online-slot.ts`)
+    while one is up. Before, only the setup card had a copy (a fixed overlay), and under every other menu (pause, results, standings,
+    Survival's) the title-column pill sat below the menu's `z-30` backdrop, drawn but dead (measured: the element at its centre was the
+    backdrop). Offline it holds the Host and Join tabs; in a session it is a status chip ("Finding a race…", "Room K7M2QX9P · 2/8 · race on",
+    "Waiting for players · starts in 9 s", "Joined · 2/8 · next round in 41 s", or the session's trouble: "Room full", "Host paused", …; `sessionText`) with Leave and a chevron that opens the
+    session panel: a private room's password with Copy link and Share and its QR code, then players, car, snapshot rate, the lobby gate and
+    the campaign's auto-advance checkbox, the countdown and each peer's ping. The Join list polls the relay every
+    10 s collapsed, 4 s open, only while the Join tab is open, never while the tab is hidden, and doubles its wait (to
+    60 s) after each failure (`RoomPoller`; the relay allows 10 requests/s per address). Leave in race mode closes a guest's race mode (it ran on its host's) and sends a host back to
     the race setup menu (`leaveFollowUp`); in any other scene the scene stays as it is. The chip's screen-reader line (the only live
-    region) leaves the lobby countdown out, so a state change announces and the seconds do not. Buttons are 44 px tall on
-    phones (32 px from `sm`); the chip and the public buttons never take keyboard focus from the game.
-    Measured (two to four Chromium contexts, `vite dev`): a capable desktop's Play online hosts in 0.6 s; a second page opens
-    the list ("1/8 players · Open", later "Racing"), Joins; a third presses Play online and lands in the same room (3
-    of 3 seated, race started with a field of 8 for all); the host's Leave returns to the setup menu. A phone (coarse
-    pointer: not fit) pressing Play online shows "Finding a race…" and joined a desktop's room that appeared 7.9 s
-    into its search; alone it searched 15.4 s (12 s + 0-3 s jitter + one 2.5 s poll step), then hosted a field of 4
-    (AI count 3, back to 7 after Leave). 0 console errors.
-    Layout measured (production build under `/crush/`, Chromium; 414x757 at 2.61 portrait, 757x414 landscape, 1280x720): closed in
-    the Fleet, the race setup card, a race and the race's full menu, nothing overlapped and nothing ran off screen (on a phone
-    in a race's full menu the dock's bottom is the same 749 px of 757 as before the merge); open, the panel is the topmost
-    element at its corners and centre, fits under the pill (portrait 272 px wide, landscape two columns 480 px wide ending above
-    the thumb pad) and shows the live race list with Join, the private form, and a hosted private room's code, Copy link and QR code. The
-    deep links `?net=join&room=ZZ9TEST` (chip "Room ZZ9TEST") and `?net=host&room=ABC123&tx=bc` (panel open, field and link
-    filled) work as before, and a `?bench=city` page has no online UI. 0 console errors.
+    region) leaves the countdowns out, so a state change announces and the seconds do not. Buttons are 44 px tall on
+    phones (32 px from `sm`); the chip and the buttons never take keyboard focus from the game. The deep links
+    `?net=join&room=ZZ9TEST` (chip "Room ZZ9TEST") and `?net=host&room=ABC123&tx=bc` (panel open, password and link filled) work as before, and a `?bench=city` page has no online UI.
 - **Room size**: 8 peers (`ROOM_MAX`, `src/lib/multiplayer/rooms.ts`); the relay answers 409 past it.
   The online entry's chip shows the relay's refusal ("Room full", "Host taken", …; `P2PRoom.error` →
   `NetStatus.relayError`) until a poll gets through, and the client's session `problem` the same way.
@@ -349,12 +353,12 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
 From the moment a player hosts (public or private) or joins, until the host starts a game, everyone shares one free-drive scene on the Survival course (Havana until the host picks another, the National Mall: `setLobbyCourse`): their own cars on the course, proximity voice as in "Voice", no race rules, no hunters, no setup menu.
 
 - **Built on the race director, not the fleet.** `RaceDirector.enter(false, true)` loads the course (`showLobby`) with no `RaceSession`; `RaceDirector.free` is the lobby flag. Race mode already carries peers' cars in the host's snapshots (`drive` applies each seat's remote input, the walls and props are the race's `courseHit`), and the Fleet scene has no Havana, so the lobby reuses that path and its course loading instead of a new scene id. The host's car is car 0, each peer's its roster car; cars stand abreast on the course's start anchor (`humanSlot`, as a hosted Survival run's humans). A guest adopts the lobby from the host's race message (`MSG.race` `gate` non-null) and seats its own car (`RaceDirector.seatLobby`).
-- **Start gate.** The host's **Go** switch (session panel) calls `NetPlay.go()`: it starts the room's game and works once players (the host and the seated peers) ≥ `minPlayers`. `minPlayers` defaults to 2 (`DEFAULT_MIN_PLAYERS`: the host and one), the host sets it with the panel's stepper (`setMinPlayers`, 1 to `ROOM_MAX`), and it travels to every peer in `RaceNetState.gate = { min, kind }` (5 Hz and with every keyframe), so guests read "Waiting for N more players". What Go starts: a private room's host picks Race, Survival or Derby in the panel (`setLobbyKind`; a race runs on the race options' course, as the host last set it), a public room's game is the one its name says. The host cannot switch scenes from the HUD while the lobby is up.
+- **Start gate.** The host's **Go** switch (session panel) calls `NetPlay.go()`: it starts the room's game and works once players (the host and the seated peers) ≥ `minPlayers` (and, for a campaign, once its playlist is not empty). `minPlayers` defaults to 2 (`DEFAULT_MIN_PLAYERS`: the host and one), the host sets it in the Host form and with the panel's stepper (`setMinPlayers`, 1 to `ROOM_MAX`), and it travels to every peer in `RaceNetState.gate = { min, kind, course, playlist }` (5 Hz and with every keyframe), so guests read "Waiting for N more players" and what Go starts. What Go starts: the game the host hosted as (Race, Campaign, Survival or Derby; a private room's host may switch it in the panel with `setLobbyKind`, a public room's is the one its name says), on the gate's `course` (a race: `setRaceCourse`, the race options' `trackId`; Survival: `setLobbyCourse`) or its `playlist` ("Campaign over the network"). The host cannot switch scenes from the HUD while the lobby is up.
 - **Public rooms.** The countdown holds at `LOBBY_S` while the room is short of `minPlayers` and runs once it is not; with the minimum met the countdown stays as it was and Go starts it early; with the minimum at 1 a lone host starts at the end of the countdown. The relay tag reads `lobby.<course>` until the game starts.
 - **Resettable.** In the lobby **R** (tap or hold) puts a player's own car back at a Havana spawn, repaired and upright: the host's through the race director, a guest's by `INPUT_RESET` on the existing `MSG.input` flags, which the host handles in lobby phase (`NetGame.resetLobbyCar`) and whose repaired car is what the snapshots then carry. The host's **Reset scene** button (`NetPlay.resetScene` → `randomizeAndReset`) puts every car and every knocked prop back and bumps `clearGen`, which clears each guest's debris, dummies and fx. Nothing survives Go: the game's start re-places and re-dresses every car and clears the scene.
 - **Names.** `MSG.roster` entries carry each peer's cleaned name (`cleanName`, cleaned again on read; a player with no name is "Host" or "Player N"), so every peer's list reads `name · car N · ping`. Clicking a name mutes that peer for this listener (`Voice.setPeerMuted`; nothing is sent, the others still hear it); a muted name is struck through with a muted-speaker glyph and its button says what the next click does. The volume slider and mute button stay.
 - **Wire.** NET 23: the roster entry's name, `INPUT_RESET` (input flag bit 16), the race message's `gate`. REPLAY is unchanged (a lobby is not recorded, no trajectory changed).
-- **Not done:** the race setup menu (laps, AI count) is not reachable from the lobby, so Go starts a race with the options as last set; a private room's players return to the Fleet, not the lobby, when the host quits a game.
+- **Not done:** the race setup menu's laps and AI count are not reachable from the lobby (Go starts with the options as last set); a private room's players return to the Fleet, not the lobby, when the host quits a game.
 
 ## Voice
 
@@ -408,8 +412,8 @@ two agree. With one human there is no team (`RaceHud.team` is null) and every ru
 - **Campaign:** the host owns the one `Campaign`; its table rides the race snapshot (`campaign`, `standings`: a guest follows the
   host's standings screen). The round counts, and the table moves on, when the event's team result is a win; otherwise Next
   replays the round with nothing scored. The field is the peers seated when the campaign starts: a later peer spectates, and
-  joins with the next campaign. Progress is in the host's memory only, as before. The playlist is the host's pick (`RaceOptions.campaign`,
-  the setup menu's ticked courses in tap order); guests follow it through `campaign.tracks` in the same snapshot, so no new wire.
+  joins with the next campaign. Progress is in the host's memory only, as before. The playlist is the host's pick (`RaceOptions.campaign`;
+  in a room the Host form's or the lobby's playlist, started by Go and moved on between rounds: "Campaign over the network" above); guests follow it through `campaign.tracks` in the same snapshot, so no new wire for the table.
 - **Wire:** no new message and no new type byte. `MSG.race`'s JSON snapshot gained `survival` (`{ bustTime }`, null in a race), `pack`
   (`{ cops, wrecked }`, Survival, host-filled), `campaign` (the table or null) and `standings`. `codec.ts` validates them (`RACE_SNAP`,
   `CAMPAIGN_SNAP`: bounded arrays, every campaign entry has its row); a guest enters Survival when the snapshot says so
@@ -441,8 +445,8 @@ Derby multiplayer runs through the same controller-slot path as race (agreed wit
   clock), labelling its row "You" and the host's car "Host". A new round puts it in drive mode in its
   seat, or spectating if the host did not seat it. The cars themselves come from the 30 Hz
   pose/wreck snapshots, as in Fleet.
-- **Public derby:** the online entry's "Public derby" button lists `pub-derby-…` rooms
-  (`?list=public&kind=derby`) or hosts one. The lone host waits `LOBBY_S` = 15 s with a 6-car field
+- **Public derby:** hosted as a public Derby from the Host tab, listed as `pub-derby-…` rooms
+  (`?list=public&kind=derby`). The lone host waits `LOBBY_S` = 15 s with a 6-car field
   parked and no match, then the match starts with peers seated and AI in the other seats. A decided
   match is followed by the next one (engine loop at 4.4 s, or 12 s after the result at the latest).
 - **Measured** (`.bench/net/derby2.mjs`, two pages over WebRTC): B lands in A's public derby as
@@ -503,7 +507,7 @@ Code: `src/game/net/` (`transport.ts` `NetTransport` + `BroadcastTransport`, `rt
 `codec.ts`, `net-play.ts`, `net-ports.ts` (the engine as netplay sees it), `net-view.ts` (a client
 draws the snapshot ring), `voice.ts` + `voice-range.ts` + `roster-codec.ts` (proximity voice, below),
 `net.test.ts`, `net-session.test.ts`, `race-net.test.ts`, `voice-range.test.ts`, `roster-codec.test.ts`),
-`src/components/online-entry.tsx` (+ `online-session.tsx`, `online-private-room.tsx`, `voice-panel.tsx`), `src/routes/api/rtc.ts` +
+`src/components/online-entry.tsx` (+ `online-host.tsx`, `online-join.tsx`, `game-options.tsx`, `online-session.tsx`, `lobby-gate.tsx`, `auto-next.tsx`, `online-slot.ts`, `voice-panel.tsx`), `src/routes/api/rtc.ts` +
 `src/lib/multiplayer/signaling.server.ts` (the kit's reference relay).
 
 Unit tests (`net.test.ts`): codec round trip within each quantization step, i16 clamping, input

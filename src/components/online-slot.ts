@@ -6,12 +6,12 @@ import { useSyncExternalStore } from "react";
  * and inside the menu's keyboard and focus handling (a field outside the dialog would lose its focus to the menu every frame).
  * Without a menu the entry stays under the title.
  */
-let slot: HTMLElement | null = null;
+const slot: { el: HTMLElement | null } = { el: null };
 const listeners = new Set<() => void>();
 
 export function setOnlineSlot(el: HTMLElement | null): void {
-  if (el === slot) return;
-  slot = el;
+  if (el === slot.el) return;
+  slot.el = el;
   for (const listener of listeners) listener();
 }
 
@@ -22,5 +22,5 @@ const subscribe = (listener: () => void): (() => void) => {
 
 /** The open menu's corner for the online entry, null with no menu up. */
 export function useOnlineSlot(): HTMLElement | null {
-  return useSyncExternalStore(subscribe, () => slot, () => null);
+  return useSyncExternalStore(subscribe, () => slot.el, () => null);
 }

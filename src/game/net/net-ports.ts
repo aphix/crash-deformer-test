@@ -34,7 +34,7 @@ export interface NetRace {
 }
 
 /** A course a host can pick: what the setup menu lists. */
-export interface CourseInfo {
+interface CourseInfo {
   id: string;
   name: string;
   blurb: string;
