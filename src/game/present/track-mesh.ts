@@ -164,14 +164,14 @@ float mottleHash(int a, int b) {
   return float(x) / 4294967296.0;
 }
 float mottle(vec2 xz) {
-  vec2 g = xz / ${BLOCK}.0;
+  vec2 g = xz / ${BLOCK.toFixed(4)};
   vec2 c = floor(g);
   vec2 f = g - c;
   int i = int(c.x);
   int j = int(c.y);
   float a = mix(mottleHash(i, j), mottleHash(i + 1, j), f.x);
   float b = mix(mottleHash(i, j + 1), mottleHash(i + 1, j + 1), f.x);
-  return ${MOTTLE_LO} + ${MOTTLE_SPAN} * mix(a, b, f.y);
+  return ${MOTTLE_LO.toFixed(4)} + ${MOTTLE_SPAN.toFixed(4)} * mix(a, b, f.y);
 }`;
 
 /**
