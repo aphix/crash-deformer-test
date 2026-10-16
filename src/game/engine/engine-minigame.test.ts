@@ -10,6 +10,7 @@ import { BOX_POSE_FLOATS } from "../present/ragdoll-boxes.ts";
 import { DISC_RADIUS, activeGround, setGround, type Ground } from "../world/ground.ts";
 import { MINIGAME_MODES, REST_HOLD, STATION_ANCHORS, THROW_BOOST, type MinigameMode } from "../scenes/minigame-constants.ts";
 import { BOX_COUNT, HighJumpCapture, type TorsoSample } from "../scenes/minigame-high-jump.ts";
+import { DRIVER_CARS } from "../match/types.ts";
 import { lipHeight } from "../scenes/minigame-profile.ts";
 import { ringScore } from "../scenes/minigame-ring.ts";
 import { MinigameSession } from "../scenes/minigame-session.ts";
@@ -24,8 +25,6 @@ import { minigameStore } from "./minigame-store.ts";
 
 const FRAME = 1 / FRAME_HZ;
 const THROTTLE_KEY = "KeyW";
-/** The long jump's throttle is let go this far (m) before its barrier: a car held at full throttle arrives past the speed the barrier's hit can throw a driver at (reported). */
-const LONG_JUMP_THROTTLE_RELEASE_X = -20;
 /** Sim seconds a throw may take from the pedal to rest, and the wait the held dummy must outlast. */
 const THROW_TIMEOUT_S = 60;
 const HOLD_CHECK_S = 60;
@@ -78,7 +77,6 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
     engine["keys"].add(THROTTLE_KEY);
     for (let frame = 0; frame < THROW_TIMEOUT_S * FRAME_HZ && minigameHud().phase !== "scored"; frame++) {
       engine.advance(FRAME, { frameDt: FRAME });
-      if (mode === "longJump" && car.group.position.x > LONG_JUMP_THROTTLE_RELEASE_X) engine["keys"].delete(THROTTLE_KEY);
       const still = engine["ragdolls"].latest(torso);
       if (still >= 0) samples.push(stationLocal(mode, torso, still));
     }
@@ -381,6 +379,22 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
       assert.equal(activeGround(), attractGround, "the flat ground");
       assert.ok(engine["barrierUp"], "the barrier stands");
     });
+  });
+
+  describe("given the long jump driven from the parked start at full throttle by each driver car", () => {
+    for (const driverCar of DRIVER_CARS) {
+      it(`when a ${driverCar.id} holds the throttle to the barrier, then its driver is thrown exactly once and the throw scores the dummy's rest distance`, () => {
+        engine.setPlayerCar(driverCar.id);
+        engine.startMinigame("longJump");
+        assert.equal(minigameHud().phase, "ready", "ready");
+        launches.length = 0;
+        const samples = throwAndRead("longJump");
+        assert.equal(launches.length, 1, "exactly one throw");
+        assert.equal(minigameHud().phase, "scored", "scored");
+        assert.equal(minigameHud().lastScore, expectedScore("longJump", samples), "the score is the torso's x at rest");
+        assert.ok(minigameHud().lastScore! > 0, "he landed past the lip");
+      });
+    }
   });
 
   describe("given the High jump's dummy climbing to a great height", () => {
