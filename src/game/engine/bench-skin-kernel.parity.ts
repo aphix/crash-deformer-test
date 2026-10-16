@@ -2,16 +2,15 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { skinKernel } from "../deform/skin-kernel.ts";
 import { loadSkinKernelForTest } from "../deform/skin-kernel.test-util.ts";
-import type { BenchParts, Samples, Window } from "./bench-measure.ts";
+import { summarize, type BenchParts, type Samples, type Window } from "./bench-measure.ts";
 import type { BenchPlan } from "./engine-bench-plan.ts";
 
 /**
  * Run alone (`test:parity`, outside the test preload that loads the kernel), so the kernel starts unloaded and the
  * bench card's `skinKernel` can be read both ways.
  */
-// `sky-dome.ts` (a value import of the module under test) builds an ImageBitmapLoader as it loads and warns where Node has no `createImageBitmap`.
-Object.assign(globalThis, { __BUILD_SHA__: "test", createImageBitmap: () => Promise.reject(new Error("no bitmaps in Node")) });
-const { summarize } = await import("./bench-measure.ts");
+// `summarize` reads the build's commit as it runs, not as the module loads.
+Object.assign(globalThis, { __BUILD_SHA__: "test" });
 
 const f = (): Float64Array => new Float64Array(0);
 const SAMPLES: Samples = { n: 0, iv: f(), cpu: f(), sim: f(), draw: f(), steps: f(), coarse: f(), wrecks: f(), calls: f(), tris: f(), tierCounts: f(), tierOrder: new Uint8Array(0), tiersSeen: 0, levelCounts: f(), levelOrder: new Uint8Array(0), levelsSeen: 0 };
