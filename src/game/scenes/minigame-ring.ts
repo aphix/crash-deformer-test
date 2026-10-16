@@ -19,7 +19,7 @@ function scaledMetres(realInches: number): number {
   return realInches * METRES_PER_REAL_INCH * SKEE_SCALE;
 }
 
-/** The lane position (m past the lip) where the board begins: where the hump ends, at pad height. */
+/** The lane position (m past the lip) where the board begins: where the hump ends, at pad height. A 15 m/s throw at 35 degrees first meets the board 20 m out (22 m/s: 43 m), so any start up to about 19 m catches the slowest throw. */
 export const RING_BOARD_START_X = 6;
 /** The narrowest window (m across) a 100 pocket's scoring circle may offer: wide enough that a precise line and speed can land him in one. */
 export const POCKET_AIM_WINDOW = 1.2;
