@@ -77,3 +77,6 @@ export const RING_FLING_LANE = {
 
 /** Behind the high jump's and Ring Fling's lip the floor falls away at this pitch (deg) down to the landing's level: the car drops behind the lip. */
 export const LIP_BACK_FACE_PITCH_DEGREES = 60;
+
+/** High jump and Ring Fling: the share of its speed (and so of every velocity component) the car keeps as its driver is thrown at the lip. Measured in `minigame-lip.test.ts`. */
+export const LIP_CAR_SPEED_KEEP = 0.3;
