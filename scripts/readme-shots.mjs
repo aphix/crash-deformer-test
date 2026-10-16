@@ -237,6 +237,19 @@ const SCENES = {
   hud: { ui: true, hash: "cars=5&smin=22&smax=26&seed=2&night=1", seed: 2, setup: hudOpen, at: 0 },
   // The hidden survey scene (docs/CONTROLS.md): shot only when named (`survey`), not one of the README's pictures. W flies the free camera in to the front row.
   showcase: { survey: true, hash: "scene=showcase", setup: holdGas, at: 0.2 },
+  // The rows from behind: the free eye flown through them and turned round.
+  "showcase-back": {
+    survey: true,
+    hash: "scene=showcase",
+    setup: (p) =>
+      run(p, () => {
+        const free = window.__crush.view.free;
+        free.eye.x -= Math.sin(free.yaw) * 14;
+        free.eye.z -= Math.cos(free.yaw) * 14;
+        free.yaw += Math.PI;
+      }),
+    at: 0.1,
+  },
 };
 
 /** The crash animation: two cars head-on, the engine's own crash cam (not framed by hand), from just before the hit through the slow-mo. */
