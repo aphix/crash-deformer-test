@@ -109,11 +109,12 @@ export const LIP_CAR_SPEED_KEEP = 0.3;
  *   the net, and `upward` 1.03 puts that run over the posts at 150-160 m (the owner's 157 m); the sedan's best crosses at about 110 m.
  * - Ring Fling: a ballistic landing distance goes with the speed squared. `forward` 0.4 and `upward` 0.7 bring a full-throttle sedan
  *   family run down on the 30 cup, a 75% run on the 10 cup, and the monster's run is stopped by the backstop.
- * - Long jump: the barrier's throw is a flat skim (the car's speed and a 3.5 m/s pop), so `upward` 3.5 turns it into a 7-12 m arc and
- *   `forward` 1.05 lets the best class's best run land past the 100 m sign while a 70% run still lands past 50 m.
+ * - Long jump: the barrier's throw is a flat skim (25-27 m/s approach, about 28-33 m/s and 3.4 m/s up at release), so `upward` 5 turns it into a
+ *   12-29 m arc and `forward` 1.1 lets the best class's (the monster's) best run land and rest between the 100 m sign and the field's end,
+ *   the standard classes' best runs landing at 83-96 m.
  */
 export const THROW_BOOST: Readonly<Record<MinigameMode, { forward: number; upward: number }>> = {
-  longJump: { forward: 1.05, upward: 3.5 },
+  longJump: { forward: 1.1, upward: 5 },
   highJump: { forward: 0.108, upward: 1.03 },
   ringFling: { forward: 0.4, upward: 0.7 },
 };

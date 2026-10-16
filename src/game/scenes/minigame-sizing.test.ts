@@ -15,6 +15,7 @@ import type { Ejection } from "../vehicle/ejection.ts";
 import { activeGround, setGround, type Ground } from "../world/ground.ts";
 import { HIGH_JUMP_MEASURED, REST_HOLD, STATION_ANCHORS, THROW_BOOST, type MinigameMode } from "./minigame-constants.ts";
 import { JerseyBarrier } from "./engine-props.ts";
+import { RANGE } from "./range.ts";
 import { MinigameGround } from "./minigame-ground.ts";
 import { BOX_NET_CLEARANCE, BOX_PILE_TRAIL, HighJumpCapture, highJumpLayout, POSTS_DISTANCE, type HighJumpMeasured, type TorsoSample } from "./minigame-high-jump.ts";
 import { lipHeight } from "./minigame-profile.ts";
@@ -43,8 +44,12 @@ const STEER_LOOK_PER_SPEED = 0.4;
 const STEER_GAIN = 2.5;
 /** Throttle (and brake) per m/s the car is under (over) its horizontal speed cap: the governor of the mid runs. */
 const GOVERNOR_GAIN = 1;
-/** A mid run is governed to this share of the best run's horizontal speed at the lip. */
-const MID_RUN_SPEED_SHARE = 0.7;
+/**
+ * A mid run is governed to this share of the best run's horizontal speed at the lip (the long jump: of its approach speed, the fastest before
+ * the barrier). The long jump's is higher because the barrier's hit throws no driver below about 18 m/s (the muscle, truck and monster at 70%
+ * of their 24.5-26.7 m/s approach do not throw at all, the monster needs 21.5), so 70% is not a run the game can score.
+ */
+const MID_RUN_SPEED_SHARE: Readonly<Record<MinigameMode, number>> = { longJump: 0.85, highJump: 0.7, ringFling: 0.7 };
 /** A thrown dummy is stepped until his torso has lain still `REST_HOLD` s, or this many sim seconds. */
 const THROW_LIMIT_SECONDS = 60;
 /** A ragdoll is not bit-deterministic across runs (the display's frame times change his steps): each shipped throw is made this many times, seeded `0` (steady 60 Hz) up, and the worst is held to the bar. */
@@ -75,12 +80,21 @@ const STANDARD_CLASS_IDS: readonly string[] = ["sedan", "truck", "police", "hatc
 /** The speed shares of the best run that the Ring Fling sweep walks through. */
 const RING_SWEEP = { first: 0.6, last: 1, step: 0.02 } as const;
 
-/** The long jump's bars (m past the barrier): the best class's best run lands and rests past the farthest sign, every class's mid run rests past this. The signs stand every 10 m. */
-const LONG_JUMP_FAR_SIGN = 100;
+/**
+ * The long jump's bars (m past the barrier). The range's farthest sign stands at `signStep * signs` and its field ends at `length`: the best
+ * class's best run must land and rest past that sign and short of the field's end; every class's mid run rests past `LONG_JUMP_MID_REACH`.
+ */
+const LONG_JUMP_FAR_SIGN = RANGE.signStep * RANGE.signs;
 const LONG_JUMP_MID_REACH = 50;
-const SIGN_SPACING = 10;
-/** The long jump's upward mutation: the chosen upward times this must keep the best run from the far sign. */
+/** The long jump's mutations: upward times the first must keep the best run from the far sign, times the second must carry it past the field's end. */
 const LONG_JUMP_UPWARD_CUT = 0.5;
+const LONG_JUMP_UPWARD_BOOST = 1.3;
+/**
+ * The classes whose slower (mid) run lands shorter than their full-throttle run. The muscle, truck and monster are left out: a slower car
+ * leaves the barrier with MORE upward speed (the monster 4.7 m/s against 3.4 m/s at full throttle, its pre.y carried off the incline), a
+ * ratio no boost multiplier can change, which outweighs the 15% lower horizontal speed.
+ */
+const SPEED_MONOTONE_CLASS_IDS: readonly string[] = ["sedan", "muscle", "police", "hatchback", "wagon"];
 
 type RunKind = "best" | "mid";
 
@@ -153,7 +167,7 @@ function capture(type: DriverCar, mode: MinigameMode, run: RunKind): Capture {
   const key = `${mode}:${type.id}:${run}`;
   let cached = captures.get(key);
   if (cached === undefined) {
-    const speedCap = run === "best" ? Infinity : MID_RUN_SPEED_SHARE * capture(type, mode, "best").approachSpeed;
+    const speedCap = run === "best" ? Infinity : MID_RUN_SPEED_SHARE[mode] * capture(type, mode, "best").approachSpeed;
     cached = drive(type, mode, speedCap);
     captures.set(key, cached);
   }
@@ -368,14 +382,20 @@ function ringFlingViolations(rows: readonly Measurement[]): string[] {
   return violations;
 }
 
-/** What a long jump boost breaks: the best class's best run must land and rest past the farthest sign, and every class's mid run past `LONG_JUMP_MID_REACH`. */
+/** What a long jump boost breaks, from every class's best and mid run: empty when every bar holds. The best class is the one whose best run lands farthest (a rest is a skid lottery on top of the landing). */
 function longJumpViolations(rows: readonly Measurement[]): string[] {
   const violations: string[] = [];
-  const bestClass = bestRunsOf(rows).reduce((best, row) => (lowest(row, restOf) > lowest(best, restOf) ? row : best));
+  const bestClass = bestRunsOf(rows).reduce((best, row) => (lowest(row, landingOf) > lowest(best, landingOf) ? row : best));
   if (lowest(bestClass, landingOf) < LONG_JUMP_FAR_SIGN) violations.push(`the ${bestClass.type.id}'s best run lands at ${metres(lowest(bestClass, landingOf))} m, short of the ${LONG_JUMP_FAR_SIGN} m sign`);
   if (lowest(bestClass, restOf) < LONG_JUMP_FAR_SIGN) violations.push(`the ${bestClass.type.id}'s best run rests at ${metres(lowest(bestClass, restOf))} m, short of the ${LONG_JUMP_FAR_SIGN} m sign`);
+  if (highest(bestClass, restOf) > RANGE.length) violations.push(`the ${bestClass.type.id}'s best run rests at ${metres(highest(bestClass, restOf))} m, past the field's end at ${RANGE.length} m`);
   for (const row of midRunsOf(rows)) {
     if (lowest(row, restOf) < LONG_JUMP_MID_REACH) violations.push(`the ${row.type.id}'s mid run rests at ${metres(lowest(row, restOf))} m, short of ${LONG_JUMP_MID_REACH} m`);
+  }
+  for (const id of SPEED_MONOTONE_CLASS_IDS) {
+    const best = bestRunsOf(rows).find((row) => row.type.id === id)!;
+    const mid = midRunsOf(rows).find((row) => row.type.id === id)!;
+    if (lowest(best, landingOf) <= highest(mid, landingOf)) violations.push(`the ${id}'s mid run lands at ${metres(highest(mid, landingOf))} m, no shorter than its best run's ${metres(lowest(best, landingOf))} m`);
   }
   return violations;
 }
@@ -471,19 +491,24 @@ describe("given Ring Fling with THROW_BOOST.ringFling on the real ground, car an
 });
 
 describe("given the long jump with THROW_BOOST.longJump on the real ground, car, barrier and ragdoll", () => {
-  it("when each of the 7 classes' best and mid runs is thrown, then the best class's best run lands past the 100 m sign and every mid run past 50 m", async (t) => {
+  it("when each of the 7 classes' best and mid runs is thrown, then the best class's best run lands and rests between the 100 m sign and the field's end, every mid run rests past 50 m, and a slower run lands shorter for the classes whose carry allows", async (t) => {
     const rows = await measure("longJump", THROW_BOOST.longJump, REPEATS);
-    t.diagnostic(`THROW_BOOST.longJump ${JSON.stringify(THROW_BOOST.longJump)}\n${TABLE_HEADER}\n${tableOf(rows, (flight) => `sign ${Math.min(LONG_JUMP_FAR_SIGN, Math.floor(flight.restDistance / SIGN_SPACING) * SIGN_SPACING)} m`)}`);
+    t.diagnostic(`THROW_BOOST.longJump ${JSON.stringify(THROW_BOOST.longJump)}\n${TABLE_HEADER}\n${tableOf(rows, (flight) => `sign ${Math.min(LONG_JUMP_FAR_SIGN, Math.floor(flight.restDistance / RANGE.signStep) * RANGE.signStep)} m`)}`);
     assert.deepEqual(longJumpViolations(rows), []);
   });
 
   it("when the boost is the identity (the throw as the sim has it), then the best run is far short of the 100 m sign", async () => {
     const violations = longJumpViolations(await measure("longJump", NO_RELEASE_SCALE, 1));
-    assert.ok(violations.some((violation) => violation.includes("best run")), violations.join("; "));
+    assert.ok(violations.some((violation) => violation.includes("best run lands") && violation.includes("short of")), violations.join("; "));
   });
 
   it(`when upward is ${LONG_JUMP_UPWARD_CUT} times the chosen, then the best run falls short of the 100 m sign`, async () => {
     const violations = longJumpViolations(await measure("longJump", scaled(THROW_BOOST.longJump, { upward: LONG_JUMP_UPWARD_CUT }), 1));
-    assert.ok(violations.some((violation) => violation.includes("best run")), violations.join("; "));
+    assert.ok(violations.some((violation) => violation.includes("best run lands") && violation.includes("short of")), violations.join("; "));
+  });
+
+  it(`when upward is ${LONG_JUMP_UPWARD_BOOST} times the chosen, then the best run is carried past the field's end`, async () => {
+    const violations = longJumpViolations(await measure("longJump", scaled(THROW_BOOST.longJump, { upward: LONG_JUMP_UPWARD_BOOST }), 1));
+    assert.ok(violations.some((violation) => violation.includes("past the field's end")), violations.join("; "));
   });
 });
