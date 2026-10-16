@@ -1,7 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  BOARD_STEP,
+  BOARD_COARSE_STEP,
+  BOARD_FINE_STEP,
+  BOARD_FINE_UNTIL,
   BOX_CELL_PITCH,
   BOX_COUNT,
   BOX_NET_CLEARANCE,
@@ -11,9 +13,9 @@ import {
   BOX_SIZE_MAX,
   BOX_SIZE_MIN,
   CAPTURE_HALF_WIDTH,
-  FRAME_EXTRA_BOARDS,
+  FRAME_HEADROOM_FACTOR,
   HighJumpCapture,
-  MAJOR_BOARD_EVERY,
+  MAJOR_BOARD_EVERY_METRES,
   POST_HALF_SPAN,
   highJumpLayout,
   type BoxPlacement,
@@ -183,11 +185,14 @@ describe("given the capture band beside the posts", () => {
 });
 
 const LAYOUT_CASES = [
-  { name: "a high best case", measured: { apexHeight: 31.3, apexDistance: 48, landingDistance: 96 } },
-  { name: "a best case that is a whole number of boards", measured: { apexHeight: 28, apexDistance: 40, landingDistance: 80 } },
-  { name: "a low best case", measured: { apexHeight: 9, apexDistance: 22, landingDistance: 50 } },
-  { name: "a landing nearer the posts than the net's clearance", measured: { apexHeight: 12, apexDistance: 30, landingDistance: 33 } },
-  { name: "a landing beyond the net", measured: { apexHeight: 12, apexDistance: 30, landingDistance: 90 } },
+  { name: "a record-sized best case", measured: { apexHeight: 230, apexDistance: 150, landingDistance: 300 }, expectedFrameTop: 300, expectedBoardCount: 35, expectedMajorHeights: [0, 50, 100, 150, 200, 250], expectedNetHeight: 115 },
+  { name: "a best case in the coarse zone", measured: { apexHeight: 155, apexDistance: 120, landingDistance: 240 }, expectedFrameTop: 210, expectedBoardCount: 26, expectedMajorHeights: [0, 50, 100, 150, 200], expectedNetHeight: 77.5 },
+  { name: "a best case whose headroom lands exactly on a board", measured: { apexHeight: 100, apexDistance: 80, landingDistance: 160 }, expectedFrameTop: 130, expectedBoardCount: 18, expectedMajorHeights: [0, 50, 100], expectedNetHeight: 50 },
+  { name: "a best case whose headroom just passes the fine zone", measured: { apexHeight: 38.5, apexDistance: 40, landingDistance: 80 }, expectedFrameTop: 60, expectedBoardCount: 11, expectedMajorHeights: [0, 50], expectedNetHeight: 30 },
+  { name: "a best case whose headroom just reaches the fine zone's end", measured: { apexHeight: 38.4, apexDistance: 40, landingDistance: 80 }, expectedFrameTop: 50, expectedBoardCount: 10, expectedMajorHeights: [0], expectedNetHeight: 30 },
+  { name: "a best case in the fine zone", measured: { apexHeight: 20, apexDistance: 22, landingDistance: 50 }, expectedFrameTop: 30, expectedBoardCount: 6, expectedMajorHeights: [0], expectedNetHeight: 30 },
+  { name: "a tiny best case (the headroom factor alone would give under one board)", measured: { apexHeight: 3, apexDistance: 30, landingDistance: 33 }, expectedFrameTop: 10, expectedBoardCount: 2, expectedMajorHeights: [0], expectedNetHeight: 30 },
+  { name: "a landing beyond the net", measured: { apexHeight: 12, apexDistance: 30, landingDistance: 90 }, expectedFrameTop: 20, expectedBoardCount: 4, expectedMajorHeights: [0], expectedNetHeight: 30 },
 ] as const;
 
 function pileEndX(measured: HighJumpMeasured): number {
@@ -208,25 +213,40 @@ for (const layoutCase of LAYOUT_CASES) {
       assert.equal(layout.netX, measured.apexDistance + 30, "netX is the posts plus 30 m");
     });
 
-    it("when the layout is made, then the frame top is the best apex plus exactly one board", () => {
-      assert.equal(FRAME_EXTRA_BOARDS, 1, "the extra board count");
-      assert.equal(layout.frameTop, measured.apexHeight + BOARD_STEP, "frame top");
+    it("when the layout is made, then the frame top is the best apex times the headroom, rounded up to a board", () => {
+      assert.equal(layout.frameTop, layoutCase.expectedFrameTop, "frame top");
+      assert.ok(layout.frameTop >= measured.apexHeight * FRAME_HEADROOM_FACTOR, "headroom factor kept");
+      const onFineBoard = layout.frameTop <= BOARD_FINE_UNTIL && layout.frameTop % BOARD_FINE_STEP === 0;
+      const onCoarseBoard = layout.frameTop > BOARD_FINE_UNTIL && (layout.frameTop - BOARD_FINE_UNTIL) % BOARD_COARSE_STEP === 0;
+      assert.ok(onFineBoard || onCoarseBoard, `frame top ${layout.frameTop} stands on a board height`);
+      const boardAtApex = measured.apexHeight < BOARD_FINE_UNTIL ? BOARD_FINE_STEP : BOARD_COARSE_STEP;
+      assert.ok(layout.frameTop >= measured.apexHeight + boardAtApex, "at least one board above the apex");
     });
 
-    it("when the layout is made, then the boards are evenly spaced from the lip and reach up to the frame top", () => {
-      assert.equal(layout.boards.length, Math.ceil(layout.frameTop / BOARD_STEP), "board count");
+    it("when the layout is made, then the boards are spaced by the zone they stand in from the lip up to under the frame top", () => {
+      assert.equal(layout.boards.length, layoutCase.expectedBoardCount, "board count");
+      assert.equal(layout.boards[0].heightAboveLip, 0, "the first board is the lip line");
       for (let index = 0; index < layout.boards.length; index++) {
         const board = layout.boards[index];
-        assert.equal(board.heightAboveLip, index * BOARD_STEP, `board ${index} height above the lip`);
-        assert.equal(board.y, LIP_Y + index * BOARD_STEP, `board ${index} height above the pad`);
-        assert.equal(board.major, index % MAJOR_BOARD_EVERY === 0, `board ${index} major flag`);
+        assert.equal(board.y, LIP_Y + board.heightAboveLip, `board ${index} height above the pad`);
+        const step = board.heightAboveLip < BOARD_FINE_UNTIL ? BOARD_FINE_STEP : BOARD_COARSE_STEP;
+        const nextHeight = index + 1 < layout.boards.length ? layout.boards[index + 1].heightAboveLip : layout.frameTop;
+        assert.equal(nextHeight - board.heightAboveLip, step, `board ${index} is ${step} m under the next board or the frame top`);
       }
-      const topBoard = layout.boards[layout.boards.length - 1];
-      assert.ok(topBoard.heightAboveLip < layout.frameTop, "the top board is under the frame top");
-      assert.ok(topBoard.heightAboveLip + BOARD_STEP >= layout.frameTop, "no board missing under the frame top");
-      assert.equal(layout.boards[0].heightAboveLip, 0, "the first board is the lip line");
-      assert.ok(layout.boards.some((board) => board.major), "a major board exists");
-      assert.ok(layout.boards.some((board) => !board.major), "a minor board exists");
+    });
+
+    it("when the layout is made, then the big boards stand every 50 m from the lip and no other board is big", () => {
+      const bigHeights = layout.boards.filter((board) => board.major).map((board) => board.heightAboveLip);
+      assert.equal(bigHeights.length, layoutCase.expectedMajorHeights.length, "big board count");
+      for (let index = 0; index < bigHeights.length; index++) {
+        assert.equal(bigHeights[index], layoutCase.expectedMajorHeights[index], `big board ${index} height`);
+        assert.equal(bigHeights[index] % MAJOR_BOARD_EVERY_METRES, 0, `big board ${index} is a multiple of ${MAJOR_BOARD_EVERY_METRES} m`);
+      }
+      assert.ok(layout.boards.length > bigHeights.length, "small boards exist between them");
+    });
+
+    it("when the layout is made, then the net is as tall as the larger of its minimum and half the best apex", () => {
+      assert.equal(layout.netHeight, layoutCase.expectedNetHeight, "net height");
     });
 
     it("when the layout is made, then BOX_COUNT boxes come back with sizes in range", () => {

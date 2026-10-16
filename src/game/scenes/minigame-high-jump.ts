@@ -5,14 +5,19 @@
  * Every layout number derives from a measurement (`HighJumpMeasured`) the sizing lane takes; none is committed here.
  */
 
-/** Metres between two height boards. */
-export const BOARD_STEP = 2;
-/** Every this many boards (counting from the lip board) the board is a big labelled one: with a 2 m step, every 10 m. */
-export const MAJOR_BOARD_EVERY = 5;
-/** The frame stands this many boards taller than the best measured apex. */
-export const FRAME_EXTRA_BOARDS = 1;
+/** Height boards stand every this many metres up to `BOARD_FINE_UNTIL` above the lip, every `BOARD_COARSE_STEP` beyond it. */
+export const BOARD_FINE_STEP = 5;
+export const BOARD_FINE_UNTIL = 50;
+export const BOARD_COARSE_STEP = 10;
+/** A big labelled board stands at every multiple of this many metres above the lip (it divides both steps and `BOARD_FINE_UNTIL`). */
+export const MAJOR_BOARD_EVERY_METRES = 50;
+/** The frame's top is the best measured apex times this, rounded up to a board: a perfect run falls well short of it. */
+export const FRAME_HEADROOM_FACTOR = 1.3;
 /** The net hangs this far (m) past the posts. */
 const NET_DISTANCE_PAST_POSTS = 30;
+/** The net is at least this tall (m), and at least this share of the best apex: the descent in the piles is that high. */
+const NET_MIN_HEIGHT = 30;
+const NET_APEX_SHARE = 0.5;
 
 /** Half the distance (m) between the two posts. */
 export const POST_HALF_SPAN = 3;
@@ -58,6 +63,8 @@ export type HighJumpLayout = {
   frameTop: number;
   boards: readonly HeightBoard[];
   netX: number;
+  /** Height of the catching net above the pad: tall enough for a dummy coming down anywhere in the piles. */
+  netHeight: number;
   boxes: readonly BoxPlacement[];
 };
 
@@ -78,12 +85,28 @@ function boxSide(boxIndex: number, irrationalBasis: number): number {
   return BOX_SIZE_MIN + deterministicFraction(boxIndex, irrationalBasis) * (BOX_SIZE_MAX - BOX_SIZE_MIN);
 }
 
+function boardStepAt(heightAboveLip: number): number {
+  return heightAboveLip < BOARD_FINE_UNTIL ? BOARD_FINE_STEP : BOARD_COARSE_STEP;
+}
+
+/** The lowest board height at or above `height`: boards stand every fine step up to `BOARD_FINE_UNTIL`, every coarse step beyond. */
+function roundUpToBoard(height: number): number {
+  if (height <= BOARD_FINE_UNTIL) return Math.ceil(height / BOARD_FINE_STEP) * BOARD_FINE_STEP;
+  return BOARD_FINE_UNTIL + Math.ceil((height - BOARD_FINE_UNTIL) / BOARD_COARSE_STEP) * BOARD_COARSE_STEP;
+}
+
+/** The frame's top above the lip: the best apex times the headroom (and never under one board over it), on a board's height. */
+function frameTopFor(apexHeight: number): number {
+  return roundUpToBoard(Math.max(apexHeight * FRAME_HEADROOM_FACTOR, apexHeight + boardStepAt(apexHeight)));
+}
+
+/** One board per height from the lip line up to, not including, the frame top. */
 function heightBoards(frameTop: number, lipY: number): HeightBoard[] {
-  const boardCount = Math.ceil(frameTop / BOARD_STEP);
-  return Array.from({ length: boardCount }, (_, boardIndex) => {
-    const heightAboveLip = boardIndex * BOARD_STEP;
-    return { heightAboveLip, y: lipY + heightAboveLip, major: boardIndex % MAJOR_BOARD_EVERY === 0 };
-  });
+  const boards: HeightBoard[] = [];
+  for (let heightAboveLip = 0; heightAboveLip < frameTop; heightAboveLip += boardStepAt(heightAboveLip)) {
+    boards.push({ heightAboveLip, y: lipY + heightAboveLip, major: heightAboveLip % MAJOR_BOARD_EVERY_METRES === 0 });
+  }
+  return boards;
 }
 
 /** Box piles over the footprint from `pileStartX` to `pileEndX`: a grid of stacks, each in its own cell, spread evenly through the cells. */
@@ -123,7 +146,7 @@ function boxPiles(pileStartX: number, pileEndX: number): BoxPlacement[] {
 /** The frame, boards, net and box piles for a measured best-case throw; `lipY` is the lip's height above the pad. */
 export function highJumpLayout(measured: HighJumpMeasured, lipY: number): HighJumpLayout {
   const postsX = measured.apexDistance;
-  const frameTop = measured.apexHeight + FRAME_EXTRA_BOARDS * BOARD_STEP;
+  const frameTop = frameTopFor(measured.apexHeight);
   const netX = postsX + NET_DISTANCE_PAST_POSTS;
   const pileEndX = Math.min(measured.landingDistance + BOX_PILE_TRAIL, netX - BOX_NET_CLEARANCE);
   return {
@@ -131,6 +154,7 @@ export function highJumpLayout(measured: HighJumpMeasured, lipY: number): HighJu
     frameTop,
     boards: heightBoards(frameTop, lipY),
     netX,
+    netHeight: Math.max(NET_MIN_HEIGHT, measured.apexHeight * NET_APEX_SHARE),
     boxes: boxPiles(postsX - BOX_PILE_LEAD, pileEndX),
   };
 }
