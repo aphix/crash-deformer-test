@@ -14,6 +14,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import { activeGround, setGround, type Ground } from "../world/ground.ts";
 import { HIGH_JUMP_MEASURED, REST_HOLD, STATION_ANCHORS, THROW_BOOST, type MinigameMode } from "./minigame-constants.ts";
+import { JerseyBarrier } from "./engine-props.ts";
 import { MinigameGround } from "./minigame-ground.ts";
 import { BOX_NET_CLEARANCE, BOX_PILE_TRAIL, highJumpLayout, type HighJumpMeasured } from "./minigame-high-jump.ts";
 import { lipHeight } from "./minigame-profile.ts";
@@ -66,10 +67,17 @@ const STANDARD_CLASS_IDS: readonly string[] = ["sedan", "truck", "police", "hatc
 /** The speed shares of the best run that the Ring Fling sweep walks through. */
 const RING_SWEEP = { first: 0.6, last: 1, step: 0.02 } as const;
 
+/** The long jump's bars (m past the barrier): the best class's best run lands and rests past the farthest sign, every class's mid run rests past this. The signs stand every 10 m. */
+const LONG_JUMP_FAR_SIGN = 100;
+const LONG_JUMP_MID_REACH = 50;
+const SIGN_SPACING = 10;
+/** The long jump's upward mutation: the chosen upward times this must keep the best run from the far sign. */
+const LONG_JUMP_UPWARD_CUT = 0.5;
+
 type RunKind = "best" | "mid";
 
-/** One drive's throw: the sim's own Ejection event, the car's velocity as he left and the speed the run was governed against. */
-type Capture = { event: Ejection; horizontalSpeed: number; verticalSpeed: number };
+/** One drive's throw: the sim's own Ejection event, the car's velocity as he left, and the horizontal speed (m/s) the run came in at: the lip's, or the fastest before the barrier's hit (the car is slowed by the hit before the event reads its velocity). */
+type Capture = { event: Ejection; horizontalSpeed: number; verticalSpeed: number; approachSpeed: number };
 
 function copyEjection(event: Ejection): Ejection {
   return { ...event, pos: event.pos.clone(), local: event.local.clone(), dir: event.dir.clone(), quat: event.quat.clone(), rel: event.rel.clone(), carVel: event.carVel.clone(), spin: event.spin.clone() };
@@ -79,7 +87,8 @@ const captures = new Map<string, Capture>();
 
 /**
  * One car of `type` parked at the station's start on the real ground, left alone, then released at full throttle (the mid run: its throttle
- * and brake hold its horizontal speed to `speedCap`) and steered down the lane's middle until the sim throws its driver at the lip.
+ * and brake hold its horizontal speed to `speedCap`) and steered down the lane's middle until the sim throws its driver: at the lip on the high
+ * jump and Ring Fling (`collideHook`), by the hit on the jersey barrier at the world origin on the long jump.
  */
 function drive(type: DriverCar, mode: MinigameMode, speedCap: number): Capture {
   const anchor = STATION_ANCHORS[mode];
@@ -93,21 +102,29 @@ function drive(type: DriverCar, mode: MinigameMode, speedCap: number): Capture {
     layOnGround(car);
     car.parked = true;
     const world = makeWorld([car], false, false, FREEWHEEL);
-    world.world.collide = ground.collideHook([car], world.world.ejection!);
+    if (mode === "longJump") {
+      const barrier = new JerseyBarrier(new THREE.Scene(), new THREE.Group());
+      barrier.orient(car.group.position, false);
+      world.world.barrier = barrier;
+    } else {
+      world.world.collide = ground.collideHook([car], world.world.ejection!);
+    }
     const outcome: { capture: Capture | null } = { capture: null };
     world.onEject = (event) => {
-      outcome.capture ??= { event: copyEjection(event), horizontalSpeed: Math.hypot(event.carVel.x, event.carVel.z), verticalSpeed: event.carVel.y };
+      outcome.capture ??= { event: copyEjection(event), horizontalSpeed: Math.hypot(event.carVel.x, event.carVel.z), verticalSpeed: event.carVel.y, approachSpeed: 0 };
     };
     for (let step = 0; step < HOLD_SECONDS / FRAME; step++) tickWorld(world);
     const input: DriveInput = { ...idleDrive(), throttle: 1 };
     world.pedals.set(car, input);
     const position = car.group.position;
     let stalledFor = 0;
+    let fastestApproach = 0;
     for (let step = 0; step < RUN_SECONDS / FRAME && outcome.capture === null; step++) {
       const aheadX = position.x + STEER_LOOK_AHEAD + car.speed * STEER_LOOK_PER_SPEED;
       const error = Math.atan2(aheadX - position.x, anchor.z - position.z) - car.yaw;
       input.steer = Math.max(-1, Math.min(1, STEER_GAIN * Math.atan2(Math.sin(error), Math.cos(error))));
       const horizontalSpeed = Math.hypot(car.velocity.x, car.velocity.z);
+      if (outcome.capture === null) fastestApproach = Math.max(fastestApproach, horizontalSpeed);
       input.throttle = Math.max(0, Math.min(1, GOVERNOR_GAIN * (speedCap - horizontalSpeed)));
       input.brake = Math.max(0, Math.min(1, GOVERNOR_GAIN * (horizontalSpeed - speedCap)));
       tickWorld(world);
@@ -115,6 +132,7 @@ function drive(type: DriverCar, mode: MinigameMode, speedCap: number): Capture {
       if (stalledFor > STALL_SECONDS) break;
     }
     assert.ok(outcome.capture !== null, `${type.id} on ${mode} at cap ${speedCap}: nobody was thrown`);
+    outcome.capture.approachSpeed = mode === "longJump" ? fastestApproach : outcome.capture.horizontalSpeed;
     return outcome.capture;
   } finally {
     car.dispose();
@@ -127,7 +145,7 @@ function capture(type: DriverCar, mode: MinigameMode, run: RunKind): Capture {
   const key = `${mode}:${type.id}:${run}`;
   let cached = captures.get(key);
   if (cached === undefined) {
-    const speedCap = run === "best" ? Infinity : MID_RUN_SPEED_SHARE * capture(type, mode, "best").horizontalSpeed;
+    const speedCap = run === "best" ? Infinity : MID_RUN_SPEED_SHARE * capture(type, mode, "best").approachSpeed;
     cached = drive(type, mode, speedCap);
     captures.set(key, cached);
   }
@@ -313,6 +331,18 @@ function ringFlingViolations(rows: readonly Measurement[]): string[] {
   return violations;
 }
 
+/** What a long jump boost breaks: the best class's best run must land and rest past the farthest sign, and every class's mid run past `LONG_JUMP_MID_REACH`. */
+function longJumpViolations(rows: readonly Measurement[]): string[] {
+  const violations: string[] = [];
+  const bestClass = bestRunsOf(rows).reduce((best, row) => (lowest(row, restOf) > lowest(best, restOf) ? row : best));
+  if (lowest(bestClass, landingOf) < LONG_JUMP_FAR_SIGN) violations.push(`the ${bestClass.type.id}'s best run lands at ${metres(lowest(bestClass, landingOf))} m, short of the ${LONG_JUMP_FAR_SIGN} m sign`);
+  if (lowest(bestClass, restOf) < LONG_JUMP_FAR_SIGN) violations.push(`the ${bestClass.type.id}'s best run rests at ${metres(lowest(bestClass, restOf))} m, short of the ${LONG_JUMP_FAR_SIGN} m sign`);
+  for (const row of midRunsOf(rows)) {
+    if (lowest(row, restOf) < LONG_JUMP_MID_REACH) violations.push(`the ${row.type.id}'s mid run rests at ${metres(lowest(row, restOf))} m, short of ${LONG_JUMP_MID_REACH} m`);
+  }
+  return violations;
+}
+
 /** One compact line per run: lip speed (horizontal/vertical), release speed (horizontal/vertical), apex (height @ distance), first touchdown, rest, and `zone`. */
 function tableOf(rows: readonly Measurement[], zone: (flight: Flight) => string): string {
   return rows
@@ -393,5 +423,23 @@ describe("given Ring Fling with THROW_BOOST.ringFling on the real ground, car an
     }
     t.diagnostic(`lip speed share -> where the sedan's dummy lands:\n${sweepRows.join("\n")}`);
     for (const cup of [10, 20, 30]) assert.ok(cupsHeld.has(cup), `no run in the sweep rested in the ${cup} cup: ${[...cupsHeld].join(", ")}`);
+  });
+});
+
+describe("given the long jump with THROW_BOOST.longJump on the real ground, car, barrier and ragdoll", () => {
+  it("when each of the 7 classes' best and mid runs is thrown, then the best class's best run lands past the 100 m sign and every mid run past 50 m", async (t) => {
+    const rows = await measure("longJump", THROW_BOOST.longJump, REPEATS);
+    t.diagnostic(`THROW_BOOST.longJump ${JSON.stringify(THROW_BOOST.longJump)}\n${TABLE_HEADER}\n${tableOf(rows, (flight) => `sign ${Math.min(LONG_JUMP_FAR_SIGN, Math.floor(flight.restDistance / SIGN_SPACING) * SIGN_SPACING)} m`)}`);
+    assert.deepEqual(longJumpViolations(rows), []);
+  });
+
+  it("when the boost is the identity (the throw as the sim has it), then the best run is far short of the 100 m sign", async () => {
+    const violations = longJumpViolations(await measure("longJump", NO_RELEASE_SCALE, 1));
+    assert.ok(violations.some((violation) => violation.includes("best run")), violations.join("; "));
+  });
+
+  it(`when upward is ${LONG_JUMP_UPWARD_CUT} times the chosen, then the best run falls short of the 100 m sign`, async () => {
+    const violations = longJumpViolations(await measure("longJump", scaled(THROW_BOOST.longJump, { upward: LONG_JUMP_UPWARD_CUT }), 1));
+    assert.ok(violations.some((violation) => violation.includes("best run")), violations.join("; "));
   });
 });
