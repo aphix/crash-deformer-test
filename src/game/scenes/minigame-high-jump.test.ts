@@ -230,7 +230,7 @@ for (const layoutCase of LAYOUT_CASES) {
         const board = layout.boards[index];
         assert.equal(board.y, LIP_Y + board.heightAboveLip, `board ${index} height above the pad`);
         const step = board.heightAboveLip < BOARD_FINE_UNTIL ? BOARD_FINE_STEP : BOARD_COARSE_STEP;
-        const nextHeight = index + 1 < layout.boards.length ? layout.boards[index + 1].heightAboveLip : layout.frameTop;
+        const nextHeight = layout.boards.at(index + 1)?.heightAboveLip ?? layout.frameTop;
         assert.equal(nextHeight - board.heightAboveLip, step, `board ${index} is ${step} m under the next board or the frame top`);
       }
     });
