@@ -91,11 +91,24 @@ export const LIP_CAR_SPEED_KEEP = 0.3;
 
 /**
  * Per minigame, the release multipliers on the thrown driver's launch velocity: `forward` scales its horizontal (x, z) components, `upward`
- * its vertical (y) one. Applied only to a minigame's throw, in the ragdoll's launch (the sim's Ejection event stays physical); the Sizing lane
- * sets them from measurements. Identity (1, 1) is today's throw.
+ * its vertical (y) one. Applied only to a minigame's throw, in the ragdoll's launch (the sim's Ejection event stays physical).
+ * Sized from the real car, ground and ragdoll in `minigame-sizing.test.ts`, which pins every bar below:
+ * - High jump: the physical throw is a near-vertical rocket (60 degree kicker: about 45 m/s up and 27 m/s along at the sedan's lip, 59 and 36
+ *   for the monster), so `upward` just trims the best class's apex to 150-160 m (the owner's 157 m) and `forward` is cut to 0.14 so every
+ *   class's best run comes down between the posts and the net (the posts stand at the monster's apex distance, the net 30 m past them).
+ * - Ring Fling: a ballistic landing distance goes with the speed squared. `forward` 0.4 and `upward` 0.7 bring a full-throttle sedan
+ *   family run down on the 30 cup, a 75% run on the 10 cup, and the monster's run is stopped by the backstop.
+ * - Long jump: not yet sized (identity).
  */
 export const THROW_BOOST: Readonly<Record<MinigameMode, { forward: number; upward: number }>> = {
   longJump: { forward: 1, upward: 1 },
-  highJump: { forward: 1, upward: 1 },
-  ringFling: { forward: 1, upward: 1 },
+  highJump: { forward: 0.14, upward: 0.95 },
+  ringFling: { forward: 0.4, upward: 0.7 },
 };
+
+/**
+ * The best class's (monster) best run at full throttle through the high jump with `THROW_BOOST.highJump`, in station-local metres: the apex's
+ * height above the lip, the apex's distance past the lip (where the posts stand) and where his torso first touches down (where the box
+ * piles end). Pinned within 2% by `minigame-sizing.test.ts`, which recomputes them from the real car and ragdoll.
+ */
+export const HIGH_JUMP_MEASURED = { apexHeight: 153.9, apexDistance: 21.5, landingDistance: 41 } as const;
