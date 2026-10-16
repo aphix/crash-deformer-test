@@ -38,7 +38,7 @@ describe("given a long jump in each phase", () => {
     const view = minigamePanelView({ ...LONG_JUMP_READY, phase: "running", liveValue: 12.34 });
     assert.equal(view.resetEnabled, true);
     assert.equal(view.retryEnabled, false);
-    assert.equal(view.live, "12.3 m");
+    assert.equal(view.live, "Distance 12.3 m");
   });
 
   it("when thrown, then neither Retry nor Reset run works", () => {
@@ -88,7 +88,7 @@ describe("given a Ring Fling", () => {
     const view = minigamePanelView({ ...RING_READY, phase: "scored", attempt: 2, lastScore: 30, setScores: [20, 30], setTotal: 50 });
     assert.equal(view.retryLabel, "Next throw");
     assert.equal(view.throwCounter, "Throw 2 / 5");
-    assert.equal(view.setScores, "20 pts · 30 pts");
+    assert.equal(view.setScores, "Set: 20", "the scored throw is the Score line, not repeated in the set line");
     assert.equal(view.total, "50 pts");
     assert.equal(view.totalLabel, "Total");
     assert.equal(view.score, "30 pts");
@@ -127,5 +127,47 @@ describe("given a Ring Fling", () => {
   it("when the set is complete, then the stepper opens again", () => {
     const done = minigamePanelView({ ...RING_READY, phase: "scored", setScores: [1], setTotal: 1, setComplete: true }).stepper;
     assert.equal(done?.canIncrease, true);
+  });
+
+  it("when the first throw is scored, then there is no set line to repeat it", () => {
+    const view = minigamePanelView({ ...RING_READY, phase: "scored", lastScore: 30, setScores: [30], setTotal: 30 });
+    assert.equal(view.score, "30 pts");
+    assert.equal(view.setScores, null);
+  });
+
+  it("when the set is complete, then the set line lists every throw", () => {
+    const view = minigamePanelView({ ...RING_READY, phase: "scored", attempt: 3, lastScore: 5, setScores: [10, 20, 5], setTotal: 35, setComplete: true });
+    assert.equal(view.setScores, "Set: 10 · 20 · 5");
+  });
+
+  it("when the next throw is ready, then the set line lists the finished throws", () => {
+    const view = minigamePanelView({ ...RING_READY, attempt: 3, setScores: [10, 20], setTotal: 30 });
+    assert.equal(view.setScores, "Set: 10 · 20");
+  });
+
+  it("when the dummy is out, then the live ring is captioned", () => {
+    assert.equal(minigamePanelView({ ...RING_READY, phase: "thrown", liveValue: 30 }).live, "Ring: 30");
+  });
+
+  it("when a throw scores nothing, then it reads 0 pts with the hint", () => {
+    const view = minigamePanelView({ ...RING_READY, phase: "scored", lastScore: 0, setScores: [0] });
+    assert.equal(view.score, "0 pts");
+    assert.equal(view.scoreHint, "Short of the cups");
+  });
+
+  it("when a throw scores, then there is no hint", () => {
+    assert.equal(minigamePanelView({ ...RING_READY, phase: "scored", lastScore: 10, setScores: [10] }).scoreHint, null);
+  });
+
+  it("when a long jump scores nothing, then there is no hint", () => {
+    assert.equal(minigamePanelView({ ...LONG_JUMP_READY, phase: "scored", lastScore: 0 }).scoreHint, null);
+  });
+
+  it("when the long jump is thrown, then the live reading is captioned Distance", () => {
+    assert.equal(minigamePanelView({ ...LONG_JUMP_READY, phase: "thrown", liveValue: 61.3 }).live, "Distance 61.3 m");
+  });
+
+  it("when the high jump is thrown, then the live reading is captioned Height", () => {
+    assert.equal(minigamePanelView({ ...LONG_JUMP_READY, mode: "highJump", phase: "thrown", liveValue: 2.14 }).live, "Height 2.1 m");
   });
 });

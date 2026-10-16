@@ -27,17 +27,20 @@ export function MinigamePanel({
     <div className="hud-panel w-48 space-y-1 p-2" role="group" aria-label={view.title}>
       <p className="hud-label">{view.title}</p>
       {view.throwCounter === null ? null : <p className="font-display text-xs tabular-nums text-muted">{view.throwCounter}</p>}
-      <p className="font-display text-3xl font-semibold leading-none tabular-nums" role="status">
-        {view.live ?? "–"}
-      </p>
+      {view.live === null && view.score !== null ? null : (
+        <p className="font-display text-xl font-semibold leading-none tabular-nums" role="status">
+          {view.live ?? "–"}
+        </p>
+      )}
       {view.score === null ? null : (
         <p className="font-display text-xl font-semibold tabular-nums">
           Score <span className="text-2xl">{view.score}</span>
         </p>
       )}
+      {view.scoreHint === null ? null : <p className="font-display text-xs text-muted">{view.scoreHint}</p>}
+      {view.setScores === null ? null : <p className="truncate font-display text-xs tabular-nums text-muted">{view.setScores}</p>}
       {view.total === null ? null : (
         <p className="font-display text-xs tabular-nums text-muted">
-          {view.setScores === "" ? null : <span className="block truncate">{view.setScores}</span>}
           {view.totalLabel}: {view.total}
         </p>
       )}

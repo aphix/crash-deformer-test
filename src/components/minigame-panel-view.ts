@@ -3,6 +3,9 @@ import type { MinigameHudState } from "../game/scenes/minigame-session.ts";
 
 const MODE_UNITS: Readonly<Record<MinigameMode, string>> = { longJump: "m", highJump: "m", ringFling: "pts" };
 
+/** The caption of the live reading: what the number measures in each mode. */
+const LIVE_CAPTIONS: Readonly<Record<MinigameMode, string>> = { longJump: "Distance", highJump: "Height", ringFling: "Ring:" };
+
 function valueText(mode: MinigameMode, value: number): string {
   return mode === MINIGAME_MODE.ringFling ? `${Math.round(value)} ${MODE_UNITS[mode]}` : `${value.toFixed(1)} ${MODE_UNITS[mode]}`;
 }
@@ -15,13 +18,15 @@ type ThrowsStepperView = { value: number; canDecrease: boolean; canIncrease: boo
 
 type MinigamePanelView = {
   title: string;
-  /** The live reading while he flies (m past the lip, m above it, the ring zone under him), else null. */
+  /** The captioned reading while he is out (Distance 61.3 m, Height 2.1 m, Ring: 30), else null. */
   live: string | null;
   /** The big Score line once the attempt is scored (in a Ring Fling, the throw's score; after the set, the total), else null. */
   score: string | null;
+  /** Ring Fling only: a scored throw of 0 reads "Short of the cups"; null otherwise. */
+  scoreHint: string | null;
   /** Ring Fling only: "Throw n / N"; null in the other modes. */
   throwCounter: string | null;
-  /** Ring Fling only: the set's finished throw scores; null in the other modes. */
+  /** Ring Fling only: "Set: 10 · 30" over the set's throws other than the one the Score line shows; null when that list is empty. */
   setScores: string | null;
   /** Ring Fling only: the set total, labelled "Best" once the set is complete, else "Total". Null in the other modes. */
   total: string | null;
@@ -44,12 +49,15 @@ export function minigamePanelView(state: MinigameHudState): MinigamePanelView {
   const stepperOpen = (phase === "ready" && state.setScores.length === 0) || state.setComplete;
   const retryLabel = !isRing ? "Retry" : state.setComplete ? "New set" : "Next throw";
   const finishedScore = state.setComplete ? state.setTotal : state.lastScore;
+  const scoreShown = phase === "scored" && !state.setComplete;
+  const earlierScores = (scoreShown ? state.setScores.slice(0, -1) : state.setScores).map((score) => Math.round(score));
   return {
     title: MODE_LABELS[mode],
-    live: state.liveValue === null ? null : valueText(mode, state.liveValue),
+    live: state.liveValue === null ? null : `${LIVE_CAPTIONS[mode]} ${isRing ? Math.round(state.liveValue) : valueText(mode, state.liveValue)}`,
     score: phase === "scored" && finishedScore !== null ? valueText(mode, finishedScore) : null,
+    scoreHint: isRing && phase === "scored" && state.lastScore === 0 ? "Short of the cups" : null,
     throwCounter: isRing ? `Throw ${state.attempt} / ${throwsPerSet}` : null,
-    setScores: isRing ? state.setScores.map((score) => valueText(mode, score)).join(" · ") : null,
+    setScores: isRing && earlierScores.length > 0 ? `Set: ${earlierScores.join(" · ")}` : null,
     total: isRing ? valueText(mode, state.setTotal) : null,
     totalLabel: isRing ? (state.setComplete ? "Best" : "Total") : null,
     bestThisCar: bestText(mode, state.best.thisCar),
