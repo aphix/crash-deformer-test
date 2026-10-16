@@ -4,14 +4,17 @@ import * as THREE from "three";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { DERBY_ARENA } from "./constants.ts";
 import {
+  DIRT_BASE_GREY,
   DIRT_EXTENT,
   DIRT_TRACK_PATHS,
   LANE_GRID,
+  MIDDLE_THINNING_RADIUS,
   RUT_GRID,
   TRACK_GAUGE,
   TRACK_LANE_WIDTH,
   endFadeAt,
   makeDirtTexture,
+  nearestApproachToMiddle,
   paintTracks,
   pointOnPath,
   sampleField,
@@ -107,10 +110,26 @@ describe("given the dirt texture", () => {
     assert.ok(ring < corners * RING_SHARE_MOST, "ring mean luminance under corner mean luminance");
   });
 
-  it("when each texel is compared with its 5 x 5 neighbourhood, then 5.5% to 12% differ by over 20 levels (pebbles and grit, not smooth parchment, not noise)", () => {
+  it("when the darkest texel is found, then it is at least half the base grey (the tracks never stack to black)", () => {
+    let darkest = OPAQUE;
+    for (let index = 0; index < dirt.image.data.length; index += CHANNELS) darkest = Math.min(darkest, dirt.image.data[index]);
+    const BASE_SHARE_LEAST = 0.5;
+    assert.ok(darkest >= DIRT_BASE_GREY * BASE_SHARE_LEAST, "darkest texel level");
+  });
+
+  it("when the middle (under 12 m) meets the far corners, then the middle is at least 80% as bright (the bowl centre is not a blob)", () => {
+    const MIDDLE_MOST = 12;
+    const CORNER_FROM = 46;
+    const MIDDLE_SHARE_LEAST = 0.8;
+    const middle = meanLuminanceWhere((distance) => distance < MIDDLE_MOST);
+    const corners = meanLuminanceWhere((distance) => distance > CORNER_FROM);
+    assert.ok(middle >= corners * MIDDLE_SHARE_LEAST, "middle mean luminance over corner mean luminance");
+  });
+
+  it("when each texel is compared with its 5 x 5 neighbourhood, then 2.5% to 12% differ by over 20 levels (pebbles and grit, not smooth parchment, not noise)", () => {
     const SPAN = 2;
     const DEVIATION = 20;
-    const LEAST_SHARE = 0.055;
+    const LEAST_SHARE = 0.025;
     const MOST_SHARE = 0.12;
     let deviating = 0;
     let texels = 0;
@@ -124,7 +143,7 @@ describe("given the dirt texture", () => {
         texels++;
       }
     }
-    assert.ok(deviating / texels >= LEAST_SHARE, "deviating share at least 5.5%");
+    assert.ok(deviating / texels >= LEAST_SHARE, "deviating share at least 2.5%");
     assert.ok(deviating / texels <= MOST_SHARE, "deviating share at most 12%");
   });
 });
@@ -147,6 +166,13 @@ describe("given the generated tyre track paths", () => {
   it("when the paths are counted, then there are 40 to 60", () => {
     assert.ok(DIRT_TRACK_PATHS.length >= 40, "at least 40 paths");
     assert.ok(DIRT_TRACK_PATHS.length <= 60, "at most 60 paths");
+  });
+
+  it("when the paths that come within 12 m of the middle are counted (donuts apart), then there are at most 16: a third of them are thinned out", () => {
+    const MOST_CROSSING = 16;
+    const donutRadiusMost = 6;
+    const crossing = DIRT_TRACK_PATHS.filter((path) => (path.shape !== "ellipse" || path.radiusX > donutRadiusMost) && nearestApproachToMiddle(path) < MIDDLE_THINNING_RADIUS);
+    assert.ok(crossing.length <= MOST_CROSSING, "paths crossing the middle");
   });
 
   it("when open paths are checked at both ends, then each end is outside r = 38 or has faded to under 5% strength, and there are open paths ending inside to prove it", () => {

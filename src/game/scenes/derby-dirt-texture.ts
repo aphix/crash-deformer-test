@@ -12,8 +12,8 @@ export const LANE_GRID = 256;
 export const RUT_GRID = 512;
 const FULL_TURN = 2 * Math.PI;
 
-/** Pale warm dirt in grey (0-255): the floor's vertex colour (tan) multiplies it; the driven ring drags the mean down to about 0.85 of white. */
-const DIRT_BASE_GREY = 244;
+/** Pale warm dirt in grey (0-255): the floor's vertex colour (tan) multiplies it; the driven ring drags the mean down to about 0.88 of white. */
+export const DIRT_BASE_GREY = 244;
 const DIRT_GRIT_SPREAD = 8;
 /** Smooth layers: cells across the whole square (blotches 16 m, mottling 6 m, patches 2 m) and their spread (channel levels); clods (0.6 m cells) live on the fine grid. */
 const DIRT_NOISE_LAYERS = [
@@ -50,10 +50,13 @@ const TRACK_LANE_CORE_SHARE = 0.15;
 /** Stamps add up (overlapping passes darken, saturating as `1 - exp(-sum)`): the sum one pass leaves at the middle of a lane and of a rut. */
 const TRACK_LANE_GAIN = 0.18;
 const TRACK_RUT_GAIN = 0.26;
-/** Share of the dirt a saturated lane and a saturated rut darken, the same for a tread block, and the lift (channel levels) of the ridge. */
-const TRACK_LANE_DARKEN = 0.5;
-const TRACK_RUT_DARKEN = 0.42;
-const TRACK_TREAD_DARKEN = 0.32;
+/** Share of the dirt a saturated lane, rut and tread block darken (light enough that single arcs stay apart where many overlap), and the lift (channel levels) of the ridge. */
+const TRACK_LANE_DARKEN = 0.3;
+const TRACK_RUT_DARKEN = 0.26;
+const TRACK_TREAD_DARKEN = 0.2;
+/** No texel gets darker than the ceiling (a share of the base grey): darkness past the knee is squeezed by `1 - exp(-excess / room)`, so it only approaches the ceiling. */
+const DIRT_DARKNESS_KNEE = 0.2;
+const DIRT_DARKNESS_CEILING = 0.5;
 const TRACK_RIDGE_LIFT = 20;
 /** Stamp spacing along a path (m); the lane and the tread are stamped every this many samples. */
 const TRACK_STEP = 0.12;
@@ -91,29 +94,44 @@ type Range = { least: number; most: number };
 
 /** Derby traffic as ranges (m, radians, shares): a path is drawn from each family's ranges by a seeded generator; `radius` is a line's half length. */
 const PATH_SEED = 5150;
+/** Paths whose centreline comes within this many metres of the middle are thinned: every third of them (in generation order) is dropped, except donut rings. */
+export const MIDDLE_THINNING_RADIUS = 12;
+const MIDDLE_THINNING_EVERY = 3;
+const MIDDLE_SAMPLES = 240;
 const PATH_FEATHER: Range = { least: 5, most: 8 };
 const PATH_FAMILIES = [
-  { shape: "ellipse", count: 16, centreDistance: { least: 0, most: 8 }, radius: { least: 20, most: 33 }, squash: { least: 0.8, most: 1 }, sweep: { least: 1.5, most: FULL_TURN }, fullTurnShare: 0.2, strength: { least: 0.3, most: 1 }, wander: { least: 0.15, most: 0.4 } },
-  { shape: "ellipse", count: 12, centreDistance: { least: 2, most: 14 }, radius: { least: 6, most: 20 }, squash: { least: 0.75, most: 1 }, sweep: { least: 1.5, most: FULL_TURN }, fullTurnShare: 0.25, strength: { least: 0.3, most: 1 }, wander: { least: 0.1, most: 0.3 } },
-  { shape: "ellipse", count: 6, centreDistance: { least: 10, most: 18 }, radius: { least: 24, most: 34 }, squash: { least: 0.8, most: 1 }, sweep: { least: 1.2, most: 3.5 }, fullTurnShare: 0, strength: { least: 0.4, most: 1 }, wander: { least: 0.15, most: 0.35 } },
-  { shape: "ellipse", count: 4, centreDistance: { least: 2, most: 14 }, radius: { least: 3, most: 6 }, squash: { least: 0.9, most: 1 }, sweep: { least: FULL_TURN, most: FULL_TURN }, fullTurnShare: 1, strength: { least: 0.8, most: 1 }, wander: { least: 0.05, most: 0.1 } },
-  { shape: "eight", count: 3, centreDistance: { least: 8, most: 20 }, radius: { least: 10, most: 15 }, squash: { least: 0.45, most: 0.55 }, sweep: { least: FULL_TURN, most: FULL_TURN }, fullTurnShare: 1, strength: { least: 0.6, most: 1 }, wander: { least: 0.1, most: 0.2 } },
-  { shape: "line", count: 8, centreDistance: { least: 6, most: 26 }, radius: { least: 4, most: 10 }, squash: { least: 0, most: 0 }, sweep: { least: 0, most: 0 }, fullTurnShare: 0, strength: { least: 0.6, most: 1 }, wander: { least: 0.05, most: 0.15 } },
+  { shape: "ellipse", thin: true, count: 16, centreDistance: { least: 0, most: 8 }, radius: { least: 20, most: 33 }, squash: { least: 0.8, most: 1 }, sweep: { least: 1.5, most: FULL_TURN }, fullTurnShare: 0.2, strength: { least: 0.3, most: 1 }, wander: { least: 0.15, most: 0.4 } },
+  { shape: "ellipse", thin: true, count: 12, centreDistance: { least: 2, most: 14 }, radius: { least: 6, most: 20 }, squash: { least: 0.75, most: 1 }, sweep: { least: 1.5, most: FULL_TURN }, fullTurnShare: 0.25, strength: { least: 0.3, most: 1 }, wander: { least: 0.1, most: 0.3 } },
+  { shape: "ellipse", thin: true, count: 6, centreDistance: { least: 10, most: 18 }, radius: { least: 24, most: 34 }, squash: { least: 0.8, most: 1 }, sweep: { least: 1.2, most: 3.5 }, fullTurnShare: 0, strength: { least: 0.4, most: 1 }, wander: { least: 0.15, most: 0.35 } },
+  { shape: "ellipse", thin: false, count: 4, centreDistance: { least: 2, most: 14 }, radius: { least: 3, most: 6 }, squash: { least: 0.9, most: 1 }, sweep: { least: FULL_TURN, most: FULL_TURN }, fullTurnShare: 1, strength: { least: 0.8, most: 1 }, wander: { least: 0.05, most: 0.1 } },
+  { shape: "eight", thin: true, count: 4, centreDistance: { least: 8, most: 20 }, radius: { least: 10, most: 15 }, squash: { least: 0.45, most: 0.55 }, sweep: { least: FULL_TURN, most: FULL_TURN }, fullTurnShare: 1, strength: { least: 0.6, most: 1 }, wander: { least: 0.1, most: 0.2 } },
+  { shape: "line", thin: true, count: 10, centreDistance: { least: 6, most: 26 }, radius: { least: 4, most: 10 }, squash: { least: 0, most: 0 }, sweep: { least: 0, most: 0 }, fullTurnShare: 0, strength: { least: 0.6, most: 1 }, wander: { least: 0.05, most: 0.15 } },
 ] as const;
 
 function draw(random: () => number, range: Range): number {
   return range.least + random() * (range.most - range.least);
 }
 
+/** How near the middle the centreline of a path comes (m): the least distance over `MIDDLE_SAMPLES` points along it. */
+export function nearestApproachToMiddle(path: TrackPath): number {
+  let nearest = Infinity;
+  for (let sample = 0; sample <= MIDDLE_SAMPLES; sample++) {
+    const point = pointOnPath(path, sample / MIDDLE_SAMPLES);
+    nearest = Math.min(nearest, hypot2(point.x, point.z));
+  }
+  return nearest;
+}
+
 function generateTrackPaths(): TrackPath[] {
   const random = makeSeededRandom(PATH_SEED);
   const paths: TrackPath[] = [];
+  let crossingTheMiddle = 0;
   for (const family of PATH_FAMILIES) {
     for (let index = 0; index < family.count; index++) {
       const bearing = random() * FULL_TURN;
       const distance = draw(random, family.centreDistance);
       const radiusX = draw(random, family.radius);
-      paths.push({
+      const path = {
         shape: family.shape,
         x: distance * detCos(bearing),
         z: distance * detSin(bearing),
@@ -125,7 +143,9 @@ function generateTrackPaths(): TrackPath[] {
         strength: draw(random, family.strength),
         wander: draw(random, family.wander),
         feather: draw(random, PATH_FEATHER),
-      });
+      };
+      const isThinned = family.thin && nearestApproachToMiddle(path) < MIDDLE_THINNING_RADIUS && crossingTheMiddle++ % MIDDLE_THINNING_EVERY === MIDDLE_THINNING_EVERY - 1;
+      if (!isThinned) paths.push(path);
     }
   }
   return paths;
@@ -364,6 +384,14 @@ function scatterPebbles(): Float32Array {
   return pebbles;
 }
 
+/** A level with its darkness below the base grey kept as is up to `DIRT_DARKNESS_KNEE` and squeezed under `DIRT_DARKNESS_CEILING` beyond it; lighter levels pass through. */
+function squeezeDarkness(level: number): number {
+  const darkness = 1 - level / DIRT_BASE_GREY;
+  if (darkness <= DIRT_DARKNESS_KNEE) return level;
+  const room = DIRT_DARKNESS_CEILING - DIRT_DARKNESS_KNEE;
+  return DIRT_BASE_GREY * (1 - DIRT_DARKNESS_KNEE - room * (1 - Math.exp(-(darkness - DIRT_DARKNESS_KNEE) / room)));
+}
+
 /** Heavily driven pale dirt in grey: blotches, damp and dry patches, clods, grit, pebbles, and the lanes, ruts, ridges and tread of `DIRT_TRACK_PATHS`. */
 export function makeDirtTexture() {
   const random = makeSeededRandom(DIRT_SEED);
@@ -378,7 +406,7 @@ export function makeDirtTexture() {
       const v = (row + 0.5) / DIRT_SIZE;
       const index = row * DIRT_SIZE + column;
       const grit = (random() - 0.5) * DIRT_GRIT_SPREAD;
-      const level = (sampleField(fine.add, RUT_GRID, u, v) + grit) * sampleField(fine.scale, RUT_GRID, u, v) * (1 - tracks.tread[index] * TRACK_TREAD_DARKEN) + pebbles[index];
+      const level = squeezeDarkness((sampleField(fine.add, RUT_GRID, u, v) + grit) * sampleField(fine.scale, RUT_GRID, u, v) * (1 - tracks.tread[index] * TRACK_TREAD_DARKEN) + pebbles[index]);
       return [level, level, level];
     },
     TEXTURE_WRAP.clamp,
