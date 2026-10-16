@@ -38,8 +38,7 @@ const CUT_FAR = 90;
 const OUTRUN_SPEED = 3;
 /** The `Framing.lead` the minigames pass (s): about the aim's own 1/12 s lag behind a dummy climbing at up to 60 m/s, so he stays in the frame's centre 95% at the default lens. */
 export const MINIGAME_AIM_LEAD = 0.1;
-/** With a `Framing.lead` the follow eye stands this much (m) higher (over a roof, a cup's rim), and is lifted by `LEAD_LIFT` m steps (to `LEAD_LIFTS` of them) until the line to the heads clears the ground, re-probed every `LEAD_PROBE_T` s. */
-const LEAD_UP = 1.3;
+/** With a `Framing.lead` the follow eye is lifted by `LEAD_LIFT` m steps (to `LEAD_LIFTS` of them) until the line to the heads clears the ground (a cup's rim), re-probed every `LEAD_PROBE_T` s. */
 const LEAD_LIFT = 1;
 const LEAD_LIFTS = 6;
 const LEAD_PROBE_T = 0.25;
@@ -101,8 +100,8 @@ type Framing = {
   /**
    * Seconds of the heads' shown velocity (their motion on screen, so a slow-mo leads by what it shows) the aim runs ahead of
    * them, so a fast climber stays framed; 0 (every scene but the minigames): the aim is the heads, as it always was. Positive
-   * also opens the ride on the follow shot (no windshield), cuts, not eases, a shot change to a dummy shown faster than
-   * `OUTRUN_SPEED`, and keeps the follow eye over, and in sight of the heads (`LEAD_UP`, `LEAD_LIFT`).
+   * also opens the ride on the follow shot (no windshield), turns the aim faster (`LEAD_MAX_TURN`), cuts, not eases, a shot
+   * change to a dummy flying faster than `OUTRUN_SPEED`, and lifts the follow eye until the ground leaves the heads in sight.
    */
   lead: number;
 };
@@ -365,12 +364,12 @@ export class RideCam {
     easeFov(camera, this.shot === "trackside" ? this.probe.fov : f.lens, cut ? Infinity : dt);
   }
 
-  /** The follow shot's eye: ahead of or behind the heads' travel, to the side and up (higher with a lead), over the ground. */
+  /** The follow shot's eye: ahead of or behind the heads' travel, to the side and up (`followLift` more with a lead), over the ground. */
   private followEye(out: THREE.Vector3, f: Framing): THREE.Vector3 {
     const back = (BACK + f.spread * 1.6) * (f.hold ? -1 : this.side);
     const side = SIDE + f.spread * 0.5;
     const d = this.dir;
-    out.set(f.c.x + d.x * back - d.z * side, f.c.y + UP + f.spread * 0.4 + (f.lead > 0 ? LEAD_UP + this.followLift : 0), f.c.z + d.z * back + d.x * side);
+    out.set(f.c.x + d.x * back - d.z * side, f.c.y + UP + f.spread * 0.4 + this.followLift, f.c.z + d.z * back + d.x * side);
     const ground = activeGround().heightAt(out.x, out.z);
     if (Number.isFinite(ground)) out.y = Math.max(out.y, ground + 0.6);
     return out;
