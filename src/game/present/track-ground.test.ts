@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { Track } from "../world/track.ts";
+import { SURFACES } from "../world/catalog.ts";
 import { OFF_MENU, TRACKS } from "../world/tracks/index.ts";
 import { type Mesher, RoadIndex } from "./track-mesh.ts";
 import { sections } from "../world/track-sections.ts";
@@ -306,5 +307,27 @@ describe("given a course's terrain batch (four-count)", () => {
       }
     }
     assert.ok(behind > 0 && ahead > 0, `${behind} chunks behind, ${ahead} straight ahead`);
+  });
+});
+
+describe("given Razor Shelf, whose inside cut is a dirt road across dirt terrain", () => {
+  it("when its ground layers are built, then every vertex of the dirt road strip is darker than the darkest terrain mottle (0.9 of the surface colour), and the paved road keeps its own colour", () => {
+    const track = TRACKS.map((raw) => new Track(raw)).find((t) => t.id === "razor-shelf")!;
+    assert.equal(track.json.environment.terrain, "dirt", "the staging: dirt terrain");
+    const paths = track.paths();
+    const layers = buildGroundLayers(track, track.ground(), new RoadIndex(paths), paths, paths.map((p) => sections(p, 0)));
+    const brightest = (kind: string, surface: keyof typeof SURFACES): number => {
+      const layer = layers.find((l) => l.kind === kind && l.surface === surface && l.level !== "deck");
+      assert.ok(layer, `a ${kind} layer of ${surface}`);
+      const base = new THREE.Color(SURFACES[surface].color);
+      let most = 0;
+      for (let i = 0; i < layer.m.col.length; i += 3) most = Math.max(most, layer.m.col[i]! / base.r, layer.m.col[i + 1]! / base.g, layer.m.col[i + 2]! / base.b);
+      return most;
+    };
+    // The terrain draws each patch at 0.9 to 1.1 of its colour: a road at its full colour matched every patch beside it and 720 m read as open desert.
+    const dirt = brightest("road", "dirt");
+    assert.ok(dirt < 0.9, `the dirt road is drawn at up to ${dirt.toFixed(3)} of the dirt colour`);
+    const paved = brightest("road", "asphalt");
+    assert.ok(Math.abs(paved - 1) < 1e-6, `asphalt drawn at ${paved.toFixed(3)} of its colour`);
   });
 });

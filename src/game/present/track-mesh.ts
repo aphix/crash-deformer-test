@@ -144,8 +144,16 @@ export function hash01(i: number, salt: number): number {
 }
 
 const MOTTLE_SALT = 3;
+/** The terrain mottle's darkest colour factor and its span: a patch of terrain is drawn at `MOTTLE_LO` to `MOTTLE_LO + MOTTLE_SPAN` of its surface colour. */
+const MOTTLE_LO = 0.9;
+const MOTTLE_SPAN = 0.2;
+/**
+ * A road strip of the same surface as the terrain round it (dirt on dirt) is the same colour and texture as the ground, so 720 m of Razor Shelf's
+ * dirt cut read as open desert: it is drawn a half span under the darkest mottle, darker than any patch of the ground beside it.
+ */
+export const ROAD_ON_TERRAIN_SHADE = MOTTLE_LO - MOTTLE_SPAN / 2;
 
-/** `hash01`'s integer hash on the block lattice, and the colour factor (0.9 to 1.1) it makes: noise on `BLOCK`-metre lattice points, bilinear between. */
+/** `hash01`'s integer hash on the block lattice, and the colour factor (`MOTTLE_LO` to `MOTTLE_LO + MOTTLE_SPAN`) it makes: noise on `BLOCK`-metre lattice points, bilinear between. */
 const MOTTLE_GLSL = /* glsl */ `
 float mottleHash(int a, int b) {
   uint x = uint(a * 7919 + b) ^ ${Math.imul(MOTTLE_SALT + 1, 0x9e3779b9) >>> 0}u;
@@ -163,7 +171,7 @@ float mottle(vec2 xz) {
   int j = int(c.y);
   float a = mix(mottleHash(i, j), mottleHash(i + 1, j), f.x);
   float b = mix(mottleHash(i, j + 1), mottleHash(i + 1, j + 1), f.x);
-  return 0.9 + 0.2 * mix(a, b, f.y);
+  return ${MOTTLE_LO} + ${MOTTLE_SPAN} * mix(a, b, f.y);
 }`;
 
 /**

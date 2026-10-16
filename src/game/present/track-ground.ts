@@ -7,7 +7,7 @@ import { sampleStep, surfY } from "../world/track-sections.ts";
 import type { GroundLevel } from "../scenes/ground-stack.ts";
 import {
   BLACK, BLOCK, CELL, CHEQUER, FLAT_TOL, KERB_CURV, KERB_FILL, KERB_LIFT, KERB_WIDTH, MARK_LIFT, Mesher, PAVED,
-  RED, ROAD_LIFT, RoadIndex, sampleAt, SKIRT_RADIUS, surfaceHex, texClass, WHITE,
+  RED, ROAD_LIFT, ROAD_ON_TERRAIN_SHADE, RoadIndex, sampleAt, SKIRT_RADIUS, surfaceHex, texClass, WHITE,
 } from "./track-mesh.ts";
 
 /** How far (m) past the farthest scatter the terrain extends beyond the track's bounds. */
@@ -542,8 +542,8 @@ function addSkirt(m: Mesher, ground: TrackGround, x0: number, z0: number, bx: nu
 /** Ribbon meshers by kind, surface and whether the section is on a bridge deck (a deck's top is its own base-level mesh). */
 type Ribbons = Map<string, { kind: "road" | "runoff"; surface: number; deck: boolean; m: Mesher }>;
 
-/** Road and runoff strips of `p` (smooth along the path, one mesher per kind + surface). */
-function addRibbons(out: Ribbons, p: TrackPath, secs: readonly number[], ground: TrackGround, lift: number): void {
+/** Road and runoff strips of `p` (smooth along the path, one mesher per kind + surface); a road strip on the terrain's own surface (`terrain`) is drawn at `ROAD_ON_TERRAIN_SHADE`. */
+function addRibbons(out: Ribbons, p: TrackPath, secs: readonly number[], ground: TrackGround, lift: number, terrain: number): void {
   const n = secs.length;
   const last = p.closed ? n : n - 1;
   const bridge = bridgeSamples(ground, p);
@@ -580,7 +580,7 @@ function addRibbons(out: Ribbons, p: TrackPath, secs: readonly number[], ground:
         const ids = [l0, l1].map((lat) => {
           const x = p.x[at]! + p.tz[at]! * lat;
           const z = p.z[at]! - p.tx[at]! * lat;
-          return r.m.v(x, surfY(ground, p, at, lat) + lift, z, surfaceHex(sid), x / tile, z / tile);
+          return r.m.v(x, surfY(ground, p, at, lat) + lift, z, surfaceHex(sid), x / tile, z / tile, strip === 0 && sid === terrain ? ROAD_ON_TERRAIN_SHADE : 1);
         });
         return [ids[0]!, ids[1]!];
       };
@@ -786,7 +786,8 @@ export function buildGroundLayers(track: Track, ground: TrackGround, index: Road
   const terrain = buildTerrain(track, ground, index);
   const out: GroundLayer[] = [{ kind: "terrain", surface: track.json.environment.terrain, level: "terrain", m: terrain.m, smooth: false, chunks: terrain.chunks }];
   const ribbons: Ribbons = new Map();
-  for (const [i, p] of paths.entries()) addRibbons(ribbons, p, secs[i]!, ground, ROAD_LIFT);
+  const terrainSurface = SURFACE_IDS.indexOf(track.json.environment.terrain);
+  for (const [i, p] of paths.entries()) addRibbons(ribbons, p, secs[i]!, ground, ROAD_LIFT, terrainSurface);
   for (const r of ribbons.values()) {
     const surface = SURFACE_IDS[r.surface]!;
     out.push({ kind: r.kind, surface, level: r.deck ? "deck" : r.kind === "road" ? surface : "runoff", m: r.m, smooth: true, chunks: null });
