@@ -152,7 +152,8 @@ export const RING_BACKSTOP = {
   thickness: scaledMetres(REAL_BACKBOARD_THICKNESS_INCHES),
 } as const;
 
-const RAIL_START_X = RING_BOARD_START_X + scaledMetres(REAL_FIRST_CUP_FRONT_INCHES - REAL_RAIL_LEAD_INCHES);
+/** The side rim's start x (m past the lip): it rises from nothing here over `RING_RAIL_PROFILE.rampLength`, so art can sweep the same rim. */
+export const RING_RAIL_START_X = RING_BOARD_START_X + scaledMetres(REAL_FIRST_CUP_FRONT_INCHES - REAL_RAIL_LEAD_INCHES);
 
 /** The cup's surface height at `distance` from its centre, or -Infinity past its skirt: floor, inner wall, rim top, skirt down to the board. */
 function zoneSurfaceHeight(zone: RingZone, localX: number, distance: number): number {
@@ -180,7 +181,7 @@ function railHeightOverBoard(localX: number, localZ: number): number {
   const depth = depthInsideRim(localX, localZ);
   const slopeProgress = (depth - RING_RAIL_PROFILE.topWidth) / RING_RAIL_PROFILE.slopeWidth;
   const crossSection = slopeProgress <= 0 ? 1 : Math.max(0, 1 - slopeProgress);
-  const rampProgress = Math.min(1, Math.max(0, (localX - RAIL_START_X) / RING_RAIL_PROFILE.rampLength));
+  const rampProgress = Math.min(1, Math.max(0, (localX - RING_RAIL_START_X) / RING_RAIL_PROFILE.rampLength));
   return RING_RAIL_PROFILE.height * crossSection * rampProgress;
 }
 
