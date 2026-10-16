@@ -11,7 +11,9 @@ import {
   assignClass,
   CLASSES,
   cornerSpeed,
+  enginePower,
   gearAt,
+  gearHi,
   carRpm,
   drivability,
   HANDLING,
@@ -43,17 +45,27 @@ function along(car: DeformableCar): number {
 }
 
 /**
- * Launch targets (docs/HANDLING.md § Acceleration), 0–100 km/h and time to top (s) at each end of the realism slider.
- * Realistic: the sourced 0–60 mph (sedan 6.1, muscle 4.3, truck 7.9, monster about 4), time to top about 2× the arcade.
- * Arcade: about 0.4× and 0.5× of those, real order kept (muscle and monster quickest, truck slowest off the line).
+ * Launch targets (docs/HANDLING.md § Acceleration): 0–100 km/h (s) at each end of the realism slider. Realistic: the sourced
+ * 0–60 mph (sedan 6.1, muscle 4.3, truck 7.9, monster about 4). Arcade: about 0.4× of those, real order kept (muscle and monster
+ * quickest, truck slowest off the line). Time to top follows from the law (`timeToTop`), not from a second figure: the pull is the
+ * launch pull to the knee, then constant power, so t_top = knee/launch + (v_top² − knee²)/(2·power).
  */
-const LAUNCH: Record<VehicleClassId, { topKmh: number; gears: number; arcade: [number, number]; real: [number, number] }> = {
-  sedan: { topKmh: 200, gears: 5, arcade: [2.45, 12], real: [6.1, 24] },
-  muscle: { topKmh: 210, gears: 5, arcade: [1.95, 9.5], real: [4.3, 19] },
-  truck: { topKmh: 195, gears: 4, arcade: [2.5, 12.7], real: [7.9, 25.7] },
-  monster: { topKmh: 190, gears: 4, arcade: [2, 11.5], real: [4, 23.1] },
-  police: { topKmh: 200, gears: 5, arcade: [2.45, 12], real: [6.1, 24] },
+const LAUNCH: Record<VehicleClassId, { topKmh: number; gears: number; arcade: number; real: number }> = {
+  sedan: { topKmh: 200, gears: 5, arcade: 2.45, real: 6.1 },
+  muscle: { topKmh: 210, gears: 5, arcade: 1.95, real: 4.3 },
+  truck: { topKmh: 195, gears: 4, arcade: 2.5, real: 7.9 },
+  monster: { topKmh: 190, gears: 4, arcade: 2, real: 4 },
+  police: { topKmh: 200, gears: 5, arcade: 2.45, real: 6.1 },
 };
+
+/** The seconds the law takes from rest to `v` m/s at `realism`: flat at the launch pull to the knee, then constant power. */
+function timeToTop(id: VehicleClassId, v: number, realism: number): number {
+  const k = CLASSES[id];
+  const launch = k.launch[0] + (k.launch[1] - k.launch[0]) * realism;
+  const power = enginePower(k, realism);
+  const knee = Math.min(v, power / launch);
+  return knee / launch + (v * v - knee * knee) / (2 * power);
+}
 
 // --- a mixed test loop: rounded rectangle, two hairpins and two sweepers ------
 
@@ -206,40 +218,44 @@ for (const H of RATES) {
       for (const id of VEHICLE_CLASS_IDS) {
         for (const end of ["arcade", "real"] as const) {
           const L = LAUNCH[id];
-          const [zeroTo100, toTop] = L[end];
-          it(`when a ${id} is driven at the ${end} end, then it reaches 100 km/h in ${zeroTo100} s and ${L.topKmh} km/h top after ${toTop} s (±5 %), its pull steps down only at its ${L.gears - 1} gear shifts, and the gauge's gear changes at those same shifts`, () => {
-          HANDLING.realism = end === "arcade" ? 0 : 1;
-          const car = classCar(id);
-          const input = { ...idleDrive(), throttle: 1 };
-          const v = [0];
-          for (let t = 0; t < 32; t += H) {
-            step(car, input);
-            v.push(along(car));
-          }
-          const top = v[v.length - 1]!;
-          const t100 = v.findIndex((x) => x >= 100 / 3.6) * H;
-          const tTop = v.findIndex((x) => x >= 0.995 * top) * H;
-          // Gear buckets: the pull holds within a gear and changes by > 10 % only at a shift, always down; the HUD's
-          // gear (`gearAt`) steps up on exactly those steps.
-          const shifts: string[] = [];
-          const hudOff: string[] = [];
-          let rises = 0;
-          for (let i = 2; i < v.length && v[i]! < 0.99 * top; i++) {
-            const before = (v[i - 1]! - v[i - 2]!) / H;
-            const after = (v[i]! - v[i - 1]!) / H;
-            const hudShift = gearAt(CLASSES[id], v[i - 1]!) !== gearAt(CLASSES[id], v[i - 2]!);
-            if (hudShift !== Math.abs(after / before - 1) > 0.1) hudOff.push(`${(v[i - 1]! * 3.6).toFixed(0)} km/h`);
-            if (Math.abs(after / before - 1) <= 0.1) continue;
-            shifts.push(`${before.toFixed(1)}→${after.toFixed(1)} m/s² at ${(v[i - 1]! * 3.6).toFixed(0)} km/h`);
-            if (after > before) rises++;
-          }
-          assert.deepEqual(hudOff, [], `HUD gear disagrees with the pull at ${hudOff.join(", ")}`);
-          const got = `0–100 ${t100.toFixed(2)} s, top ${(top * 3.6).toFixed(0)} km/h at ${tTop.toFixed(2)} s, shifts [${shifts.join(", ")}]`;
-          assert.ok(t100 > 0 && Math.abs(t100 / zeroTo100 - 1) <= 0.05, got);
-          assert.ok(Math.abs((top * 3.6) / L.topKmh - 1) <= 0.05, got);
-          assert.ok(Math.abs(tTop / toTop - 1) <= 0.05, got);
-          assert.equal(shifts.length, L.gears - 1, got);
-          assert.equal(rises, 0, got);
+          const zeroTo100 = L[end];
+          it(`when a ${id} is driven at the ${end} end, then it reaches 100 km/h in ${zeroTo100} s and ${L.topKmh} km/h top in the law's time (±5 %), its pull holds at the launch pull to the knee and then falls as constant power with no rise anywhere, and the gauge's gear steps up ${L.gears - 1} times`, () => {
+            const realism = end === "arcade" ? 0 : 1;
+            HANDLING.realism = realism;
+            const k = CLASSES[id];
+            const car = classCar(id);
+            const input = { ...idleDrive(), throttle: 1 };
+            const v = [0];
+            for (let t = 0; t < 32; t += H) {
+              step(car, input);
+              v.push(along(car));
+            }
+            const top = v[v.length - 1]!;
+            const t100 = v.findIndex((x) => x >= 100 / 3.6) * H;
+            const tTop = v.findIndex((x) => x >= 0.995 * top) * H;
+            const launch = k.launch[0] + (k.launch[1] - k.launch[0]) * realism;
+            const power = enginePower(k, realism);
+            const knee = power / launch;
+            // The pull per slice is the law at the slice's start speed (the drive steps explicitly): the launch pull below the knee, `power / v` above it, never rising.
+            let rises = 0;
+            let steps = 0;
+            const off: string[] = [];
+            for (let i = 2; i < v.length && v[i]! < 0.99 * top; i++) {
+              const before = (v[i - 1]! - v[i - 2]!) / H;
+              const after = (v[i]! - v[i - 1]!) / H;
+              if (after > before * (1 + 1e-6)) rises++;
+              if (gearAt(k, v[i]!) !== gearAt(k, v[i - 1]!)) steps++;
+              const start = v[i - 1]!;
+              const law = start < knee ? launch : power / start;
+              if (Math.abs(after / law - 1) > 0.01) off.push(`${(start * 3.6).toFixed(0)} km/h: ${after.toFixed(2)} vs ${law.toFixed(2)}`);
+            }
+            const got = `0–100 ${t100.toFixed(2)} s, top ${(top * 3.6).toFixed(0)} km/h at ${tTop.toFixed(2)} s (law ${timeToTop(id, 0.995 * top, realism).toFixed(2)}), ${steps} gear steps, ${rises} rises, off the law at [${off.slice(0, 4).join("; ")}]`;
+            assert.deepEqual(off, [], got);
+            assert.ok(t100 > 0 && Math.abs(t100 / zeroTo100 - 1) <= 0.05, got);
+            assert.ok(Math.abs((top * 3.6) / L.topKmh - 1) <= 0.05, got);
+            assert.ok(Math.abs(tTop / timeToTop(id, 0.995 * top, realism) - 1) <= 0.05, got);
+            assert.equal(steps, L.gears - 1, got);
+            assert.equal(rises, 0, got);
           });
         }
       }
@@ -295,8 +311,8 @@ for (const H of RATES) {
           prev = rpm;
         }
         assert.equal(drops, k.gears.length - 1, "one drop per upshift");
-        assert.ok(at(k.gears[1]![0] * k.topSpeed - 0.01) > 0.99, "near the redline at the top of a bucket");
-        assert.ok(at(k.gears[1]![0] * k.topSpeed + 0.01) < 0.35, "back at the foot of the next");
+        assert.ok(at(gearHi(k, 1) - 0.01) > 0.99, "near the redline at the top of a bucket");
+        assert.ok(at(gearHi(k, 1) + 0.01) < 0.35, "back at the foot of the next");
         assert.equal(carRpm({ style: { id: "sedan" }, velocity: { x: 0, z: -5 }, fwdFlat: { x: 0, z: 1 } }), 0.18, "idles in reverse");
       });
     });

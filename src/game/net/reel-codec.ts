@@ -183,9 +183,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * spin exemption of 95 is gone, so a stalled wreck's tyres own its turn as a running car's do; and a crashed car in contact takes the sliding friction of a locked tyre (`CRASH.muSlide` · `FRICTION_G`) as its
  * sideways bite, not the arcade grip, the arcade grip fading back over `CONTACT_WINDOW` after the last contact, for every car: a replay of a clip of 97 or before moves a side-hit car, and any car struck
  * sideways or glancingly, differently from its hit on.
+ * 99: the engine's pull is the class's launch pull, then constant power tailing off through every gear (`enginePull`, `ClassStats.launch`/`power`; it was a fixed thrust per gear bucket stepping
+ * down at each shift), so every launch and every pull past the first gear's top runs differently: a replay of a clip of 98 or before drives every car off its recorded line.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 98;
+const REPLAY_VERSION = 99;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

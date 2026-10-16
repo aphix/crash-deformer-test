@@ -66,11 +66,11 @@ describe("given two 30 km/h cars driving head-on at each other", () => {
     return { nose: (r.noseShortL + r.noseShortR) / 2, engine: r.engineTravel, added };
   }
 
-  it("when both hold the throttle through the 0.12 s engine pulse, then the drive adds no more than first gear's thrust over that time, and the noses crush as they do when coasting", () => {
+  it("when both hold the throttle through the 0.12 s engine pulse, then the drive adds no more than the launch pull over that time, and the noses crush as they do when coasting", () => {
     const coast = headOn(0);
     const held = headOn(0.12);
-    const thrust = CLASSES.sedan.gears[0]![1];
-    for (const dv of held.added) assert.ok(dv > 0 && dv <= thrust * 0.12 * 1.01, `the drive added ${dv.toFixed(2)} m/s over 0.12 s (first gear ${thrust} m/s²)`);
+    const thrust = CLASSES.sedan.launch[0];
+    for (const dv of held.added) assert.ok(dv > 0 && dv <= thrust * 0.12 * 1.01, `the drive added ${dv.toFixed(2)} m/s over 0.12 s (the launch pull ${thrust} m/s²)`);
     assert.ok(Math.abs(held.nose - coast.nose) <= Math.max(0.03, 0.15 * coast.nose), `nose ${held.nose.toFixed(3)} m held, ${coast.nose.toFixed(3)} m coasting`);
     assert.ok(Math.abs(held.engine - coast.engine) <= 0.005, `engine block ${held.engine.toFixed(3)} m held, ${coast.engine.toFixed(3)} m coasting`);
   });

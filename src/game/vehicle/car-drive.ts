@@ -4,7 +4,7 @@ import { blankIntent, readIntent, shapeDrive, type DriveFeel } from "./drive-inp
 import type { PadState } from "./gamepad.ts";
 import { CRASH, FRICTION_G, hypot2 } from "../deform/physics-util.ts";
 import { C_GRIP, HIT_SIZE } from "../world/surfaces.ts";
-import { assists, carClass, carDrivability, CLASSES, HANDLING, SELF_RIGHT_SLOWEST, type Assists, type Drivability } from "./vehicle-classes.ts";
+import { assists, carClass, carDrivability, CLASSES, enginePull, HANDLING, SELF_RIGHT_SLOWEST, type Assists, type Drivability } from "./vehicle-classes.ts";
 import { LOSS_SIZE, wheelLoss } from "./wheel-loss.ts";
 import { detSin, detCos, detAtan2 } from "../kernel/physics-core.js";
 import { FLIPPED_UP_Y, GRIP_YAW_CAP, SLIDE_SPEED } from "./constants.ts";
@@ -167,12 +167,9 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
       // The engine's push (and its lift-off braking) is what the handbrake's grip takes away.
       let rate = k.brake * DRIVE.coast * (1 - ebrake);
       if (Math.abs(want) > v) {
-        // The gear this speed sits in; past the top gear's end (a boost) it keeps pulling in top. Its thrust runs
-        // from the arcade punch to the sourced figures along the realism slider.
-        let g = 0;
-        while (g < k.gears.length - 1 && v >= k.gears[g]![0] * k.topSpeed) g++;
-        const gear = k.gears[g]!;
-        rate = (gear[1] + (gear[2] - gear[1]) * realism) * dmg.power * driveShare * (1 + (k.boostAccel - 1) * boost) * (0.4 + 0.6 * muR) * (1 - ebrake);
+        // The engine's pull at this wheel speed (`enginePull`: the launch pull, then constant power through every gear), from the
+        // arcade punch to the sourced figures along the realism slider.
+        rate = enginePull(k, v, realism) * dmg.power * driveShare * (1 + (k.boostAccel - 1) * boost) * (0.4 + 0.6 * muR) * (1 - ebrake);
         if (throttle > 0.5 && along > -0.5) {
           spin = Math.max(v < 7 ? (1 - v / 7) * throttle * (0.35 + 0.65 * k.torque) * (0.7 + 0.3 * boost) : 0, (1 - muR) * throttle * 0.6) * (1 - ebrake);
         }

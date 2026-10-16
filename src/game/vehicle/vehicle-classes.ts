@@ -21,12 +21,16 @@ export interface ClassStats {
   /** Forward / reverse top speed on asphalt (m/s). */
   topSpeed: number;
   revSpeed: number;
+  /** Gear buckets, low to high: each gear's top end as a share of `topSpeed`. The gauge's gear, the shift kick's and the AI's; the pull does not step at them (`enginePull`). */
+  gears: readonly number[];
   /**
-   * Gear buckets, low to high: each gear's top end (× `topSpeed`) and its fixed thrust (m/s²) at the arcade and
-   * the realistic end of `HANDLING.realism` (lerped between), falling as the gears rise. No clutch or revs: the
-   * pull steps down at each shift. The realistic thrusts give the sourced 0–100 km/h (docs/HANDLING.md § Acceleration).
+   * The engine's pull on the driven wheels (m/s²) from a standstill, at the arcade and the realistic end of `HANDLING.realism` (lerped):
+   * flat until the class's `power` is reached (the knee, `power / launch`), then constant power. The realistic end with `power` gives
+   * the sourced 0–100 km/h on asphalt (docs/HANDLING.md § Acceleration), so both are net of asphalt's rolling resistance and air drag.
    */
-  gears: readonly (readonly [upTo: number, arcade: number, real: number])[];
+  launch: readonly [arcade: number, real: number];
+  /** Constant power per kilogram (W/kg) the pull tails along past the knee, `power / wheelSpeed`, through every gear (one power: the pull is continuous across a shift). Fitted to the sourced 0–100 with `launch` (docs/HANDLING.md § Acceleration). */
+  power: readonly [arcade: number, real: number];
   /** 0–1 torque feel: how much the rear spins up on a launch. */
   torque: number;
   /** Service brake (m/s²). */
@@ -54,13 +58,9 @@ const SEDAN: ClassStats = {
   mass: 1400,
   topSpeed: 200 / 3.6,
   revSpeed: 11,
-  gears: [
-    [0.24, 17.2, 6.9],
-    [0.42, 10.7, 4.3],
-    [0.6, 6.1, 2.44],
-    [0.8, 3.5, 1.93],
-    [1, 2, 1.1],
-  ],
+  gears: [0.24, 0.42, 0.6, 0.8, 1],
+  launch: [17.2, 6.9],
+  power: [179.7, 72.2],
   torque: 0.3,
   brake: 28,
   turn: 1.55,
@@ -86,13 +86,9 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     mass: 1650,
     topSpeed: 210 / 3.6,
     revSpeed: 11,
-    gears: [
-      [0.24, 20.4, 9.2],
-      [0.42, 12.7, 5.73],
-      [0.6, 7.7, 3.47],
-      [0.8, 4.7, 2.43],
-      [1, 2.8, 1.45],
-    ],
+    gears: [0.24, 0.42, 0.6, 0.8, 1],
+    launch: [20.4, 9.2],
+    power: [230.5, 104.8],
     torque: 0.6,
     brake: 26,
     turn: 1.36,
@@ -111,12 +107,9 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     mass: 2100,
     topSpeed: 195 / 3.6,
     revSpeed: 10,
-    gears: [
-      [0.3, 16.3, 5],
-      [0.53, 7.8, 2.48],
-      [0.76, 4.3, 2.2],
-      [1, 1.8, 1.08],
-    ],
+    gears: [0.3, 0.53, 0.76, 1],
+    launch: [16.3, 5],
+    power: [178.2, 57.1],
     torque: 0.5,
     brake: 27,
     turn: 1.5,
@@ -135,12 +128,9 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     mass: 2900,
     topSpeed: 190 / 3.6,
     revSpeed: 10,
-    gears: [
-      [0.3, 17.1, 8.4],
-      [0.53, 11.5, 5.65],
-      [0.76, 5, 2.45],
-      [1, 1.8, 0.88],
-    ],
+    gears: [0.3, 0.53, 0.76, 1],
+    launch: [17.1, 8.4],
+    power: [243.6, 123.4],
     torque: 0.7,
     brake: 26,
     turn: 1.3,
@@ -175,11 +165,34 @@ export function classStats(id: VehicleClassId): ClassStats {
   return CLASSES[id];
 }
 
-/** The gear bucket (0-based) forward speed `v` (m/s) sits in, past the top gear's end (a boost) still top: the bucket `applyDrive`'s pedals pull in. */
+/** The gear bucket (0-based) a wheel speed `v` (m/s) sits in, past the top gear's end (a boost) still top. */
 export function gearAt(k: ClassStats, v: number): number {
   let g = 0;
-  while (g < k.gears.length - 1 && v >= k.gears[g]![0] * k.topSpeed) g++;
+  while (g < k.gears.length - 1 && v >= k.gears[g]! * k.topSpeed) g++;
   return g;
+}
+
+/** Where gear `g`'s bucket starts and ends (m/s): `lo` 0 for 1st. */
+export function gearLo(k: ClassStats, g: number): number {
+  return g === 0 ? 0 : k.gears[g - 1]! * k.topSpeed;
+}
+export function gearHi(k: ClassStats, g: number): number {
+  return k.gears[g]! * k.topSpeed;
+}
+
+/** The class's constant power (W/kg) at `realism`. */
+export function enginePower(k: ClassStats, realism: number): number {
+  return k.power[0] + (k.power[1] - k.power[0]) * realism;
+}
+
+/**
+ * The engine's pull (m/s²) with the driven wheels at `ws` m/s: the class's launch pull until its power is reached, then constant
+ * power tailing off as 1/ws through every gear (masterclass 14:38, gears tail off toward the next gear's working range; one power
+ * for all gears, so the pull is continuous across each shift and a road's drag meets it mid-gear, never at a shift's step).
+ */
+export function enginePull(k: ClassStats, ws: number, realism: number): number {
+  const launch = k.launch[0] + (k.launch[1] - k.launch[0]) * realism;
+  return Math.min(launch, enginePower(k, realism) / Math.max(ws, 1e-6));
 }
 
 /** Where the arcade ↔ realistic slider starts: arcade-leaning, per the design pillars. */
@@ -216,8 +229,8 @@ export function carRpm(car: { style: { id: CarStyleId }; velocity: { x: number; 
   if (along < 0) return REV_IDLE;
   const k = CLASSES[carClass(car)];
   const g = gearAt(k, along);
-  const lo = g === 0 ? 0 : k.gears[g - 1]![0] * k.topSpeed;
-  const hi = k.gears[g]![0] * k.topSpeed;
+  const lo = gearLo(k, g);
+  const hi = gearHi(k, g);
   const share = Math.min(1, (along - lo) / (hi - lo));
   return g === 0 ? REV_IDLE + (1 - REV_IDLE) * share : REV_FLOOR + (1 - REV_FLOOR) * share;
 }
