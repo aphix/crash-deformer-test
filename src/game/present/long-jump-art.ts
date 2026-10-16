@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { MINIGAME_MODE } from "../scenes/minigame-constants.ts";
 import { makeStationSurface, STATION_SURFACE_STYLES } from "./minigame-surface-art.ts";
 
 /**
@@ -9,6 +10,6 @@ import { makeStationSurface, STATION_SURFACE_STYLES } from "./minigame-surface-a
 export function makeLongJumpArt(): THREE.Group {
   const art = new THREE.Group();
   art.name = "long-jump";
-  art.add(makeStationSurface("longJump", STATION_SURFACE_STYLES.longJump));
+  art.add(makeStationSurface(MINIGAME_MODE.longJump, STATION_SURFACE_STYLES.longJump));
   return art;
 }

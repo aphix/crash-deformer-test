@@ -4,7 +4,6 @@ import { DRIVER_CARS } from "../match/types.ts";
 import {
   DEGREES_TO_RADIANS,
   HIGH_JUMP_KICKER,
-  HIGH_JUMP_MIN_APEX,
   LIP_BACK_FACE_PITCH_DEGREES,
   LONG_JUMP_INCLINE,
   MINIGAME_MODES,
@@ -17,13 +16,14 @@ import {
   THROW_YAW,
   type MinigameMode,
 } from "./minigame-constants.ts";
-import { climbFootX, floorHeightAt, lipHeight, lipPitch, stationBackX, stationFrontX, stationStartPose } from "./minigame-profile.ts";
+import { climbFootX, floorHeightAt, lipHeight, stationBackX, stationFrontX, stationStartPose } from "./minigame-profile.ts";
 import {
   capForLipSpeed,
   driveIntoBarrier,
   driveToBarrier,
   driveToLip,
   FINE_CELL,
+  lipPitch,
   highJumpVariant,
   lipFlight,
   longJumpVariant,
@@ -37,6 +37,9 @@ import {
   type LongJumpDesign,
 } from "./minigame-profile.test-util.ts";
 import { RANGE } from "./range.ts";
+
+/** High jump: the least ballistic apex (m above the lip) any driver car's unboosted throw must reach at full throttle: every class gets over several boards. */
+const HIGH_JUMP_MIN_APEX = 40;
 
 /** Metres between the samples that the floor's continuity is read at. */
 const READ_STEP = 0.05;

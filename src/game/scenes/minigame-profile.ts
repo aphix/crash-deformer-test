@@ -1,4 +1,4 @@
-import { detAtan, detCos, detSin } from "../kernel/physics-core.js";
+import { detCos, detSin } from "../kernel/physics-core.js";
 import {
   DEGREES_TO_RADIANS,
   HIGH_JUMP_KICKER,
@@ -11,6 +11,7 @@ import {
   START_HILL,
   START_HILL_LENGTH,
   THROW_YAW,
+  MINIGAME_MODE,
   type MinigameMode,
 } from "./minigame-constants.ts";
 
@@ -50,8 +51,8 @@ const LIP_BACK_FACE_SLOPE = detSin(LIP_BACK_FACE_PITCH_DEGREES * DEGREES_TO_RADI
 
 /** Horizontal length (m) of the climb: from its foot to the lip. */
 function climbRun(mode: MinigameMode): number {
-  if (mode === "longJump") return LONG_JUMP_RUN;
-  if (mode === "highJump") return HIGH_JUMP_RUN;
+  if (mode === MINIGAME_MODE.longJump) return LONG_JUMP_RUN;
+  if (mode === MINIGAME_MODE.highJump) return HIGH_JUMP_RUN;
   return RING_FLING_RUN;
 }
 
@@ -74,12 +75,12 @@ function crestRise(run: number): number {
 
 /** Height (m) the climb has risen above the run-up at `run` m from its foot. */
 function climbRise(mode: MinigameMode, run: number): number {
-  if (mode === "longJump") {
+  if (mode === MINIGAME_MODE.longJump) {
     if (run >= LONG_JUMP_TOP_END) return LONG_JUMP_RISE;
     if (run <= LONG_JUMP_SECTION.straightEnd) return inclineRise(LONG_JUMP_SECTION, run);
     return inclineRise(LONG_JUMP_SECTION, LONG_JUMP_SECTION.straightEnd) + crestRise(run - LONG_JUMP_SECTION.straightEnd);
   }
-  if (mode === "highJump") return circleRise(HIGH_JUMP_KICKER.radius, run);
+  if (mode === MINIGAME_MODE.highJump) return circleRise(HIGH_JUMP_KICKER.radius, run);
   const hopRun = run - RING_FLING_SECTION.straightEnd;
   if (hopRun <= 0) return inclineRise(RING_FLING_SECTION, run);
   const hopShare = hopRun / RING_FLING_LANE.hopLength;
@@ -88,7 +89,7 @@ function climbRise(mode: MinigameMode, run: number): number {
 
 /** How far (m) the run-up lies below the pad: the start hill's drop. The long jump's is its whole climb, so its lip is level with the pad. */
 function runUpDrop(mode: MinigameMode): number {
-  return mode === "longJump" ? LONG_JUMP_RISE : START_HILL.drop;
+  return mode === MINIGAME_MODE.longJump ? LONG_JUMP_RISE : START_HILL.drop;
 }
 
 /** x of the start hill's top, where the pad ends. */
@@ -113,12 +114,12 @@ export function lipHeight(mode: MinigameMode): number {
 
 /** x (m) past the lip where the floor behind it has fallen to the landing's level: 0 for the long jump, whose floor goes on level. */
 export function stationFrontX(mode: MinigameMode): number {
-  return mode === "longJump" ? 0 : (lipHeight(mode) - LANDING_HEIGHT) / LIP_BACK_FACE_SLOPE;
+  return mode === MINIGAME_MODE.longJump ? 0 : (lipHeight(mode) - LANDING_HEIGHT) / LIP_BACK_FACE_SLOPE;
 }
 
 /** Floor height (m above the pad) of the station `mode` at local (x, z): the run's profile, the same across the lane. */
 export function floorHeightAt(mode: MinigameMode, localX: number, _localZ: number): number {
-  if (localX >= 0) return mode === "longJump" ? LANDING_HEIGHT : Math.max(LANDING_HEIGHT, lipHeight(mode) - localX * LIP_BACK_FACE_SLOPE);
+  if (localX >= 0) return mode === MINIGAME_MODE.longJump ? LANDING_HEIGHT : Math.max(LANDING_HEIGHT, lipHeight(mode) - localX * LIP_BACK_FACE_SLOPE);
   const hillTop = hillTopX(mode);
   if (localX <= hillTop) return 0;
   const hillShare = (localX - hillTop) / START_HILL_LENGTH[mode];
@@ -127,13 +128,6 @@ export function floorHeightAt(mode: MinigameMode, localX: number, _localZ: numbe
   const climbFoot = -climbRun(mode);
   if (localX <= climbFoot) return -drop;
   return -drop + climbRise(mode, localX - climbFoot);
-}
-
-/** Angle (rad) the floor climbs at the lip: the long jump's is level. */
-export function lipPitch(mode: MinigameMode): number {
-  if (mode === "longJump") return 0;
-  if (mode === "highJump") return HIGH_JUMP_PITCH;
-  return detAtan(RING_FLING_SECTION.slope + ((Math.PI / 2) * RING_FLING_HOP_HEIGHT) / RING_FLING_LANE.hopLength);
 }
 
 /** Where the parked car stands: the middle of the pad, on the lane's middle, facing down the run. */

@@ -9,7 +9,7 @@ import { paint } from "../vehicle/test-support.ts";
 import { armKill, assignClass, HANDLING, killClass } from "../vehicle/vehicle-classes.ts";
 import { Ground, setGround, STEP_UP } from "../world/ground.ts";
 import { FREEWHEEL, makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
-import { DEGREES_TO_RADIANS, INCLINE_FOOT_RADIUS, LANDING_HEIGHT, LIP_BACK_FACE_PITCH_DEGREES, LONG_JUMP_INCLINE, RUN_UP_LENGTH, START_HILL, THROW_YAW, type MinigameMode } from "./minigame-constants.ts";
+import { DEGREES_TO_RADIANS, HIGH_JUMP_KICKER, INCLINE_FOOT_RADIUS, LANDING_HEIGHT, LIP_BACK_FACE_PITCH_DEGREES, LONG_JUMP_INCLINE, RING_FLING_LANE, RUN_UP_LENGTH, START_HILL, THROW_YAW, type MinigameMode } from "./minigame-constants.ts";
 import { climbFootX, floorHeightAt, stationBackX, stationFrontX, stationStartPose } from "./minigame-profile.ts";
 import { holdForThrow, PRE_IMPACT_LEAD, preImpact, type PhaseClock } from "../match/phase.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
@@ -200,6 +200,14 @@ export function capForLipSpeed(type: DriverCar, profile: DriveProfile, cell: num
     else low = middle;
   }
   return high;
+}
+
+/** Angle (rad) the shipped floor climbs at the lip: the long jump's is level, the high jump's the kicker's, Ring Fling's the incline's slope plus the ball-hop's steepest end. */
+export function lipPitch(mode: MinigameMode): number {
+  if (mode === "longJump") return 0;
+  if (mode === "highJump") return HIGH_JUMP_KICKER.lipPitchDegrees * DEGREES_TO_RADIANS;
+  const hopHeight = ((RING_FLING_LANE.inclineLength + RING_FLING_LANE.hopLength) * RING_FLING_LANE.machineHopInches) / RING_FLING_LANE.machineLaneInches;
+  return Math.atan(Math.tan(RING_FLING_LANE.inclinePitchDegrees * DEGREES_TO_RADIANS) + ((Math.PI / 2) * hopHeight) / RING_FLING_LANE.hopLength);
 }
 
 /** The station `mode` as it ships, as a drive profile. */

@@ -1,7 +1,7 @@
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { EjectionWatch } from "../vehicle/ejection.ts";
 import { Ground, STEP_UP } from "../world/ground.ts";
-import { LONG_JUMP_INCLINE, MINIGAME_MODES, STATION_ANCHORS, STATION_HALF_WIDTH, type MinigameMode } from "./minigame-constants.ts";
+import { LONG_JUMP_INCLINE, MINIGAME_MODE, MINIGAME_MODES, STATION_ANCHORS, STATION_HALF_WIDTH, type MinigameMode } from "./minigame-constants.ts";
 import { LipThrow } from "./minigame-lip.ts";
 import { floorHeightAt, stationBackX, stationFrontX, stationStartPose } from "./minigame-profile.ts";
 import { RING_BACKSTOP, RING_BOARD_BOUNDS, RING_MESH_STEP, RING_RAIL_PROFILE, ringBoardMesh, ringHeightAt } from "./minigame-ring.ts";
@@ -18,7 +18,7 @@ const PAD_HALF_EXTENT = 1000;
 const NET_HALF_THICKNESS = 0.25;
 
 /** Where the high jump's net hangs, station-local: its plane's x, half its width across the lane and its height above the pad. */
-export type HighJumpNet = { netX: number; netHalfWidth: number; netHeight: number };
+type HighJumpNet = { netX: number; netHalfWidth: number; netHeight: number };
 
 /** The world pose of a parked start: `y` is the ground's height there, what the engine sets before `layOnGround`. */
 export type StationStart = { x: number; y: number; z: number; yaw: number };
@@ -34,7 +34,7 @@ function evenNodes(length: number, cell: number): { count: number; spacing: numb
 
 /** Station-local x where the floor's profile changes character, so a section's nodes land on it exactly: the pad's back, the long jump's level tail (exactly 0 from there on), the lip (a crease for the high jump and Ring Fling) and, past it, the back face's foot. */
 function sectionEdges(mode: MinigameMode): number[] {
-  if (mode === "longJump") return [stationBackX(mode), -LONG_JUMP_INCLINE.flatTail, 0];
+  if (mode === MINIGAME_MODE.longJump) return [stationBackX(mode), -LONG_JUMP_INCLINE.flatTail, 0];
   return [stationBackX(mode), 0, stationFrontX(mode)];
 }
 
@@ -163,8 +163,8 @@ export class MinigameGround extends Ground {
 
   /** The per-car, per-slice function the engine assigns to `world.collide`: the lip throws of the high jump and Ring Fling (the long jump's barrier throws by a hit). */
   collideHook(cars: readonly DeformableCar[], ejection: EjectionWatch): (car: DeformableCar, index: number) => void {
-    const highJumpLip = new LipThrow("highJump", cars, ejection);
-    const ringFlingLip = new LipThrow("ringFling", cars, ejection);
+    const highJumpLip = new LipThrow(MINIGAME_MODE.highJump, cars, ejection);
+    const ringFlingLip = new LipThrow(MINIGAME_MODE.ringFling, cars, ejection);
     return (car, index) => {
       highJumpLip.collide(car, index);
       ringFlingLip.collide(car, index);

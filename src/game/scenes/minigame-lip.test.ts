@@ -13,8 +13,8 @@ import { FRAME, frame } from "../vehicle/ground-probe.test-util.ts";
 import { Ground, setGround, STEP_UP } from "../world/ground.ts";
 import { LANDING_HEIGHT, LIP_CAR_SPEED_KEEP, STATION_ANCHORS, STATION_HALF_WIDTH, THROW_YAW } from "./minigame-constants.ts";
 import { LipThrow, type LipMode } from "./minigame-lip.ts";
-import { lipHeight, lipPitch } from "./minigame-profile.ts";
-import { dressedDriverCar, FINE_CELL, stationDriveProfile } from "./minigame-profile.test-util.ts";
+import { lipHeight } from "./minigame-profile.ts";
+import { dressedDriverCar, FINE_CELL, lipPitch, stationDriveProfile } from "./minigame-profile.test-util.ts";
 import { RING_CUPS } from "./minigame-ring.ts";
 
 const LIP_MODES: readonly LipMode[] = ["highJump", "ringFling"];

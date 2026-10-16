@@ -16,7 +16,7 @@ import { EjectionWatch } from "../vehicle/ejection.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import { MAX_CARS, slotType, type CarType } from "../scenes/fleet.ts";
 import { fleetProp, type SceneId } from "../scenes/scene-id.ts";
-import type { MinigameMode } from "../scenes/minigame-constants.ts";
+import { MINIGAME_MODE, type MinigameMode } from "../scenes/minigame-constants.ts";
 import { SceneFade } from "../present/scene-fade.ts";
 import { ParkingScene } from "../present/parking-scene.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
@@ -116,7 +116,7 @@ export abstract class EngineCore {
   showRamps = false;
   get barrierUp(): boolean {
     const mode = this.minigameMode;
-    return mode === null ? fleetProp(this.sceneId, "barrier", this.showBarrier) : mode === "longJump";
+    return mode === null ? fleetProp(this.sceneId, "barrier", this.showBarrier) : mode === MINIGAME_MODE.longJump;
   }
   get ballsUp(): boolean {
     return fleetProp(this.sceneId, "balls", this.showBalls);

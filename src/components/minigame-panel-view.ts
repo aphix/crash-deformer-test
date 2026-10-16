@@ -1,10 +1,10 @@
-import { MINIGAME_MODES, MODE_LABELS, THROWS_PER_SET, type MinigameMode } from "../game/scenes/minigame-constants.ts";
+import { MINIGAME_MODE, MINIGAME_MODES, MODE_LABELS, THROWS_PER_SET, type MinigameMode } from "../game/scenes/minigame-constants.ts";
 import type { MinigameHudState } from "../game/scenes/minigame-session.ts";
 
 const MODE_UNITS: Readonly<Record<MinigameMode, string>> = { longJump: "m", highJump: "m", ringFling: "pts" };
 
 function valueText(mode: MinigameMode, value: number): string {
-  return mode === "ringFling" ? `${Math.round(value)} ${MODE_UNITS[mode]}` : `${value.toFixed(1)} ${MODE_UNITS[mode]}`;
+  return mode === MINIGAME_MODE.ringFling ? `${Math.round(value)} ${MODE_UNITS[mode]}` : `${value.toFixed(1)} ${MODE_UNITS[mode]}`;
 }
 
 function bestText(mode: MinigameMode, best: number | null): string {
@@ -39,7 +39,7 @@ type MinigamePanelView = {
 /** What the panel shows and which buttons work, from the session's card: pure, so the labels and enabled states are testable without a DOM. */
 export function minigamePanelView(state: MinigameHudState): MinigamePanelView {
   const { mode, phase } = state;
-  const isRing = mode === "ringFling";
+  const isRing = mode === MINIGAME_MODE.ringFling;
   const throwsPerSet = state.throwsPerSet ?? THROWS_PER_SET.default;
   const stepperOpen = (phase === "ready" && state.setScores.length === 0) || state.setComplete;
   const retryLabel = !isRing ? "Retry" : state.setComplete ? "New set" : "Next throw";

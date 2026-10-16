@@ -5,8 +5,10 @@ import { stubBrowser } from "../engine/engine-headless.test-util.ts";
 import { LANDING_HEIGHT } from "../scenes/minigame-constants.ts";
 import { CAPTURE_HALF_WIDTH, highJumpLayout, POST_HALF_SPAN, POST_THICKNESS } from "../scenes/minigame-high-jump.ts";
 import { climbFootX, floorHeightAt } from "../scenes/minigame-profile.ts";
-import { HIGH_JUMP_DRAW_BUDGET, makeHighJumpArt, NET_HALF_WIDTH, POST_THICKNESS_PER_METRE } from "./high-jump-art.ts";
+import { makeHighJumpArt, NET_HALF_WIDTH, POST_THICKNESS_PER_METRE } from "./high-jump-art.ts";
 
+/** Most draw calls the High jump's whole art may cost: timber, boards, trim, back-board, net, with room for the composer's own. */
+const HIGH_JUMP_DRAW_BUDGET = 12;
 const LIP_Y = 7;
 /**
  * Made-up measurements (m), the layout's own functions turn them into posts, boards, net and boxes: a short frame whose posts keep the

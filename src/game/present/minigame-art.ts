@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { LANDING_HEIGHT, MINIGAME_MODES, STATION_ANCHORS, STATION_HALF_WIDTH, type MinigameMode } from "../scenes/minigame-constants.ts";
+import { LANDING_HEIGHT, MINIGAME_MODE, MINIGAME_MODES, STATION_ANCHORS, STATION_HALF_WIDTH, type MinigameMode } from "../scenes/minigame-constants.ts";
 import { groundMesh } from "../scenes/ground-stack.ts";
 import { BOX_COUNT, type HighJumpLayout } from "../scenes/minigame-high-jump.ts";
 import { stationFrontX } from "../scenes/minigame-profile.ts";
@@ -17,12 +17,6 @@ import { makeRingFlingArt } from "./ring-fling-art.ts";
  * ground disc is hidden in minigame mode and the floors plus the surfaces are all the ground there is. The cardboard boxes draw in
  * world coordinates (the ragdoll's), so their mesh stays at the world origin beside the stations.
  */
-
-/**
- * Most draws the composer adds to any one station over its art's own: the station's landing floor and, for the High jump, its
- * surface (the art's factory leaves it to the composer) and the cardboard boxes.
- */
-export const MINIGAME_ART_EXTRA_DRAW_BUDGET = 3;
 
 /** The long jump's floor runs out to this x (m): past the farthest distance sign the range paints. */
 export const LONG_JUMP_FLOOR_END_X = 120;
@@ -73,12 +67,12 @@ export class MinigameArt {
   /** Invisible and in no scene until the engine adds it; `setMode` shows it. */
   readonly group = new THREE.Group();
   private readonly stations = {
-    longJump: stationGroup("longJump", makeLongJumpArt(), landingFloor("longJump", LONG_JUMP_FLOOR_END_X)),
-    highJump: stationGroup("highJump", makeStationSurface("highJump", STATION_SURFACE_STYLES.highJump)),
+    longJump: stationGroup(MINIGAME_MODE.longJump, makeLongJumpArt(), landingFloor(MINIGAME_MODE.longJump, LONG_JUMP_FLOOR_END_X)),
+    highJump: stationGroup(MINIGAME_MODE.highJump, makeStationSurface(MINIGAME_MODE.highJump, STATION_SURFACE_STYLES.highJump)),
     ringFling: stationGroup(
-      "ringFling",
+      MINIGAME_MODE.ringFling,
       makeRingFlingArt(),
-      landingFloor("ringFling", RING_BOARD_BOUNDS.maxX + RING_BACKSTOP.distancePastBoard + RING_BACKSTOP.thickness + LANDING_FLOOR_PAST_END),
+      landingFloor(MINIGAME_MODE.ringFling, RING_BOARD_BOUNDS.maxX + RING_BACKSTOP.distancePastBoard + RING_BACKSTOP.thickness + LANDING_FLOOR_PAST_END),
     ),
   } as const satisfies Record<MinigameMode, THREE.Group>;
   private readonly boxes = new CardboardBoxes(BOX_COUNT);
@@ -96,7 +90,7 @@ export class MinigameArt {
   setMode(mode: MinigameMode | null): void {
     this.group.visible = mode !== null;
     for (const stationMode of MINIGAME_MODES) this.stations[stationMode].visible = stationMode === mode;
-    this.boxes.mesh.visible = mode === "highJump";
+    this.boxes.mesh.visible = mode === MINIGAME_MODE.highJump;
   }
 
   /**
@@ -110,7 +104,7 @@ export class MinigameArt {
     }
     this.highJumpLayoutParts = new THREE.Group();
     this.highJumpLayoutParts.name = "high-jump-layout";
-    this.highJumpLayoutParts.add(makeHighJumpArt(layout, lipY), landingFloor("highJump", layout.netX + LANDING_FLOOR_PAST_END));
+    this.highJumpLayoutParts.add(makeHighJumpArt(layout, lipY), landingFloor(MINIGAME_MODE.highJump, layout.netX + LANDING_FLOOR_PAST_END));
     this.stations.highJump.add(this.highJumpLayoutParts);
     const anchor = STATION_ANCHORS.highJump;
     const placements = layout.boxes.map((box) => ({ ...box, x: box.x + anchor.x, z: box.z + anchor.z }));

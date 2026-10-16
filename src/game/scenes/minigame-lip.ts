@@ -1,9 +1,9 @@
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { EjectionWatch } from "../vehicle/ejection.ts";
-import { LIP_CAR_SPEED_KEEP, STATION_ANCHORS, STATION_HALF_WIDTH, type MinigameMode } from "./minigame-constants.ts";
+import { LIP_CAR_SPEED_KEEP, MINIGAME_MODE, STATION_ANCHORS, STATION_HALF_WIDTH, type MinigameMode } from "./minigame-constants.ts";
 
 /** The stations that throw their driver at the lip; the long jump's jersey barrier throws him by a hit instead. */
-export type LipMode = Exclude<MinigameMode, "longJump">;
+export type LipMode = Exclude<MinigameMode, typeof MINIGAME_MODE.longJump>;
 
 /**
  * The High jump's and Ring Fling's forced throw: there is no wall on those ramps, so when a car reaches the ramp's lip its driver

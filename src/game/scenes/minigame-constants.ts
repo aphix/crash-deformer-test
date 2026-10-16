@@ -3,7 +3,9 @@
  * long jump's jersey barrier, the high jump's and Ring Fling's ramp lip), z = 0 the lane's middle, y measured from the pad (world y = 0).
  */
 
-export const MINIGAME_MODES = ["longJump", "highJump", "ringFling"] as const;
+/** The three stations' ids: the one place their names are spelled. */
+export const MINIGAME_MODE = { longJump: "longJump", highJump: "highJump", ringFling: "ringFling" } as const;
+export const MINIGAME_MODES = [MINIGAME_MODE.longJump, MINIGAME_MODE.highJump, MINIGAME_MODE.ringFling] as const;
 export type MinigameMode = (typeof MINIGAME_MODES)[number];
 
 export const MODE_LABELS: Readonly<Record<MinigameMode, string>> = {
@@ -78,9 +80,6 @@ export const LONG_JUMP_INCLINE = { pitchDegrees: 7, length: 2, crestRadius: 100,
  * under 17 by 65 degrees); 22 m and up keeps every class over 26 m/s, and 25 sits in the middle of that plateau (`minigame-profile.test.ts`).
  */
 export const HIGH_JUMP_KICKER = { radius: 25, lipPitchDegrees: 60 } as const;
-
-/** High jump: the least ballistic apex (m above the lip) any driver car's unboosted throw must reach at full throttle: every class gets over several boards. */
-export const HIGH_JUMP_MIN_APEX = 40;
 
 /**
  * Ring Fling: the incline (pitch, deg, and length, m, from the foot's arc to the hop's start) and the ball-hop: a quarter-wave

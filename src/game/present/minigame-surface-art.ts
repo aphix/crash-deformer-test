@@ -38,7 +38,7 @@ const CELL_TRIANGLE_CORNERS = [
   [1, 1],
 ] as const;
 
-const FLOOR_ROUGHNESS = 0.95;
+const SURFACE_ROUGHNESS = 0.9;
 
 /** A station surface's look: lane half width (m, within the station's), its paint, each paint absent as null. */
 type StationSurfaceStyle = {
@@ -130,7 +130,7 @@ export function makeStationSurface(mode: MinigameMode, style: StationSurfaceStyl
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, COMPONENTS));
   geometry.setAttribute("color", new THREE.BufferAttribute(colours, COMPONENTS));
   geometry.computeVertexNormals();
-  const surface = groundMesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: FLOOR_ROUGHNESS, metalness: 0 }), "terrain");
+  const surface = groundMesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: SURFACE_ROUGHNESS, metalness: 0 }), "terrain");
   surface.receiveShadow = true;
   const group = new THREE.Group();
   group.name = `station-surface:${mode}`;

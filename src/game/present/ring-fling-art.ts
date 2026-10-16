@@ -14,7 +14,8 @@ import {
   ringHeightAt,
   type RingZone,
 } from "../scenes/minigame-ring.ts";
-import { canvasTexture } from "./lab-art.ts";
+import { MINIGAME_MODE } from "../scenes/minigame-constants.ts";
+import { CANVAS_WHITE, canvasTexture } from "./lab-art.ts";
 import { makeStationSurface, STATION_SURFACE_STYLES } from "./minigame-surface-art.ts";
 
 /**
@@ -181,7 +182,7 @@ function drawBackboardFace(context: CanvasRenderingContext2D, widthPixels: numbe
   context.fillStyle = "#ffe14d";
   context.font = `bold ${strip.height * SCORE_LABEL_LINE.fontPerHeight}px sans-serif`;
   context.fillText(SCORE_PANEL_TEXT, strip.left + strip.width / 2, strip.top + strip.height * SCORE_LABEL_LINE.centreYPerHeight, strip.width);
-  context.fillStyle = "#ffffff";
+  context.fillStyle = CANVAS_WHITE;
   context.font = `bold ${strip.height * SCORE_DIGITS_LINE.fontPerHeight}px sans-serif`;
   context.fillText(SCORE_PANEL_DIGITS, strip.left + strip.width / 2, strip.top + strip.height * SCORE_DIGITS_LINE.centreYPerHeight, strip.width);
   context.fillStyle = TITLE_RED;
@@ -227,7 +228,7 @@ function makeBackboard(): THREE.Mesh[] {
 export function makeRingFlingArt(): THREE.Group {
   const art = new THREE.Group();
   art.name = "ring-fling";
-  art.add(makeStationSurface("ringFling", STATION_SURFACE_STYLES.ringFling));
+  art.add(makeStationSurface(MINIGAME_MODE.ringFling, STATION_SURFACE_STYLES.ringFling));
   art.add(meshOf("ring-board", makeBoardGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: BOARD_ROUGHNESS, metalness: 0 }), { cast: true, receive: true }));
   art.add(
     meshOf("ring-board-skirt", makeSkirtGeometry(), new THREE.MeshStandardMaterial({ color: SKIRT_COLOUR, roughness: 0.8, metalness: 0, side: THREE.DoubleSide }), { cast: false, receive: true }),

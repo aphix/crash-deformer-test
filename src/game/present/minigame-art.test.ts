@@ -7,12 +7,20 @@ import { LANDING_HEIGHT, MINIGAME_MODES, STATION_ANCHORS, STATION_HALF_WIDTH, ty
 import { highJumpLayout } from "../scenes/minigame-high-jump.ts";
 import { stationFrontX } from "../scenes/minigame-profile.ts";
 import { RING_BACKSTOP, RING_BOARD_BOUNDS } from "../scenes/minigame-ring.ts";
-import { HIGH_JUMP_DRAW_BUDGET, makeHighJumpArt } from "./high-jump-art.ts";
+import { makeHighJumpArt } from "./high-jump-art.ts";
 import { makeLongJumpArt } from "./long-jump-art.ts";
-import { LANDING_FLOOR_PAST_END, LANDING_FLOOR_SIDE_MARGIN, LONG_JUMP_FLOOR_END_X, MINIGAME_ART_EXTRA_DRAW_BUDGET, MinigameArt } from "./minigame-art.ts";
+import { LANDING_FLOOR_PAST_END, LANDING_FLOOR_SIDE_MARGIN, LONG_JUMP_FLOOR_END_X, MinigameArt } from "./minigame-art.ts";
 import { SURFACE_DRAW_CALL_BUDGET } from "./minigame-surface-art.ts";
 import { BOX_POSE_FLOATS } from "./ragdoll-boxes.ts";
 import { makeRingFlingArt, RING_FLING_DRAW_BUDGET } from "./ring-fling-art.ts";
+
+/**
+ * Most draws the composer adds to any one station over its art's own: the station's landing floor and, for the High jump, its
+ * surface (the art's factory leaves it to the composer) and the cardboard boxes.
+ */
+const MINIGAME_ART_EXTRA_DRAW_BUDGET = 3;
+/** Most draw calls the High jump's whole art may cost: timber, boards, trim, back-board, net, with room for the composer's own (`high-jump-art.test.ts` pins the same number). */
+const HIGH_JUMP_DRAW_BUDGET = 12;
 
 /** Made-up measurements (m): the layout's own functions turn them into posts, boards, net and boxes. */
 const MEASURED = { crossingHeight: 18, landingDistance: 22 };

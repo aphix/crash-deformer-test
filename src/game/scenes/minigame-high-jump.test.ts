@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { FRAME_HZ } from "../kernel/constants.ts";
 import {
   BOARD_COARSE_STEP,
   BOARD_FINE_STEP,
@@ -25,7 +26,7 @@ import {
 } from "./minigame-high-jump.ts";
 
 const GRAVITY = 9.80665;
-const FRAME_SECONDS = 1 / 60;
+const FRAME_SECONDS = 1 / FRAME_HZ;
 const LIP_Y = 2.5;
 const EDGE_NUDGE = 1e-6;
 const MILLIMETRE = 0.001;

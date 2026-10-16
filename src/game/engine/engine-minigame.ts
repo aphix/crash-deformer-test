@@ -5,7 +5,7 @@ import { BOX_POSE_FLOATS, type BoxPlacement } from "../present/ragdoll-boxes.ts"
 import type { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { MinigameArt } from "../present/minigame-art.ts";
 import { NET_HALF_WIDTH } from "../present/high-jump-art.ts";
-import { HIGH_JUMP_MEASURED, STATION_ANCHORS, THROWS_PER_SET, type MinigameMode } from "../scenes/minigame-constants.ts";
+import { HIGH_JUMP_MEASURED, MINIGAME_MODE, STATION_ANCHORS, THROWS_PER_SET, type MinigameMode } from "../scenes/minigame-constants.ts";
 import { MinigameGround, type MinigameBounds, type StationStart } from "../scenes/minigame-ground.ts";
 import { BOX_COUNT, highJumpLayout, type TorsoSample } from "../scenes/minigame-high-jump.ts";
 import { lipHeight } from "../scenes/minigame-profile.ts";
@@ -44,7 +44,7 @@ export class Minigames {
   private collideHook: ((car: DeformableCar, index: number) => void) | null = null;
   /** The modes that have a box pile, and where their boxes stand (world coordinates). */
   private boxPlacements: Partial<Record<MinigameMode, readonly BoxPlacement[]>> = {};
-  private readonly highJumpLipY = lipHeight("highJump");
+  private readonly highJumpLipY = lipHeight(MINIGAME_MODE.highJump);
   private readonly highJump = highJumpLayout(HIGH_JUMP_MEASURED, this.highJumpLipY);
   private readonly boxPoses = new Float32Array(BOX_COUNT * BOX_POSE_FLOATS);
   private readonly torsoWorld = new THREE.Vector3();
@@ -59,7 +59,7 @@ export class Minigames {
 
   /** The range's sand and distance signs belong to the attract loop and the long jump. */
   get rangeArtShown(): boolean {
-    return this.activeMode === null || this.activeMode === "longJump";
+    return this.activeMode === null || this.activeMode === MINIGAME_MODE.longJump;
   }
 
   /** The physics ground the mode plays on; null in the attract loop (the flat ground). */

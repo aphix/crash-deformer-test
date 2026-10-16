@@ -15,6 +15,9 @@ const S = LAB_SCALE;
 /** The workshop's light: cool overhead tubes, warm fill, the far corners falling off to a dim brown (`WorldStage.look`). */
 export const LAB_LIGHT = { sun: "#eef2f8", sunIntensity: 2.3, hemi: "#cfc6b8", fill: "#ffd3a1", sky: "#1f1b17" };
 
+/** Plain white, the canvas ink of the weave and score digits. */
+export const CANVAS_WHITE = "#ffffff";
+
 const CHROME = 0xc9cdd3;
 const DARK_STEEL = 0x3d4147;
 

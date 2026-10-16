@@ -1,4 +1,4 @@
-import { THROWS_PER_SET, REST_HOLD, type MinigameMode } from "./minigame-constants.ts";
+import { MINIGAME_MODE, THROWS_PER_SET, REST_HOLD, type MinigameMode } from "./minigame-constants.ts";
 import { HighJumpCapture, type TorsoSample } from "./minigame-high-jump.ts";
 import { ringScore } from "./minigame-ring.ts";
 
@@ -64,7 +64,7 @@ function clampThrowsPerSet(count: number): number {
 }
 
 export class MinigameSession {
-  private mode: MinigameMode = "longJump";
+  private mode: MinigameMode = MINIGAME_MODE.longJump;
   private carType = "";
   private throwsPerSetCount: number = THROWS_PER_SET.default;
   private highJump: { postsX: number; lipY: number } | null = null;
@@ -85,7 +85,7 @@ export class MinigameSession {
 
   /** Start the mode's first attempt (a new set in a Ring Fling). */
   begin(mode: MinigameMode, options: MinigameBeginOptions): void {
-    if (mode === "highJump" && options.highJump === undefined) throw new Error("the high jump needs its posts' plane and lip height");
+    if (mode === MINIGAME_MODE.highJump && options.highJump === undefined) throw new Error("the high jump needs its posts' plane and lip height");
     this.mode = mode;
     this.carType = options.carType;
     this.throwsPerSetCount = clampThrowsPerSet(options.throwsPerSet ?? THROWS_PER_SET.default);
@@ -115,7 +115,7 @@ export class MinigameSession {
   /** The next attempt at the same station; after a Ring Fling set's last throw, a new set. A no-op before the attempt scores. */
   retry(): void {
     if (this.phase !== "scored") return;
-    if (this.mode === "ringFling" && this.setScores.length >= this.throwsPerSetCount) {
+    if (this.mode === MINIGAME_MODE.ringFling && this.setScores.length >= this.throwsPerSetCount) {
       this.setScores = [];
       this.attempt = 1;
     } else {
@@ -133,7 +133,7 @@ export class MinigameSession {
   /** Ring Fling's set length (clamped); a different length starts a new set. */
   setThrowsPerSet(count: number): void {
     const clamped = clampThrowsPerSet(count);
-    if (this.mode !== "ringFling" || clamped === this.throwsPerSetCount) return;
+    if (this.mode !== MINIGAME_MODE.ringFling || clamped === this.throwsPerSetCount) return;
     this.throwsPerSetCount = clamped;
     this.attempt = 1;
     this.setScores = [];
@@ -143,7 +143,7 @@ export class MinigameSession {
   }
 
   hud(): MinigameHudState {
-    const ringFling = this.mode === "ringFling";
+    const ringFling = this.mode === MINIGAME_MODE.ringFling;
     const setTotal = this.setScores.reduce((total, score) => total + score, 0);
     return {
       mode: this.mode,
@@ -167,12 +167,12 @@ export class MinigameSession {
   }
 
   private refreshBest(): void {
-    this.best = this.bests.bestFor(this.mode, this.mode === "ringFling" ? this.throwsPerSetCount : null, this.carType);
+    this.best = this.bests.bestFor(this.mode, this.mode === MINIGAME_MODE.ringFling ? this.throwsPerSetCount : null, this.carType);
   }
 
   private liveValueAt(torso: TorsoSample): number {
-    if (this.mode === "longJump") return Math.max(0, torso.x);
-    if (this.mode === "highJump") return Math.max(0, torso.y - this.highJumpPlane.lipY);
+    if (this.mode === MINIGAME_MODE.longJump) return Math.max(0, torso.x);
+    if (this.mode === MINIGAME_MODE.highJump) return Math.max(0, torso.y - this.highJumpPlane.lipY);
     return ringScore(torso.x, torso.z);
   }
 
@@ -184,21 +184,21 @@ export class MinigameSession {
   /** The attempt's score once it is decided, else null. At rest is the torso's own still-time, never the ragdoll's `settled` flag. */
   private scoreAt(torso: TorsoSample): number | null {
     const atRest = torso.still >= REST_HOLD;
-    if (this.mode === "highJump") {
+    if (this.mode === MINIGAME_MODE.highJump) {
       const { postsX, lipY } = this.highJumpPlane;
       const captured = this.capture.step(this.previousTorso, torso, postsX, lipY);
       if (captured !== null) return captured;
       return atRest ? 0 : null;
     }
     if (!atRest) return null;
-    return this.mode === "longJump" ? Math.max(0, torso.x) : ringScore(torso.x, torso.z);
+    return this.mode === MINIGAME_MODE.longJump ? Math.max(0, torso.x) : ringScore(torso.x, torso.z);
   }
 
   private finishAttempt(score: number): void {
     this.phase = "scored";
     this.liveValue = null;
     this.lastScore = score;
-    if (this.mode !== "ringFling") {
+    if (this.mode !== MINIGAME_MODE.ringFling) {
       this.bests.record(this.mode, null, this.carType, score);
     } else {
       this.setScores.push(score);

@@ -1,7 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  POCKET_AIM_WINDOW,
   RING_BOARD_BOUNDS,
   RING_BOARD_START_X,
   RING_CUPS,
@@ -17,6 +16,8 @@ import {
 } from "./minigame-ring.ts";
 
 const ALL_ZONES: readonly RingZone[] = [...RING_CUPS, ...RING_POCKETS];
+/** The narrowest window (m across) a 100 pocket's scoring circle may offer: wide enough that a precise line and speed can land him in one. */
+const POCKET_AIM_WINDOW = 1.2;
 const GRAVITY = 9.80665;
 
 /** The lying dummy and his torso box (present/ragdoll-body.ts PARTS; scenes may not import present). */

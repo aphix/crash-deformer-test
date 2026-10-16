@@ -1,15 +1,13 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { LANDING_HEIGHT, type MinigameMode } from "../scenes/minigame-constants.ts";
+import { LANDING_HEIGHT, MINIGAME_MODE } from "../scenes/minigame-constants.ts";
 import { climbFootX, floorHeightAt } from "../scenes/minigame-profile.ts";
 import { CAPTURE_HALF_WIDTH, FRAME_BOARD_THICKNESS, POST_HALF_SPAN, POST_THICKNESS, type HeightBoard, type HighJumpLayout } from "../scenes/minigame-high-jump.ts";
 import { makeGlassMaterial } from "../vehicle/car-materials.ts";
-import { canvasTexture } from "./lab-art.ts";
+import { CANVAS_WHITE, canvasTexture } from "./lab-art.ts";
+import { SIGN_BOARD_PAINT } from "./range-art.ts";
 
-/** Most draw calls the High jump's whole art may cost: timber, boards, trim, back-board, net, with room for the composer's own. */
-export const HIGH_JUMP_DRAW_BUDGET = 12;
-
-const HIGH_JUMP: MinigameMode = "highJump";
+const HIGH_JUMP = MINIGAME_MODE.highJump;
 
 /**
  * Half the width (m) of the run-up's lane the barrels and the stop block flank. Must match the strip the station's surface helper
@@ -40,7 +38,7 @@ function thicknessScale(height: number): number {
 }
 
 /** The thickness (m) of the posts of a frame `frameTop` m above the lip. */
-export function postThickness(frameTop: number): number {
+function postThickness(frameTop: number): number {
   return POST_THICKNESS * thicknessScale(frameTop);
 }
 
@@ -61,7 +59,7 @@ const PLATE_SIDE = 0.3;
 const BOARD_ATLAS = { columns: 2, cellWidth: 1024, cellHeight: 512 } as const;
 const BOARD_LABEL_FONT_PX = 340;
 const BOARD_LABEL_MARGIN_PX = 40;
-const BOARD_PAINT = { fill: "#e3b93f", edge: "#6b5419", ink: "#16130c", plain: "#b08a58" } as const;
+const BOARD_PAINT = { ...SIGN_BOARD_PAINT, plain: "#b08a58" } as const;
 const BOARD_EDGE_PX = 16;
 /** `BoxGeometry` builds six 4-vertex faces: +x, -x, ...: the -x face is the one the approaching car sees. */
 const BOX_VERTICES_PER_FACE = 4;
@@ -325,7 +323,7 @@ function netMesh(layout: HighJumpLayout): THREE.Mesh {
   const height = top - LANDING_HEIGHT;
   const weave = canvasTexture(NET_TEXTURE_PX, NET_TEXTURE_PX, (context) => {
     context.clearRect(0, 0, NET_TEXTURE_PX, NET_TEXTURE_PX);
-    context.fillStyle = "#ffffff";
+    context.fillStyle = CANVAS_WHITE;
     context.fillRect(0, 0, NET_TEXTURE_PX, NET_LINE_PX);
     context.fillRect(0, 0, NET_LINE_PX, NET_TEXTURE_PX);
   });
@@ -350,7 +348,7 @@ function netMesh(layout: HighJumpLayout): THREE.Mesh {
  * The High jump's static art in station-local coordinates (+x the throw, x = 0 the lip, z = 0 the lane's middle, y from the pad): two
  * posts (thicker the taller the frame, `postThickness`) with a board and brass plate per `layout.boards` entry (the major ones big and
  * labelled), a dashed lip-height line, a translucent back-board, the net at `layout.netX` and `layout.netHeight` tall, and the run-up's
- * barrels, chevrons and stop block. Five draws, every material shared (`HIGH_JUMP_DRAW_BUDGET`).
+ * barrels, chevrons and stop block. Five draws, every material shared.
  */
 export function makeHighJumpArt(layout: HighJumpLayout, lipY: number): THREE.Group {
   const group = new THREE.Group();
