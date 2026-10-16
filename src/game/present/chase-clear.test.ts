@@ -5,7 +5,7 @@ import { DeformableCar } from "../vehicle/car.ts";
 import { DriverSeat } from "../vehicle/car-drive.ts";
 import type { PadState } from "../vehicle/gamepad.ts";
 import { DERBY_RADIUS } from "../scenes/derby-arena.ts";
-import { DERBY_BOXES, DerbyGround } from "../scenes/derby-ground.ts";
+import { DERBY_BOXES, DERBY_PROP, DERBY_TABLE_TOP, DerbyGround, type DerbyBox } from "../scenes/derby-ground.ts";
 import { NO_FLOOR, setGround } from "../world/ground.ts";
 import { placeProps } from "../world/placements.ts";
 import { parseTrack } from "../world/track-schema.ts";
@@ -59,6 +59,33 @@ function sightBlocked(exact: Sight, eye: THREE.Vector3, subject: THREE.Vector3):
 
 type Drive = { it: string; x: number; z: number; yaw: number; speed: number; seconds: number; lookDown: number; rivals: readonly { x: number; z: number; yaw: number }[] };
 
+/** The container the chase tests stand before: the first of the row against the wall (its long axis along the wall, its width radial). */
+const CONTAINER = DERBY_BOXES.find((b) => b.kind === DERBY_PROP.container)!;
+/** A rail of the chicane against the wall (its long axis along the wall, its width radial). */
+const RAIL = DERBY_BOXES.find((b) => b.kind === DERBY_PROP.rail)!;
+/** A car this far (m) in front of a prop's face: the eye `CHASE.third.dist` behind it is past the prop. */
+const FACE_GAP = 2.58;
+/** A stretch of the ring wall with no prop or ramp at it (degrees round from +z, between the east ramp and the tyre berm), and how far out (m) a car stands at it: nose to the wall, or driving off it with the eye outside. */
+const BARE_WALL_DEGREES = 128;
+const WALL_START_RADIUS = 37.16;
+const WALL_NOSE_RADIUS = 36.68;
+
+/** The point `radiusOut` m out along `degrees` round from +z, and the yaw facing the middle. */
+function atWall(degrees: number, radiusOut: number): { x: number; z: number; yaw: number } {
+  const bearing = degrees * (Math.PI / 180);
+  return { x: Math.sin(bearing) * radiusOut, z: Math.cos(bearing) * radiusOut, yaw: bearing + Math.PI };
+}
+
+/** The point `gap` m in front of the face of `box` toward the middle (negative: behind its face), on the line from the middle through its centre, and the yaw facing the middle. */
+function inFrontOf(box: DerbyBox, gap: number): { x: number; z: number; yaw: number } {
+  const out = Math.hypot(box.x, box.z);
+  const reach = out - box.hx - gap;
+  return { x: (box.x / out) * reach, z: (box.z / out) * reach, yaw: Math.atan2(-box.x, -box.z) };
+}
+
+const beforeContainer = inFrontOf(CONTAINER, FACE_GAP);
+const beforeRail = inFrontOf(RAIL, FACE_GAP);
+
 /** A driver's chase camera whose lens starts where the rig would put it behind a car at (`x`, `z`) facing `yaw`, as a camera already following it is. */
 function chaseRig(x: number, z: number, yaw: number, y = 0) {
   const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
@@ -69,8 +96,8 @@ function chaseRig(x: number, z: number, yaw: number, y = 0) {
   return { camera, view };
 }
 
-/** The height (m) of the bowl's table-top plateau, over the whole 9 x 9 m of the middle. */
-const TABLE_TOP = 1.8;
+/** The height (m) of the bowl's table-top plateau, over its whole flat top. */
+const TABLE_TOP = DERBY_TABLE_TOP.height;
 /** The car stands still this long (s) before a drive sets off, so the chase eye settles first. */
 const HOLD = 1.5;
 
@@ -105,9 +132,9 @@ describe("given the chase camera on a car driven through the derby bowl", () => 
   after(() => setGround(null));
 
   const drives: Drive[] = [
-    { it: "away from the red container, whose face the eye starts behind", x: 3.5, z: 20.4, yaw: Math.PI, speed: 8, seconds: 6, lookDown: 0, rivals: [] },
-    { it: "away from the rail chicane, with a rail between the eye and the car", x: 23.5, z: 5, yaw: Math.PI / 2, speed: 8, seconds: 1.5, lookDown: 0, rivals: [] },
-    { it: "away from the ring wall, with the eye starting outside it", x: 35.5, z: 11, yaw: -Math.PI / 2, speed: 6, seconds: 4, lookDown: 0, rivals: [] },
+    { it: "away from the red container, whose face the eye starts behind", ...beforeContainer, speed: 8, seconds: 6, lookDown: 0, rivals: [] },
+    { it: "away from the rail chicane, with a rail between the eye and the car", ...beforeRail, speed: 8, seconds: 1.2, lookDown: 0, rivals: [] },
+    { it: "away from the ring wall, with the eye starting outside it", ...atWall(BARE_WALL_DEGREES, WALL_START_RADIUS), speed: 6, seconds: 4, lookDown: 0, rivals: [] },
     { it: "with the eye low and another car right behind it", x: 0, z: 0, yaw: 0, speed: 3, seconds: 3, lookDown: 200, rivals: [{ x: 0, z: -4.5, yaw: 0 }] },
   ];
 
@@ -120,16 +147,16 @@ describe("given the chase camera on a car driven through the derby bowl", () => 
     });
   }
 
-  it("when it is driven in circles on the table-top in the middle of the bowl, then the eye is exactly where the bare rig puts it, frame for frame", () => {
+  it("when it is driven in circles on the table-top, then the eye is exactly where the bare rig puts it, frame for frame", () => {
     const rivals = [newCar(28, -18, 0)];
     const run = (keep: boolean): THREE.Vector3[] => {
-      const car = newCar(0, 0, Math.PI / 2);
+      const car = newCar(DERBY_TABLE_TOP.x, DERBY_TABLE_TOP.z, Math.PI / 2);
       const sight = bowlSight(rivals, car);
-      const { camera, view } = chaseRig(0, 0, Math.PI / 2, TABLE_TOP);
+      const { camera, view } = chaseRig(DERBY_TABLE_TOP.x, DERBY_TABLE_TOP.z, Math.PI / 2, TABLE_TOP);
       const eyes: THREE.Vector3[] = [];
       for (let f = 0; f < 600; f++) {
         const angle = f * DT * 1.2;
-        car.group.position.set(2.5 * Math.sin(angle), TABLE_TOP, 2.5 * Math.cos(angle));
+        car.group.position.set(DERBY_TABLE_TOP.x + 2.5 * Math.sin(angle), TABLE_TOP, DERBY_TABLE_TOP.z + 2.5 * Math.cos(angle));
         car.fwdFlat.set(Math.cos(angle), 0, -Math.sin(angle));
         car.velocity.copy(car.fwdFlat).multiplyScalar(3);
         view.frameDrive(car, keep ? sight : null, DT, false);
@@ -145,11 +172,14 @@ describe("given the chase camera on a car driven through the derby bowl", () => 
   });
 
   it("when the car stands against a container's face with its chase eye behind inside it, then the eye swings round to a clear side at least a car's length out", () => {
-    const rival = newCar(3.5, 20.6, Math.PI);
-    const sight = bowlSight([], rival);
+    const rival = { ...inFrontOf(CONTAINER, 2.38) };
+    const rivalCar = newCar(rival.x, rival.z, rival.yaw);
+    const sight = bowlSight([], rivalCar);
     const exact = exactSolids(sight);
-    const subject = new THREE.Vector3(3.5, CHASE.third.aimUp, 21.9);
-    const rig = new THREE.Vector3(3.5, 2.4, 28.3);
+    const ahead = inFrontOf(CONTAINER, 1.08);
+    const subject = new THREE.Vector3(ahead.x, CHASE.third.aimUp, ahead.z);
+    const behind = inFrontOf(CONTAINER, -5.32);
+    const rig = new THREE.Vector3(behind.x, 2.4, behind.z);
     const eye = rig.clone();
     new EyeClear().apply(sight, sight.cars!, subject, eye, Infinity);
     assert.equal(sightBlocked(exact, eye, subject), false, "eye hidden or inside a solid");
@@ -165,8 +195,10 @@ describe("given the chase camera on a car driven through the derby bowl", () => 
       const canvas = fakeCanvas();
       const view = new ChaseCamera(camera, canvas, seat, { rx: 0, ry: 0 } as PadState, false, NO_PICK);
       view.attach();
-      view.look.set(3.5, 0.7, 20.4);
-      camera.position.set(3.5, 2, 33);
+      const lookAt = inFrontOf(CONTAINER, 2.58);
+      const lensAt = inFrontOf(CONTAINER, -10.02);
+      view.look.set(lookAt.x, 0.7, lookAt.z);
+      camera.position.set(lensAt.x, 2, lensAt.z);
       pointer(canvas, "pointerdown", 100, 100);
       pointer(canvas, "pointermove", 100, -4000);
       const sight = bowlSight([], null);
@@ -184,11 +216,12 @@ describe("given the chase camera on a car driven through the derby bowl", () => 
 
   it("when the rear view is held on a car nose to the ring wall, then the eye ahead of the car stays inside the wall with the car in sight, and outside it without the keeper", () => {
     const rear = (keep: boolean): boolean => {
-      const car = newCar(35, 11, Math.PI / 2);
+      const nose = atWall(BARE_WALL_DEGREES, WALL_NOSE_RADIUS);
+      const car = newCar(nose.x, nose.z, nose.yaw + Math.PI);
       const sight = bowlSight([], car);
-      const { camera, view } = chaseRig(35, 11, Math.PI / 2);
+      const { camera, view } = chaseRig(nose.x, nose.z, nose.yaw + Math.PI);
       view.lookBack(car, keep ? sight : null, DT);
-      const subject = new THREE.Vector3(35, CHASE.third.aimUp, 11);
+      const subject = new THREE.Vector3(nose.x, CHASE.third.aimUp, nose.z);
       return sightBlocked(exactSolids(sight), camera.position, subject);
     };
     assert.equal(rear(true), false, "the rear view's eye hidden from the car or in a solid, kept");

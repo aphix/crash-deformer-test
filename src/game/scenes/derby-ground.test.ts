@@ -1,9 +1,13 @@
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
-import { MAX_CARS, layoutDerby } from "./fleet.ts";
+import { launch, makeCar } from "../contact/crash-scenarios.test-util.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
+import { arenaWorld, leaveArena } from "./derby-arena.test-util.ts";
+import { plateauHeight } from "../world/terrain.ts";
+import { FAKE_DEPTH, MAX_CARS, layoutDerby } from "./fleet.ts";
 import { DERBY_ARENA } from "./constants.ts";
-import { DERBY_BOXES, DERBY_FREE_PROPS, DERBY_PROP, DerbyGround, type DerbyBox } from "./derby-ground.ts";
+import { DERBY_BOXES, DERBY_FREE_PROPS, DERBY_PLATEAUS, DERBY_PROP, DERBY_RAMPS, DERBY_TABLE_TOP, DerbyGround, SPAWN_CLEARANCE, type DerbyBox } from "./derby-ground.ts";
 import { DERBY_RADIUS } from "./derby-arena.ts";
 
 /**
@@ -13,15 +17,59 @@ import { DERBY_RADIUS } from "./derby-arena.ts";
 const ground = new DerbyGround();
 const props = DERBY_BOXES.filter((box) => box.kind !== DERBY_PROP.wall);
 const { radius, gridHalf, spawnInset } = DERBY_ARENA;
-/** A spawned car's hull corners (CAR_HALF) about its slot, and how far outside a prop's box a spawn must stay (m). */
-const SPAWN_CLEARANCE = 1;
 /** How far around a prop's box the floor must be level too (m): a car's tyre reaches that far over the box's face. */
 const LEVEL_MARGIN = 1;
 const SAMPLE_STEP = 0.5;
 /** The foot of a rise is a parabola that dies out over its last metres: under this (m) the floor counts as level. */
 const LEVEL = 0.01;
 
-function localOf(box: DerbyBox, x: number, z: number): { across: number; along: number } {
+/** A sunk wreck is driven at a solid: the depth (m) its origin lies under the floor (a car leaves the sim past `FAKE_DEPTH`), the speed (m/s) and the slice (s). */
+const SUNK_DEPTH = FAKE_DEPTH;
+const DRIVE_MPS = 8;
+const SLICE_SECONDS = 1 / FINE_HZ;
+/** How far (m) behind the solid's face the car's origin starts: its nose (`CAR_HALF.z`) is then inside the face. */
+const NOSE_BEHIND_FACE = 1.5;
+/** A stretch of the ring wall with no prop or ramp at it: its bearing (degrees round from +z) and a point on it at the wall's face. */
+const BARE_WALL_DEGREES = 128;
+const BARE_WALL = { x: Math.sin((BARE_WALL_DEGREES * Math.PI) / 180) * radius, z: Math.cos((BARE_WALL_DEGREES * Math.PI) / 180) * radius };
+/** The design (`local://pasted-image` and the plan's table): the four ramps' heights and long-run lengths, the table-top and the setbacks. */
+const DESIGN_RAMPS = [
+  { name: "north", height: 2.8, length: 14 },
+  { name: "east", height: 2.5, length: 13 },
+  { name: "south", height: 3, length: 15 },
+  { name: "west", height: 2.5, length: 13 },
+];
+const DESIGN_TABLE = { height: 2.2, width: 12 };
+const DESIGN_CREST_HALF_DEPTH = 1;
+/** Design: every flat top stands at least this far (m) inside the wall. */
+const DESIGN_SETBACK = 4;
+/** Design: the bowl's middle, free of rises (m from the centre). */
+const MIDDLE_RADIUS = 8;
+/** Design: a rise is a feature over this height (m); features stand this far (m) apart. */
+const FEATURE_HEIGHT = 0.3;
+const FEATURE_GAP = 3;
+/** Read a ramp's long run from heights this far (m) in from either end of it, where its plane is straight. */
+const RUN_PROBE_INSET = 3;
+/** How far (m) from a ramp's crest the wall-side and the middle-side heights are read. */
+const RAMP_PROBE = 4;
+/** A crest rounds over `round` m, so its peak may sit this far (m) under the design height. */
+const PEAK_SLACK = 0.1;
+/**
+ * A ramp's cross-section at its crest (design: a 4 m wide deck, side planes of 3 m run): heights as shares of the design height at
+ * `across` m from its axis, read on both sides. The deck's edge rounds over 1.5 m, so its share falls to about 0.9 there; the side plane's middle is half.
+ */
+const DECK_SECTION_CASES = [
+  { label: "on the deck's edge, 1.9 m from its axis", across: 1.9, atLeast: 0.8, atMost: 1 },
+  { label: "at the middle of a side plane, 3.5 m from its axis", across: 3.5, atLeast: 0.4, atMost: 0.6 },
+  { label: "on the foot of a side plane, 5 m from its axis", across: 5, atLeast: 0.05, atMost: 0.25 },
+  { label: "beyond a side plane's end, 7.5 m from its axis", across: 7.5, atLeast: 0, atMost: 0.002 },
+];
+/** Table-top edge: within this (m) of its design height at the edge line; further out than the rounding, it has fallen by at least this much. */
+const EDGE_DROP_MAX = 0.15;
+const OUTSIDE_DROP_MIN = 0.2;
+const HEIGHT_TOLERANCE = 0.001;
+
+function localOf(box: { x: number; z: number; yaw: number }, x: number, z: number): { across: number; along: number } {
   const dx = x - box.x;
   const dz = z - box.z;
   return { across: dx * Math.cos(box.yaw) - dz * Math.sin(box.yaw), along: dx * Math.sin(box.yaw) + dz * Math.cos(box.yaw) };
@@ -36,6 +84,19 @@ function hullCorners(x: number, z: number, yaw: number): [number, number][] {
   const right = { x: Math.cos(yaw), z: -Math.sin(yaw) };
   const forward = { x: Math.sin(yaw), z: Math.cos(yaw) };
   return [-1, 1].flatMap((sideways) => [-1, 1].map((ahead): [number, number] => [x + right.x * sideways * CAR_HALF.x + forward.x * ahead * CAR_HALF.z, z + right.z * sideways * CAR_HALF.x + forward.z * ahead * CAR_HALF.z]));
+}
+
+function rampNamed(name: string) {
+  const found = DERBY_RAMPS.find((entry) => entry.name === name);
+  assert.ok(found, `no ramp named ${name}`);
+  return found;
+}
+
+/** The point `along` m from a ramp's crest centre toward the wall (negative: toward the middle), past the crest's own depth. */
+function onAxis(name: string, along: number): { x: number; z: number } {
+  const { plateau, toward } = rampNamed(name);
+  const reach = along + Math.sign(along) * DESIGN_CREST_HALF_DEPTH;
+  return { x: plateau.x + toward.x * reach, z: plateau.z + toward.z * reach };
 }
 
 describe("given the arena's ground and the full field's spawn ring", () => {
@@ -60,10 +121,10 @@ describe("given the arena's ground and the full field's spawn ring", () => {
           for (let t = 0; t <= 1; t += 0.01) {
             const x = slot.x * t;
             const z = slot.z * t;
-            for (const prop of DERBY_FREE_PROPS) {
+            for (const [propIndex, prop] of DERBY_FREE_PROPS.entries()) {
               const local = localOf(prop, x, z);
               const gap = Math.hypot(Math.max(0, Math.abs(local.across) - prop.hx), Math.max(0, Math.abs(local.along) - prop.hz));
-              assert.ok(gap >= CAR_HALF.z, `${count} cars at spin ${spin.toFixed(2)}: slot ${slotIndex} heads at a ${prop.kind} (${gap.toFixed(2)} m)`);
+              assert.ok(gap >= CAR_HALF.z, `${count} cars at spin ${spin.toFixed(2)}: slot ${slotIndex} heads at free prop ${propIndex} (${gap.toFixed(2)} m)`);
             }
           }
         }
@@ -74,14 +135,134 @@ describe("given the arena's ground and the full field's spawn ring", () => {
     }
   });
 
-  it("when the rises are read on the grid, then none reaches the ring where cars spawn, a grid cell's reach included", () => {
+  it("when fields of every size are laid out at every start bearing, then no hull corner of any slot stands on a ramp", () => {
+    for (let count = 1; count <= MAX_CARS; count++) {
+      for (let spin = 0; spin < 1; spin += 0.05) {
+        for (const [slotIndex, slot] of layoutDerby(count, DERBY_RADIUS, () => spin, DERBY_FREE_PROPS).entries()) {
+          for (const [x, z] of hullCorners(slot.x, slot.z, slot.yaw)) {
+            for (const entry of DERBY_RAMPS) {
+              assert.ok(plateauHeight(entry.plateau, x, z) < LEVEL, `${count} cars at spin ${spin.toFixed(2)}: slot ${slotIndex} stands on the ${entry.name} ramp at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("when the rises are read on the grid, then none but the ramps reaches the ring where cars spawn, a grid cell's reach included", () => {
     // The ground reads its nodes bilinearly: a rise node raises the floor up to a cell (√2 m) beyond it.
     const innerEdgeOfSpawns = radius - spawnInset - CAR_HALF.z - Math.SQRT2;
     const nodes = 2 * gridHalf + 1;
     for (let j = 0; j < nodes; j++) {
       for (let i = 0; i < nodes; i++) {
-        const height = ground.heights[j * nodes + i]!;
-        if (height > LEVEL) assert.ok(Math.hypot(i - gridHalf, j - gridHalf) <= innerEdgeOfSpawns, `a rise at (${i - gridHalf}, ${j - gridHalf}) is in the spawn ring`);
+        const x = i - gridHalf;
+        const z = j - gridHalf;
+        const onRamp = DERBY_RAMPS.some((entry) => plateauHeight(entry.plateau, x, z) > 0);
+        if (!onRamp && ground.heights[j * nodes + i]! > LEVEL) assert.ok(Math.hypot(x, z) <= innerEdgeOfSpawns, `a rise at (${x}, ${z}) is in the spawn ring`);
+      }
+    }
+  });
+});
+
+describe("given the design's rises", () => {
+  const tableHalf = DESIGN_TABLE.width / 2;
+  const tableReach = tableHalf + DERBY_TABLE_TOP.round;
+  const tableCases = [
+    { label: "its centre", dx: 0, dz: 0, atLeast: DESIGN_TABLE.height - HEIGHT_TOLERANCE, atMost: DESIGN_TABLE.height + HEIGHT_TOLERANCE },
+    { label: "its east edge", dx: tableHalf, dz: 0, atLeast: DESIGN_TABLE.height - EDGE_DROP_MAX, atMost: DESIGN_TABLE.height + HEIGHT_TOLERANCE },
+    { label: "its west edge", dx: -tableHalf, dz: 0, atLeast: DESIGN_TABLE.height - EDGE_DROP_MAX, atMost: DESIGN_TABLE.height + HEIGHT_TOLERANCE },
+    { label: "its north edge", dx: 0, dz: tableHalf, atLeast: DESIGN_TABLE.height - EDGE_DROP_MAX, atMost: DESIGN_TABLE.height + HEIGHT_TOLERANCE },
+    { label: "its south edge", dx: 0, dz: -tableHalf, atLeast: DESIGN_TABLE.height - EDGE_DROP_MAX, atMost: DESIGN_TABLE.height + HEIGHT_TOLERANCE },
+    { label: "a crest's rounding east of its top", dx: tableReach, dz: 0, atLeast: 0, atMost: DESIGN_TABLE.height - OUTSIDE_DROP_MIN },
+    { label: "a crest's rounding west of its top", dx: -tableReach, dz: 0, atLeast: 0, atMost: DESIGN_TABLE.height - OUTSIDE_DROP_MIN },
+    { label: "a crest's rounding north of its top", dx: 0, dz: tableReach, atLeast: 0, atMost: DESIGN_TABLE.height - OUTSIDE_DROP_MIN },
+    { label: "a crest's rounding south of its top", dx: 0, dz: -tableReach, atLeast: 0, atMost: DESIGN_TABLE.height - OUTSIDE_DROP_MIN },
+  ];
+  for (const { label, dx, dz, atLeast, atMost } of tableCases) {
+    it(`when the table-top is read from the ground at ${label}, then it is a 12 m wide top at 2.2 m`, () => {
+      const height = ground.heightAt(DERBY_TABLE_TOP.x + dx, DERBY_TABLE_TOP.z + dz, 0);
+      assert.ok(height >= atLeast, `${height} is under ${atLeast}`);
+      assert.ok(height <= atMost, `${height} is over ${atMost}`);
+    });
+  }
+
+  for (const design of DESIGN_RAMPS) {
+    describe(`the ${design.name} ramp`, () => {
+      it("when its crest is read from the ground, then its deck reaches the design height and no more", () => {
+        const { plateau, toward } = rampNamed(design.name);
+        let peak = 0;
+        for (let along = -DESIGN_CREST_HALF_DEPTH; along <= DESIGN_CREST_HALF_DEPTH; along += SAMPLE_STEP / 2) {
+          peak = Math.max(peak, ground.heightAt(plateau.x + toward.x * along, plateau.z + toward.z * along, 0));
+        }
+        assert.ok(peak >= design.height - PEAK_SLACK, `the deck peaks at ${peak}`);
+        assert.ok(peak <= design.height + HEIGHT_TOLERANCE, `the deck peaks at ${peak}`);
+      });
+
+      it("when its long run is read from the ground by its slope, then it is the design length", () => {
+        const nearPoint = onAxis(design.name, -RUN_PROBE_INSET);
+        const farPoint = onAxis(design.name, -(design.length - RUN_PROBE_INSET));
+        const near = ground.heightAt(nearPoint.x, nearPoint.z, 0);
+        const far = ground.heightAt(farPoint.x, farPoint.z, 0);
+        const run = (design.height * (design.length - 2 * RUN_PROBE_INSET)) / (near - far);
+        assert.ok(Math.abs(run - design.length) < 0.1, `the long run is ${run.toFixed(2)} m`);
+      });
+
+      for (const { label, across, atLeast, atMost } of DECK_SECTION_CASES) {
+        it(`when the floor is read ${label}, then it is the 4 m wide deck with 3 m side planes`, () => {
+          const { plateau, toward } = rampNamed(design.name);
+          for (const side of [-1, 1]) {
+            const height = ground.heightAt(plateau.x - toward.z * side * across, plateau.z + toward.x * side * across, 0);
+            assert.ok(height >= atLeast * design.height, `${height} is under ${atLeast} of the design height`);
+            assert.ok(height <= atMost * design.height, `${height} is over ${atMost} of the design height`);
+          }
+        });
+      }
+
+      it("when the floor is read either side of its crest, then it rises toward the wall: level beyond the lip, climbing on the middle side, the deck farther out than the foot", () => {
+        const { plateau, toward } = rampNamed(design.name);
+        const wallSide = onAxis(design.name, RAMP_PROBE);
+        const middleSide = onAxis(design.name, -RAMP_PROBE);
+        const foot = { x: plateau.x - toward.x * (design.length + DESIGN_CREST_HALF_DEPTH), z: plateau.z - toward.z * (design.length + DESIGN_CREST_HALF_DEPTH) };
+        assert.ok(ground.heightAt(wallSide.x, wallSide.z, 0) < LEVEL, "the wall side of the crest is not level");
+        assert.ok(ground.heightAt(middleSide.x, middleSide.z, 0) > design.height / 2, "the middle side of the crest is not climbing");
+        assert.ok(Math.hypot(plateau.x, plateau.z) > Math.hypot(foot.x, foot.z), "the foot is nearer the wall than the deck");
+      });
+    });
+  }
+
+  it("when every flat top is read, then each corner of it stands at least 4 m inside the wall", () => {
+    for (const [index, p] of DERBY_PLATEAUS.entries()) {
+      for (const sx of [-1, 1]) {
+        for (const sz of [-1, 1]) {
+          const reach = Math.hypot(p.x + sx * p.halfX, p.z + sz * p.halfZ);
+          assert.ok(reach <= radius - DESIGN_SETBACK, `rise ${index}: a corner of its top is ${(radius - reach).toFixed(2)} m from the wall`);
+        }
+      }
+    }
+  });
+
+  it("when the middle of the bowl is read, then no ramp, pit or scrap rise lifts it over a feature's height", () => {
+    const rises = DERBY_PLATEAUS.filter((p) => p !== DERBY_TABLE_TOP);
+    for (let z = -MIDDLE_RADIUS; z <= MIDDLE_RADIUS; z += SAMPLE_STEP) {
+      for (let x = -MIDDLE_RADIUS; x <= MIDDLE_RADIUS; x += SAMPLE_STEP) {
+        if (Math.hypot(x, z) >= MIDDLE_RADIUS) continue;
+        for (const [index, p] of rises.entries()) assert.ok(plateauHeight(p, x, z) <= FEATURE_HEIGHT, `rise ${index} lifts the middle at (${x}, ${z})`);
+      }
+    }
+  });
+
+  it("when every pair of rises is read, then their parts over a feature's height stand 3 m apart", () => {
+    const parts = DERBY_PLATEAUS.map((p) => {
+      const cells: [number, number][] = [];
+      for (let z = -gridHalf; z <= gridHalf; z += SAMPLE_STEP) for (let x = -gridHalf; x <= gridHalf; x += SAMPLE_STEP) if (plateauHeight(p, x, z) > FEATURE_HEIGHT) cells.push([x, z]);
+      return cells;
+    });
+    for (const [i, a] of parts.entries()) {
+      for (const [j, b] of parts.entries()) {
+        if (j <= i) continue;
+        let nearest = Infinity;
+        for (const [ax, az] of a) for (const [bx, bz] of b) nearest = Math.min(nearest, Math.hypot(ax - bx, az - bz));
+        assert.ok(nearest >= FEATURE_GAP, `rises ${i} and ${j} stand ${nearest.toFixed(2)} m apart`);
       }
     }
   });
@@ -101,6 +282,18 @@ describe("given each prop of the arena", () => {
     }
   });
 
+  const heightCases = [
+    { kind: DERBY_PROP.tyres, height: 1.5 },
+    { kind: DERBY_PROP.tyres, height: 2 },
+    { kind: DERBY_PROP.container, height: 2.4 },
+    { kind: DERBY_PROP.container, height: 1.8 },
+  ];
+  for (const { kind, height } of heightCases) {
+    it(`when the ${kind} boxes are read, then one stands ${height} m high`, () => {
+      assert.ok(DERBY_BOXES.some((box) => box.kind === kind && box.height === height));
+    });
+  }
+
   it("when the walls are read, then the ring is closed: every wall piece overlaps the next one's face", () => {
     const wall = DERBY_BOXES.filter((box) => box.kind === DERBY_PROP.wall);
     assert.equal(wall.length, DERBY_ARENA.wallPieces);
@@ -111,4 +304,28 @@ describe("given each prop of the arena", () => {
       assert.ok(isWithin(next, end.x, end.z, 0), `wall piece ${index} ends in a gap`);
     }
   });
+});
+
+describe("given a wreck that has sunk wholly below the floor beside a solid of the arena", () => {
+  afterEach(leaveArena);
+  const wallPiece = DERBY_BOXES.filter((box) => box.kind === DERBY_PROP.wall).reduce((nearest, piece) => (Math.hypot(piece.x - BARE_WALL.x, piece.z - BARE_WALL.z) < Math.hypot(nearest.x - BARE_WALL.x, nearest.z - BARE_WALL.z) ? piece : nearest));
+  const solidCases = [
+    { label: "the ring wall", box: wallPiece },
+    { label: "a container", box: DERBY_BOXES.find((box) => box.kind === DERBY_PROP.container)! },
+    { label: "a crash pad", box: DERBY_BOXES.find((box) => box.kind === DERBY_PROP.pad)! },
+  ];
+  for (const { label, box } of solidCases) {
+    it(`when it is driven into ${label} for one slice, then the solid meets it and its speed into the solid is cut`, () => {
+      const outward = { x: Math.sin(Math.atan2(box.x, box.z)), z: Math.cos(Math.atan2(box.x, box.z)) };
+      const startRadius = Math.hypot(box.x, box.z) - box.hx - NOSE_BEHIND_FACE;
+      const car = makeCar("shape");
+      launch(car, outward.x * startRadius, outward.z * startRadius, Math.atan2(outward.x, outward.z), outward.x * DRIVE_MPS, outward.z * DRIVE_MPS);
+      car.group.position.y = -SUNK_DEPTH;
+      let meetings = 0;
+      const hits = { knock() {}, fx() {}, wall: () => (meetings += 1) };
+      arenaWorld([car], hits).ground.contact(car, 0, hits, SLICE_SECONDS);
+      assert.ok(meetings > 0, `the sunk car met nothing of ${label}`);
+      assert.ok(car.velocity.x * outward.x + car.velocity.z * outward.z < DRIVE_MPS, "its speed into the solid was not cut");
+    });
+  }
 });

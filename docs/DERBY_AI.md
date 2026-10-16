@@ -93,9 +93,8 @@ decides the heat.
 ## Start
 
 Every car starts stopped on the spawn ring, facing the arena's centre (`layoutDerby`). The ring skips every bearing whose straight line to the
-centre passes within a car's half length and half a metre of a free-standing prop (`DERBY_FREE_PROPS`: the containers, rails and pads): a car
-stopped facing a container is held through the wrong face and thrown in the first seconds. Those bearings are about 60° round the north containers
-and pads and 50° round the east rails; a field is laid along the rest, so 32 cars stand 4.4 m apart there. The match clock runs from
+centre passes within a car's half length of a free-standing prop (`DERBY_FREE_PROPS`: the ramps' ring bands and the props not behind the spawn band): a car
+stopped facing a prop or standing on a ramp is held through the wrong face and thrown in the first seconds. About 230° of the ring stays open; a field is laid along it, so 32 cars stand 4.1 m apart there. The match clock runs from
 −4.5 s (`DerbyOptions.start`, default the race's `GRID_TIME + COUNTDOWN`) to the green light at 0, and the HUD shows
 race mode's start lights (`StartLights`, `startLights(time)`). Before green `DerbyMatch.held` refuses every input
 (AI, the local driver, netplay peers on the host), no count-out clock runs and nothing scores; clients mirror the
@@ -105,17 +104,21 @@ its first throttle measured 0.964–0.965 s (sedan), 0.786 (muscle), 1.023–1.0
 
 ## The arena
 
-One fixed arena for every field (`DERBY_ARENA`, `scenes/constants.ts`): a 38 m radius ring wall, 10 m high, 1 m thick (48 flat boxes, mitred), and `layoutDerby`'s
-spawn ring 5.2 m inside it (up to 8 m between neighbours; 32 cars keep 4.4 m round the bearings the props leave open). The ground is one baked 1 m grid (the Havana plateau mechanism, `world/terrain.ts`
-`raisePlateaus`): a 9 x 9 m table-top 1.8 m up, four jumps (1.5 m, grade 0.21, pinwheeled round the table-top so no launch line points at the wall),
-a pit plateau and a scrap hump. Only what stands on the ground is a prism of the same store: the wall, two containers, three K-rails, two crash pads and
-three tyre berms (`DERBY_BOXES`); each is drawn from its own box, so what is drawn is what is met. A car's footprint meets the prisms through
-`propContact` (`DerbyGround.contact`); the rises are met by the one point query like any ground. `derby-containment.test.ts` drives every class flat out
-and boosting at the wall from all directions on the open ring, across the arena from every fourth heading (every heading in the full-sanity suite, `derby-containment.ai-long-run.ts`) and at each jump's far entry: no vertex passes the wall's outer face and the car touches
-the wall at least 1 m under its top (at 8 m the monster touched at 8.6 m; at 5 m it cleared the wall).
+One fixed arena for every field (`DERBY_ARENA`, `scenes/constants.ts`): a round 38 m inner radius, 1 m thick ring wall of 48 flat boxes (mitred), `wallHeight` 12 m high: a `concreteHeight` 3.5 m concrete lower wall with
+the yellow/black hazard band at its top and translucent glass above it. Inside it is a bowl: four perimeter ramps (`DERBY_RAMPS`) rise toward the wall, each with a 4 m wide deck, 3 m side wedges and a 2 m lip on the
+wall side, its flat top set back 4 m from the wall: north 14 m long and 2.8 m high, east 13 m and 2.5 m, south 15 m and 3 m, west 13 m and 2.5 m.
+The middle stays open round a 12 x 12 m table-top 2.2 m up (`DERBY_TABLE_TOP`, grade 0.26), a 10 x 8 m pit plateau 1 m up and a scrap hump 0.8 m up. The ground is still one baked 1 m grid (the Havana plateau mechanism, `world/terrain.ts`
+`raisePlateaus`); only what stands on it is a prism of the same store: the wall, four containers (two heights), two crash pads either side of them, a rail chicane of two pairs of K-rails and three tyre berms (`DERBY_BOXES`),
+most of them standing against the wall behind the spawn band. Each is drawn from its own box, so what is drawn is what is met. A car's footprint meets the prisms through
+`propContact` (`DerbyGround.contact`); the rises are met by the one point query like any ground. `layoutDerby`'s spawn ring sits 5.2 m inside the wall (up to 8 m between neighbours); it skips every slot on or in front of a ramp (each ramp's
+ring-band box is in `DERBY_FREE_PROPS`) and the bearings facing a free-standing prop, leaving about 230° open, where 32 cars keep more than 4 m apart (4.1 m).
+
+`derby-containment.test.ts` drives every class flat out and boosting at the wall: from the open ring in every direction, across the arena from every fourth heading (every heading in the full-sanity suite, `derby-containment.ai-long-run.ts`), from
+each ramp's far entry heading up it, and outward from each ramp's foot and crest. No vertex passes the wall's outer face, and the car touches the wall at least 1 m under its top. The measured worst wall touch is 6.83 m up, so the
+need is 7.83 m with that 1 m margin; the wall is 12 m by choice, above the 10 m the owner asked to exceed.
 
 What the AI does not know: it steers by the ring radius (`DerbyBrain.radius` = `DERBY_RADIUS`) and its stuck recovery, not by the containers, rails, pads, tyre
-berms, the table-top or the jumps. Cars can be wedged against a container or rail and recover by the existing stuck rule; an obstacle-aware aim (steer round a prism, treat a rise as a
+berms, the table-top or the ramps. Cars can be wedged against a container or rail and recover by the existing stuck rule; an obstacle-aware aim (steer round a prism, treat a rise as a
 ramp) would be the next step.
 
 ## Validation (10 cars, default slider, real stack, headless)
