@@ -42,8 +42,8 @@ function sampleTimes(): Float64Array {
 /**
  * The last rule of every racing drive: do not drive into a car you are closing on. The guarded car is followed at its
  * speed round the arc its steer asks for (`turn`: yaw rate at full lock, rad/s), each car of `cars` (ids below `count`) that
- * is not `spare[id]` (the ones the driver means to hit) in the line it is driving, shedding speed at `lead` (m/s²: a driver
- * brakes for what it sees up the road, at the racing plan's own braking budget); `HORIZON` s on, the first moment the
+ * is not `spare[id]` (the ones the driver means to hit) in the line it is driving, shedding speed at `lead` (m/s²: the leader's whole class brake, the hardest it can shed
+ * speed, which only raises the closing speed); `HORIZON` s on, the first moment the
  * guarded car and the other overlap, each wearing the contact zone, is the contact. The soonest contact is steered clear of
  * (by its off-centre share, or in full while there is time to move sideways out of the zone: `STEER_ACC`) and every contact
  * ahead that steering cannot clear is braked for, at the deceleration that takes the closing speed off, down to a `TAP`,

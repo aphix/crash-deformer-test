@@ -18,8 +18,9 @@ describe("given the oval and a sedan", () => {
   it("when it does 50 m/s 25 m before the sharpest bend, then the cue is on", () => {
     assert.ok(brakeCueAt(path, sedan, HAIRPIN - 25, 50, 1) > 0);
   });
-  it("when it does 60 m/s at the same point, then the cue is full", () => {
-    assert.equal(brakeCueAt(path, sedan, HAIRPIN - 25, 60, 1), 1);
+  // The plan allows ≈ 46 m/s there (0.72 of the 28 m/s² sedan brake over 25 m into a 33 m/s corner); the cue is full 30 % over it, from 60 m/s (measured 0.9975 at 60, 1 at 62).
+  it("when it does 65 m/s at the same point, then the cue is full", () => {
+    assert.equal(brakeCueAt(path, sedan, HAIRPIN - 25, 65, 1), 1);
   });
   it("when it does 8 m/s at the same point, then the cue is 0", () => {
     assert.equal(brakeCueAt(path, sedan, HAIRPIN - 25, 8, 1), 0);

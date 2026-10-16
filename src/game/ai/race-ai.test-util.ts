@@ -12,12 +12,14 @@ import { TRACKS } from "../world/tracks/index.ts";
 import { setGround } from "../world/ground.ts";
 import type { CarPose, Entrant } from "../match/types.ts";
 import { DT } from "../vehicle/test-support.ts";
+import { carClass, classStats } from "../vehicle/vehicle-classes.ts";
 
 export type Run = { session: RaceSession; onRoad: number; samples: number; mistakes: number };
 
 /**
  * Real cars on the real drive model (kinematic, as every car is until it crashes) on the course's
- * ground, no car-to-car contact: the AI alone has to keep them on the road and round the laps.
+ * ground, no car-to-car contact: the AI alone has to keep them on the road and round the laps. Each car's brain plans with its own class's
+ * figures (`setClass`), as the game's race field does: a muscle car plans as a muscle car.
  */
 export function race(track: Track, n: number, aggression: number, laps: number, limit: number, difficulty: AiDifficulty = AI_EVERY_SLICE, tap?: (id: number, out: DriveInput) => void): Run {
   const scene = new THREE.Scene();
@@ -32,6 +34,7 @@ export function race(track: Track, n: number, aggression: number, laps: number, 
     c.spawnFacing(g.x, g.z, g.yaw, 0);
     brain.setAggression(i, aggression);
     brain.setDifficulty(i, difficulty);
+    brain.setClass(i, classStats(carClass(c)));
   }
   const snaps: AiCar[] = cars.map((_, i) => blankAiCar(i));
   const poses: CarPose[] = cars.map(() => ({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true }));

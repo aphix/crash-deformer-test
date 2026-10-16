@@ -195,9 +195,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 102: a wall's push-out puts a car back along the face no further than it moved along it in the slice (a car turned into a face at rest slid 0.45 m a frame along it); no drive from the
  * tyres while the body is on its side or roof (`FLIPPED_UP_Y`); a racer meeting a car head-on rounds it on the side with more road, not the side nearer its planned lane; the light bar tips
  * about its far mount with the struck side lifting (its cage pose with it): a replay of a clip of 101 or before moves wall-pinned, flipped and head-on cars and struck light bars differently.
+ * 103: the race AI plans every stop at the contact guard's 0.72 of the class brake (`BRAKE_SHARE`; the plan counted on 0.5), the guard takes a car ahead to shed the whole class brake (it was the plan's share), easy's `push` / `slipBrake` are retuned, and a racer rounds a stopped, crawling or oncoming car on the side with more road
+ * (`blockerAlong < CRAWL`; it was `< 0`): a replay of a clip of 102 or before drives its AI racers' braking, guard, and so their lines and speeds, differently.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 102;
+const REPLAY_VERSION = 103;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

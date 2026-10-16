@@ -29,10 +29,13 @@ export function copyDrive(from: DriveInput, to: DriveInput): void {
 
 /** Corner margin: plan every turn as if this share of its radius, so a car keeps this share of its class's full-lock yaw rate and lateral grip in hand. */
 export const CORNER_MARGIN = 0.8;
-/** Planned braking: this share of the car's class brake. */
-export const PLAN_BRAKE = 0.5;
-/** The guard counts on this share of the class brake: a steered or locked car sheds less of it than `applyDrive` asks (a hit at 0.9 came from braking at the limit). */
-const GUARD_BRAKE = 0.72;
+/**
+ * The share of the class brake the AI counts on, everywhere it brakes: `plan`'s stops, the HUD's braking cue (`brakeCueAt`) and the contact guard's own
+ * braking (a car ahead is taken to shed the whole class brake: `think`). One number: the plan counted on 0.5 (13 m/s²) while the guard counted on 0.72, and the cars really brake at
+ * 26-28 m/s², so every stop began twice too early and undershot (12.4 m/s at four-count's 88° shortcut mouth against a 23 m/s plan). 0.72 is the guard's: a steered or
+ * locked car sheds less of the brake than `applyDrive` asks (a hit at 0.9 came from braking at the limit).
+ */
+export const BRAKE_SHARE = 0.72;
 /** Look this far (m) ahead for traffic. */
 const SCAN = 18;
 /** `SCAN`, `GAP_KEEP` and `HUNT` hold at up to this speed (m/s), the field's pace they were tuned at, and stretch with speed above it. */
@@ -455,11 +458,11 @@ export class RaceBrain {
       out.brake = clamp(-err / 6, 0.2, 1);
     }
 
-    // Last rule, for a racer (police drive this line too and hit on purpose): no car it is closing on is driven into, except the ones it means to hit (`hit`); a car ahead is taken to brake as the plan does (`PLAN_BRAKE`). A rival that holds its input between thinks is guarded every slice by `guard`, on what it saw now.
+    // Last rule, for a racer (police drive this line too and hit on purpose): no car it is closing on is driven into, except the ones it means to hit (`hit`). It counts on `BRAKE_SHARE` of its own brake, and a car ahead is taken to shed the car's whole class brake (what the leader really can: measured 26-28 m/s²): the leader braking harder only raises the closing speed, so the follower is never counting on a gentler stop than the leader can make. A rival that holds its input between thinks is guarded every slice by `guard`, on what it saw now.
     if (i < this.racers) {
       const g = this.tunes[i]!;
-      g[GUARD_BRAKE_IDX] = cls.brake * GUARD_BRAKE;
-      g[GUARD_LEAD_IDX] = cls.brake * PLAN_BRAKE;
+      g[GUARD_BRAKE_IDX] = cls.brake * BRAKE_SHARE;
+      g[GUARD_LEAD_IDX] = cls.brake;
       g[GUARD_TURN_IDX] = turnMax;
       if (this.thinkEvery[i] === 0) guardContact(self, others, this.guarded, this.hit, g, out);
       else this.hitOf[i]!.set(this.hit);
@@ -594,7 +597,7 @@ export class RaceBrain {
     const open = this.busy[i] === 0;
     const slip = open ? this.slip[i]! : 0;
     const over = slip > SLIP_RECOVER;
-    const decel = cls.brake * PLAN_BRAKE * (open ? this.brakeK[i]! : 1) * (over ? this.slipBrake[i]! : 1);
+    const decel = cls.brake * BRAKE_SHARE * (open ? this.brakeK[i]! : 1) * (over ? this.slipBrake[i]! : 1);
     const push = (open ? this.push[i]! : 1) * (over ? this.slipPush[i]! : 1);
     let best = slip > 0 && !over ? top * this.shaken[i]! : top;
     // A shortcut meets the loop at an angle neither path's curvature shows: the turns into its mouth and back onto the loop are corners too.
@@ -754,16 +757,16 @@ export class RaceBrain {
         this.chase = blockerFight;
         return clamp(oLat, -room, room);
       }
-      // Met head-on (closing at both cars' speed): round it at three times the lane change rate, on the side with more road beside the passing line.
-      // The planned lane is no guide here: it carries the yield nudge for a faster car behind (2 m), which steered a racer round an oncoming car on
-      // its narrow side, where it stopped and crept nose first into it.
-      const headOn = blockerAlong < 0;
-      if (headOn) this.swerve = Math.max(this.swerve, 2);
+      // Met head-on, or on a car stopped or crawling (it closes at our whole speed, or most of it; an oncoming traffic car brakes to a stop as the racer closes, so its speed along
+      // the road reaches 0 and stays under `CRAWL`): round it on the side with more road beside the passing line, at three times the lane change rate when it comes on. The planned lane is no guide
+      // here: it carries the yield nudge for a faster car behind (2 m), which steered a racer round an oncoming car on its narrow side, where it stopped and crept nose first into it.
+      const meet = blockerAlong < CRAWL;
+      if (blockerAlong < 0) this.swerve = Math.max(this.swerve, 2);
       const left = oLat + LINE_W + 0.9;
       const right = oLat - LINE_W - 0.9;
       const leftOk = left <= room;
       const rightOk = right >= -room;
-      const leftFirst = headOn ? room - left >= right + room : Math.abs(left - want) <= Math.abs(right - want);
+      const leftFirst = meet ? room - left >= right + room : Math.abs(left - want) <= Math.abs(right - want);
       if (leftOk && (!rightOk || leftFirst)) want = left;
       else if (rightOk) want = right;
       if (!leftOk && !rightOk) {

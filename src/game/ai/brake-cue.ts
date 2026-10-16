@@ -1,5 +1,5 @@
 import { STRAIGHT_CURV } from "./constants.ts";
-import { CORNER_MARGIN, PLAN_BRAKE, sampleAt } from "./race-ai.ts";
+import { BRAKE_SHARE, CORNER_MARGIN, sampleAt } from "./race-ai.ts";
 import type { TrackPath } from "../world/track.ts";
 import { cornerSpeed, type ClassStats } from "../vehicle/vehicle-classes.ts";
 
@@ -12,12 +12,12 @@ const CUE_BAND = 0.3;
 
 /**
  * The braking cue (0..1): a car `along` m/s forward at `s` m along `pp` is going faster than the AI's braking plan allows for
- * a corner ahead (`plan`: the corner speed there plus what `PLAN_BRAKE` of the class brake sheds over the distance). 0 at or
+ * a corner ahead (`plan`: the corner speed there plus what `BRAKE_SHARE` of the class brake sheds over the distance). 0 at or
  * under the plan; it rises with the overshoot, linearly to 1 at `CUE_BAND` over it, for the worst corner in reach.
  */
 export function brakeCueAt(pp: TrackPath, cls: ClassStats, s: number, along: number, grip: number): number {
   if (along <= 0) return 0;
-  const decel = cls.brake * PLAN_BRAKE;
+  const decel = cls.brake * BRAKE_SHARE;
   const reach = (along * along) / (2 * decel) + CUE_MARGIN;
   let cue = 0;
   for (let d = 0; d <= reach; d += CUE_STEP) {

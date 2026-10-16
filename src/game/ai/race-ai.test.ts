@@ -1,11 +1,16 @@
+import * as THREE from "three";
 import { describe, it } from "node:test";
 import { BOOST } from "../vehicle/car-drive.ts";
 import assert from "node:assert/strict";
-import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
+import { applyDrive, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
+import { DeformableCar } from "../vehicle/car.ts";
+import { classStats } from "../vehicle/vehicle-classes.ts";
+import { fleetStyle } from "../scenes/fleet.ts";
+import { setGround } from "../world/ground.ts";
 import { blankAiCar, type AiCar } from "./derby-ai.ts";
-import { RaceBrain, copyDrive } from "./race-ai.ts";
+import { BRAKE_SHARE, RaceBrain, copyDrive } from "./race-ai.ts";
 import { race, raced, summarize } from "./race-ai.test-util.ts";
-import { AI_DIFFICULTIES, AI_EVERY_SLICE, SLIP_RECOVER, SLIP_WINDOW, type AiDifficulty } from "./constants.ts";
+import { AI_DIFFICULTIES, AI_EVERY_SLICE, GUARD_BRAKE_IDX, GUARD_LEAD_IDX, SLIP_RECOVER, SLIP_WINDOW, type AiDifficulty } from "./constants.ts";
 import { fieldAggression, mood } from "./ai-aggression.ts";
 import { Track } from "../world/track.ts";
 import { parseTrack } from "../world/track-schema.ts";
@@ -41,12 +46,14 @@ function hardMarks(track: Track): string[] {
 /**
  * `hardMarks` of the hard brain driving the 8 cars from the grid: the tiers must leave hard's outputs bit for bit as they were. The marks hash those
  * outputs along a real drive, so a change to the drive under the brain re-pins them; these are the marks on the constant-power drive with the
- * traction cap and rolling resistance (the brain was not touched by it beyond planning with the surface's terminal).
+ * traction cap and rolling resistance (the brain was not touched by it beyond planning with the surface's terminal), re-pinned when the plan's braking went from 0.5 to the guard's
+ * 0.72 of the class brake (`BRAKE_SHARE`: the plan's decel is what moved, so the brake and throttle outputs hash differently), the guard took a car ahead to shed the
+ * whole class brake, and the harness began to give each car its class (`setClass`: the mix of fleet styles plans with its own figures, as the game does).
  */
 const HARD_MARKS: Record<string, string[]> = {
-  oval: ["ec2f121c", "56030a96", "f6911302", "1f83fbb7", "4869785a", "84e80a1c", "aa78ece7", "1f5965bb", "30380780", "b6586c18", "44c232cd", "e0782505", "8d982922", "88b96b99", "35d71f01", "e921a6a6"],
-  rally: ["1809820a", "8b85e42b", "9d41dae", "9a7e26fa", "7a3beaf9", "bc073643", "1c7f1449", "8ff3337c", "506790ce", "dcafbc2b", "2e300d80", "21cc3dae", "502ed0a9", "55f0469b", "44789c68", "dffe05a1"],
-  stunt: ["c3040009", "ff7676f9", "42fc2a1d", "9730904b", "e582ef7e", "12caf938", "8d736a8d", "4bc60ae6", "ff36880f", "341e4e22", "a2d523f9", "80d3ba99", "9c4ffe8d", "c36432f5", "55a94d8f", "c16d6b88"],
+  oval: ["f9bf989a", "4963715a", "b1414b6b", "92a6645a", "e38da6c2", "303fc21a", "5af7519e", "2aab055b", "affe0fd1", "afaf6d98", "ffe16470", "113a4eca", "fbbc465d", "959639c3", "55a3637a", "708a56a8"],
+  rally: ["795a677f", "94981db4", "be5bb94f", "2a73c2", "652c9ca7", "4585d4b3", "d713a748", "1ebac3aa", "612a0208", "4428af3d", "88cc042a", "7c556b9", "debd970", "5a1a1683", "26a0e0ff", "36421509"],
+  stunt: ["cc295f61", "c7b507ae", "cec50844", "ef2224d", "66f506e6", "a9930ebf", "7b7c7adb", "83f96d5c", "2ccad50d", "8f838f60", "49cf2049", "f12d92b1", "c5e44a68", "9861910b", "dfc14c4c", "13aec185"],
 };
 
 describe("given 8 clean AI cars (aggression 0) on the grid of the oval", () => {
@@ -319,5 +326,75 @@ describe("given an easy driver whose slip starts on the oval's open road, then h
     assert.equal(brain["busy"][0], 0, "the road cleared");
     assert.equal(brain["slip"][0], 0, "the slip aged out in traffic");
     assert.ok(out.throttle === 1 && out.brake === 0, `unshaken: throttle ${out.throttle} brake ${out.brake}`);
+  });
+});
+
+/** The deceleration (m/s²) a sedan really sheds at full brake from `v` m/s on the oval's back straight, over one second: the drive model's own. */
+function realBrake(v: number): number {
+  setGround(oval.ground());
+  const car = new DeformableCar({ body: 0x808080, accent: 0x404040, name: "brake" }, new THREE.Scene(), null, fleetStyle(0));
+  car.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz), v);
+  const full = { ...idleDrive(), brake: 1 };
+  let t = 0;
+  for (; t < 1 - 1e-9; t += DT) {
+    applyDrive(car, full, DT);
+    car.integrate(DT);
+  }
+  setGround(null);
+  return (v - Math.hypot(car.velocity.x, car.velocity.z)) / t;
+}
+
+describe("given a hard sedan brain flat out at the oval's sharpest bend (33 m/s there) on the back straight leading to it", () => {
+  // The bend is sample 112 of the path; a car at the planned speed's edge (`err` -1.5 m/s) is the first to brake: its distance to the bend is the stop distance.
+  const bend = (112 / oval.path.count) * oval.path.length;
+  /** The distance (m) before the bend, scanning in from 60 m (the road before that is other bends), at which the brain first brakes a car doing `v` m/s down the road's centre. */
+  const onset = (v: number): number => {
+    const brain = new RaceBrain(oval, 1);
+    for (let d = 60; d >= 0; d -= 0.25) {
+      const me = onRoad(oval, 0, bend - d, 0, v);
+      if (brain.think(me, [me], { next: 1, lap: 0 }, DT).brake > 0) return d;
+    }
+    return NaN;
+  };
+  it("when it brakes from 50 and from 40 m/s, then the braking its onset distances imply is the share of the class brake the contact guard counts on, and a real car's full brake is more than that by the measured margin", (t) => {
+    const sedan = classStats("sedan");
+    // v² - vc² = 2 a d for both onsets (a car 1.5 m/s over the plan brakes): the corner speed drops out of the two-speed difference.
+    const [far, near] = [onset(50), onset(40)];
+    const planned = ((50 - 1.5) ** 2 - (40 - 1.5) ** 2) / (2 * (far - near));
+    const real = realBrake(40);
+    const brain = new RaceBrain(oval, 1);
+    const me = onRoad(oval, 0, 40, 0, 17);
+    brain.think(me, [me], { next: 1, lap: 0 }, DT);
+    const tune = brain["tunes"][0]!;
+    const want = sedan.brake * BRAKE_SHARE;
+    t.diagnostic(`onsets ${far.toFixed(1)} m / ${near.toFixed(1)} m: plan sheds ${planned.toFixed(1)} m/s², guard ${tune[GUARD_BRAKE_IDX]!.toFixed(1)} m/s², a car ahead ${tune[GUARD_LEAD_IDX]!.toFixed(1)} m/s², real full brake ${real.toFixed(1)} m/s²`);
+    assert.equal(tune[GUARD_BRAKE_IDX], want, "the guard's own braking");
+    assert.equal(tune[GUARD_LEAD_IDX], sedan.brake, "what a car ahead is taken to shed: the whole class brake, the most it can (the guard never counts on a leader stopping gentler than it can)");
+    // The onsets are found to 0.25 m but the plan reads the road every 3 m: against the 23 m the two speeds' stops differ by (measured) a 3 m step is 13 % of it, so 15 % is the least the reading can be trusted to; the old 0.5 share reads 14.0 m/s², 31 % under.
+    assert.ok(Math.abs(planned / want - 1) < 0.15, `the plan sheds ${planned.toFixed(1)} m/s², the guard counts on ${want.toFixed(1)}`);
+    // The share is of what the car really sheds: full brake measures the class brake (28 m/s² for the sedan) within 5 %, so the plan asks for less than the car has by about the share.
+    assert.ok(Math.abs(real / sedan.brake - 1) < 0.05 && planned < real, `real full brake ${real.toFixed(1)} m/s² of the class's ${sedan.brake}, the plan ${planned.toFixed(1)}`);
+  });
+});
+
+describe("given a racer on the oval's back straight with a car 12 m ahead at 2.3 m left of the centre line and a faster car 10 m behind, whose yield nudge pushes the planned lane to the narrow (left) side", () => {
+  /** The lateral target (m, + = left) `line` picks for racer 0 doing 15 m/s with the blocker doing `blockerSpeed` m/s along the road (negative: oncoming). */
+  const chosen = (blockerSpeed: number): { want: number; room: number } => {
+    const brain = new RaceBrain(oval, 3);
+    brain["traits"][0] = { ...brain["traits"][0]!, side: 1 };
+    const me = onRoad(oval, 0, s0, 0, 15);
+    const cars = [me, onRoad(oval, 1, s0 + 12, 2.3, blockerSpeed), onRoad(oval, 2, s0 - 10, 0, 25)];
+    brain.think(me, cars, { next: 1, lap: 0 }, DT);
+    return { want: brain["line"](me, brain["traits"][0]!, cars), room: pt.half - 1.4 };
+  };
+  it("when the blocker is stopped, or oncoming at 10 m/s, then the racer rounds it on the side with more road (right: the blocker's lane less the 3.3 m a pass needs), not the narrow one the nudge points at", () => {
+    for (const speed of [0, -10]) {
+      const { want } = chosen(speed);
+      assert.ok(want < -1 && want > -1.5, `blocker doing ${speed} m/s: chose ${want.toFixed(2)} m, the wide side is about -1.2 m (right of the centre line), the narrow one 5.4 m`);
+    }
+  });
+  it("when the blocker moves with it at 8 m/s, then the pass is unchanged: the side nearest the planned lane (left, with the nudge)", () => {
+    const { want, room } = chosen(8);
+    assert.ok(want > 5 && want <= room, `chose ${want.toFixed(2)} m, the left pass is about 5.4 m (room ${room.toFixed(1)} m)`);
   });
 });
