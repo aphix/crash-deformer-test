@@ -199,9 +199,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * (`blockerAlong < CRAWL`; it was `< 0`): a replay of a clip of 102 or before drives its AI racers' braking, guard, and so their lines and speeds, differently.
  * 104: easy's corner `push` is 0.78–0.86 (it was 0.76–0.84): easy's oval winner runs about 10 % behind hard's, not 13 %. A replay of a clip of 103 or before drives its easy racers' corners differently.
  * 105: the tyres' drive (the yaw and velocity change `applyDrive` gives) fades with how far the surface under the wheels in contact carries the car (`standingBite`: nothing as the surface turns edge-on to the tread, a car on its side or roof, or to a wall that bears no weight, whole once it is within 65° of the wheel's under-axis) where 102 cut it dead below a body up·world-up of 0.35: a replay of a clip of 104 or before drives a car leaning or part-way over (up·world-up 0.35 to 0.42) or banked past 70° differently.
+ * 106: the derby arena is rebuilt (a 12 m concrete-and-glass wall where it was 10 m, four bowl ramps at the wall rising 2.5-3.0 m, a 12 x 12 x 2.2 table-top, a pit plateau, the props re-laid, the spawn ring skipping the ramps, every prism reaching 3.36 m below the floor) and a wreck's body seats on its cell along the ground only
+ * (`followGroup`'s seat step lost its world-vertical part: for a wreck on its side or nose a body axis is the world vertical, and the seat sank it 4-5 mm a step against the floor, 0.9 to -4.4 m in derby seed 8): a replay of a clip of 105 or before plays on different derby ground and moves a wreck lying on its side, roof-down or on its nose or tail, in contact, differently.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 105;
+const REPLAY_VERSION = 106;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
