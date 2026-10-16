@@ -219,15 +219,15 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   if (dt <= 0) return;
   const d = car.drive;
   car.parked = false;
-  // The pedals the sim runs: clamped and on the grid a clip stores them on, so a replay of the recording runs the very same numbers.
-  const throttle = pedal(input.throttle, -1, THROTTLE_STEPS);
+  // A side hit past the crash sensor cuts the fuel (`DeformableCar.stallOnSideHit`) for `STALL_S`: the engine gives no push and no boost meanwhile, and the tyres, brakes, handbrake and lift-off engine braking run as ever.
+  const fuelCut = car.stalledS > 0;
+  if (fuelCut) car.stalledS = Math.max(0, car.stalledS - dt);
+  // The pedals the sim runs: clamped and on the grid a clip stores them on, so a replay of the recording runs the very same numbers (a cut fuel's gas is the zero it records).
+  const throttle = fuelCut ? 0 : pedal(input.throttle, -1, THROTTLE_STEPS);
   const command = pedal(input.steer, -1, THROTTLE_STEPS);
   const brake = pedal(input.brake, 0, BRAKE_STEPS);
-  // No wheel within its springs' reach of a surface (flight, a belly on a roof): the car keeps its ballistic velocity and spin.
-  // A side hit past the crash sensor cuts the fuel (`DeformableCar.stallOnSideHit`) for a few seconds: the same no-drive as a dead drivetrain, then it restarts.
-  const stalled = car.stalledS > 0;
-  if (stalled) car.stalledS = Math.max(0, car.stalledS - dt);
-  const alive = car.deform.drivetrainAlive && !stalled;
+  // No wheel within its springs' reach of a surface (flight, a belly on a roof) or no drivetrain: the car keeps its ballistic velocity and spin.
+  const alive = car.deform.drivetrainAlive;
   car.airThrottle = alive && car.airborne ? throttle : 0; // in the air the gas winds the wheels (`spinWheels`)
   if (!alive || car.wheelsDown === 0) return idleDriveState(d);
   // A pedal wakes a sleeping wreck only where it acts: the clip records the outputs (`idleDriveState` zeroes a dead or wheel-less car's), so a wake on the raw input would be one the replay never sees.

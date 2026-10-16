@@ -182,3 +182,5 @@ sideways grip, every lost wheel scrapes the body for 0.5 m/s², and the handbrak
 
 A dented car under power drives on its tyres: the sliding-wreck ground drag (`groundMasses`, `bleedAfterSlide`) only slows
 a coasting or dead wreck.
+
+**Fuel cut** (`STALL_S`, `DeformableCar.stallOnSideHit`). A side hit past the crash sensor cuts the fuel: the gas and the boost read zero (what a clip records) for `STALL_S`, then the engine restarts. Everything else in `applyDrive` runs as for a car off the throttle: the tyres' sideways grip, the brakes, the handbrake and the lift-off engine braking (`DRIVE.coast`). A cut engine is no dead drivetrain and no hand-over to the dragged-wheel wreck regime.

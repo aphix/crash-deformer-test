@@ -589,9 +589,9 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   // the road, so the world's faces neither drag it nor grip its tyres along their tread (a rear tyre meeting a ramp's toe at 30° with the
   // front in the air turned its travel 2-3° through the face's slope and the tyre's friction against the body's spin).
   // A wreck's tyres are the same rows: a crashed car whose drivetrain lives is a dented car and rolls on its drive's law (the throttle's
-  // push, else its coast, the brakes when held); one with no drive to give (the drivetrain dead, or the engine cut by a side hit, which
-  // `applyDrive` treats the same) is wrecked running gear, its wheels dragged (they rub in every direction, as a parked car's do).
-  const driving = !wreck || (car.deform.drivetrainAlive && car.stalledS <= 0);
+  // push, else its coast, the brakes when held), a side hit's fuel cut included (`applyDrive` zeroes the gas, nothing else); one with no drivetrain
+  // is wrecked running gear, its wheels dragged (they rub in every direction, as a parked car's do).
+  const driving = !wreck || car.deform.drivetrainAlive;
   const rolling = wheelsAt(car, within) !== 0 && (wreck || !car.crashed);
   const driven = rolling && !car.parked && driving;
   const hit = car.wheelHit;
