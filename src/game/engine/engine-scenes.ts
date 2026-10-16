@@ -12,6 +12,9 @@ import { LAB_LIGHT, LabArt } from "../present/lab-art.ts";
 import { LabFlick } from "./lab-flick.ts";
 import { Garage } from "./garage.ts";
 import { GARAGE } from "../present/garage-art.ts";
+import { Showcase } from "./showcase.ts";
+import { SHOWCASE_CAR, SHOWCASE_EYE, SHOWCASE_KNOCK } from "../present/showcase-art.ts";
+import { PARTS } from "../present/ragdoll-body.ts";
 import { pickedLook } from "../present/driver-look.ts";
 import type { LabPresetId } from "../scenes/lab.ts";
 import { CORKSCREW } from "../scenes/corkscrew.ts";
@@ -34,6 +37,8 @@ import { detSin, detCos } from "../kernel/physics-core.js";
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
+const _spin = new THREE.Vector3();
+const _q = new THREE.Quaternion();
 
 /** Race commands a netplay client may run: viewing only (the host starts, pauses and ends races). */
 const CLIENT_RACE_COMMANDS: ReadonlySet<RaceCommand["type"]> = new Set(["fullUi", "cycle", "watch", "spectate"]);
@@ -44,7 +49,7 @@ export abstract class EngineScenes extends EngineDerby {
 
   /** The fleet props are the host's (netplay), and ignored while the press, a rig, the range, the Lab or the race owns the pad (the HUD locks them too). */
   private get fleetPropsLocked(): boolean {
-    return this.net.client || this.rigScene || this.showRange || this.showLab || this.showGarage || this.race.active;
+    return this.net.client || this.rigScene || this.showRange || this.showLab || this.showGarage || this.showShowcase || this.race.active;
   }
 
   toggleBarrier(): void {
@@ -143,14 +148,14 @@ export abstract class EngineScenes extends EngineDerby {
     // The stack and the Lab run their own car counts and give the sandbox's back.
     const wasLab = this.showLab;
     const wasGarage = this.showGarage;
-    if (this.showRange || this.showStack || this.showLab || this.showGarage) this.ensureCars(this.sandboxCars);
+    if (this.showRange || this.showStack || this.showLab || this.showGarage || this.showShowcase) this.ensureCars(this.sandboxCars);
     if (this.race.active && next !== this.sceneId) this.setRace(false);
     // The workshop's lights go with the Lab and the garage, before a race lights its course.
     if ((wasLab && next !== "lab") || (wasGarage && next !== "garage")) this.stage.look(null);
     if (this.derbyMode !== (next === "derby")) this.setDerby(next === "derby");
-    if (next === "range" || next === "stack" || next === "lab" || next === "garage") {
+    if (next === "range" || next === "stack" || next === "lab" || next === "garage" || next === "showcase") {
       this.sandboxCars = this.carCount;
-      this.ensureCars(next === "range" || next === "garage" ? 1 : next === "lab" ? this.lab.types.length : this.stack.config.cars);
+      this.ensureCars(next === "range" || next === "garage" || next === "showcase" ? 1 : next === "lab" ? this.lab.types.length : this.stack.config.cars);
     }
     if (next === "race" || next === "survival") this.setRace(true, next === "survival", false, next === "survival" && menu && this.net.role === "off");
     else this.sceneId = next;
@@ -170,6 +175,7 @@ export abstract class EngineScenes extends EngineDerby {
       this.stage.look(LAB_LIGHT);
       this.view.frameReset(true, this.live(), GARAGE.angle, GARAGE.shot);
     }
+    if (next === "showcase") this.frameShowcase();
     this.emitHud();
   }
 
@@ -195,6 +201,11 @@ export abstract class EngineScenes extends EngineDerby {
 
   toggleGarage(): void {
     this.setScene("garage");
+  }
+
+  /** The showcase has no button or key; a link (`#scene=showcase`) or a probe opens it. */
+  toggleShowcase(): void {
+    this.setScene("showcase");
   }
 
   setLabPreset(id: LabPresetId): void {
@@ -353,8 +364,14 @@ export abstract class EngineScenes extends EngineDerby {
       this.queueWarm();
     }
     if (this.garage) this.garage.art.group.visible = this.showGarage;
-    // In the Lab a press on a car picks it for a flick, in the garage it sprays it (can on); elsewhere every press is the camera's.
-    this.view.take = this.showLab ? this.labFlick : this.showGarage ? this.garage : null;
+    if (this.showShowcase && !this.showcase) {
+      this.showcase = new Showcase(this.camera, () => this.canvas.getBoundingClientRect(), (slot) => this.knockShowcase(slot));
+      this.scene.add(this.showcase.art.group);
+      this.queueWarm();
+    }
+    if (this.showcase) this.showcase.art.group.visible = this.showShowcase;
+    // In the Lab a press on a car picks it for a flick, in the garage it sprays it (can on), in the showcase it knocks a figure over; elsewhere every press is the camera's.
+    this.view.take = this.showLab ? this.labFlick : this.showGarage ? this.garage : this.showShowcase ? this.showcase : null;
     if (this.race.active) {
       this.race.reset();
       this.finishResetCommon();
@@ -402,6 +419,7 @@ export abstract class EngineScenes extends EngineDerby {
     else if (this.showRange) this.spawnRange();
     else if (this.showLab) this.spawnLab();
     else if (this.showGarage) this.spawnGarage();
+    else if (this.showShowcase) this.spawnShowcase();
     else this.spawnFleet();
     this.barrierHits.fill(false);
     this.barrier.group.visible = this.barrierUp;
@@ -410,7 +428,7 @@ export abstract class EngineScenes extends EngineDerby {
     this.ramps.group.visible = this.rampsUp;
     this.ramps.place(this.barrier.yaw, this.barrierUp ? this.barrier : null);
     scatterRampBalls(this.balls, this.ballsUp, this.sceneRng(1));
-    for (const p of this.poles) p.group.visible = !this.derbyMode && !this.showRange && !this.showLab && !this.showGarage;
+    for (const p of this.poles) p.group.visible = !this.derbyMode && !this.showRange && !this.showLab && !this.showGarage && !this.showShowcase;
     this.finishResetCommon();
   }
 
@@ -462,6 +480,29 @@ export abstract class EngineScenes extends EngineDerby {
     this.dressCar(car);
     this.garage!.art.stand(pickedLook(GARAGE.driver, this.looks.mine.person), this.looks.mine.personSpray);
     this.parkExtras();
+  }
+
+  /** The cars sit out of sight: the showcase is the people. Everyone stands on his mark again. */
+  private spawnShowcase(): void {
+    const car = this.carA;
+    car.group.visible = false;
+    car.spawnFacing(SHOWCASE_CAR.x, SHOWCASE_CAR.z, 0, 0);
+    this.showcase!.art.stand();
+  }
+
+  /** The free eye on the front row, entering the scene (`FreeCam` starts from the camera's pose). */
+  private frameShowcase(): void {
+    this.camera.position.set(SHOWCASE_EYE.x, SHOWCASE_EYE.y, SHOWCASE_EYE.z);
+    this.camera.lookAt(SHOWCASE_EYE.lookX, SHOWCASE_EYE.lookY, SHOWCASE_EYE.lookZ);
+    this.view.enterFree();
+  }
+
+  /** Figure `slot` of the showcase is knocked over: his torso where it stands, thrown away from the eye. Whether the ragdoll world took him (not while Rapier loads). */
+  private knockShowcase(slot: number): boolean {
+    const art = this.showcase!.art;
+    art.markOf(slot, _v).y += PARTS[0]!.c[1];
+    const figure = art.figureOf(slot);
+    return this.ragdolls.place(_v, _q.identity(), _w.set(0, SHOWCASE_KNOCK.up, -SHOWCASE_KNOCK.away), _spin.set(0, 0, 0), Infinity, -1, { cop: figure.cop, look: figure.look }) >= 0;
   }
 
   private spawnDerby(): void {
@@ -619,8 +660,8 @@ export abstract class EngineScenes extends EngineDerby {
     this.impactLight.intensity = 0;
 
     this.view.rim = this.derbyMode ? DERBY_RADIUS : Infinity;
-    // The pistons, the stack, the Lab and the garage frame on entering only (`applyScene`): their resets keep the user's view.
-    if (!this.showPistons && !this.showStack && !this.showLab && !this.showGarage) this.view.frameReset(this.showCompactor || this.showDoors, this.live());
+    // The pistons, the stack, the Lab, the garage and the showcase frame on entering only (`applyScene`): their resets keep the user's view.
+    if (!this.showPistons && !this.showStack && !this.showLab && !this.showGarage && !this.showShowcase) this.view.frameReset(this.showCompactor || this.showDoors, this.live());
     this.smokeUntil.fill(0);
     this.deadSmokeAcc.length = 0;
     this.vaporAt.length = 0;

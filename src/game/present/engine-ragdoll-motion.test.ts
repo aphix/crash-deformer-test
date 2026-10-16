@@ -8,7 +8,7 @@ import { armKill, DEFAULT_REALISM } from "../vehicle/vehicle-classes.ts";
 import { THROW_ONSET } from "../match/phase.ts";
 import { RANGE } from "../scenes/range.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
-import { shed } from "./ragdoll-body.ts";
+import { PARTS, shed } from "./ragdoll-body.ts";
 import { FINE_HZ, FRAME_HZ } from "../kernel/constants.ts";
 
 const GRAVITY = 9.6;
@@ -166,19 +166,25 @@ describe("given a dummy thrown while time runs at 0.03× (the deepest slow-mo)",
       await ragdolls.preload();
       ragdolls.update(1 / FRAME_HZ, [], true, true, null);
       ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1.2, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2 + 0.3), v: new THREE.Vector3(27, 3.5, 0), w: new THREE.Vector3(0, 0, -3), age: 0, cop: false, rides: true });
-      // What the GPU gets: his slot's pieces (slot 0, the first throw), the throw frame's pose first.
-      const drawn: Float32Array = ragdolls["mesh"].instanceMatrix.array as Float32Array;
-      const per = drawn.length / ragdolls["dolls"].length;
+      // What the GPU gets: his slot's bone poses (slot 0, the first throw), the throw frame's pose first; each part's centre as drawn.
+      const rows: Float32Array = ragdolls["mesh"]["rows"];
+      const centres = (into: Float32Array): void => {
+        for (const [k, part] of PARTS.entries()) {
+          const at = new THREE.Vector3().fromArray(rows, k * 8).add(new THREE.Vector3(...part.c).applyQuaternion(new THREE.Quaternion().fromArray(rows, k * 8 + 4)));
+          at.toArray(into, k * 3);
+        }
+      };
       ragdolls.update(0.03 / hz, [], true, true, null);
-      const last = drawn.slice(0, per);
+      const last = new Float32Array(PARTS.length * 3);
+      const drawn = new Float32Array(PARTS.length * 3);
+      centres(last);
       const moves: number[] = [];
       for (let f = 0; f < hz / 2; f++) {
         ragdolls.update(0.03 / hz, [], true, true, null);
+        centres(drawn);
         let move = 0;
-        for (let o = 0; o < per; o += 16) {
-          move = Math.max(move, Math.hypot(drawn[o + 12]! - last[o + 12]!, drawn[o + 13]! - last[o + 13]!, drawn[o + 14]! - last[o + 14]!));
-          last.set(drawn.subarray(o, o + 16), o);
-        }
+        for (let o = 0; o < drawn.length; o += 3) move = Math.max(move, Math.hypot(drawn[o]! - last[o]!, drawn[o + 1]! - last[o + 1]!, drawn[o + 2]! - last[o + 2]!));
+        last.set(drawn);
         moves.push(move);
       }
       ragdolls.dispose();

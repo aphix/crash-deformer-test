@@ -1,5 +1,5 @@
-/** The scene picker's scenes (`CrashEngine.setScene`), and the values of the share URL's `scene=`. */
-export const SCENE_IDS = ["fleet", "press", "pistons", "doors", "corkscrew", "stack", "derby", "race", "range", "survival", "lab", "garage"] as const;
+/** The scene picker's scenes (`CrashEngine.setScene`), and the values of the share URL's `scene=`. `showcase` is by link only: no scene button, key or menu opens it. */
+export const SCENE_IDS = ["fleet", "press", "pistons", "doors", "corkscrew", "stack", "derby", "race", "range", "survival", "lab", "garage", "showcase"] as const;
 export type SceneId = (typeof SCENE_IDS)[number];
 
 /**
@@ -9,7 +9,7 @@ export type SceneId = (typeof SCENE_IDS)[number];
 export const SEEDED_SCENES: Readonly<Partial<Record<SceneId, true>>> = { fleet: true, corkscrew: true, derby: true };
 
 /** Single-player scenes: a netplay room (hosted or joined) cannot be in them, and a room's link never opens one. Survival is not one: a hosted room runs it as a team (docs/SURVIVAL.md). */
-export const SOLO_SCENES: Readonly<Partial<Record<SceneId, true>>> = { lab: true, garage: true };
+export const SOLO_SCENES: Readonly<Partial<Record<SceneId, true>>> = { lab: true, garage: true, showcase: true };
 
 /**
  * The fleet props (jersey barrier, ramp balls, jump ramps) a scene sets for itself. The user's own choice (`showBarrier`
@@ -29,6 +29,7 @@ const SCENE_PROPS: Readonly<Partial<Record<SceneId, FleetProps>>> = {
   survival: NO_PROPS,
   lab: NO_PROPS,
   garage: NO_PROPS,
+  showcase: NO_PROPS,
   // The range's wall is the run's target.
   range: { barrier: true, balls: false, ramps: false },
 };

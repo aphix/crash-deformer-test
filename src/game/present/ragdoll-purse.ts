@@ -5,7 +5,6 @@ import { disable, type Rapier } from "../kernel/rapier.ts";
 import { activeGround } from "../world/ground.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { AIR_ANGULAR, AIR_LINEAR, blendPose, readPose } from "./ragdoll-body.ts";
-import { block } from "./ragdoll-mesh.ts";
 
 /**
  * A woman driver's purse (cosmetic, like the dummies: `RagdollSystem` owns the world and steps it). When she is thrown
@@ -422,4 +421,33 @@ export class Purses {
     this.mesh.count = (top + 1) * PIECES;
     this.mesh.visible = top >= 0;
   }
+}
+
+/** A block's foot across, against its top. */
+const TAPER = 0.78;
+/** The block's cross-section: a 1 m square with its corners cut, so it reads blocky, not round. */
+const RING = [0.5, 0.32, 0.32, 0.5, -0.32, 0.5, -0.5, 0.32, -0.5, -0.32, -0.32, -0.5, 0.32, -0.5, 0.5, -0.32];
+
+/**
+ * The one shape every purse piece scales: an octagonal block 1 m wide and tall, its foot `TAPER` of its top, smooth-shaded
+ * round its sides and flat on its ends (28 triangles).
+ */
+function block(): THREE.BufferGeometry {
+  const pos: number[] = [];
+  // Side rings (0–7 top, 8–15 foot), then the same again for the end caps (16–23, 24–31), so the caps shade flat.
+  for (let r = 0; r < 4; r++) {
+    const s = r % 2 ? TAPER : 1;
+    for (let k = 0; k < 8; k++) pos.push(RING[2 * k]! * s, r % 2 ? -0.5 : 0.5, RING[2 * k + 1]! * s);
+  }
+  const index: number[] = [];
+  for (let k = 0; k < 8; k++) {
+    const n = (k + 1) % 8;
+    index.push(k, n, 8 + n, k, 8 + n, 8 + k);
+  }
+  for (let k = 1; k < 7; k++) index.push(16, 17 + k, 16 + k, 24, 24 + k, 25 + k);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(index);
+  geo.computeVertexNormals();
+  return geo;
 }

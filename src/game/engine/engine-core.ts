@@ -57,6 +57,7 @@ import { Lab } from "./engine-lab.ts";
 import type { LabFlick } from "./lab-flick.ts";
 import type { LabArt } from "../present/lab-art.ts";
 import type { Garage } from "./garage.ts";
+import type { Showcase } from "./showcase.ts";
 import { PlayerLooks } from "./player-looks.ts";
 import { wearCarLook } from "../present/car-look.ts";
 import { NO_CAR_PICK } from "../match/look-data.ts";
@@ -165,6 +166,10 @@ export abstract class EngineCore {
   get showGarage(): boolean {
     return this.sceneId === "garage";
   }
+  /** The showcase (by link only): every kind of person the game draws, standing in rows to survey (`Showcase`). */
+  get showShowcase(): boolean {
+    return this.sceneId === "showcase";
+  }
   /** A staged scene: the press, the piston bank or the door ram moves the car; the corkscrew only times it; the stack's cars fall under the world step alone. */
   protected get rigScene(): boolean {
     return this.sceneId === "press" || this.sceneId === "pistons" || this.sceneId === "doors" || this.sceneId === "corkscrew" || this.sceneId === "stack";
@@ -229,6 +234,8 @@ export abstract class EngineCore {
   protected readonly looks = new PlayerLooks();
   /** The garage's room, standing driver and spray can; built on first entering the garage. */
   protected garage: Garage | null = null;
+  /** The showcase's set; built on first entering it. */
+  protected showcase: Showcase | null = null;
   protected fxPoofed = false;
   protected sparkAt = -10;
   protected deadSmokeAcc: number[] = [];

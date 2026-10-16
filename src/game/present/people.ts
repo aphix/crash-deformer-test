@@ -105,15 +105,15 @@ const _m = new THREE.Matrix4();
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 
 /** A figure's limb angles (rad, about his own x axis; negative swings a limb forward), shoulders, elbows, hips and knees per side. */
-type Stance = { arm: [number, number]; elbow: [number, number]; thigh: [number, number]; knee: [number, number] };
+export type Stance = { arm: [number, number]; elbow: [number, number]; thigh: [number, number]; knee: [number, number] };
 
 /** A blank stance: standing straight. */
-function blankStance(): Stance {
+export function blankStance(): Stance {
   return { arm: [0, 0], elbow: [0, 0], thigh: [0, 0], knee: [0, 0] };
 }
 
 /** A walk's stance at stride phase `phase` (rad: a whole stride per 2π), `aiming` with the gun arm out level. */
-function walkStance(phase: number, aiming: boolean, out: Stance): Stance {
+export function walkStance(phase: number, aiming: boolean, out: Stance): Stance {
   const s = detSin(phase);
   out.thigh[0] = -LEG_SWING * s;
   out.thigh[1] = LEG_SWING * s;
