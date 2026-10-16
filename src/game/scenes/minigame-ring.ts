@@ -60,6 +60,10 @@ const REAL_RAIL_HEIGHT_INCHES = 3;
 const REAL_RAIL_RAMP_INCHES = 8;
 const REAL_RAIL_LEAD_INCHES = 10;
 
+/** The backboard behind the board: its height over the pad and its thickness on the real machine (real inches). */
+const REAL_BACKBOARD_HEIGHT_INCHES = 50;
+const REAL_BACKBOARD_THICKNESS_INCHES = 1;
+
 /** One scoring cup or pocket: radius is the rim crest's inner circle, the edge of its scoring zone. */
 export type RingZone = {
   score: number;
@@ -135,6 +139,18 @@ export const RING_BOARD_BOUNDS = {
   maxX: BOARD_MAX_X,
   minZ: -HALF_WIDTH,
   maxZ: HALF_WIDTH,
+} as const;
+
+/**
+ * The backboard (and the physics backstop built from the same numbers) behind the board: its front face stands `distancePastBoard`
+ * m past `RING_BOARD_BOUNDS.maxX`, a clear gap so it never overlaps the rim's back curve, its top is `height` m over the pad, and it
+ * is `thickness` m deep. It is the real machine's 50 in x `SKEE_SCALE`, so a throw that overshoots the board (design speeds 15-22
+ * m/s) hits the panel instead of leaving the station.
+ */
+export const RING_BACKSTOP = {
+  distancePastBoard: 0.3,
+  height: scaledMetres(REAL_BACKBOARD_HEIGHT_INCHES),
+  thickness: scaledMetres(REAL_BACKBOARD_THICKNESS_INCHES),
 } as const;
 
 const RAIL_START_X = RING_BOARD_START_X + scaledMetres(REAL_FIRST_CUP_FRONT_INCHES - REAL_RAIL_LEAD_INCHES);
