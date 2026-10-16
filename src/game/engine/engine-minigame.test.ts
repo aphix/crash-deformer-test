@@ -69,11 +69,10 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
     run(2 * FRAME);
   };
   const stationLocal = (mode: MinigameMode, world: THREE.Vector3, still: number): TorsoSample => ({ x: world.x - STATION_ANCHORS[mode].x, y: world.y, z: world.z - STATION_ANCHORS[mode].z, still });
-  /** The player holds the throttle (the long jump lets go before its barrier) and every frame's torso is read, until the throw scores or the sim runs out. */
+  /** The player holds the throttle to the lip (or the barrier) and every frame's torso is read, until the throw scores or the sim runs out. */
   const throwAndRead = (mode: MinigameMode): TorsoSample[] => {
     const samples: TorsoSample[] = [];
     const torso = new THREE.Vector3();
-    const car = engine["carA"];
     engine["keys"].add(THROTTLE_KEY);
     for (let frame = 0; frame < THROW_TIMEOUT_S * FRAME_HZ && minigameHud().phase !== "scored"; frame++) {
       engine.advance(FRAME, { frameDt: FRAME });
