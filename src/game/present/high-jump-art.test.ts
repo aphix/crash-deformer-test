@@ -5,7 +5,7 @@ import { stubBrowser } from "../engine/engine-headless.test-util.ts";
 import { LANDING_HEIGHT } from "../scenes/minigame-constants.ts";
 import { CAPTURE_HALF_WIDTH, highJumpLayout, POST_HALF_SPAN, POST_THICKNESS } from "../scenes/minigame-high-jump.ts";
 import { climbFootX, floorHeightAt } from "../scenes/minigame-profile.ts";
-import { HIGH_JUMP_DRAW_BUDGET, makeHighJumpArt, POST_THICKNESS_PER_METRE } from "./high-jump-art.ts";
+import { HIGH_JUMP_DRAW_BUDGET, makeHighJumpArt, NET_HALF_WIDTH, POST_THICKNESS_PER_METRE } from "./high-jump-art.ts";
 
 const LIP_Y = 7;
 /**
@@ -103,6 +103,7 @@ describe("given the High jump's art built from a layout", () => {
       const box = boundsOf(vertices(net));
       assert.ok(Math.abs(box.min.x - layout.netX) < POSITION_TOLERANCE && Math.abs(box.max.x - layout.netX) < POSITION_TOLERANCE, `net x ${box.min.x}..${box.max.x}, expected ${layout.netX}`);
       assert.ok(box.max.z >= CAPTURE_HALF_WIDTH && box.min.z <= -CAPTURE_HALF_WIDTH, "the net spans the capture band");
+      assert.ok(Math.abs(box.max.z - NET_HALF_WIDTH) < POSITION_TOLERANCE && Math.abs(box.min.z + NET_HALF_WIDTH) < POSITION_TOLERANCE, `net z ${box.min.z}..${box.max.z}, NET_HALF_WIDTH ${NET_HALF_WIDTH}`);
       assert.ok(Math.abs(box.min.y - LANDING_HEIGHT) < POSITION_TOLERANCE, "the net hangs from the pad up");
       assert.ok(Math.abs(box.max.y - (LANDING_HEIGHT + layout.netHeight)) < POSITION_TOLERANCE, `net top ${box.max.y}, netHeight ${layout.netHeight}`);
       const material = net.material as THREE.MeshStandardMaterial;

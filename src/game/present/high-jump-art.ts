@@ -80,6 +80,8 @@ const BACKBOARD_GAP = 0.05;
 
 /** The net: it reaches this far (m) either side beyond the capture band; each end pole stands this far above the net. */
 const NET_SIDE_MARGIN = 3;
+/** Half the net's width (m): the drawn net and the ground's net prism share it. */
+export const NET_HALF_WIDTH = CAPTURE_HALF_WIDTH + NET_SIDE_MARGIN;
 const NET_POLE_THICKNESS = 0.3;
 const NET_POLE_EXTRA_HEIGHT = 1;
 const NET_CABLE_THICKNESS = 0.1;
@@ -122,7 +124,7 @@ function mergedMesh(name: string, parts: THREE.BufferGeometry[], material: THREE
 /** Where the net stands: its half width (m), its top's height above the pad, and how much thicker than the base sizes its timbers are. */
 function netExtent(layout: HighJumpLayout) {
   const top = LANDING_HEIGHT + layout.netHeight;
-  return { halfWidth: CAPTURE_HALF_WIDTH + NET_SIDE_MARGIN, top, scale: thicknessScale(layout.netHeight) };
+  return { halfWidth: NET_HALF_WIDTH, top, scale: thicknessScale(layout.netHeight) };
 }
 
 /** Where the back-board hangs: x just behind the posts, its bottom and top heights, and its half width. */
