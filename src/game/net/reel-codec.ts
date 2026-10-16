@@ -187,9 +187,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * down at each shift); the road takes it through the driven axles' traction for the class's driveline (`tractionLimit`), the excess spinning the wheels (`drive.spinSpeed`, state in the flight
  * block) and fading their sideways grip; each surface drags by its rolling resistance (`Surface.roll`) and the flat off-road speed cap (`Surface.speed`, `onSurface`) is gone: a replay of a clip of
  * 98 or before drives every car off its recorded line, off the road most of all.
+ * 100: a held slide's hands-off hold fades out over a deadband of stick past `DRIVE.driftDeadband` (`held`) instead of switching off at its edge, so a slide steered out of the hold yaws
+ * differently from the slice the stick crosses 0.1: a replay of a clip of 99 or before drifts its cars off their recorded line past that crossing.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 99;
+const REPLAY_VERSION = 100;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

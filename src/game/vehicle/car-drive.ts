@@ -51,7 +51,7 @@ export const DRIVE = {
   slideGrip: [0.75, 0.3] as const,
   /** Drift assist: how fast (1/s) the body angle chases its target in a slide. */
   slipGain: 6,
-  /** Steer (after the lock scale) inside ±this is hands off the wheel: a slide held on the gas keeps its angle. */
+  /** Steer (after the lock scale) inside ±this is hands off the wheel: a slide held on the gas keeps its angle, and that hold fades out over another deadband of stick past it (`held`). */
   driftDeadband: 0.1,
   /** A hands-off slide holds only while the body is yawed more than this (rad) off the velocity; straighter, it is over and the assist catches it. */
   driftHoldSlip: 0.12,
@@ -339,7 +339,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const beta = detAtan2(-lat0, Math.max(1, Math.abs(along)));
   const dir = beta > 0.02 ? 1 : beta < -0.02 ? -1 : Math.sign(steer);
   let target = 0;
-  let handsOff = false; // a held slide with the wheel in the deadband: the body angle stays where it is
+  let held = 0; // how far the wheel is hands off (1 inside the deadband, 0 a deadband past it): a held slide keeps its body angle by this much
   if (along > DRIVE.slideSpeed) {
     // A slide starts as hard as the inputs are past each gate (`DRIVE.entry*`): the handbrake's grip, the lock past the deadband, the speed past the minimum.
     const flick = ebrake * unit((Math.abs(steer) - 0.15) / DRIVE.entrySteer) * unit((along - DRIVE.slideSpeed) / DRIVE.entrySpeed);
@@ -350,8 +350,10 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
     // Held on the gas (no brake): lock either way short of a hard counter-steer keeps the slide, and so does hands off the wheel
     // (a released stick or key) while the body is still yawed off its velocity. Lifting, braking or a hard counter-steer catches it.
     if (d.drift > 0.05 && throttle > 0.25 && brake < 0.1) {
-      handsOff = Math.abs(steer) <= DRIVE.driftDeadband && Math.abs(beta) > DRIVE.driftHoldSlip;
-      if (handsOff || (Math.abs(steer) > DRIVE.driftDeadband && steer * dir > -0.6)) target = Math.max(target, d.drift);
+      // The hold is not a switch at the deadband's edge (masterclass 23:34): it fades out as the stick leaves, so the aim moves from the angle
+      // held to the angle steered over a deadband of travel, never in one slice (a switch dropped the yaw rate 80 % the slice the stick crossed).
+      if (Math.abs(beta) > DRIVE.driftHoldSlip) held = 1 - unit((Math.abs(steer) - DRIVE.driftDeadband) / DRIVE.driftDeadband);
+      if (held > 0 || (Math.abs(steer) > DRIVE.driftDeadband && steer * dir > -0.6)) target = Math.max(target, d.drift);
     }
   }
   const catchRate = a.catchRate * (1.25 - 0.5 * k.drift) * (steer * dir < -0.6 ? 2 : 1); // loose classes (high `drift`) let a slide run on longer
@@ -367,10 +369,11 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   }
   yawRate *= 1 + DRIVE.slideYaw * drift;
   if (edge > 0) {
-    // Drift assist: steer sets the body angle (into the turn = deeper, counter = shallower), the yaw follows it; hands off it holds the angle it has.
-    const aim = handsOff
-      ? dir * Math.min(Math.abs(beta), a.slipCap)
-      : dir * a.slipCap * Math.max(0.1, Math.min(1, 0.55 + 0.45 * steer * dir)) * drift;
+    // Drift assist: steer sets the body angle (into the turn = deeper, counter = shallower), the yaw follows it; hands off it holds the angle it has,
+    // the two aims blended by how far hands off the wheel is.
+    const heldAim = dir * Math.min(Math.abs(beta), a.slipCap);
+    const steeredAim = dir * a.slipCap * Math.max(0.1, Math.min(1, 0.55 + 0.45 * steer * dir)) * drift;
+    const aim = heldAim * held + steeredAim * (1 - held);
     const assisted = (dir * slideBite) / Math.max(v, 4) + (aim - beta) * DRIVE.slipGain;
     const most = k.turn * DRIVE.ebrakeTurn * (1 + DRIVE.slideYaw);
     const t = (1 - realism) * Math.min(1, drift * 2) * edge;

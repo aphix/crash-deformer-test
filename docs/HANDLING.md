@@ -91,9 +91,11 @@ monster quickest, truck slowest off the line). Time to top is the law's.
   with lock either way and the drift assist holds the body angle while the car carries its speed round. Let go of the
   wheel (a pad stick or the A/D keys released: the steer settles inside ±0.1) with the gas still on and the drift holds
   the angle it has, as long as the body is yawed more than 0.12 rad off its velocity; hands off is a held drift, not a
-  catch. Lifting off (the assist catches it in about 0.3 s), touching the brake, or steering hard the other way (full
-  opposite lock catches it twice as fast) ends it. Keyboard and pad share the rule: a key release slews the wheel to 0
-  in ~0.14 s, a pad stick springs back inside the same deadband.
+  catch. The hold is not a switch at the deadband's edge: it fades out over another deadband of stick (`held`), the aim
+  moving from the angle held to the angle steered as the stick travels 0.1–0.2 (a switch dropped the yaw rate 80 % in the
+  one slice the stick crossed; `drift-hold-fade.test.ts`). Lifting off (the assist catches it in about 0.3 s), touching the
+  brake, or steering hard the other way (full opposite lock catches it twice as fast) ends it. Keyboard and pad share the
+  rule: a key release slews the wheel to 0 in ~0.14 s, a pad stick springs back inside the same deadband.
 - **Graded assists** (masterclass 23:34, "rather than switching your behavior on or off based on a binary condition, try to fade them in or out over some parameter, even if that parameter is time"): none of these but the boost is a switch, and every ramp is a rate per second times `dt`, so it holds at any step.
   - *Drift entry*: the slide a handbrake or a boost asks for is `ebrakeK · ramp((|steer| − 0.15) / 0.35) · ramp((along − 6) / 4)` (handbrake) or `class drift · boostK · ramp((|steer| − 0.6) / 0.3) · ramp((throttle − 0.7) / 0.2) · ramp((along − 10) / 4)` (boost), `ramp` held to 0–1 (`DRIVE.entry*`), the larger of the two; `drive.drift` chases it at 6/s as ever. A gentle input far from the gates gives a gentle slide, full lock at 10 m/s the whole one. A held slide keeps the level it has (the hold rules above).
   - *Yaw handover*: the grip clamp on the yaw rate hands over to the slide's assist across drift 0.05–0.15 (`DRIVE.slideEdge`, `slideSpan`), not at 0.05; the speed hand-back blends in with it.
