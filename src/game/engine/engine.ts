@@ -31,6 +31,8 @@ import { VIP_LOOK } from "../present/people.ts";
 import { throwComing } from "../present/ragdoll-trigger.ts";
 import { ChaseCamera, centroid, SHAKE_DECAY_PER_S, type SpecScene } from "../present/engine-camera.ts";
 import { blankFreeInput, sceneExtent } from "../present/free-cam.ts";
+import { MINIGAME_AIM_LEAD } from "../present/ride-cam.ts";
+import { THROW_BOOST } from "../scenes/minigame-constants.ts";
 import { readFreeInput } from "./engine-free.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { armTops } from "../world/surfaces.ts";
@@ -626,7 +628,10 @@ export class CrashEngine extends EngineGarage {
     else if (this.derbyMode) this.derbyCollide(car, i, h);
     else if (this.showCorkscrew) this.corkCollide(car);
     else if (this.showLab) this.lab.collide(car, i, h);
-    else this.rigCollide(car, i, h);
+    else if (this.minigameMode !== null) {
+      this.rigCollide(car, i, h);
+      this.minigames.collide(car, i);
+    } else this.rigCollide(car, i, h);
   };
 
   private fixedStep(dt: number): void {
@@ -685,7 +690,8 @@ export class CrashEngine extends EngineGarage {
     const ejected = this.ejection.take();
     for (let k = 0; k < ejected.length; k++) {
       const e = ejected[k]!;
-      this.ragdolls.launch(e, cars);
+      this.ragdolls.launch(e, cars, true, this.minigameMode === null ? undefined : THROW_BOOST[this.minigameMode]);
+      if (this.minigameMode !== null) this.minigames.noteThrown();
       if (this.race.active) this.race.recorder.eject(e);
       this.net.sendEject(e);
     }
@@ -738,6 +744,11 @@ export class CrashEngine extends EngineGarage {
     if (this.derbyMode || this.race.active) return;
     const settled = this.clock.phase === "aftermath";
     stepPhase(this.clock, wallDt);
+    // A minigame has no loop and no timer: the dummy lies where he lands, and the session waits for the player's Retry.
+    if (this.minigameMode !== null) {
+      this.minigames.step(this.ragdolls, this.seat.mode === "drive" && this.seat.carIndex === 0);
+      return;
+    }
     // A thrown range driver holds the loop until his landing has been shown (`RangeRun`); otherwise it runs as the
     // fleet's, after any ride-along with thrown drivers. The Lab never loops: the wreckage stays until the player resets.
     const still = this.showRange ? this.ragdolls.latest(_v) : -1;
@@ -778,7 +789,7 @@ export class CrashEngine extends EngineGarage {
 
   /** The free view's frame: the held keys and sticks (none under a menu), over the scene's footprint. */
   private flyFree(wallDt: number): void {
-    sceneExtent(this.view.free.extent, this.derbyMode, this.race.active ? this.race.courseBounds() : null);
+    sceneExtent(this.view.free.extent, this.derbyMode, this.race.active ? this.race.courseBounds() : this.showRange ? this.minigames.bounds() : null);
     this.view.frameFree(readFreeInput(this.keys, this.pad.state, this.race.menuOpen, this.freeInput), wallDt);
   }
 
@@ -804,7 +815,7 @@ export class CrashEngine extends EngineGarage {
     const watched = this.followedCar() ? this.seat.carIndex : -1;
     const held = this.view.rideHeld(this.ragdolls.rideAlong, wallDt);
     const waits = this.cine.holding && !this.showRange;
-    const ride = waits ? "none" : this.ragdolls.frameCamera(this.camera, wallDt, this.showRange, watched, held, this.view.lens, this.specScene.sight);
+    const ride = waits ? "none" : this.ragdolls.frameCamera(this.camera, wallDt, this.showRange, watched, held, this.view.lens, this.specScene.sight, this.minigameMode === null ? 0 : MINIGAME_AIM_LEAD);
     this.view.frameRide(ride === "none" ? null : this.ragdolls.rideLook);
     if (ride === "held") this.view.orbit(wallDt, 0, false);
     if (ride !== "none" || cut) return;

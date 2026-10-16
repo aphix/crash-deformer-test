@@ -30,7 +30,7 @@ import type { RaceCommand } from "../match/types.ts";
 import { SOLO_SCENES, type SceneId } from "../scenes/scene-id.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { celStrength } from "../present/scene-fade.ts";
-import { EngineDerby } from "./engine-derby.ts";
+import { EngineMinigames } from "./engine-minigame-commands.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
 import { aimLabShot, LAB_FOV, LAB_SHOT } from "./lab-shot.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
@@ -43,7 +43,7 @@ const _q = new THREE.Quaternion();
 /** Race commands a netplay client may run: viewing only (the host starts, pauses and ends races). */
 const CLIENT_RACE_COMMANDS: ReadonlySet<RaceCommand["type"]> = new Set(["fullUi", "cycle", "watch", "spectate"]);
 
-export abstract class EngineScenes extends EngineDerby {
+export abstract class EngineScenes extends EngineMinigames {
   /** The corkscrew's car this run: not yet flown, in the air, or down again (`EngineRigs.watchCorkscrew`). */
   protected corkFlight: "ground" | "air" | "down" = "ground";
 
@@ -142,6 +142,7 @@ export abstract class EngineScenes extends EngineDerby {
   /** `menu`: the player picked the scene (bar, key): Survival opens its course menu first. A `#` (`engine-share.ts`) starts the run at once, as every other scene starts. */
   protected applyScene(next: SceneId, menu = false): void {
     if (this.net.client) return;
+    this.endMinigames();
     // A new scene is a new place: the free eye, left where the last one was, would hang in the new one's walls or sky.
     this.view.leaveFree();
     // The range and the garage are one-car scenes: the sandbox's field comes back after them (the range's wall is its own, never the user's).
@@ -353,7 +354,8 @@ export abstract class EngineScenes extends EngineDerby {
       this.scene.add(this.rangeArt);
       this.queueWarm();
     }
-    if (this.rangeArt) this.rangeArt.visible = this.showRange;
+    if (this.rangeArt) this.rangeArt.visible = this.showRange && this.minigames.rangeArtShown;
+    this.minigames.showArt(this.showRange);
     this.ragdolls.sand = this.showRange;
     if (this.showLab && !this.labArt) {
       this.labArt = new LabArt();
@@ -381,10 +383,10 @@ export abstract class EngineScenes extends EngineDerby {
       this.finishResetCommon();
       return;
     }
-    setGround(this.showCorkscrew ? this.corkscrew : this.showLab ? this.lab.ground : this.derbyMode ? this.derbyGround : this.rigScene || this.showRange || this.showGarage ? null : this.showRamps ? this.ramps : DISC_GROUND);
+    setGround(this.showCorkscrew ? this.corkscrew : this.showLab ? this.lab.ground : this.derbyMode ? this.derbyGround : this.showRange ? this.minigames.groundInPlay : this.rigScene || this.showGarage ? null : this.showRamps ? this.ramps : DISC_GROUND);
     armSolids(this.showLab ? this.lab.prisms : this.rigs);
     this.stage.ground.scale.setScalar(this.showCorkscrew ? 3 : 1);
-    for (const o of this.studio) o.visible = !this.showLab && !this.showGarage && !this.derbyMode;
+    for (const o of this.studio) o.visible = !this.showLab && !this.showGarage && !this.derbyMode && this.minigameMode === null;
     // A rig owns its car (the press and rams move it, the corkscrew's spawn speed coasts it): a reset hands it back from the driver, whose pedals would unpark it and brake the run.
     if (this.rigScene && !this.showStack && this.seat.mode === "drive") {
       this.seat.esc();
@@ -469,10 +471,14 @@ export abstract class EngineScenes extends EngineDerby {
     this.parkExtras();
   }
 
-  /** Car A on the range's run-up at speed, aimed down +x at the barrier on the origin (the wall, balls and ramps are the scene's: `SCENE_PROPS`). */
+  /** Car A on the range's run-up at speed, aimed down +x at the barrier on the origin (the wall, balls and ramps are the scene's: `SCENE_PROPS`). A minigame parks it at its station's start instead. */
   private spawnRange(): void {
     const car = this.carA;
     car.group.visible = true;
+    if (this.minigameMode !== null) {
+      this.parkAtMinigameStart(car);
+      return;
+    }
     car.spawnFacing(-RANGE.run, 0, Math.PI / 2, RANGE.kph / KPH_PER_MS);
     this.dressCar(car);
   }

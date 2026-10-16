@@ -5,6 +5,11 @@ import { CLASSES, killClass, killTravel } from "./vehicle-classes.ts";
 
 /** Velocity samples per car, one per `SAMPLE` s of sim time (`SAMPLE_HZ`): 0.53 s, past `PRE`. */
 const RING = 32;
+/** The ring stores a car's world velocity per sample: x, y, z at these offsets. */
+const VELOCITY_X = 0;
+const VELOCITY_Y = 1;
+const VELOCITY_Z = 2;
+const VELOCITY_STRIDE = 3;
 const SAMPLE_HZ = 60;
 const SAMPLE = 1 / SAMPLE_HZ;
 /** How far back (s) "before the hit" is: the block dies 25-40 ms into a frontal hit, a derby kill up to 0.3 s after its last contact. */
@@ -49,7 +54,7 @@ export function killSpeed(car: DeformableCar): number {
  */
 const DOOR_SQUARE = 2;
 
-/** The throw: out of the pane, up, and a somersault over his shoulder line (owner, 2026-10-02: arcade, set by eye). */
+/** The throw: out of the pane, up (over the car's own vertical speed, so a car climbing a ramp throws him along the climb), and a somersault over his shoulder line (owner, 2026-10-02: arcade, set by eye). */
 export const THROW_OUT = 3;
 const THROW_UP = 3.5;
 const TUMBLE = 3;
@@ -149,7 +154,7 @@ function launch(car: DeformableCar, i: number, exit: ExitPane, pre: THREE.Vector
   e.spin.set(side === 0 ? 1 : 0, 0, side === 0 ? 0 : -side).applyQuaternion(g.quaternion).multiplyScalar(TUMBLE);
   f32(e.spin);
   f32(e.carVel.copy(car.velocity));
-  _v.set(pre.x + _out.x * THROW_OUT, THROW_UP, pre.z + _out.z * THROW_OUT);
+  _v.set(pre.x + _out.x * THROW_OUT, pre.y + THROW_UP, pre.z + _out.z * THROW_OUT);
   f32(e.rel.copy(_v).sub(e.carVel));
   return e;
 }
@@ -185,7 +190,7 @@ export class EjectionWatch {
 
   private grow(n: number): void {
     this.cap = n;
-    this.vel = new Float32Array(n * RING * 2);
+    this.vel = new Float32Array(n * RING * VELOCITY_STRIDE);
     this.head = new Int32Array(n);
     this.count = new Int32Array(n);
     this.alive = new Int8Array(n).fill(-1);
@@ -209,12 +214,25 @@ export class EjectionWatch {
     if (n > this.cap) this.grow(n);
     for (let i = 0; i < n; i++) {
       if (this.count[i]! > 0) continue;
-      const o = i * RING * 2;
-      this.vel[o] = cars[i]!.velocity.x;
-      this.vel[o + 1] = cars[i]!.velocity.z;
+      const o = i * RING * VELOCITY_STRIDE;
+      this.vel[o + VELOCITY_X] = cars[i]!.velocity.x;
+      this.vel[o + VELOCITY_Y] = cars[i]!.velocity.y;
+      this.vel[o + VELOCITY_Z] = cars[i]!.velocity.z;
       this.head[i] = 1;
       this.count[i] = 1;
     }
+  }
+
+  /**
+   * Throws car `index`'s driver out of the windshield now, whatever the car has hit (a scene that stages the throw, a ramp's lip):
+   * the launch is `judge`'s, at the car's current world velocity (its vertical speed too, no look-back). A car that is falling,
+   * vaporized or already thrown out gives nothing, so a second call is a no-op until the car is put back (`resetVisual`).
+   */
+  throwDriverNow(cars: readonly DeformableCar[], index: number): void {
+    const car = cars[index]!;
+    if (car.falling || car.vaporized || car.driverOut !== null) return;
+    car.driverOut = "windshield";
+    this.pending.push(launch(car, index, "windshield", _pre.copy(car.velocity)));
   }
 
   /** The events since the last call, oldest first (a shared empty array when there are none). */
@@ -247,9 +265,10 @@ export class EjectionWatch {
     }
     if (!sample) return;
     for (let i = 0; i < n; i++) {
-      const o = (i * RING + this.head[i]!) * 2;
-      this.vel[o] = cars[i]!.velocity.x;
-      this.vel[o + 1] = cars[i]!.velocity.z;
+      const o = (i * RING + this.head[i]!) * VELOCITY_STRIDE;
+      this.vel[o + VELOCITY_X] = cars[i]!.velocity.x;
+      this.vel[o + VELOCITY_Y] = cars[i]!.velocity.y;
+      this.vel[o + VELOCITY_Z] = cars[i]!.velocity.z;
       this.head[i] = (this.head[i]! + 1) % RING;
       this.count[i] = Math.min(RING, this.count[i]! + 1);
     }
@@ -285,22 +304,24 @@ export class EjectionWatch {
     const back = Math.min(this.count[i]!, other >= 0 ? this.count[other]! : RING, Math.round(PRE / SAMPLE));
     let closing = -Infinity;
     let sx = car.velocity.x;
+    let sy = car.velocity.y;
     let sz = car.velocity.z;
     for (let k = 1; k <= back; k++) {
-      const a = (i * RING + ((this.head[i]! - k + RING) % RING)) * 2;
-      let c = -(this.vel[a]! * _n.x + this.vel[a + 1]! * _n.z);
+      const a = (i * RING + ((this.head[i]! - k + RING) % RING)) * VELOCITY_STRIDE;
+      let c = -(this.vel[a + VELOCITY_X]! * _n.x + this.vel[a + VELOCITY_Z]! * _n.z);
       if (other >= 0) {
-        const b = (other * RING + ((this.head[other]! - k + RING) % RING)) * 2;
-        const close = c + this.vel[b]! * _n.x + this.vel[b + 1]! * _n.z;
+        const b = (other * RING + ((this.head[other]! - k + RING) % RING)) * VELOCITY_STRIDE;
+        const close = c + this.vel[b + VELOCITY_X]! * _n.x + this.vel[b + VELOCITY_Z]! * _n.z;
         c = killed ? close : Math.min(c, close);
       }
       if (c <= closing) continue;
       closing = c;
-      sx = this.vel[a]!;
-      sz = this.vel[a + 1]!;
+      sx = this.vel[a + VELOCITY_X]!;
+      sy = this.vel[a + VELOCITY_Y]!;
+      sz = this.vel[a + VELOCITY_Z]!;
     }
     if (closing < (killed ? EJECT_CLOSING : killSpeed(car))) return;
     car.driverOut = exit;
-    this.pending.push(launch(car, i, exit, _pre.set(sx, 0, sz)));
+    this.pending.push(launch(car, i, exit, _pre.set(sx, sy, sz)));
   }
 }

@@ -3,6 +3,9 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { RANGE } from "../scenes/range.ts";
 import { groundMesh } from "../scenes/ground-stack.ts";
 
+/** The sign boards' paint: scuffed yellow with a brown edge and black ink, shared by every station's height and distance boards. */
+export const SIGN_BOARD_PAINT = { fill: "#e3b93f", edge: "#6b5419", ink: "#16130c" } as const;
+
 /** Distance signs: board size (m), board centre height, and how far outside the field's left edge (−z) they stand. */
 const BOARD_W = 2.6;
 const BOARD_H = 1.3;
@@ -45,12 +48,12 @@ export function makeRangeArt(): THREE.Group {
     const row = Math.floor(k / 5);
     const x0 = col * 256;
     const y0 = row * 128;
-    ctx.fillStyle = "#e3b93f";
+    ctx.fillStyle = SIGN_BOARD_PAINT.fill;
     ctx.fillRect(x0 + 4, y0 + 4, 248, 120);
-    ctx.strokeStyle = "#6b5419";
+    ctx.strokeStyle = SIGN_BOARD_PAINT.edge;
     ctx.lineWidth = 6;
     ctx.strokeRect(x0 + 7, y0 + 7, 242, 114);
-    ctx.fillStyle = "#16130c";
+    ctx.fillStyle = SIGN_BOARD_PAINT.ink;
     ctx.font = "bold 92px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";

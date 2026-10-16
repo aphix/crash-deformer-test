@@ -16,6 +16,7 @@ import { EjectionWatch } from "../vehicle/ejection.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import { MAX_CARS, slotType, type CarType } from "../scenes/fleet.ts";
 import { fleetProp, type SceneId } from "../scenes/scene-id.ts";
+import { MINIGAME_MODE, type MinigameMode } from "../scenes/minigame-constants.ts";
 import { SceneFade } from "../present/scene-fade.ts";
 import { ParkingScene } from "../present/parking-scene.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
@@ -54,6 +55,7 @@ import { NetPlay } from "../net/net-play.ts";
 import { RaceDirector } from "./engine-race.ts";
 import { clearTransients } from "./scene-clear.ts";
 import { Lab } from "./engine-lab.ts";
+import { Minigames } from "./engine-minigame.ts";
 import type { LabFlick } from "./lab-flick.ts";
 import type { LabArt } from "../present/lab-art.ts";
 import type { Garage } from "./garage.ts";
@@ -93,7 +95,7 @@ const FLEET_PAINT: CarPaint[] = [
 
 /**
  * The engine's state (renderer, cars, rigs, FX systems, clock), the car roster and the queries and crash FX every
- * other engine layer shares. Layers stack `EngineCore` → `EngineWarm` → `EngineHud` → `EngineDerby` → `EngineScenes` →
+ * other engine layer shares. Layers stack `EngineCore` → `EngineWarm` → `EngineHud` → `EngineDerby` → `EngineMinigames` → `EngineScenes` →
  * `EngineRigs` → `EngineInput` → `CrashEngine` (one class split by context; `CrashEngine` is the only one anything else constructs).
  */
 export abstract class EngineCore {
@@ -114,7 +116,8 @@ export abstract class EngineCore {
   showBalls = false;
   showRamps = false;
   get barrierUp(): boolean {
-    return fleetProp(this.sceneId, "barrier", this.showBarrier);
+    const mode = this.minigameMode;
+    return mode === null ? fleetProp(this.sceneId, "barrier", this.showBarrier) : mode === MINIGAME_MODE.longJump;
   }
   get ballsUp(): boolean {
     return fleetProp(this.sceneId, "balls", this.showBalls);
@@ -150,6 +153,10 @@ export abstract class EngineCore {
   /** The ejection range: car A into the jersey barrier, its driver over it into the sand field (`RANGE`). */
   get showRange(): boolean {
     return this.sceneId === "range";
+  }
+  /** The minigame in play: only inside the Range (any other scene leaves them: `endMinigame`). */
+  protected get minigameMode(): MinigameMode | null {
+    return this.showRange ? this.minigames.mode : null;
   }
   get showCorkscrew(): boolean {
     return this.sceneId === "corkscrew";
@@ -226,6 +233,8 @@ export abstract class EngineCore {
   /** The range's sand field and distance signs: built on first entering the range, shown in that scene only. */
   protected rangeArt: THREE.Group | null = null;
   protected readonly rangeRun = new RangeRun();
+  /** The Range's driver-driven minigames (long jump, high jump, Ring Fling): their session, floor, art and throw bookkeeping. */
+  protected readonly minigames = new Minigames();
   /** The Lab's set and throw readback; its workshop art and flick are built on first entering the Lab. */
   protected readonly lab = new Lab();
   protected labArt: LabArt | null = null;

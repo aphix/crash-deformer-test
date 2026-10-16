@@ -15,6 +15,7 @@ import type { DriverLook } from "../present/driver-look.ts";
 import { DEFAULT_BUCKLE, DEFAULT_SQUASH } from "../deform/constants.ts";
 import { MUSIC_MAX_GAIN } from "../present/audio-mix.ts";
 import { PISTON_SHOT } from "../scenes/constants.ts";
+import type { MinigameHudState } from "../scenes/minigame-session.ts";
 
 type CompactStage = "open" | "contact" | "wells" | "mid" | "max";
 
@@ -84,6 +85,8 @@ export type CrashHudState = {
   /** The ejection range (null in every other scene): metres past the wall the thrown driver has reached, null before
    *  the throw; `landed` once he lies still. */
   range: { distance: number | null; landed: boolean } | null;
+  /** The Range minigame running (null outside one): the session's card, mounted by the engine. */
+  minigame: MinigameHudState | null;
   showCorkscrew: boolean;
   /**
    * The stack scene (null in every other scene): its three settings, the cars in the stack so far (`dropped`), and per
@@ -229,6 +232,7 @@ export const INITIAL_HUD: CrashHudState = {
   showDoors: false,
   doors: { side: 1, kph: 12, kg: 300, open: false, busy: false, energyJ: 0, shot: null },
   range: null,
+  minigame: null,
   showCorkscrew: false,
   stack: null,
   lab: null,

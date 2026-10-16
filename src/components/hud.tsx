@@ -31,6 +31,8 @@ import { formatSpeed } from "@/game/hud/speed-units";
 import type { RaceCommand } from "@/game/match/types";
 import { benchHoldsCommand } from "@/game/hud/submit-rules";
 import { SOLO_SCENES } from "@/game/scenes/scene-id";
+import { MINIGAME_MODES, MODE_LABELS } from "@/game/scenes/minigame-constants";
+import { MinigamePanel } from "@/components/minigame-panel";
 import { cn } from "@/lib/utils";
 
 export type HudProps = {
@@ -161,6 +163,8 @@ export function Hud(props: HudProps) {
   // Phones start with the settings tucked away; wide screens show the (collapsed) sections.
   const [settings, setSettings] = useStoredString("crush.hud.settings", "hidden", "shown");
   const settingsShown = settings === "shown";
+  // The Range's Mini games pick (one button per mode) opens from the range card and closes once a mode is picked.
+  const [minigamePickOpen, setMinigamePickOpen] = useState(false);
   // Touch only, with the bottom bar showing: the menu collapses to a short bar after a few seconds without a tap (`data-idle`, the `idle:`
   // variant) or on the hide button, and expands on a click or slide up on that bar or when a menu opens. Never on a bare tap (use-hud-idle).
   const [sections] = useStoredString(HUD_SECTIONS_KEY, "", "");
@@ -196,7 +200,34 @@ export function Hud(props: HudProps) {
         {state.showPistons ? <PistonPanel pistons={state.pistons} engine={engine} /> : null}
         {state.showDoors ? <DoorPanel doors={state.doors} engine={engine} /> : null}
         {state.stack ? <StackPanel stack={state.stack} engine={engine} /> : null}
-        {state.range ? <RangePanel range={state.range} /> : null}
+        {state.range ? <RangePanel range={state.range} onOpenMinigames={() => setMinigamePickOpen((open) => !open)} /> : null}
+        {state.range && minigamePickOpen ? (
+          <div className="hud-panel mt-1 flex w-44 flex-col gap-1 p-2" role="group" aria-label="Mini games">
+            {MINIGAME_MODES.map((mode) => (
+              <Button
+                key={mode}
+                variant="secondary"
+                className="h-11 px-2 text-xs sm:h-7"
+                onClick={() => {
+                  setMinigamePickOpen(false);
+                  engine.current?.startMinigame(mode);
+                }}
+              >
+                {MODE_LABELS[mode]}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+        {state.minigame ? (
+          <MinigamePanel
+            state={state.minigame}
+            onRetry={() => engine.current?.retryMinigame()}
+            onResetRun={() => engine.current?.resetMinigameRun()}
+            onPickMode={(mode) => engine.current?.startMinigame(mode)}
+            onSetThrowsPerSet={(count) => engine.current?.setMinigameThrowsPerSet(count)}
+            onExit={() => engine.current?.exitMinigame()}
+          />
+        ) : null}
         {state.lab ? <LabPanel lab={state.lab} engine={engine} /> : null}
         {state.garage ? <GaragePanel garage={state.garage} playerCar={state.playerCar} engine={engine} /> : null}
         {state.derby && state.derbyBoard.length > 0 ? <DerbyBoard board={state.derbyBoard} engine={engine} /> : null}
