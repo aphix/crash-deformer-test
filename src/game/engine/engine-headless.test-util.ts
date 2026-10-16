@@ -7,12 +7,14 @@ import type { CrashEngine } from "./engine.ts";
  * answers a string that also reads as the number 16, so three's version check and its numeric limits both take it.
  */
 const ctx2d: object = new Proxy(function () {}, { get: () => () => ctx2d, apply: () => ctx2d });
-const GL_ANSWERS: Record<string, () => unknown> = {
+/** The extensions the context has: three warns when it asks for one a render target needs and finds it missing. The engine's own optional ones (timer queries, renderer info) stay absent. */
+const GL_EXTENSIONS = ["EXT_color_buffer_float"];
+const GL_ANSWERS: Record<string, (...args: unknown[]) => unknown> = {
   getParameter: () => Object.assign(new String("WebGL 2.0"), { valueOf: () => 16 }),
   getShaderPrecisionFormat: () => ({ rangeMin: 127, rangeMax: 127, precision: 23 }),
   getContextAttributes: () => ({ alpha: false, antialias: false }),
-  getSupportedExtensions: () => [],
-  getExtension: () => null,
+  getSupportedExtensions: () => GL_EXTENSIONS,
+  getExtension: (name) => (GL_EXTENSIONS.includes(name as string) ? {} : null),
   getShaderInfoLog: () => "",
   getProgramInfoLog: () => "",
   getProgramParameter: () => 0,

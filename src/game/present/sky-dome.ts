@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { TIME_OF_DAY, type TimeOfDay } from "../match/types.ts";
-import { BITMAP_UPRIGHT } from "./constants.ts";
+import { loadUprightBitmap } from "./bitmap-loader.ts";
 import type { FxTier } from "./engine-post.ts";
 
 const BASE = import.meta.env?.BASE_URL ?? "/";
@@ -123,8 +123,6 @@ void main() {
   gl_FragColor = vec4(c, 1.0);
   #include <colorspace_fragment>
 }`;
-
-const bitmaps = new THREE.ImageBitmapLoader().setOptions(BITMAP_UPRIGHT);
 
 /**
  * The race's sky (`WorldStage.setTime`): the time of day's picture on a sphere round the camera, drawn at infinity (turned with
@@ -260,7 +258,7 @@ export class SkyDome {
 
   private async load(file: string): Promise<THREE.Texture | null> {
     try {
-      const bitmap = await bitmaps.loadAsync(`${BASE}sky/${file}.webp`);
+      const bitmap = await loadUprightBitmap(`${BASE}sky/${file}.webp`);
       const texture = new THREE.Texture(bitmap);
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.wrapS = THREE.RepeatWrapping;

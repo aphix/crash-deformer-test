@@ -12,8 +12,10 @@
  * `--shard=i/n` (i from 1) runs the i-th of n machines' shares: files go longest first to the share with the least cost per unit of
  * weight (`--weights`, one speed per share: a slower machine gets less), the same split on every machine, so n machines together run each
  * file once. The slowest files of the run print at the end (split any that sets the wall time).
+ * A test process that writes anything to stderr (a `console.warn`, a library's warning) fails the run, its lines printed under the file's name.
  */
 import { globSync, readFileSync, writeFileSync } from "node:fs";
+import { relative } from "node:path";
 import { run } from "node:test";
 import { spec } from "node:test/reporters";
 
@@ -43,7 +45,14 @@ if (shard) {
 
 /** @type {Map<string, number>} */
 const seconds = new Map();
-const stream = run({ files, concurrency, execArgv: [`--import=${new URL("./test-setup.mjs", import.meta.url).href}`] });
+/** @type {Map<string, string[]>} */
+const stderrByFile = new Map();
+// `--disable-warning=ExperimentalWarning`: Node announces the experimental ESM `.wasm` import that Rapier (the physics engine) loads through; it has no finer code to name.
+const stream = run({
+  files,
+  concurrency,
+  execArgv: ["--disable-warning=ExperimentalWarning", `--import=${new URL("./test-setup.mjs", import.meta.url).href}`],
+});
 stream.on("test:summary", (s) => {
   if (s.file === undefined && !s.success) process.exitCode = 1;
 });
@@ -52,8 +61,16 @@ for (const event of ["test:pass", "test:fail"]) {
     if (e.nesting === 0 && e.file) seconds.set(e.file, (seconds.get(e.file) ?? 0) + e.details.duration_ms / 1000);
   });
 }
+stream.on("test:stderr", (e) => {
+  stderrByFile.set(e.file, [...(stderrByFile.get(e.file) ?? []), e.message]);
+});
 stream.compose(spec).pipe(process.stdout);
 stream.on("end", () => {
+  // A test process that wrote to stderr fails the run: a warning is a defect, the next emitter is a red here.
+  for (const [file, lines] of stderrByFile) {
+    console.log(`\nstderr from ${relative(process.cwd(), file)}:\n${lines.join("")}`);
+    process.exitCode = 1;
+  }
   const slow = [...seconds].sort((a, b) => b[1] - a[1]).slice(0, 10);
   console.log(`\nslowest files: ${slow.map(([f, s]) => `${f.slice(process.cwd().length + 1)} ${Math.round(s)} s`).join(", ")}`);
   if (!learn) return;
