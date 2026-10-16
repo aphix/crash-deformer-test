@@ -7,6 +7,7 @@ import { makeCar } from "./ground-probe.test-util.ts";
 import { carGear, carRpm, CLASSES, gearHi, gearLo, HANDLING, rollingOver, rotatingShare, terminalSpeed, tractionLimit, VEHICLE_CLASS_IDS, type ClassStats, type Driveline, type VehicleClassId } from "./vehicle-classes.ts";
 import { Ground, setGround } from "../world/ground.ts";
 import { SURFACE } from "../world/constants.ts";
+import { C_NX, C_NY, C_NZ, HIT_SIZE } from "../world/surfaces.ts";
 import { SURFACE_IDS, SURFACES, type SurfaceId } from "../world/catalog.ts";
 import { FINE_HZ, QUIET_HZ } from "../kernel/constants.ts";
 import { FRICTION_G } from "../deform/physics-util.ts";
@@ -143,6 +144,73 @@ for (const H of RATES) {
         const side = gain(Math.PI / 2);
         assert.deepEqual(side, { dv: 0, throttle: 0 }, "on its side");
         assert.ok(gain(0).dv > 0, "upright, it pulls");
+      });
+    });
+
+    describe("given a 4wd truck at full throttle with all four wheels in contact, rolled about its nose", () => {
+      /** One slice of the drive with the truck rolled `roll` rad about its nose and every wheel's contact normal along `normal` (null: the ground's own, straight up), then the first `onWall` wheels' along a wall's (level, across the car): the body's gain in speed, and the throttle it kept. */
+      const gainRolled = (roll: number, normal: readonly [number, number, number] | null, onWall = 0): { dv: number; throttle: number } => {
+        const car = makeCar("truck");
+        car.spawnFacing(0, 0, 0, 1);
+        car.integrate(H);
+        car.group.rotateZ(roll);
+        car.wheelsDown = 0b1111;
+        if (normal !== null) {
+          for (let wheel = 0; wheel < 4; wheel++) {
+            car.wheelHit[wheel * HIT_SIZE + C_NX] = normal[0];
+            car.wheelHit[wheel * HIT_SIZE + C_NY] = normal[1];
+            car.wheelHit[wheel * HIT_SIZE + C_NZ] = normal[2];
+          }
+        }
+        for (let wheel = 0; wheel < onWall; wheel++) {
+          car.wheelHit[wheel * HIT_SIZE + C_NX] = 1;
+          car.wheelHit[wheel * HIT_SIZE + C_NY] = 0;
+          car.wheelHit[wheel * HIT_SIZE + C_NZ] = 0;
+        }
+        const before = car.velocity.clone();
+        applyDrive(car, { ...FULL, boost: true }, H);
+        return { dv: car.velocity.distanceTo(before), throttle: car.drive.throttle };
+      };
+      /** The body's up after a roll of `roll` rad about its nose: the contact normal of a tyre standing on a surface the body lies along. */
+      const bodyUp = (roll: number) => [-Math.sin(roll), Math.cos(roll), 0] as const;
+
+      it("when its body up·world-up sweeps from 0.2 to 0.9 on level ground, then the drive rises with it from nothing at 0.35 to whole at 0.42, never by more than 25 % of the whole between 0.01 steps (the old cut stepped it by all of it)", () => {
+        const upright = gainRolled(0, null).dv;
+        assert.ok(upright > 0, "upright, it pulls");
+        let last = 0;
+        let widest = 0;
+        for (let upY = 0.2; upY < 0.9; upY += 0.01) {
+          const dv = gainRolled(Math.acos(upY), null).dv / upright;
+          widest = Math.max(widest, Math.abs(dv - last));
+          assert.ok(dv >= last - 1e-12, `the drive fell from ${last.toFixed(4)} to ${dv.toFixed(4)} of the whole at up·world-up ${upY.toFixed(2)}`);
+          if (upY < 0.349) assert.equal(dv, 0, `up·world-up ${upY.toFixed(2)} drives`);
+          if (upY > 0.44) assert.ok(Math.abs(dv - 1) < 1e-9, `up·world-up ${upY.toFixed(2)} drives ${dv.toFixed(4)} of the whole`);
+          last = dv;
+        }
+        assert.ok(widest < 0.25, `the drive stepped by ${widest.toFixed(4)} of the whole in 0.01 of up·world-up`);
+      });
+
+      it("when it is rolled 72° and every tyre stands on a bank the body lies along (a normal along its up, 0.31 up), then it keeps over 95 % of its drive (the old cut gave it none under 0.35)", () => {
+        const upright = gainRolled(0, null).dv;
+        const roll = (72 * Math.PI) / 180;
+        const banked = gainRolled(roll, bodyUp(roll));
+        assert.ok(banked.dv > 0.95 * upright, `drives ${(banked.dv / upright).toFixed(3)} of the whole`);
+        assert.equal(banked.throttle, 1, "its pedals run");
+      });
+
+      it("when it lies on its side with every tyre pressed to a wall (a normal along its up, none up), then it has no drive and its pedals idle, while upright on the floor it pulls", () => {
+        const upright = gainRolled(0, null).dv;
+        const wall = gainRolled(Math.PI / 2, [-1, 0, 0]);
+        assert.equal(wall.dv, 0, "the gain against the wall");
+        assert.equal(wall.throttle, 0, "the throttle against the wall");
+        assert.ok(upright > 0, "upright, it pulls");
+      });
+
+      it("when an upright truck has one tyre against a wall (as against another car's side) and three on the floor, then it keeps its whole drive; with all four against it, none", () => {
+        const upright = gainRolled(0, null).dv;
+        assert.ok(upright > 0, "upright, it pulls");
+        assert.ok(Math.abs(gainRolled(0, null, 1).dv / upright - 1) < 1e-9, "one tyre on the wall");
+        assert.equal(gainRolled(0, null, 4).dv, 0, "four tyres on the wall");
       });
     });
 

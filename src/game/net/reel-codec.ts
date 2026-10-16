@@ -198,9 +198,10 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 103: the race AI plans every stop at the contact guard's 0.72 of the class brake (`BRAKE_SHARE`; the plan counted on 0.5), the guard takes a car ahead to shed the whole class brake (it was the plan's share), easy's `push` / `slipBrake` are retuned, and a racer rounds a stopped, crawling or oncoming car on the side with more road
  * (`blockerAlong < CRAWL`; it was `< 0`): a replay of a clip of 102 or before drives its AI racers' braking, guard, and so their lines and speeds, differently.
  * 104: easy's corner `push` is 0.78–0.86 (it was 0.76–0.84): easy's oval winner runs about 10 % behind hard's, not 13 %. A replay of a clip of 103 or before drives its easy racers' corners differently.
+ * 105: the tyres' drive (the yaw and velocity change `applyDrive` gives) fades with how far the surface under the wheels in contact carries the car (`standingBite`: nothing as the surface turns edge-on to the tread, a car on its side or roof, or to a wall that bears no weight, whole once it is within 65° of the wheel's under-axis) where 102 cut it dead below a body up·world-up of 0.35: a replay of a clip of 104 or before drives a car leaning or part-way over (up·world-up 0.35 to 0.42) or banked past 70° differently.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 104;
+const REPLAY_VERSION = 105;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
