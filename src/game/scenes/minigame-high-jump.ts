@@ -11,13 +11,18 @@ export const BOARD_FINE_UNTIL = 50;
 export const BOARD_COARSE_STEP = 10;
 /** A big labelled board stands at every multiple of this many metres above the lip (it divides both steps and `BOARD_FINE_UNTIL`). */
 export const MAJOR_BOARD_EVERY_METRES = 50;
-/** The frame's top is the best measured apex times this, rounded up to a board: a perfect run falls well short of it. */
+/** The frame's top is the best measured crossing height times this, rounded up to a board: a perfect run falls well short of it. */
 export const FRAME_HEADROOM_FACTOR = 1.3;
+/**
+ * The posts stand this far (m) past the lip, always: the slowest class's 70% run lands 12.0 m out in the sizing table, so every
+ * run of 70% or better crosses the posts' plane (posts at the best run's apex would leave slower runs short of them, scoring 0).
+ */
+export const POSTS_DISTANCE = 11;
 /** The net hangs this far (m) past the posts. */
 const NET_DISTANCE_PAST_POSTS = 30;
-/** The net is at least this tall (m), and at least this share of the best apex: the descent in the piles is that high. */
+/** The net is at least this tall (m), and at least this share of the best crossing height: the descent in the piles is that high. */
 const NET_MIN_HEIGHT = 30;
-const NET_APEX_SHARE = 0.5;
+const NET_CROSSING_SHARE = 0.5;
 
 /** Half the distance (m) between the two posts. */
 export const POST_HALF_SPAN = 3;
@@ -49,8 +54,11 @@ export const BOX_CELL_PITCH = BOX_SIZE_MAX * Math.SQRT2;
 /** A box wanders from its cell's centre by this share of the room its bounding circle leaves in the cell. */
 const BOX_JITTER_SHARE = 0.5;
 
-/** What the sizing lane measures: for the best-case throw, in station-local metres (apex height above the lip). */
-export type HighJumpMeasured = { apexHeight: number; apexDistance: number; landingDistance: number };
+/**
+ * What the sizing measurement gives: the best run's (best class, full throttle) torso height above the lip at the posts' plane, and
+ * the largest landing distance (m past the lip) over every class's best run.
+ */
+export type HighJumpMeasured = { crossingHeight: number; landingDistance: number };
 
 export type HeightBoard = { heightAboveLip: number; y: number; major: boolean };
 
@@ -95,9 +103,9 @@ function roundUpToBoard(height: number): number {
   return BOARD_FINE_UNTIL + Math.ceil((height - BOARD_FINE_UNTIL) / BOARD_COARSE_STEP) * BOARD_COARSE_STEP;
 }
 
-/** The frame's top above the lip: the best apex times the headroom (and never under one board over it), on a board's height. */
-function frameTopFor(apexHeight: number): number {
-  return roundUpToBoard(Math.max(apexHeight * FRAME_HEADROOM_FACTOR, apexHeight + boardStepAt(apexHeight)));
+/** The frame's top above the lip: the best crossing height times the headroom (and never under one board over it), on a board's height. */
+function frameTopFor(crossingHeight: number): number {
+  return roundUpToBoard(Math.max(crossingHeight * FRAME_HEADROOM_FACTOR, crossingHeight + boardStepAt(crossingHeight)));
 }
 
 /** One board per height from the lip line up to, not including, the frame top. */
@@ -143,10 +151,10 @@ function boxPiles(pileStartX: number, pileEndX: number): BoxPlacement[] {
   });
 }
 
-/** The frame, boards, net and box piles for a measured best-case throw; `lipY` is the lip's height above the pad. */
+/** The frame, boards, net and box piles for the measured best throw; `lipY` is the lip's height above the pad. */
 export function highJumpLayout(measured: HighJumpMeasured, lipY: number): HighJumpLayout {
-  const postsX = measured.apexDistance;
-  const frameTop = frameTopFor(measured.apexHeight);
+  const postsX = POSTS_DISTANCE;
+  const frameTop = frameTopFor(measured.crossingHeight);
   const netX = postsX + NET_DISTANCE_PAST_POSTS;
   const pileEndX = Math.min(measured.landingDistance + BOX_PILE_TRAIL, netX - BOX_NET_CLEARANCE);
   return {
@@ -154,7 +162,7 @@ export function highJumpLayout(measured: HighJumpMeasured, lipY: number): HighJu
     frameTop,
     boards: heightBoards(frameTop, lipY),
     netX,
-    netHeight: Math.max(NET_MIN_HEIGHT, measured.apexHeight * NET_APEX_SHARE),
+    netHeight: Math.max(NET_MIN_HEIGHT, measured.crossingHeight * NET_CROSSING_SHARE),
     boxes: boxPiles(postsX - BOX_PILE_LEAD, pileEndX),
   };
 }

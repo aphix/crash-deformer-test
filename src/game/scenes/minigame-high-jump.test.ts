@@ -16,6 +16,7 @@ import {
   FRAME_HEADROOM_FACTOR,
   HighJumpCapture,
   MAJOR_BOARD_EVERY_METRES,
+  POSTS_DISTANCE,
   POST_HALF_SPAN,
   highJumpLayout,
   type BoxPlacement,
@@ -31,7 +32,7 @@ const MILLIMETRE = 0.001;
 const BOX_OVERLAP_TOLERANCE = 1e-9;
 
 /** A synthetic best case: the numbers the real measurement would fill in. */
-const SYNTHETIC_MEASURED: HighJumpMeasured = { apexHeight: 31.3, apexDistance: 48, landingDistance: 96 };
+const SYNTHETIC_MEASURED: HighJumpMeasured = { crossingHeight: 31.3, landingDistance: 28 };
 
 function sample(x: number, y: number, z = 0): TorsoSample {
   return { x, y, z, still: 0 };
@@ -185,18 +186,18 @@ describe("given the capture band beside the posts", () => {
 });
 
 const LAYOUT_CASES = [
-  { name: "a record-sized best case", measured: { apexHeight: 230, apexDistance: 150, landingDistance: 300 }, expectedFrameTop: 300, expectedBoardCount: 35, expectedMajorHeights: [0, 50, 100, 150, 200, 250], expectedNetHeight: 115 },
-  { name: "a best case in the coarse zone", measured: { apexHeight: 155, apexDistance: 120, landingDistance: 240 }, expectedFrameTop: 210, expectedBoardCount: 26, expectedMajorHeights: [0, 50, 100, 150, 200], expectedNetHeight: 77.5 },
-  { name: "a best case whose headroom lands exactly on a board", measured: { apexHeight: 100, apexDistance: 80, landingDistance: 160 }, expectedFrameTop: 130, expectedBoardCount: 18, expectedMajorHeights: [0, 50, 100], expectedNetHeight: 50 },
-  { name: "a best case whose headroom just passes the fine zone", measured: { apexHeight: 38.5, apexDistance: 40, landingDistance: 80 }, expectedFrameTop: 60, expectedBoardCount: 11, expectedMajorHeights: [0, 50], expectedNetHeight: 30 },
-  { name: "a best case whose headroom just reaches the fine zone's end", measured: { apexHeight: 38.4, apexDistance: 40, landingDistance: 80 }, expectedFrameTop: 50, expectedBoardCount: 10, expectedMajorHeights: [0], expectedNetHeight: 30 },
-  { name: "a best case in the fine zone", measured: { apexHeight: 20, apexDistance: 22, landingDistance: 50 }, expectedFrameTop: 30, expectedBoardCount: 6, expectedMajorHeights: [0], expectedNetHeight: 30 },
-  { name: "a tiny best case (the headroom factor alone would give under one board)", measured: { apexHeight: 3, apexDistance: 30, landingDistance: 33 }, expectedFrameTop: 10, expectedBoardCount: 2, expectedMajorHeights: [0], expectedNetHeight: 30 },
-  { name: "a landing beyond the net", measured: { apexHeight: 12, apexDistance: 30, landingDistance: 90 }, expectedFrameTop: 20, expectedBoardCount: 4, expectedMajorHeights: [0], expectedNetHeight: 30 },
+  { name: "a record-sized best case", measured: { crossingHeight: 230, landingDistance: 300 }, expectedFrameTop: 300, expectedBoardCount: 35, expectedMajorHeights: [0, 50, 100, 150, 200, 250], expectedNetHeight: 115 },
+  { name: "a best case in the coarse zone", measured: { crossingHeight: 157, landingDistance: 240 }, expectedFrameTop: 210, expectedBoardCount: 26, expectedMajorHeights: [0, 50, 100, 150, 200], expectedNetHeight: 78.5 },
+  { name: "a best case whose headroom lands exactly on a board", measured: { crossingHeight: 100, landingDistance: 160 }, expectedFrameTop: 130, expectedBoardCount: 18, expectedMajorHeights: [0, 50, 100], expectedNetHeight: 50 },
+  { name: "a best case whose headroom just passes the fine zone", measured: { crossingHeight: 38.5, landingDistance: 25 }, expectedFrameTop: 60, expectedBoardCount: 11, expectedMajorHeights: [0, 50], expectedNetHeight: 30 },
+  { name: "a best case whose headroom just reaches the fine zone's end", measured: { crossingHeight: 38.4, landingDistance: 25 }, expectedFrameTop: 50, expectedBoardCount: 10, expectedMajorHeights: [0], expectedNetHeight: 30 },
+  { name: "a best case in the fine zone", measured: { crossingHeight: 20, landingDistance: 30 }, expectedFrameTop: 30, expectedBoardCount: 6, expectedMajorHeights: [0], expectedNetHeight: 30 },
+  { name: "a tiny best case (the headroom factor alone would give under one board)", measured: { crossingHeight: 3, landingDistance: 15 }, expectedFrameTop: 10, expectedBoardCount: 2, expectedMajorHeights: [0], expectedNetHeight: 30 },
+  { name: "a landing beyond the net", measured: { crossingHeight: 12, landingDistance: 90 }, expectedFrameTop: 20, expectedBoardCount: 4, expectedMajorHeights: [0], expectedNetHeight: 30 },
 ] as const;
 
 function pileEndX(measured: HighJumpMeasured): number {
-  return Math.min(measured.landingDistance + BOX_PILE_TRAIL, measured.apexDistance + 30 - BOX_NET_CLEARANCE);
+  return Math.min(measured.landingDistance + BOX_PILE_TRAIL, POSTS_DISTANCE + 30 - BOX_NET_CLEARANCE);
 }
 
 function boundingRadius(box: BoxPlacement): number {
@@ -204,23 +205,24 @@ function boundingRadius(box: BoxPlacement): number {
 }
 
 for (const layoutCase of LAYOUT_CASES) {
-  describe(`given ${layoutCase.name} (apex ${layoutCase.measured.apexHeight} m at ${layoutCase.measured.apexDistance} m, landing ${layoutCase.measured.landingDistance} m)`, () => {
+  describe(`given ${layoutCase.name} (crossing height ${layoutCase.measured.crossingHeight} m, landing ${layoutCase.measured.landingDistance} m)`, () => {
     const measured = layoutCase.measured;
     const layout = highJumpLayout(measured, LIP_Y);
 
-    it("when the layout is made, then the posts stand at the apex and the net 30 m behind them", () => {
-      assert.equal(layout.postsX, measured.apexDistance, "postsX");
-      assert.equal(layout.netX, measured.apexDistance + 30, "netX is the posts plus 30 m");
+    it("when the layout is made, then the posts stand POSTS_DISTANCE past the lip whatever was measured, and the net 30 m behind them", () => {
+      assert.equal(POSTS_DISTANCE, 11, "the posts' distance");
+      assert.equal(layout.postsX, POSTS_DISTANCE, "postsX");
+      assert.equal(layout.netX, POSTS_DISTANCE + 30, "netX is the posts plus 30 m");
     });
 
-    it("when the layout is made, then the frame top is the best apex times the headroom, rounded up to a board", () => {
+    it("when the layout is made, then the frame top is the best crossing height times the headroom, rounded up to a board", () => {
       assert.equal(layout.frameTop, layoutCase.expectedFrameTop, "frame top");
-      assert.ok(layout.frameTop >= measured.apexHeight * FRAME_HEADROOM_FACTOR, "headroom factor kept");
+      assert.ok(layout.frameTop >= measured.crossingHeight * FRAME_HEADROOM_FACTOR, "headroom factor kept");
       const onFineBoard = layout.frameTop <= BOARD_FINE_UNTIL && layout.frameTop % BOARD_FINE_STEP === 0;
       const onCoarseBoard = layout.frameTop > BOARD_FINE_UNTIL && (layout.frameTop - BOARD_FINE_UNTIL) % BOARD_COARSE_STEP === 0;
       assert.ok(onFineBoard || onCoarseBoard, `frame top ${layout.frameTop} stands on a board height`);
-      const boardAtApex = measured.apexHeight < BOARD_FINE_UNTIL ? BOARD_FINE_STEP : BOARD_COARSE_STEP;
-      assert.ok(layout.frameTop >= measured.apexHeight + boardAtApex, "at least one board above the apex");
+      const boardAtCrossing = measured.crossingHeight < BOARD_FINE_UNTIL ? BOARD_FINE_STEP : BOARD_COARSE_STEP;
+      assert.ok(layout.frameTop >= measured.crossingHeight + boardAtCrossing, "at least one board above the crossing height");
     });
 
     it("when the layout is made, then the boards are spaced by the zone they stand in from the lip up to under the frame top", () => {
@@ -245,7 +247,7 @@ for (const layoutCase of LAYOUT_CASES) {
       assert.ok(layout.boards.length > bigHeights.length, "small boards exist between them");
     });
 
-    it("when the layout is made, then the net is as tall as the larger of its minimum and half the best apex", () => {
+    it("when the layout is made, then the net is as tall as the larger of its minimum and half the best crossing height", () => {
       assert.equal(layout.netHeight, layoutCase.expectedNetHeight, "net height");
     });
 
@@ -288,7 +290,7 @@ for (const layoutCase of LAYOUT_CASES) {
     });
 
     it("when the boxes are laid out, then all lie within the pile footprint and short of the net", () => {
-      const startX = measured.apexDistance - BOX_PILE_LEAD;
+      const startX = POSTS_DISTANCE - BOX_PILE_LEAD;
       const endX = pileEndX(measured);
       for (const box of layout.boxes) {
         const radius = boundingRadius(box);
@@ -319,7 +321,7 @@ for (const layoutCase of LAYOUT_CASES) {
 
 describe("given a landing so near the posts that the piles cannot hold one cell", () => {
   it("when the layout is made, then it refuses with a RangeError naming the footprint", () => {
-    const measured = { apexHeight: 12, apexDistance: 30, landingDistance: 30 - BOX_PILE_TRAIL - BOX_PILE_LEAD + BOX_CELL_PITCH / 2 };
+    const measured = { crossingHeight: 12, landingDistance: POSTS_DISTANCE - BOX_PILE_LEAD - BOX_PILE_TRAIL + BOX_CELL_PITCH / 2 };
     assert.throws(() => highJumpLayout(measured, LIP_Y), RangeError);
   });
 });
