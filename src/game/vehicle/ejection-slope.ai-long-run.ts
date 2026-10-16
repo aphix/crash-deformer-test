@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { setGround } from "../world/ground.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { TRACKS } from "../world/tracks/index.ts";
-import { crashedRun, DRIFT, NAMED_LOOPS, track } from "./ejection-slope.test-util.ts";
+import { DRIFT, loopRun, NAMED_LOOPS, track } from "./ejection-slope.test-util.ts";
 
 /**
  * The slope tests' full-sanity sweep (`npm run test:ai-long-run`, not the per-commit suite): a damaged sedan driven round the whole
@@ -17,8 +17,9 @@ describe("given a car that was hit once earlier and drives on, which the ground 
     for (const pace of [25, 32]) {
       it(`when a damaged sedan drives the whole ${course} loop at ${pace} m/s (banks, crests, climbs), then the engine block stays put and nobody is thrown`, (t) => {
         const trk = track(course);
-        const r = crashedRun(trk, "sedan", pace, "side", 60, trk.length - 30);
+        const r = loopRun(trk, pace);
         t.diagnostic(`${course} ${pace} m/s: block travel ${(r.settled * 1000).toFixed(1)} -> ${(r.end * 1000).toFixed(1)} mm, ended at s ${r.endS.toFixed(0)} of ${trk.length.toFixed(0)}`);
+        assert.ok(r.reached, `the run stopped at s ${r.endS.toFixed(0)} of ${trk.length.toFixed(0)}, short of its end`);
         assert.ok(r.end - r.settled <= DRIFT, `the block moved ${((r.end - r.settled) * 1000).toFixed(0)} mm with nothing touching the car`);
         assert.ok(r.alive, "the engine died");
         assert.deepEqual(r.thrown, []);
