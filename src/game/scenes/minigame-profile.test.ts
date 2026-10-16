@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { DRIVER_CARS } from "../match/types.ts";
 import {
   DEGREES_TO_RADIANS,
+  HIGH_JUMP_APEX_BAND,
   HIGH_JUMP_KICKER,
   LIP_BACK_FACE_PITCH_DEGREES,
   LONG_JUMP_INCLINE,
@@ -17,14 +18,18 @@ import {
 } from "./minigame-constants.ts";
 import { climbFootX, floorHeightAt, lipHeight, lipPitch, stationBackX, stationFrontX, stationStartPose } from "./minigame-profile.ts";
 import {
+  capForLipSpeed,
   driveIntoBarrier,
   driveToLip,
   FINE_CELL,
   highJumpVariant,
+  lipFlight,
   ProfileGround,
   stationDriveProfile,
   type BarrierRun,
   type ClimbRun,
+  type DriveProfile,
+  type LipFlight,
 } from "./minigame-profile.test-util.ts";
 import { RANGE } from "./range.ts";
 
@@ -51,13 +56,13 @@ const MINIMUM_SPEED: Readonly<Record<MinigameMode, Readonly<Record<string, { foo
     wagon: { foot: 30.5, lip: 36 },
   },
   highJump: {
-    sedan: { foot: 31, lip: 18.5 },
-    muscle: { foot: 34, lip: 29 },
-    truck: { foot: 31, lip: 26 },
-    monster: { foot: 34.5, lip: 35 },
-    police: { foot: 31, lip: 19 },
-    hatchback: { foot: 31, lip: 18.5 },
-    wagon: { foot: 31, lip: 18.5 },
+    sedan: { foot: 31, lip: 30 },
+    muscle: { foot: 34, lip: 33 },
+    truck: { foot: 31, lip: 29.5 },
+    monster: { foot: 34.5, lip: 35.5 },
+    police: { foot: 31, lip: 30 },
+    hatchback: { foot: 31, lip: 30 },
+    wagon: { foot: 31, lip: 30 },
   },
   ringFling: {
     sedan: { foot: 29.5, lip: 32 },
@@ -102,7 +107,7 @@ describe("given each station's floor read every 5 cm from the back of its pad to
 describe("given each station's lip", () => {
   const testCases = [
     { it: "when the long jump's lip is read, then the floor is exactly the pad's level and level", mode: "longJump", lipHeightMin: 0, lipHeightMax: 0, lipPitchMinDegrees: 0, lipPitchMaxDegrees: 0 },
-    { it: "when the high jump's lip is read, then it stands 6 to 8 m up and its floor climbs at 55 to 65 degrees", mode: "highJump", lipHeightMin: 6, lipHeightMax: 8, lipPitchMinDegrees: 55, lipPitchMaxDegrees: 65 },
+    { it: "when the high jump's lip is read, then it stands 2 to 3.5 m up and its floor climbs at 34 to 38 degrees", mode: "highJump", lipHeightMin: 2, lipHeightMax: 3.5, lipPitchMinDegrees: 34, lipPitchMaxDegrees: 38 },
     { it: "when Ring Fling's lip is read, then it stands under 1.5 m up and its floor climbs at 22 to 30 degrees", mode: "ringFling", lipHeightMin: 0.5, lipHeightMax: 1.5, lipPitchMinDegrees: 22, lipPitchMaxDegrees: 30 },
   ] as const;
   for (const testCase of testCases) {
@@ -120,6 +125,13 @@ describe("given each station's lip", () => {
   it("when the long jump's last metres are read, then the floor is exactly level with the pad from the flat tail on, where the barrier stands", () => {
     for (let localX = -LONG_JUMP_INCLINE.flatTail; localX <= 1; localX += 0.1) assert.equal(floorHeightAt("longJump", localX, 0), 0, `x = ${localX}`);
     assert.ok(floorHeightAt("longJump", -LONG_JUMP_INCLINE.flatTail - LONG_JUMP_INCLINE.length - 20, 0) < -1, "the run-up before the incline lies below the pad");
+  });
+
+  it("when the high jump's and Ring Fling's lips are compared, then the high jump's floor climbs at least 8 degrees steeper than Ring Fling's and than the long jump's incline", () => {
+    const STEEPER_BY_DEGREES = 8;
+    const highJumpDegrees = lipPitch("highJump") / DEGREES_TO_RADIANS;
+    assert.ok(highJumpDegrees >= lipPitch("ringFling") / DEGREES_TO_RADIANS + STEEPER_BY_DEGREES, `high jump ${highJumpDegrees} deg against Ring Fling ${lipPitch("ringFling") / DEGREES_TO_RADIANS}`);
+    assert.ok(highJumpDegrees >= LONG_JUMP_INCLINE.pitchDegrees + STEEPER_BY_DEGREES, `high jump ${highJumpDegrees} deg against the long jump's incline ${LONG_JUMP_INCLINE.pitchDegrees}`);
   });
 
   it("when Ring Fling's hop is read, then it is the machine's 3.35 in on a 120 in lane scaled to this lane", () => {
@@ -169,7 +181,9 @@ describe("given each station's start", () => {
 
 describe("given a grid of cell 5 cm laid over each station's floor", () => {
   for (const mode of MINIGAME_MODES) {
-    it(`when the ${mode} grid is read between its nodes, then it is within 2 mm of the analytic floor except within a cell of the lip's and back face's creases, and a grid of cell 50 cm is not`, () => {
+    it(`when the ${mode} grid is read between its nodes, then it is within 2 mm of the analytic floor except within a cell of the lip's and back face's creases, and (high jump) a grid of cell 1 m is not`, () => {
+      /** A cell (m) coarse enough that the bilinear grid is over the tolerance off the kicker's arc (radius 30 m: its sag is about cell squared over 4 radii). */
+      const COARSE_CELL = 1;
       const worst = (cell: number): { smooth: number; crease: number } => {
         const ground = new ProfileGround(stationDriveProfile(mode), cell);
         const result = { smooth: 0, crease: 0 };
@@ -187,7 +201,7 @@ describe("given a grid of cell 5 cm laid over each station's floor", () => {
       const fine = worst(FINE_CELL);
       assert.ok(fine.smooth <= GRID_TOLERANCE, `fine grid ${fine.smooth} m off`);
       assert.ok(fine.crease <= FINE_CELL * Math.tan(LIP_BACK_FACE_PITCH_DEGREES * DEGREES_TO_RADIANS), `fine grid ${fine.crease} m off at a crease`);
-      if (mode === "highJump") assert.ok(worst(0.5).smooth > GRID_TOLERANCE, "a coarse grid is more than 2 mm off the arc");
+      if (mode === "highJump") assert.ok(worst(COARSE_CELL).smooth > GRID_TOLERANCE, "a coarse grid is more than 2 mm off the arc");
     });
   }
 });
@@ -226,10 +240,12 @@ describe("given each of the 7 car types parked on the pad of each station and re
 
 describe("given the high jump's kicker made steeper, an arc of the shipped radius", () => {
   /** The sweep's pitches (deg), and the speed (m/s) under which a car is called to have lost the climb at the lip: the plan's lowest lip speed. */
-  const SWEEP_DEGREES = [60, 65, 70, 75, 80, 85];
+  const SWEEP_DEGREES = [HIGH_JUMP_KICKER.lipPitchDegrees, 45, 55, 65, 75, 85];
   const LIP_SPEED_FLOOR = 17;
+  /** The shipped pitch stays this far (deg) under the steepest the sedan still climbs at the floor speed. */
+  const MARGIN_DEGREES = 3;
 
-  it("when every car type climbs each pitch, then all reach the lip at any of them (no tyre treats the face as a wall) and the lip speed falls with the pitch, to under the floor by 70 degrees", (t) => {
+  it("when every car type climbs each pitch, then all reach the lip at any of them (no tyre treats the face as a wall) and the sedan's lip speed falls with the pitch yet stays over the floor even at the steepest", (t) => {
     const sedanCentre: number[] = [];
     for (const pitch of SWEEP_DEGREES) {
       const rows: (readonly [string, ClimbRun])[] = [];
@@ -242,12 +258,16 @@ describe("given the high jump's kicker made steeper, an arc of the shipped radiu
       t.diagnostic(`arc radius ${HIGH_JUMP_KICKER.radius} m to ${pitch} deg:\n${table(rows)}`);
     }
     for (let i = 1; i < sedanCentre.length; i++) assert.ok(sedanCentre[i]! <= sedanCentre[i - 1]! + 1e-6, `sedan lip speeds ${sedanCentre.join(", ")}`);
-    const at60 = sedanCentre[SWEEP_DEGREES.indexOf(60)]!;
-    const at65 = sedanCentre[SWEEP_DEGREES.indexOf(65)]!;
-    const pitchAtFloor = 60 + (5 * (at60 - LIP_SPEED_FLOOR)) / (at60 - at65);
-    t.diagnostic(`the sedan's lip speed crosses ${LIP_SPEED_FLOOR} m/s at ${pitchAtFloor.toFixed(1)} degrees (shipped ${HIGH_JUMP_KICKER.lipPitchDegrees})`);
-    assert.ok(at60 >= LIP_SPEED_FLOOR && at65 < LIP_SPEED_FLOOR, "the floor speed is crossed between 60 and 65 degrees");
-    assert.ok(HIGH_JUMP_KICKER.lipPitchDegrees <= pitchAtFloor - 3, "the shipped pitch keeps 3 degrees under the steepest the sedan climbs at the floor speed");
+    assert.ok(sedanCentre[0]! >= LIP_SPEED_FLOOR, `shipped sedan lip speed ${sedanCentre[0]}`);
+    assert.ok(sedanCentre[sedanCentre.length - 1]! >= LIP_SPEED_FLOOR, `the sedan's lip speed at the steepest swept pitch ${sedanCentre[sedanCentre.length - 1]}: the climb has no wall in the sweep`);
+    assert.ok(HIGH_JUMP_KICKER.lipPitchDegrees <= SWEEP_DEGREES[SWEEP_DEGREES.length - 1]! - MARGIN_DEGREES, "the shipped pitch keeps its margin under the steepest the sedan climbs at the floor speed");
+  });
+
+  it("when the old radius of 20 m is swept to the same steepest pitch, then the sedan's lip speed is under the floor: the floor row can fail", () => {
+    const steepest = SWEEP_DEGREES[SWEEP_DEGREES.length - 1]!;
+    const OLD_RADIUS = 20;
+    const run = driveToLip(DRIVER_CARS.find((type) => type.id === "sedan")!, highJumpVariant(OLD_RADIUS, steepest, RUN_UP_LENGTH.highJump), FINE_CELL);
+    assert.ok(run.lipCentreSpeed < LIP_SPEED_FLOOR, `old-radius sedan at ${steepest} deg: ${run.lipCentreSpeed}`);
   });
 
   it("when the shipped pitch is raised by 30 percent, then the sedan reaches the lip under the speed the shipped kicker gives it: the climb row can fail", () => {
@@ -268,6 +288,75 @@ describe("given the high jump's kicker made steeper, an arc of the shipped radiu
     for (let localX = shipped.backX; localX <= shipped.frontX; localX += 0.37) {
       assert.ok(Math.abs(rebuilt.heightAtX(localX) - shipped.heightAtX(localX)) < 1e-9, `x = ${localX}`);
     }
+  });
+});
+
+describe("given each of the 7 car types released at full throttle from the high jump's hilltop and thrown unboosted at the lip", () => {
+  /** The apex (m above the lip) of the driver's ballistic flight from the car's velocity at the lip plus the usual pop, per car type, on `profile`. */
+  const flightsOn = (profile: DriveProfile): { id: string; flight: LipFlight }[] =>
+    DRIVER_CARS.map((type) => {
+      const run = driveToLip(type, profile, FINE_CELL);
+      assert.ok(run.reachedLip, `${type.id} reached the lip (stopped at x = ${run.endX})`);
+      return { id: type.id, flight: lipFlight(run, profile.heightAtX(0)) };
+    });
+  const flightTable = (rows: readonly { id: string; flight: LipFlight }[]): string =>
+    rows
+      .map(({ id, flight }) => `${id.padEnd(9)} lip horizontal ${flight.horizontalSpeed.toFixed(1)} vertical ${flight.verticalSpeed.toFixed(1)} m/s, apex ${flight.apexHeight.toFixed(1)} m over the lip at ${flight.apexDistance.toFixed(1)} m past it, lands ${flight.landingDistance.toFixed(1)} m past it`)
+      .join("\n");
+  const apexesOf = (rows: readonly { flight: LipFlight }[]): number[] => rows.map(({ flight }) => flight.apexHeight);
+  const inBand = (apexes: readonly number[]): boolean => apexes.every((apex) => apex >= HIGH_JUMP_APEX_BAND.min && apex <= HIGH_JUMP_APEX_BAND.max);
+  /** The best class's apex is at least this share of the band's top, and the best over the worst apex is at most this ratio. */
+  const BEST_NEAR_TOP_SHARE = 0.9;
+  const MOST_SPREAD = 3.5;
+  /** The mid run's lip speed is this share of the full-throttle one, within this share. */
+  const MID_SHARE = 0.7;
+  const MID_SHARE_TOLERANCE = 0.03;
+  /** The old kicker (radius, deg) and a kicker too shallow to throw anyone (deg), the mutations the band rows must fail. */
+  const OLD_KICKER = { radius: 20, lipPitchDegrees: 60 };
+  const SHALLOW_DEGREES = 15;
+  const shipped = flightsOn(stationDriveProfile("highJump"));
+
+  it("when each is thrown at the shipped kicker's lip, then every class's apex is inside the band, the best near its top and the worst not under its min", (t) => {
+    t.diagnostic(`shipped kicker (radius ${HIGH_JUMP_KICKER.radius} m, ${HIGH_JUMP_KICKER.lipPitchDegrees} deg, run-up ${RUN_UP_LENGTH.highJump} m), full throttle, band ${HIGH_JUMP_APEX_BAND.min} to ${HIGH_JUMP_APEX_BAND.max} m:\n${flightTable(shipped)}`);
+    for (const { id, flight } of shipped) {
+      assert.ok(flight.apexHeight >= HIGH_JUMP_APEX_BAND.min, `${id} apex ${flight.apexHeight} under the band`);
+      assert.ok(flight.apexHeight <= HIGH_JUMP_APEX_BAND.max, `${id} apex ${flight.apexHeight} over the band`);
+    }
+    assert.ok(Math.max(...apexesOf(shipped)) >= BEST_NEAR_TOP_SHARE * HIGH_JUMP_APEX_BAND.max, `best apex ${Math.max(...apexesOf(shipped))} is not near the band's top`);
+  });
+
+  it("when the best apex is read against the worst, then the ratio is at most 3.5", () => {
+    const ratio = Math.max(...apexesOf(shipped)) / Math.min(...apexesOf(shipped));
+    assert.ok(ratio <= MOST_SPREAD, `best over worst apex ${ratio}`);
+  });
+
+  it("when the old 60 degree kicker of radius 20 m is thrown at, then every apex is over the band and the ratio is over 3.5: the rows fail before the retune", (t) => {
+    const old = flightsOn(highJumpVariant(OLD_KICKER.radius, OLD_KICKER.lipPitchDegrees, RUN_UP_LENGTH.highJump));
+    t.diagnostic(`old kicker (radius ${OLD_KICKER.radius} m, ${OLD_KICKER.lipPitchDegrees} deg):\n${flightTable(old)}`);
+    assert.ok(apexesOf(old).every((apex) => apex > HIGH_JUMP_APEX_BAND.max), `old apexes ${apexesOf(old).join(", ")}`);
+    assert.ok(Math.max(...apexesOf(old)) / Math.min(...apexesOf(old)) > MOST_SPREAD, "the old spread is over the bar");
+  });
+
+  it("when the shipped radius is given the old 60 degrees, or a shallow 15 degrees, then the band row fails over its top, or under its min: the apex rows can fail", () => {
+    const steep = apexesOf(flightsOn(highJumpVariant(HIGH_JUMP_KICKER.radius, OLD_KICKER.lipPitchDegrees, RUN_UP_LENGTH.highJump)));
+    const shallow = apexesOf(flightsOn(highJumpVariant(HIGH_JUMP_KICKER.radius, SHALLOW_DEGREES, RUN_UP_LENGTH.highJump)));
+    assert.ok(!inBand(steep) && Math.min(...steep) > HIGH_JUMP_APEX_BAND.max, `60 degrees: ${steep.join(", ")}`);
+    assert.ok(!inBand(shallow) && Math.min(...shallow) < HIGH_JUMP_APEX_BAND.min, `15 degrees: ${shallow.join(", ")}`);
+  });
+
+  it("when each is governed to about 70 percent of its full-throttle lip speed, then it still reaches the lip, at that speed, and flies lower and shorter than at full throttle", (t) => {
+    const middle: { id: string; flight: LipFlight }[] = [];
+    for (const [index, type] of DRIVER_CARS.entries()) {
+      const full = shipped[index]!.flight;
+      const cap = capForLipSpeed(type, stationDriveProfile("highJump"), FINE_CELL, MID_SHARE * full.horizontalSpeed);
+      const run = driveToLip(type, stationDriveProfile("highJump"), FINE_CELL, cap);
+      assert.ok(run.reachedLip, `${type.id} governed to ${cap} reached the lip`);
+      const flight = lipFlight(run, lipHeight("highJump"));
+      middle.push({ id: type.id, flight });
+      assert.ok(Math.abs(flight.horizontalSpeed / full.horizontalSpeed - MID_SHARE) <= MID_SHARE_TOLERANCE, `${type.id} lip speed ${flight.horizontalSpeed} of ${full.horizontalSpeed}`);
+      assert.ok(flight.apexHeight < full.apexHeight && flight.landingDistance < full.landingDistance, `${type.id} mid run ${flight.apexHeight} m / ${flight.landingDistance} m against full ${full.apexHeight} m / ${full.landingDistance} m`);
+    }
+    t.diagnostic(`governed to ${MID_SHARE} of the full-throttle lip speed:\n${flightTable(middle)}`);
   });
 });
 

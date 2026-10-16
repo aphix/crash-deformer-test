@@ -60,8 +60,15 @@ export const INCLINE_FOOT_RADIUS = 40;
  */
 export const LONG_JUMP_INCLINE = { pitchDegrees: 7, length: 24, crestRadius: 180, flatTail: 5 } as const;
 
-/** High jump: the kicker is one circular arc of `radius` m, tangent to the run-up, curving up to `lipPitchDegrees` at the lip. */
-export const HIGH_JUMP_KICKER = { radius: 20, lipPitchDegrees: 60 } as const;
+/**
+ * High jump: the kicker is one circular arc of `radius` m, tangent to the run-up, curving up to `lipPitchDegrees` at the lip. The sim keeps a
+ * car's horizontal speed on a ramp and lets its vertical speed follow the slope, so the lip's pitch sets the thrown driver's rise: this
+ * one puts every class's unboosted apex inside `HIGH_JUMP_APEX_BAND` (measured in `minigame-profile.test.ts`), where 60 degrees threw them 60 to 220 m.
+ */
+export const HIGH_JUMP_KICKER = { radius: 30, lipPitchDegrees: 36 } as const;
+
+/** High jump: the band (m above the lip) the thrown driver's unboosted ballistic apex must fall in for every driver car at full throttle; the frame's top is about its `max` plus one board. */
+export const HIGH_JUMP_APEX_BAND = { min: 12, max: 45 } as const;
 
 /**
  * Ring Fling: the incline (pitch, deg, and length, m, from the foot's arc to the hop's start) and the ball-hop: a quarter-wave
