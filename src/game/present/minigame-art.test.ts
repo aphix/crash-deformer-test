@@ -5,20 +5,23 @@ import { stubBrowser } from "../engine/engine-headless.test-util.ts";
 import { levelOrder } from "../scenes/ground-stack.ts";
 import { LANDING_HEIGHT, MINIGAME_MODES, STATION_ANCHORS, STATION_HALF_WIDTH, type MinigameMode } from "../scenes/minigame-constants.ts";
 import { highJumpLayout } from "../scenes/minigame-high-jump.ts";
-import { stationFrontX } from "../scenes/minigame-profile.ts";
+import { stationBackX, stationFrontX } from "../scenes/minigame-profile.ts";
 import { RING_BACKSTOP, RING_BOARD_BOUNDS } from "../scenes/minigame-ring.ts";
+import { RANGE } from "../scenes/range.ts";
 import { makeHighJumpArt } from "./high-jump-art.ts";
 import { makeLongJumpArt } from "./long-jump-art.ts";
-import { LANDING_FLOOR_PAST_END, LANDING_FLOOR_SIDE_MARGIN, LONG_JUMP_FLOOR_END_X, MinigameArt } from "./minigame-art.ts";
+import { GROUND_MARGIN, MinigameArt, OUTER_GROUND_NAME, STATION_PLUG_PREFIX } from "./minigame-art.ts";
 import { SURFACE_DRAW_CALL_BUDGET } from "./minigame-surface-art.ts";
 import { BOX_POSE_FLOATS } from "./ragdoll-boxes.ts";
 import { makeRingFlingArt, RING_FLING_DRAW_BUDGET } from "./ring-fling-art.ts";
 
 /**
- * Most draws the composer adds to any one station over its art's own: the station's landing floor and, for the High jump, its
- * surface (the art's factory leaves it to the composer) and the cardboard boxes.
+ * Most draws the composer adds to any one station over its art's own: the High jump's surface (its art's factory leaves it to the
+ * composer), the other two stations' arts already have theirs.
  */
-const MINIGAME_ART_EXTRA_DRAW_BUDGET = 3;
+const STATION_EXTRA_DRAW_BUDGET = { longJump: 0, highJump: 1, ringFling: 0 } as const;
+/** Most draws the flat ground costs with a mode shown: the ground around the bands, and a plug over each of the other stations' bands. */
+const GROUND_DRAW_BUDGET = 1 + MINIGAME_MODES.length - 1;
 /** Most draw calls the High jump's whole art may cost: timber, boards, trim, back-board, net, with room for the composer's own (`high-jump-art.test.ts` pins the same number). */
 const HIGH_JUMP_DRAW_BUDGET = 12;
 
@@ -31,6 +34,9 @@ const layout = highJumpLayout(MEASURED, LIP_Y);
 /** Geometry and poses are f32: equal to within a few ulps of a value near 100. */
 const FLOAT32_TOLERANCE = 1e-4;
 const REBUILD_COUNT = 3;
+const VERTICES_PER_TRIANGLE = 3;
+/** Areas (m2) add up to the ground's to within the f32 rounding of its edges: far under the smallest plan cell. */
+const GROUND_AREA_TOLERANCE = 0.01;
 
 function stationOf(art: MinigameArt, mode: MinigameMode): THREE.Object3D {
   const station = art.group.getObjectByName(`station:${mode}`);
@@ -52,14 +58,48 @@ function drawCalls(root: THREE.Object3D): number {
   return calls;
 }
 
-function floorBounds(art: MinigameArt, mode: MinigameMode): THREE.Box3 {
-  const floor = stationOf(art, mode).getObjectByName(`landing-floor:${mode}`);
-  assert.ok(floor instanceof THREE.Mesh, `the ${mode} station has a landing floor`);
-  floor.geometry.computeBoundingBox();
-  return floor.geometry.boundingBox ?? assert.fail("the floor's geometry has bounds");
+function meshVertices(mesh: THREE.Mesh): THREE.Vector3[] {
+  const positions = mesh.geometry.getAttribute("position");
+  return Array.from({ length: positions.count }, (_, index) => new THREE.Vector3().fromBufferAttribute(positions, index));
 }
 
-const ringFlingFloorEndX = RING_BOARD_BOUNDS.maxX + RING_BACKSTOP.distancePastBoard + RING_BACKSTOP.thickness + LANDING_FLOOR_PAST_END;
+function groundMeshNamed(art: MinigameArt, name: string): THREE.Mesh {
+  const mesh = art.group.getObjectByName(name);
+  assert.ok(mesh instanceof THREE.Mesh, `the composer has a ground mesh ${name}`);
+  return mesh;
+}
+
+/** Draws of the meshes under `root` that show: a hidden mesh, or one under a hidden group, costs none. */
+function visibleDrawCalls(root: THREE.Object3D): number {
+  let calls = 0;
+  root.traverseVisible((object) => {
+    if (object instanceof THREE.Mesh) calls += Array.isArray(object.material) ? object.material.length : 1;
+  });
+  return calls;
+}
+
+/** Where each triangle of `mesh` is on the plan (its centre) and how much ground it covers (m2). */
+function triangleFootprints(mesh: THREE.Mesh): { centreX: number; centreZ: number; area: number }[] {
+  const vertices = meshVertices(mesh);
+  const footprints: { centreX: number; centreZ: number; area: number }[] = [];
+  for (let first = 0; first < vertices.length; first += VERTICES_PER_TRIANGLE) {
+    const [a, b, c] = [vertices[first]!, vertices[first + 1]!, vertices[first + 2]!];
+    footprints.push({
+      centreX: (a.x + b.x + c.x) / 3,
+      centreZ: (a.z + b.z + c.z) / 3,
+      area: Math.abs((b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z)) / 2,
+    });
+  }
+  return footprints;
+}
+
+/** The world rectangle of `mode`'s band, from the profile and the anchors alone. */
+function bandRectangle(mode: MinigameMode): { minX: number; maxX: number; minZ: number; maxZ: number } {
+  const anchor = STATION_ANCHORS[mode];
+  return { minX: anchor.x + stationBackX(mode), maxX: anchor.x + stationFrontX(mode), minZ: anchor.z - STATION_HALF_WIDTH, maxZ: anchor.z + STATION_HALF_WIDTH };
+}
+
+const ringFlingEndX = RING_BOARD_BOUNDS.maxX + RING_BACKSTOP.distancePastBoard + RING_BACKSTOP.thickness;
 
 function builtArt(): MinigameArt {
   const art = new MinigameArt();
@@ -124,13 +164,14 @@ describe("given the minigame stations' composer", () => {
     art.dispose();
   });
 
-  it("when the High jump layout is rebuilt again and again, then its art replaces the old (the children stay as many, the old art is freed), never piling up", () => {
+  it("when the High jump layout is rebuilt again and again, then its art and the ground around the bands replace the old (the children stay as many, the old art is freed), never piling up", () => {
     const art = builtArt();
     const station = stationOf(art, "highJump");
     const childCount = station.children.length;
     const descendants = descendantCount(art.group);
     for (let rebuild = 0; rebuild < REBUILD_COUNT; rebuild++) {
-      const oldGeometries: THREE.BufferGeometry[] = [];
+      const oldGround = groundMeshNamed(art, OUTER_GROUND_NAME);
+      const oldGeometries: THREE.BufferGeometry[] = [oldGround.geometry];
       station.traverse((object) => {
         if (object instanceof THREE.Mesh && object.name !== "") oldGeometries.push(object.geometry);
       });
@@ -138,6 +179,8 @@ describe("given the minigame stations' composer", () => {
       art.setHighJumpLayout(layout, LIP_Y);
       assert.equal(station.children.length, childCount, `rebuild ${rebuild + 1}: child count`);
       assert.equal(descendantCount(art.group), descendants, `rebuild ${rebuild + 1}: descendant count`);
+      assert.notEqual(groundMeshNamed(art, OUTER_GROUND_NAME), oldGround, `rebuild ${rebuild + 1}: a new ground`);
+      assert.equal(oldGround.parent, null, `rebuild ${rebuild + 1}: the old ground is out of the scene graph`);
       assert.ok(
         disposals.every((spy) => spy.mock.callCount() >= 1),
         `rebuild ${rebuild + 1}: every old geometry freed`,
@@ -146,32 +189,77 @@ describe("given the minigame stations' composer", () => {
     art.dispose();
   });
 
-  it("when the stations are built, then each landing floor is a flat plane at the landing's height from the surface's front to the throw's far end, a station's half width plus the margin either side, at the ground's terrain level", () => {
+  it("when the stations are built, then the ground around the bands is one flat mesh at the pad's level, at the terrain level, reaching the margin past every band and the farthest end", () => {
     const art = builtArt();
-    const halfWidth = STATION_HALF_WIDTH + LANDING_FLOOR_SIDE_MARGIN;
-    const expectedEnds = { longJump: LONG_JUMP_FLOOR_END_X, highJump: layout.netX + LANDING_FLOOR_PAST_END, ringFling: ringFlingFloorEndX };
-    for (const mode of MINIGAME_MODES) {
-      const bounds = floorBounds(art, mode);
-      assert.ok(Math.abs(bounds.min.x - stationFrontX(mode)) < FLOAT32_TOLERANCE, `${mode} floor starts at the surface's front: ${bounds.min.x}`);
-      assert.ok(Math.abs(bounds.max.x - expectedEnds[mode]) < FLOAT32_TOLERANCE, `${mode} floor ends at ${expectedEnds[mode]}: ${bounds.max.x}`);
-      assert.ok(Math.abs(bounds.min.z + halfWidth) < FLOAT32_TOLERANCE && Math.abs(bounds.max.z - halfWidth) < FLOAT32_TOLERANCE, `${mode} floor spans z +-${halfWidth}`);
-      assert.ok(Math.abs(bounds.min.y - LANDING_HEIGHT) < FLOAT32_TOLERANCE && Math.abs(bounds.max.y - LANDING_HEIGHT) < FLOAT32_TOLERANCE, `${mode} floor lies at y = ${LANDING_HEIGHT}`);
-      const floor = stationOf(art, mode).getObjectByName(`landing-floor:${mode}`) as THREE.Mesh;
-      assert.equal(floor.renderOrder, levelOrder("terrain"), `${mode} floor draws at the terrain level`);
+    const ground = groundMeshNamed(art, OUTER_GROUND_NAME);
+    const vertices = meshVertices(ground);
+    const bands = MINIGAME_MODES.map(bandRectangle);
+    const farthestEnd = Math.max(STATION_ANCHORS.longJump.x + RANGE.length, STATION_ANCHORS.highJump.x + layout.netX, STATION_ANCHORS.ringFling.x + ringFlingEndX);
+    const expected = {
+      minX: Math.min(...bands.map((band) => band.minX)) - GROUND_MARGIN.x,
+      maxX: farthestEnd + GROUND_MARGIN.x,
+      minZ: Math.min(...bands.map((band) => band.minZ)) - GROUND_MARGIN.z,
+      maxZ: Math.max(...bands.map((band) => band.maxZ)) + GROUND_MARGIN.z,
+    };
+    assert.ok(Math.abs(Math.min(...vertices.map((vertex) => vertex.x)) - expected.minX) < FLOAT32_TOLERANCE, "west end");
+    assert.ok(Math.abs(Math.max(...vertices.map((vertex) => vertex.x)) - expected.maxX) < FLOAT32_TOLERANCE, "east end");
+    assert.ok(Math.abs(Math.min(...vertices.map((vertex) => vertex.z)) - expected.minZ) < FLOAT32_TOLERANCE, "first side");
+    assert.ok(Math.abs(Math.max(...vertices.map((vertex) => vertex.z)) - expected.maxZ) < FLOAT32_TOLERANCE, "last side");
+    for (const vertex of vertices) assert.equal(vertex.y, LANDING_HEIGHT, "flat at the pad's level");
+    assert.equal(ground.renderOrder, levelOrder("terrain"), "draws at the terrain level");
+    art.dispose();
+  });
+
+  it("when the stations are built, then the ground around the bands has no triangle over any band and covers everything else in its extent", () => {
+    const art = builtArt();
+    const footprints = triangleFootprints(groundMeshNamed(art, OUTER_GROUND_NAME));
+    const bands = MINIGAME_MODES.map(bandRectangle);
+    assert.ok(footprints.length > 0, "there is ground");
+    for (const footprint of footprints) {
+      for (const band of bands) {
+        const isOverBand = footprint.centreX > band.minX && footprint.centreX < band.maxX && footprint.centreZ > band.minZ && footprint.centreZ < band.maxZ;
+        assert.equal(isOverBand, false, `a triangle centred (${footprint.centreX}, ${footprint.centreZ}) lies over a band`);
+      }
+    }
+    const vertices = meshVertices(groundMeshNamed(art, OUTER_GROUND_NAME));
+    const extentArea = (Math.max(...vertices.map((vertex) => vertex.x)) - Math.min(...vertices.map((vertex) => vertex.x))) * (Math.max(...vertices.map((vertex) => vertex.z)) - Math.min(...vertices.map((vertex) => vertex.z)));
+    const bandsArea = bands.reduce((total, band) => total + (band.maxX - band.minX) * (band.maxZ - band.minZ), 0);
+    const groundArea = footprints.reduce((total, footprint) => total + footprint.area, 0);
+    assert.ok(Math.abs(groundArea - (extentArea - bandsArea)) < GROUND_AREA_TOLERANCE, `ground ${groundArea} m2, extent minus bands ${extentArea - bandsArea} m2`);
+    art.dispose();
+  });
+
+  it("when a mode is set, then a flat plug covers exactly each band of the stations not shown and none covers the shown one's", () => {
+    const art = builtArt();
+    for (const shown of MINIGAME_MODES) {
+      art.setMode(shown);
+      for (const mode of MINIGAME_MODES) {
+        const plug = groundMeshNamed(art, `${STATION_PLUG_PREFIX}${mode}`);
+        assert.equal(plug.visible, mode !== shown, `plug of ${mode} with ${shown} shown`);
+        const band = bandRectangle(mode);
+        const plugArea = triangleFootprints(plug).reduce((total, footprint) => total + footprint.area, 0);
+        assert.ok(Math.abs(plugArea - (band.maxX - band.minX) * (band.maxZ - band.minZ)) < GROUND_AREA_TOLERANCE, `${mode} plug area ${plugArea}`);
+        for (const vertex of meshVertices(plug)) {
+          assert.ok(vertex.x >= band.minX - FLOAT32_TOLERANCE && vertex.x <= band.maxX + FLOAT32_TOLERANCE && vertex.z >= band.minZ - FLOAT32_TOLERANCE && vertex.z <= band.maxZ + FLOAT32_TOLERANCE, `${mode} plug vertex (${vertex.x}, ${vertex.z}) is in its band`);
+          assert.equal(vertex.y, LANDING_HEIGHT, "flat at the pad's level");
+        }
+      }
     }
     art.dispose();
   });
 
-  it("when a station is composed, then its draws stay within its art's own budget plus the composer's extra, the extra being what it adds to its art's factory output", () => {
+  it("when a station is composed, then its draws stay within its art's own budget plus the composer's extra, and the ground costs at most the ground budget with any mode shown", () => {
     const art = builtArt();
     const ownBudgets = { longJump: SURFACE_DRAW_CALL_BUDGET, highJump: HIGH_JUMP_DRAW_BUDGET, ringFling: RING_FLING_DRAW_BUDGET };
     const factoryOutputs = { longJump: makeLongJumpArt(), highJump: makeHighJumpArt(layout, LIP_Y), ringFling: makeRingFlingArt() };
     for (const mode of MINIGAME_MODES) {
-      const boxDraws = mode === "highJump" ? 1 : 0;
-      const stationDraws = drawCalls(stationOf(art, mode)) + boxDraws;
-      assert.ok(stationDraws <= ownBudgets[mode] + MINIGAME_ART_EXTRA_DRAW_BUDGET, `${mode} draws ${stationDraws}`);
+      const stationDraws = drawCalls(stationOf(art, mode));
       const added = stationDraws - drawCalls(factoryOutputs[mode]);
-      assert.ok(added <= MINIGAME_ART_EXTRA_DRAW_BUDGET, `${mode}: the composer adds ${added} draws`);
+      assert.ok(added <= STATION_EXTRA_DRAW_BUDGET[mode], `${mode}: the composer adds ${added} draws`);
+      assert.ok(stationDraws <= ownBudgets[mode] + STATION_EXTRA_DRAW_BUDGET[mode], `${mode} draws ${stationDraws}`);
+      art.setMode(mode);
+      const groundDraws = visibleDrawCalls(groundMeshNamed(art, OUTER_GROUND_NAME).parent!);
+      assert.ok(groundDraws >= 1 && groundDraws <= GROUND_DRAW_BUDGET, `${mode} shown: the ground draws ${groundDraws}`);
     }
     art.dispose();
   });
