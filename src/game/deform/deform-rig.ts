@@ -263,6 +263,9 @@ export abstract class DeformRig {
     this.keptTurn[2] = this.elapsed;
   }
 
+  /** The engine is cut after a side hit (`DeformableCar.stalledS` > 0, mirrored by the car): nobody drives the wreck, so its tyres do not turn it and its spin is its own (`stepMassSlice`). */
+  engineStalled = false;
+
   /**
    * The turn rate (rad/s) the wreck's position corrections made and its body's spin lacks: the planted write-back's over the last
    * timed `followGroup`, plus a driven wreck's steer (held `DRIVE_TURN_HOLD` after `applyDrive`). A readout, never `car.angular`.

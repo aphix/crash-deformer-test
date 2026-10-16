@@ -46,8 +46,15 @@ export class DeformableCar extends CarParts {
   airborne = false;
   /** A parked car's tyres grip the ground both ways (their wheels do not turn): set where a scene stands a car, cleared by any drive input. */
   parked = false;
-  /** Seconds the engine stays cut after a side hit (`stallOnSideHit`): `applyDrive` counts it down and gives no drive meanwhile. */
-  stalledS = 0;
+  private engineCutS = 0;
+  /** Seconds the engine stays cut after a side hit (`stallOnSideHit`): `applyDrive` counts it down and gives no drive meanwhile. The deform reads whether it is cut (`engineStalled`). */
+  get stalledS(): number {
+    return this.engineCutS;
+  }
+  set stalledS(seconds: number) {
+    this.engineCutS = seconds;
+    this.deform.engineStalled = seconds > 0;
+  }
   /** Moved by the rigid contact solve (`stepFree`), not by its crush masses: derived, never stored. `velocity` is then its centre of mass's. */
   get rigid(): boolean {
     return !this.deform.massActive;

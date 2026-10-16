@@ -172,9 +172,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * that came in round a rail's end is pushed out a few millimetres, not the rail's whole width: a replayed derby of 92 or before moves its wrecks differently from the first such grind.
  * 94: a wreck at rest lifts its body points in the world's ground (a crushed sill or fender the crush drove down, closing on nothing) out by their depth, at most rest speed a slice, whatever carried them there (it
  * rested 4-19 cm in the road on them), so a replay of a clip of 93 or before rests its wrecks at other heights.
+ * 95: a wreck whose engine a side hit cut (`stalledS`: nobody drives it, its tyres are dragged) keeps its own spin when its contact window closes: the rule that zeroed a wreck's spin
+ * there held for every wreck with a live drivetrain, so a replayed side-hit wreck turns on, slowing on its dragged wheels, where it ran on straight at its speed with the spin gone;
+ * a clip of 94 or before replays such a wreck differently.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 94;
+const REPLAY_VERSION = 95;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

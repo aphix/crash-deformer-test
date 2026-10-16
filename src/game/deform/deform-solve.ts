@@ -644,8 +644,8 @@ export abstract class DeformSolve extends DeformContact {
 
     this.stepSuspension(dt);
     this.sampleGround(this.floorPre, null);
-    // A car with its drivetrain turns by applyDrive's tyres, not the wreck's.
-    const rigid = this.drivetrainAlive;
+    // A car with its drivetrain running turns by applyDrive's tyres, not the wreck's; one whose engine is cut (`engineStalled`) has no drive, so it turns on its own spin.
+    const rigid = this.drivetrainAlive && !this.engineStalled;
     if (!rigid) this.yawMomentum(3, false);
     this.sampleGround(this.floorPost, this.gripPost);
     this.floorsFresh = true;

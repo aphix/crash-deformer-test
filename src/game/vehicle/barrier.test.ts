@@ -173,8 +173,15 @@ describe("given a car driving into the face of a jersey barrier (a thin concrete
  */
 const DRIVEN_TOP = Math.max(...VEHICLE_CLASS_IDS.map((id) => CLASSES[id].topSpeed * CLASSES[id].boostTop)) * DRAFT.top;
 
-/** Deepest front-bumper mass of `bullet` out past `struck`'s far side, inside its length (m); the bullet starts on its right. */
-function noseThrough(struck: DeformableCar, bullet: DeformableCar): number {
+/** `struck`'s plan axes as the hit begins: a struck wreck turns on afterwards, and the sides it then has are not the ones the bullet is judged against. */
+type Sides = { right: THREE.Vector3; forward: THREE.Vector3 };
+
+function sidesOf(struck: DeformableCar): Sides {
+  return { right: struck.rightFlat.clone(), forward: struck.fwdFlat.clone() };
+}
+
+/** Deepest front-bumper mass of `bullet` out past `struck`'s far side, inside its length (m), against `sides`; the bullet starts on its right. */
+function noseThrough(struck: DeformableCar, bullet: DeformableCar, sides: Sides): number {
   let halfW = 0;
   let halfL = 0;
   for (const m of struck.deform.masses) {
@@ -186,8 +193,8 @@ function noseThrough(struck: DeformableCar, bullet: DeformableCar): number {
     if (!m.name.startsWith("bumperF")) continue;
     const dx = m.world.x - struck.group.position.x;
     const dz = m.world.z - struck.group.position.z;
-    const across = dx * struck.rightFlat.x + dz * struck.rightFlat.z;
-    if (Math.abs(dx * struck.fwdFlat.x + dz * struck.fwdFlat.z) < halfL) deepest = Math.max(deepest, -across - halfW);
+    const across = dx * sides.right.x + dz * sides.right.z;
+    if (Math.abs(dx * sides.forward.x + dz * sides.forward.z) < halfL) deepest = Math.max(deepest, -across - halfW);
   }
   return deepest;
 }
@@ -220,11 +227,12 @@ describe("given the top speed any driven car can reach (every class's top speed 
           b.velocity.set(-v, 0, 0);
           b.speed = v;
           const w = makeWorld([a, b], false, false, null);
+          const sides = sidesOf(a);
           let worst = kind === "head-on" ? Infinity : -Infinity;
           let held = 0;
           for (let f = 0; f < 90 && held < HIT_OVER_FRAMES; f++) {
             tickWorld(w);
-            const closest = kind === "head-on" ? Math.min(worst, b.group.position.x - a.group.position.x) : Math.max(worst, noseThrough(a, b));
+            const closest = kind === "head-on" ? Math.min(worst, b.group.position.x - a.group.position.x) : Math.max(worst, noseThrough(a, b, sides));
             held = closest === worst ? held + 1 : 0;
             worst = closest;
           }
