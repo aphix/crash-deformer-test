@@ -4,7 +4,7 @@ import { fetchRooms, openRooms, RoomPoller, type LobbyRoom, type OpenRoom } from
 import type { NetStatus } from "@/game/net/net-ports";
 
 /**
- * The open public races, kept fresh while `active` (docs/MULTIPLAYER.md "Live rooms"): every 10 s, every 4 s
+ * The open public rooms of every game, kept fresh while `active` (docs/MULTIPLAYER.md "Live rooms"): every 10 s, every 4 s
  * while the list is `expanded`, none while the tab is hidden, slower after a failure. `undefined` until the first
  * answer, null when the relay cannot be reached.
  */
@@ -18,7 +18,7 @@ export function useLiveRooms(active: boolean, expanded: boolean): OpenRoom[] | n
     if (!active) return;
     const p = new RoomPoller(
       {
-        fetch: () => fetchRooms("race"),
+        fetch: () => fetchRooms(null),
         setTimer: (fn, ms) => window.setTimeout(fn, ms),
         clearTimer: (handle) => window.clearTimeout(handle as number),
         visible: () => !document.hidden,
@@ -36,7 +36,7 @@ export function useLiveRooms(active: boolean, expanded: boolean): OpenRoom[] | n
 
   useEffect(() => poller.current?.setExpanded(expanded), [expanded]);
 
-  return useMemo(() => (list ? openRooms(list, "race") : list), [list]);
+  return useMemo(() => (list ? openRooms(list, null) : list), [list]);
 }
 
 /** This browser's netplay session, re-read twice a second. */

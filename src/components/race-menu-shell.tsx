@@ -4,6 +4,7 @@ import { Button, type ButtonProps } from "@/components/ui/button";
 import { activateIn, usePadMenu } from "@/components/use-pad-menu";
 import { useReelCover } from "@/components/use-reel-cover";
 import { FOCUS } from "@/components/race-menu-styles";
+import { setOnlineSlot } from "@/components/online-slot";
 import type { RaceCommand } from "@/game/match/types";
 import { cn } from "@/lib/utils";
 
@@ -90,11 +91,15 @@ export function MenuShell({
           </button>
         ) : null}
         <div ref={ref} role="dialog" aria-modal={!sheet} aria-labelledby={`race-menu-${id}`} inert={hidden} className={cn(CARD, "flex min-h-0 w-full flex-col overflow-hidden", sheet && "pointer-events-auto")}>
-          <div className="shrink-0 px-3 pb-2 pt-3 sm:px-4 sm:pt-4">
-            <p className="hud-label">{eyebrow}</p>
-            <h2 id={`race-menu-${id}`} className="mt-0.5 font-display text-2xl font-semibold leading-none tracking-tight">
-              {title}
-            </h2>
+          <div className="flex shrink-0 items-start justify-between gap-2 px-3 pb-2 pt-3 sm:px-4 sm:pt-4">
+            <div className="min-w-0">
+              <p className="hud-label">{eyebrow}</p>
+              <h2 id={`race-menu-${id}`} className="mt-0.5 font-display text-2xl font-semibold leading-none tracking-tight">
+                {title}
+              </h2>
+            </div>
+            {/* The online entry's place while this menu is up (`online-slot.ts`). */}
+            <div ref={setOnlineSlot} className="shrink-0" />
           </div>
           {/* The header stays put; the rest scrolls (a short phone screen scrolls the focused button into view, its focus
             ring's 4 px kept in view by the scroll padding). */}

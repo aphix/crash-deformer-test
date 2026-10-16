@@ -53,8 +53,9 @@ carries the peer's own meter (a sixth byte), so every browser shows any viewed c
 23: the Havana lobby: `MSG.roster` entries carry each player's cleaned name (after the peer id), `MSG.input` flags gain bit 16 (`INPUT_RESET`: put my car back at a lobby spawn, repaired) and a race message carries the lobby's start gate (`gate`: players needed, game the Go switch starts), so peers on 22 would misread the roster and ignore the gate.
 24: a Survival race snapshot's pack carries `cause` (why the run ended for the host's car), so every peer's result card reads the host's, and peers on 23 would show their own.
 25: a car's snapshot record carries its wheelspin byte after the meter, so a 24 peer would read the pose one byte early.
+26: one hosting flow for every game: the lobby's game kinds gain "campaign" (the host's course playlist rides the start gate, `gate.playlist`, with the course Go starts, `gate.course`), a race message carries the seconds left before a campaign moves on from its results (`next`), and public rooms of all four games are named `pub-<kind>-v<N>-…`; peers on 25 would refuse the gate of a campaign lobby and show no between-rounds clock.
 */
-export const NET_VERSION = 25;
+export const NET_VERSION = 26;
 
 /** m/s per wire step of a car's wheelspin: 255 steps reach 63.75 m/s, past every class's unboosted top (muscle 58.3 m/s); a spin beyond reads as the max, where the dial is on the redline anyway. */
 const SPIN_STEP = 0.25;
@@ -655,13 +656,21 @@ export function readDerby(r: Reader): DerbyNetState {
 }
 
 /** The game the lobby's Go switch starts. */
-export const GAME_KINDS = ["race", "survival", "derby"] as const;
+export const GAME_KINDS = ["race", "campaign", "survival", "derby"] as const;
 export type GameKind = (typeof GAME_KINDS)[number];
 
-/** The Havana lobby's start gate: how many players the host wants before Go works, and the game it starts. */
+/** The longest campaign playlist a host may send (the course menu has 9). */
+export const MAX_PLAYLIST = 16;
+
+/**
+ * The Havana lobby's start gate: how many players the host wants before Go works, the game it starts, the course a race or Survival run
+ * is on ("" for the others) and the campaign's courses in play order (empty outside a campaign).
+ */
 export interface LobbyGate {
   min: number;
   kind: GameKind;
+  course: string;
+  playlist: readonly string[];
 }
 
 /**
@@ -673,16 +682,25 @@ export interface RaceNetState {
   trackId: string;
   look: number;
   gate: LobbyGate | null;
+  /** Seconds before the host moves a campaign on from the round it just ran (null: not between rounds, or the host waits for its Next). */
+  next: number | null;
   snap: RaceSnapshot | null;
 }
 
-const GATE = z.object({ min: z.number().int().min(1).max(ROOM_MAX), kind: z.enum(GAME_KINDS) });
+const COURSE_ID = z.string().max(64);
+const GATE = z.object({
+  min: z.number().int().min(1).max(ROOM_MAX),
+  kind: z.enum(GAME_KINDS),
+  course: COURSE_ID.default(""),
+  playlist: z.array(COURSE_ID).max(MAX_PLAYLIST).default([]),
+});
 
 const RACE_MSG = z.object({
   lobby: z.number().nullable(),
   trackId: z.string().max(64),
   look: z.number().int().min(0).max(0xffffffff),
   gate: GATE.nullable().default(null),
+  next: z.number().nullable().default(null),
   snap: z.unknown(),
 });
 
@@ -753,8 +771,9 @@ export function readRace(data: Uint8Array): RaceNetState | null {
   }
   const m = RACE_MSG.safeParse(raw);
   if (!m.success) return null;
-  if (m.data.snap == null) return { lobby: m.data.lobby, trackId: m.data.trackId, look: m.data.look, gate: m.data.gate, snap: null };
+  const head = { lobby: m.data.lobby, trackId: m.data.trackId, look: m.data.look, gate: m.data.gate, next: m.data.next };
+  if (m.data.snap == null) return { ...head, snap: null };
   const snap = RACE_SNAP.safeParse(m.data.snap);
   // A peer's JSON in the host's `RaceSnapshot` shape: what sizes the session is checked above, the rest is taken as is.
-  return snap.success ? { lobby: m.data.lobby, trackId: m.data.trackId, look: m.data.look, gate: m.data.gate, snap: snap.data as RaceSnapshot } : null;
+  return snap.success ? { ...head, snap: snap.data as RaceSnapshot } : null;
 }

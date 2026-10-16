@@ -63,6 +63,8 @@ export abstract class NetPlayClient {
   protected readonly idle = idleDrive();
   /** Seconds left in the public-race lobby (host counts down, clients mirror it); null outside one. */
   protected lobbyLeft: number | null = null;
+  /** Seconds before the host moves a campaign on from its results (host counts down, clients mirror it); null when it waits for the host's Next or no round just ended. */
+  protected nextLeft: number | null = null;
 
   protected readonly ring: Snapshot[] = [];
   /** Receive order of each ring slot (0 = empty). */
@@ -213,6 +215,7 @@ export abstract class NetPlayClient {
     if (!s) return;
     this.lobbyLeft = s.lobby;
     this.heardGate = s.gate;
+    this.nextLeft = s.next;
     this.raceSilentFor = 0;
     this.game.enterRace(s.snap?.survival != null, s.gate !== null);
     const race = this.game.race();
@@ -294,6 +297,7 @@ export abstract class NetPlayClient {
       this.game.exitRace();
       this.lobbyLeft = null;
       this.heardGate = null;
+      this.nextLeft = null;
     }
     if (this.derbySilentFor !== null && this.derbySilentFor * 1000 > RACE_GONE_MS) {
       this.game.applyDerby(null, this.car);

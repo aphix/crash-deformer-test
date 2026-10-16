@@ -7,6 +7,7 @@ import { DEFAULT_RACE_OPTIONS, type RaceCommand, type RaceOptions, type RacePhas
 import { INPUT_BYTES, type Reel } from "../match/highlights.ts";
 import * as codec from "./codec.ts";
 import { NetPlay } from "./net-play.ts";
+import type { HostRoom, NetTx } from "./net-ports.ts";
 import { publicRoomName } from "./matchmaking.ts";
 import { Hub, FRAME_MS, RELAY_MSG_MAX } from "./net-hub.test-util.ts";
 import { packReel } from "./reel-codec.ts";
@@ -58,6 +59,11 @@ function fakeGame(raceApplied?: number[], playerName = "") {
         courseId: "havana",
         survivalCourses: [{ id: "havana", name: "Havana" }],
         seatLobby(_self: number): void {},
+        /** How many times the host moved a campaign on between rounds (`advance`). */
+        advanced: 0,
+        advance(): void {
+          this.advanced++;
+        },
       }
     : null;
   return {
@@ -161,6 +167,14 @@ function fakeGame(raceApplied?: number[], playerName = "") {
       this.worn.push([i, look]);
     },
     dropLooks(): void {},
+    courseMenu: () => ({
+      courses: [
+        { id: "oval", name: "Brickyard Oval", blurb: "" },
+        { id: "rally", name: "Ridge Rally", blurb: "" },
+        { id: "city", name: "Harbour Streets", blurb: "" },
+      ],
+      survival: [{ id: "havana", name: "Havana", blurb: "" }],
+    }),
   };
 }
 
@@ -967,10 +981,10 @@ describe("given a host waiting in the Havana lobby of a private room", () => {
     const alone = new NetPlay(fakeGame(), { connect: new Hub().connect, now: () => 0 });
     open.push(alone);
     alone.host("A", "bc");
-    assert.deepEqual(alone.status().gate, { min: 2, kind: "race", players: 1 });
+    assert.deepEqual(alone.status().gate, { min: 2, kind: "race", course: "", playlist: [], players: 1 });
     assert.equal(alone.canGo(), false);
     assert.equal(alone.go(), false, "one human cannot start with two wanted");
-    assert.deepEqual(s.host.status().gate, { min: 2, kind: "race", players: 2 });
+    assert.deepEqual(s.host.status().gate, { min: 2, kind: "race", course: "oval", playlist: [], players: 2 });
     assert.equal(s.host.go(), true, "a guest has joined");
     assert.deepEqual(s.hg.started, ["race"]);
     assert.equal(s.host.status().gate, null, "the game runs: no gate");
@@ -996,7 +1010,7 @@ describe("given a host waiting in the Havana lobby of a private room", () => {
     s.client.setMinPlayers(1);
     s.client.setLobbyKind("derby");
     s.step(10);
-    assert.deepEqual(s.host.status().gate, { min: 5, kind: "race", players: 2 }, "the guest changed nothing");
+    assert.deepEqual(s.host.status().gate, { min: 5, kind: "race", course: "oval", playlist: [], players: 2 }, "the guest changed nothing");
     s.host.setMinPlayers(2);
     s.host.go();
     s.host.setMinPlayers(8);
@@ -1026,7 +1040,7 @@ describe("given a host waiting in the Havana lobby of a private room", () => {
     s.host.setMinPlayers(3);
     s.host.setLobbyKind("derby");
     s.step(30);
-    assert.deepEqual(s.client.status().gate, { min: 3, kind: "derby", players: 2 }, "the guest sees 'waiting for 1 more'");
+    assert.deepEqual(s.client.status().gate, { min: 3, kind: "derby", course: "", playlist: [], players: 2 }, "the guest sees 'waiting for 1 more'");
     assert.equal(s.host.go(), false);
     s.host.setMinPlayers(2);
     s.step(30);
@@ -1172,5 +1186,171 @@ describe("given a host and guests in a room who each have a name", () => {
     assert.equal(hostile.status().car, 2);
     const names = Object.fromEntries(hostile.voice.snapshot().peers.map((p) => [p.car, p.name]));
     assert.deepEqual(names, { 0: "Host", 1: "Zed the quick br" });
+  });
+});
+
+/** Rooms apart: a room's code decides which peers meet, as the relay does, so a peer under another password reaches nobody. */
+class Rooms {
+  readonly hubs = new Map<string, Hub>();
+  readonly connect = (tx: NetTx, room: string, id: string, role: "host" | "client", meta?: () => string) => {
+    let hub = this.hubs.get(room);
+    if (!hub) this.hubs.set(room, (hub = new Hub()));
+    return hub.connect(tx, room, id, role, meta);
+  };
+  flush(): void {
+    for (const hub of this.hubs.values()) hub.flush();
+  }
+}
+
+/** What the host's panel sends for a campaign: a private room under the password PW over two courses, waiting for two players. */
+const CAMPAIGN_ROOM: HostRoom = { kind: "campaign", code: "PW", tx: "bc", minPlayers: 2, course: "oval", playlist: ["rally", "oval"], autoNext: true };
+
+/** A host (through `hostRoom`) and any number of guests on one clock; `run(s)` frames them all for `s` seconds. */
+function hosted(room: HostRoom, guests = 1) {
+  const rooms = new Rooms();
+  let now = 1000;
+  const hg = fakeGame([]);
+  const host = new NetPlay(hg, { connect: rooms.connect, now: () => now });
+  const others = Array.from({ length: guests }, () => ({ net: new NetPlay(fakeGame([]), { connect: rooms.connect, now: () => now }) }));
+  open.push(host, ...others.map((o) => o.net));
+  host.hostRoom(room);
+  for (const o of others) {
+    if (room.code === null) o.net.publicJoin(host.status().room, room.kind);
+    else o.net.join(room.code, room.tx);
+  }
+  const run = (seconds: number): void => {
+    for (let t = 0; t < seconds; t += FRAME_MS / 1000) {
+      now += FRAME_MS;
+      host.frame(FRAME_MS / 1000);
+      for (const o of others) o.net.frame(FRAME_MS / 1000);
+      rooms.flush();
+    }
+  };
+  return { rooms, hg, host, guests: others.map((o) => o.net), run };
+}
+
+describe("given a room hosted through the one hosting flow, whatever the game", () => {
+  it("when the host waits for more players, then Go works only once that many are in, for each game, public or private", () => {
+    for (const kind of codec.GAME_KINDS) {
+      for (const code of ["PW", null]) {
+        const label = `${kind} ${code === null ? "public" : "private"}`;
+        const r = hosted({ ...CAMPAIGN_ROOM, kind, code, minPlayers: 3 });
+        assert.equal(r.host.status().gate?.min, 3, `${label}: hostRoom set the players to wait for`);
+        assert.equal(r.host.go(), false, `${label}: alone`);
+        r.run(2);
+        assert.equal(r.host.status().gate?.players, 2, label);
+        assert.equal(r.host.canGo(), false, `${label}: two of the three wanted`);
+        assert.equal(r.host.go(), false, label);
+        r.host.setMinPlayers(2);
+        assert.equal(r.host.canGo(), true, `${label}: the stepper lowered it`);
+        assert.equal(r.host.go(), true, label);
+        const race = r.hg.race()!;
+        if (kind === "race") assert.deepEqual(r.hg.started, ["race"], label);
+        else if (kind === "derby") assert.deepEqual(r.hg.started, ["derby"], label);
+        else if (kind === "survival") assert.equal(r.hg.raceEntered.at(-1), true, `${label}: Survival is entered as such`);
+        else assert.deepEqual(race.commands.at(-1), { type: "campaign" }, label);
+      }
+    }
+  });
+
+  it("when a private room is hosted under a password, then a guest under another password is never seated, the right one is, and the room is not tagged for the relay's list; a public room is named after its game and tagged", () => {
+    const r = hosted({ ...CAMPAIGN_ROOM, kind: "race" }, 1);
+    const wrong = new NetPlay(fakeGame([]), { connect: r.rooms.connect, now: () => 1000 });
+    open.push(wrong);
+    wrong.join("NOPE", "bc");
+    r.run(HOST_WAIT_MS / 1000 + 1);
+    for (let k = 0; k < 200; k++) wrong.frame(FRAME_MS / 1000);
+    r.rooms.flush();
+    assert.equal(r.guests[0]!.status().car, 1, "the right password is seated");
+    assert.equal(wrong.status().car, -1, "the wrong one gets no car");
+    assert.equal(wrong.status().problem, "no-host", "and is told nobody hosts there");
+    assert.deepEqual(r.host.status().peers.map((p) => p.id), [r.guests[0]!.status().selfId], "the host never saw it");
+    assert.equal(r.host.status().public, null);
+    assert.equal(r.rooms.hubs.get("PW")!.metas.get(r.host.status().selfId)!(), "", "a private room carries no relay tag");
+    const pub = hosted({ ...CAMPAIGN_ROOM, code: null });
+    assert.equal(pub.host.status().public, "campaign");
+    assert.match(pub.host.status().room, new RegExp(`^pub-campaign-v${codec.NET_VERSION}-`));
+    assert.equal(pub.rooms.hubs.get(pub.host.status().room)!.metas.get(pub.host.status().selfId)!(), "lobby.2", "the relay lists it as a campaign lobby over 2 courses");
+  });
+
+  it("when the host picks the courses of a campaign, then the host and the guest read them in play order, unknown and repeated courses drop, and only the host sets them", () => {
+    const r = hosted(CAMPAIGN_ROOM);
+    r.run(2);
+    assert.deepEqual(r.host.status().gate?.playlist, ["rally", "oval"]);
+    assert.deepEqual(r.guests[0]!.status().gate, { min: 2, kind: "campaign", course: "", playlist: ["rally", "oval"], players: 2 }, "the guest reads the host's gate");
+    r.host.setPlaylist(["city", "oval", "nowhere", "city"]);
+    r.run(1);
+    assert.deepEqual(r.guests[0]!.status().gate?.playlist, ["city", "oval"]);
+    r.guests[0]!.setPlaylist(["oval"]);
+    r.run(1);
+    assert.deepEqual(r.host.status().gate?.playlist, ["city", "oval"], "a guest changes nothing");
+  });
+
+  it("when Go starts a campaign, then the director gets the playlist and then the campaign; with no courses picked Go does nothing", () => {
+    const empty = hosted({ ...CAMPAIGN_ROOM, playlist: [] });
+    empty.run(2);
+    assert.equal(empty.host.canGo(), false, "no courses");
+    assert.equal(empty.host.go(), false);
+    empty.host.setPlaylist(["oval"]);
+    assert.equal(empty.host.go(), true);
+    const r = hosted(CAMPAIGN_ROOM);
+    r.run(2);
+    assert.equal(r.host.go(), true);
+    assert.deepEqual(r.hg.race()!.commands, [{ type: "options", options: { campaign: ["rally", "oval"] } }, { type: "campaign" }]);
+    assert.equal(r.host.status().gate, null, "the game runs: no gate");
+  });
+
+  it("when a campaign round ends, then everyone reads a countdown from one minute, the host moves the campaign on when it runs out, and the next round clears it", () => {
+    const r = hosted(CAMPAIGN_ROOM);
+    r.run(2);
+    r.host.go();
+    const race = r.hg.race()!;
+    race.phase = "racing";
+    r.run(30);
+    assert.deepEqual([r.host.status().nextIn, r.guests[0]!.status().nextIn, race.advanced], [null, null, 0], "a round in progress has no clock");
+    race.phase = "finished";
+    r.run(10);
+    // The guest's clock is the host's last race message (5 Hz): a second behind at most.
+    for (const [who, net] of [["host", r.host], ["guest", r.guests[0]!]] as const) assert.ok(net.status().nextIn! > 45 && net.status().nextIn! <= 51, `${who}: ${net.status().nextIn} s left of the minute`);
+    assert.equal(race.advanced, 0);
+    r.run(51);
+    assert.equal(race.advanced, 1, "the minute is up: the host moved on once");
+    race.phase = "racing";
+    r.run(2);
+    assert.deepEqual([r.host.status().nextIn, r.guests[0]!.status().nextIn], [null, null], "the next round is under way");
+  });
+
+  it("when the host switches auto-advance off, then the room stays on the results however long it waits and shows no clock, and switching it on again gives a fresh minute", () => {
+    const r = hosted(CAMPAIGN_ROOM);
+    r.run(2);
+    r.host.go();
+    const race = r.hg.race()!;
+    r.host.setAutoNext(false);
+    assert.equal(r.host.status().autoNext, false);
+    race.phase = "finished";
+    r.run(150);
+    assert.deepEqual([race.advanced, r.host.status().nextIn, r.guests[0]!.status().nextIn], [0, null, null]);
+    r.host.setAutoNext(true);
+    r.run(2);
+    assert.equal(race.advanced, 0, "a fresh minute, not the one that passed");
+    assert.ok(r.guests[0]!.status().nextIn! >= 55);
+    assert.equal(r.guests[0]!.status().autoNext, null, "only the host has the switch");
+  });
+
+  it("when the campaign's last standings are left, then the room is back in the Havana lobby for everyone", () => {
+    const r = hosted(CAMPAIGN_ROOM);
+    r.run(2);
+    r.host.go();
+    const race = r.hg.race()!;
+    race.phase = "racing";
+    r.run(5);
+    assert.equal(r.host.status().gate, null);
+    const lobbies = r.hg.lobbyEntered.length;
+    race.phase = null;
+    r.run(2);
+    assert.equal(r.hg.lobbyEntered.length, lobbies + 1, "the host reopened the lobby");
+    assert.equal(r.hg.lobbyEntered.at(-1), true);
+    assert.equal(r.host.status().gate?.kind, "campaign");
+    assert.deepEqual(r.guests[0]!.status().gate?.playlist, ["rally", "oval"], "the guest is back at the gate with the same courses");
   });
 });

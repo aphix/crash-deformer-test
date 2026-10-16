@@ -12,6 +12,8 @@ const guestInPrivateRoom: NetStatus = {
   selfId: "self",
   car: 1,
   lobby: null,
+  nextIn: null,
+  autoNext: null,
   gate: null,
   survivalCourse: { id: "", courses: [] },
   peers: [{ id: "host", rttMs: 30 }],
@@ -31,11 +33,12 @@ const testCases = [
   { it: "when the host left, then the chip says the guest waits for a new host", change: { problem: "host-lost" }, expected: "Host left: waiting for a new host…" },
   { it: "when nobody answered in the room, then the chip says it may be closed", change: { problem: "no-host", peers: [] }, expected: "Nobody is hosting this room: it may be closed" },
   { it: "when the relay refused the guest and the host is also paused, then the refusal wins", change: { relayError: "host taken", problem: "host-paused" }, expected: "Host taken" },
-  { it: "when a host is alone in a private lobby that needs two players, then the chip says it waits for one more player", change: { role: "host", peers: [], gate: { min: 2, kind: "race", players: 1 } }, expected: "Waiting for 1 more player" },
-  { it: "when a guest is in a private lobby that needs three players and two are there, then the chip says the room waits for one more", change: { gate: { min: 3, kind: "race", players: 2 } }, expected: "Room K7M2QX9P · 2/8 · waiting for 1 more" },
-  { it: "when the lobby has its players and the viewer is the host, then the chip says it is ready to go", change: { role: "host", gate: { min: 2, kind: "race", players: 2 } }, expected: "Room K7M2QX9P · 2/8 · ready to go" },
-  { it: "when the lobby has its players and the viewer is a guest, then the chip says it waits for the host", change: { gate: { min: 2, kind: "race", players: 2 } }, expected: "Room K7M2QX9P · 2/8 · waiting for the host" },
-  { it: "when a public lobby has its players and counts down, then the chip counts down to the start", change: { public: "race", lobby: 9, gate: { min: 2, kind: "race", players: 2 } }, expected: "Joined · 2/8 · starts in 9 s" },
+  { it: "when a host is alone in a private lobby that needs two players, then the chip says it waits for one more player", change: { role: "host", peers: [], gate: { min: 2, kind: "race", course: "oval", playlist: [], players: 1 } }, expected: "Waiting for 1 more player" },
+  { it: "when a guest is in a private lobby that needs three players and two are there, then the chip says the room waits for one more", change: { gate: { min: 3, kind: "race", course: "oval", playlist: [], players: 2 } }, expected: "Room K7M2QX9P · 2/8 · waiting for 1 more" },
+  { it: "when the lobby has its players and the viewer is the host, then the chip says it is ready to go", change: { role: "host", gate: { min: 2, kind: "race", course: "oval", playlist: [], players: 2 } }, expected: "Room K7M2QX9P · 2/8 · ready to go" },
+  { it: "when the lobby has its players and the viewer is a guest, then the chip says it waits for the host", change: { gate: { min: 2, kind: "race", course: "oval", playlist: [], players: 2 } }, expected: "Room K7M2QX9P · 2/8 · waiting for the host" },
+  { it: "when a public lobby has its players and counts down, then the chip counts down to the start", change: { public: "race", lobby: 9, gate: { min: 2, kind: "race", course: "oval", playlist: [], players: 2 } }, expected: "Joined · 2/8 · starts in 9 s" },
+  { it: "when a campaign is between rounds, then the chip counts down to the next round", change: { public: "campaign", nextIn: 41 }, expected: "Joined · 2/8 · next round in 41 s" },
 ] as const satisfies readonly { it: string; change: Partial<NetStatus>; expected: string }[];
 
 describe("given a session's status", () => {

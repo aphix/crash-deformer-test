@@ -22,11 +22,13 @@ export interface LobbyRoom {
 /** A listed room this build can join. */
 export interface OpenRoom {
   room: string;
+  /** The game the room runs (its name says). */
+  kind: PublicKind;
   players: number;
   addrs: number;
   /** Where the host says its match stands; null when the relay predates room meta. */
   stage: MatchStage | null;
-  /** The host's course id ("" for a derby or an old relay). */
+  /** The host's course id (a campaign's: how many courses it plays; "" for a derby or an old relay). */
   course: string;
 }
 
@@ -40,7 +42,7 @@ export function publicRoomName(kind: PublicKind, code: string): string {
   return `${PUBLIC_PREFIX}${kind}-v${NET_VERSION}-${code}`;
 }
 
-const ROOM_RE = /^pub-(race|derby)-v(\d+)-/;
+const ROOM_RE = /^pub-(race|campaign|survival|derby)-v(\d+)-/;
 const STAGES: readonly string[] = ["lobby", "running", "over"];
 
 /** A host's heartbeat tag, `<stage>.<course>`: lowercase, digits, `.-_` only (the relay's `META` rule). */
@@ -48,7 +50,7 @@ export function publicMeta(stage: MatchStage, course: string): string {
   return `${stage}.${course.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24)}`;
 }
 
-/** Where public match `kind` stands on this host (race: the director's phase; derby: its stage); null while its mode is not up yet. */
+/** Where public match `kind` stands on this host (a derby: its stage; every other game: the race director's phase); null while its mode is not up yet. */
 export function matchStage(game: Pick<NetGame, "race" | "derbyPhase">, kind: PublicKind): MatchStage | null {
   if (kind === "derby") return game.derbyPhase();
   const phase = game.race()?.phase;
@@ -60,29 +62,29 @@ export const WEAK_AI = 3;
 export const WEAK_DERBY_FIELD = 4;
 
 /**
- * Rooms of `kind` this build can join, best first: a match not mid-way (lobby or results, the next one
+ * Rooms this build can join, best first (`kind`: only that game's, null: every game's): a match not mid-way (lobby or results, the next one
  * starts within ~30 s) before a running one (a late joiner spectates until its end), then the most distinct
  * addresses (the relay's own order: one address padding a room with idle peers adds players, not addresses),
  * then the lexically first, which is the same room on every searcher's screen. Wrong build, full rooms and
  * `skip` (rooms the caller is leaving or gave up on) are dropped.
  */
-export function openRooms(list: readonly LobbyRoom[], kind: PublicKind, skip: readonly string[] = []): OpenRoom[] {
+export function openRooms(list: readonly LobbyRoom[], kind: PublicKind | null, skip: readonly string[] = []): OpenRoom[] {
   const out: OpenRoom[] = [];
   for (const r of list) {
     const m = ROOM_RE.exec(r.room);
-    if (!m || m[1] !== kind || Number(m[2]) !== NET_VERSION || r.players >= ROOM_MAX || skip.includes(r.room)) continue;
+    if (!m || (kind !== null && m[1] !== kind) || Number(m[2]) !== NET_VERSION || r.players >= ROOM_MAX || skip.includes(r.room)) continue;
     const [stage = "", course = ""] = r.meta.split(".");
-    out.push({ room: r.room, players: r.players, addrs: r.addrs, stage: STAGES.includes(stage) ? (stage as MatchStage) : null, course });
+    out.push({ room: r.room, kind: m[1] as PublicKind, players: r.players, addrs: r.addrs, stage: STAGES.includes(stage) ? (stage as MatchStage) : null, course });
   }
   const rank = (r: OpenRoom) => (r.stage === "running" ? 1 : 0);
   return out.sort((a, b) => rank(a) - rank(b) || b.addrs - a.addrs || (a.room < b.room ? -1 : 1));
 }
 
-/** The relay's open public rooms of `kind`, or null when it cannot be reached (offline, rate limited, down). */
-export async function fetchRooms(kind: PublicKind): Promise<LobbyRoom[] | null> {
+/** The relay's open public rooms (`kind`: only that game's, null: every game's), or null when it cannot be reached (offline, rate limited, down). */
+export async function fetchRooms(kind: PublicKind | null): Promise<LobbyRoom[] | null> {
   try {
     // `?.`: outside Vite (node tests) there is no `import.meta.env`; the app is then served from "/".
-    const res = await fetch(`${import.meta.env?.BASE_URL ?? "/"}api/rtc?list=public&kind=${kind}`);
+    const res = await fetch(`${import.meta.env?.BASE_URL ?? "/"}api/rtc?list=public${kind ? `&kind=${kind}` : ""}`);
     const list = LIST.safeParse(res.ok ? await res.json() : null);
     return list.success ? list.data.rooms : null;
   } catch {
