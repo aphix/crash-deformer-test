@@ -180,7 +180,9 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 97: a mirror of a wreck lying on its side or roof (up below `UPRIGHT_UP_Y`) that its rest box puts into the ground is torn off (`CarParts.mirrorUnderGround`), and lies on the ground as a loose part (it
  * stood 0.2-0.5 m into it, drawn on the door); a replay of a clip of 96 or before keeps that mirror on the car, so its keyframes' parts and the wreck's loose bodies differ from the first such landing.
  * 98: a side hit's fuel cut (`stalledS`) removes the gas and the boost and nothing else: the drive's tyres, brakes, handbrake and lift-off engine braking run through the stall (it ran no drive, its wheels dragged), and the
- * spin exemption of 95 is gone, so a stalled wreck's tyres own its turn as a running car's do: a replay of a clip of 97 or before moves a side-hit car differently from its hit on.
+ * spin exemption of 95 is gone, so a stalled wreck's tyres own its turn as a running car's do; and a crashed car in contact takes the sliding friction of a locked tyre (`CRASH.muSlide` · `FRICTION_G`) as its
+ * sideways bite, not the arcade grip, the arcade grip fading back over `CONTACT_WINDOW` after the last contact, for every car: a replay of a clip of 97 or before moves a side-hit car, and any car struck
+ * sideways or glancingly, differently from its hit on.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
 const REPLAY_VERSION = 98;

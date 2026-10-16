@@ -21,3 +21,5 @@ export const CONTACT_REF_SLICE = 1 / 240;
 /** The squash and buckle settings a fresh rig starts at, and the HUD starts its sliders at. */
 export const DEFAULT_SQUASH = 0.32;
 export const DEFAULT_BUCKLE = 0.45;
+/** The contact window (s): how long after its last contact a crashed car's shape matching and mass step stay live (`DeformSolve.live`), and the time over which its tyres' grip comes back after a hit (`DeformSolve.settledShare`). */
+export const CONTACT_WINDOW = 0.35;

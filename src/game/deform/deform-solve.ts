@@ -19,7 +19,7 @@ import { FACE_TOP } from "./load-crush.ts";
 import { ENGINE_PACK_GAP, PLANT_QUIET, TYRE_R, WHEEL_DIAMETER } from "./deform-state.ts";
 import { holdMomentum, holdPositions, turnVelocities, undoNetTurn } from "./turn-hold.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
-import { MIN_INV_MASS, MIN_MASS_SUM, SQUASH_REACH } from "./constants.ts";
+import { CONTACT_WINDOW, MIN_INV_MASS, MIN_MASS_SUM, SQUASH_REACH } from "./constants.ts";
 
 /** Elastic part (m) of a crushed node's travel; the rest is permanent set. */
 const SPRINGBACK = 0.08;
@@ -624,7 +624,12 @@ export abstract class DeformSolve extends DeformContact {
 
   /** The contact window: shape matching runs and the wreck stays on its masses (a flying one too, `syncPose`). */
   live(): boolean {
-    return this.bidirectional || this.quietTime() < 0.35;
+    return this.bidirectional || this.quietTime() < CONTACT_WINDOW;
+  }
+
+  /** How far through the contact window a crashed car is, 0 touching to 1 settled (a rig's car, held in contact, stays at 0): what fades its tyres' grip back in after a hit. */
+  settledShare(): number {
+    return this.bidirectional ? 0 : Math.min(1, this.quietTime() / CONTACT_WINDOW);
   }
 
   protected stepMassSlice(dt: number): void {

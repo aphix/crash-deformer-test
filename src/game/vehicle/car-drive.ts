@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { blankIntent, readIntent, shapeDrive, type DriveFeel } from "./drive-input.ts";
 import type { PadState } from "./gamepad.ts";
-import { hypot2 } from "../deform/physics-util.ts";
+import { CRASH, FRICTION_G, hypot2 } from "../deform/physics-util.ts";
 import { C_GRIP, HIT_SIZE } from "../world/surfaces.ts";
 import { assists, carClass, carDrivability, CLASSES, HANDLING, SELF_RIGHT_SLOWEST, type Assists, type Drivability } from "./vehicle-classes.ts";
 import { LOSS_SIZE, wheelLoss } from "./wheel-loss.ts";
@@ -336,7 +336,11 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const fz = -fx0 * s + fz0 * c;
   let lon = vx * fx + vz * fz + (speed - along);
   const lat = vx * fz - vz * fx;
-  const bite = (1 - drift) * grip + drift * slideBite;
+  // A crashed car in contact slides on its tyres: they give the sliding friction of a locked tyre (`CRASH.muSlide`, the axles' grip), not the arcade grip,
+  // which would cancel the hit's sideways exchange as it is made. The arcade grip comes back over the contact window (`settledShare`), never in one slice.
+  const arcadeBite = (1 - drift) * grip + drift * slideBite;
+  const slidingBite = CRASH.muSlide * FRICTION_G * 0.5 * (muF + muR);
+  const bite = car.deform.massActive && slidingBite < arcadeBite ? slidingBite + (arcadeBite - slidingBite) * car.deform.settledShare() : arcadeBite;
   const latOut = lat - Math.sign(lat) * Math.min(Math.abs(lat), bite * dt);
   // In a drift the arcade end hands most of the bitten-off sideways speed back to the nose, so slides
   // keep their pace (never past top speed). Sideways speed from a shove is only scrubbed, never turned into a launch.
