@@ -41,7 +41,7 @@ const CELL_TRIANGLE_CORNERS = [
 const FLOOR_ROUGHNESS = 0.95;
 
 /** A station surface's look: lane half width (m, within the station's), its paint, each paint absent as null. */
-export type StationSurfaceStyle = {
+type StationSurfaceStyle = {
   laneHalfWidth: number;
   baseColour: number;
   centreDashColour: number | null;

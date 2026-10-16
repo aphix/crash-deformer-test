@@ -7,6 +7,8 @@ import { makeStationSurface, STATION_SURFACE_STYLES, SURFACE_DRAW_CALL_BUDGET, S
 
 const HEIGHT_TOLERANCE = 0.001;
 const EXTENT_TOLERANCE = 0.001;
+/** Area (m2) the triangles may differ from the lane's: under the smallest cell (a 0.2 m edge line over one 0.2 m step is 0.04 m2). */
+const COVERAGE_TOLERANCE = 0.01;
 /** How far (m) the surface may sit off the floor between two vertices of a row: the chord a flat triangle cuts off a bend. */
 const CHORD_TOLERANCE = 0.002;
 const COLOUR_TOLERANCE = 1e-6;
@@ -120,7 +122,7 @@ for (const mode of MINIGAME_MODES) {
     it("when its triangles are added up as seen from above, then they cover the whole lane with no hole", () => {
       const covered = paintedTriangles(group).reduce((total, triangle) => total + triangle.area, 0);
       const lane = (stationFrontX(mode) - stationBackX(mode)) * style.laneHalfWidth * 2;
-      assert.ok(Math.abs(covered - lane) < lane * 1e-4, `covered ${covered} m2 of ${lane} m2`);
+      assert.ok(Math.abs(covered - lane) < COVERAGE_TOLERANCE, `covered ${covered} m2 of ${lane} m2`);
     });
 
     it("when its vertex columns along the run are read, then none is farther from the next than a step and the lip is one of them at the lip's height", () => {
