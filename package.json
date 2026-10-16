@@ -22,7 +22,7 @@
     "check:boundaries": "node scripts/check-boundaries.mjs --ratchet",
     "check:programs": "node scripts/check-programs.mjs",
     "test": "node --test 'scripts/**/*.test.mjs' && npm run --silent test:parity && node scripts/run-tests.mjs src/lib/multiplayer/rate-limit.test.ts 'src/lib/submissions/**/*.test.ts' 'src/lib/deploy/**/*.test.ts' 'src/game/**/*.test.ts'",
-    "test:parity": "node --test src/game/deform/skin-kernel.parity.ts",
+    "test:parity": "node --test src/game/deform/skin-kernel.parity.ts src/game/engine/bench-skin-kernel.parity.ts",
     "test:game": "npm run --silent test:parity && node scripts/run-tests.mjs 'src/game/**/*.test.ts'",
     "test:app": "npm run --silent test:parity && node scripts/run-tests.mjs 'src/game/**/*.test.ts' 'src/lib/multiplayer/**/*.test.ts' 'src/lib/submissions/**/*.test.ts' 'src/lib/deploy/**/*.test.ts' scripts/with-app-env.test.mjs",
     "test:ai-long-run": "npm run --silent test:parity && node scripts/run-tests.mjs 'src/game/**/*.ai-long-run.ts'",
