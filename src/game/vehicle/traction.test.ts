@@ -126,6 +126,26 @@ for (const H of RATES) {
       });
     });
 
+    describe("given a 4wd truck at full throttle and boost, rolled onto its side with its wheels resting on a wall (all four in contact)", () => {
+      it("when the drive runs, then its tyres give it no drive: its speed is unchanged, the pedals idle, and the same car upright pulls", () => {
+        /** One slice of the drive rolled by `roll` rad about its nose, all four wheels in contact: the body's gain in speed. */
+        const gain = (roll: number): { dv: number; throttle: number } => {
+          const car = makeCar("truck");
+          car.spawnFacing(0, 0, 0, 1);
+          car.integrate(H);
+          car.group.rotateZ(roll);
+          car.wheelsDown = 0b1111;
+          const before = car.velocity.clone();
+          applyDrive(car, { ...FULL, boost: true }, H);
+          return { dv: car.velocity.distanceTo(before), throttle: car.drive.throttle };
+        };
+        // A flat-out car lying on its side against the arena wall, its wheels on the wall, pushed itself through the 1 m wall at 0.5 m/s.
+        const side = gain(Math.PI / 2);
+        assert.deepEqual(side, { dv: 0, throttle: 0 }, "on its side");
+        assert.ok(gain(0).dv > 0, "upright, it pulls");
+      });
+    });
+
     describe("given a sedan launched on asphalt with the boost lit", () => {
       it("when it launches, then its wheels never spin and the body gains the boosted launch pull per second (the city AI lost a lap to a boost that spun against an unboosted cap)", () => {
         const k = CLASSES.sedan;

@@ -212,7 +212,10 @@ export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz:
   const rub = stuck ? along : Math.sign(along) * MU_BODY * j;
   v.x += nz * rub;
   v.z -= nx * rub;
-  const back = stuck && closing > 0 ? (along0 * pen) / closing : 0;
+  // Back the way it came: the share of the slice's move that took it `pen` in (`pen / closing` of the slice), never more than the whole slice's
+  // move along the face. A car turned into the face at rest (closing all but 0, the overlap from its yaw) read `along0 · pen / closing` as metres:
+  // a stopped cop slid 0.45 m a frame along a wall into its stakeout partner.
+  const back = stuck && closing > 0 ? along0 * Math.min(dt, pen / closing) : 0;
   pos.x += nx * pen + nz * back;
   pos.z += nz * pen - nx * back;
 }

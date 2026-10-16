@@ -192,9 +192,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 101: a hands-off slide under the slip gate (`DRIVE.driftHoldSlip`) aims straight in proportion to its angle instead of jumping back to the steered angle (the body bounced off the gate,
  * kicking the yaw rate seven times as a gentle slide unwound), and the AI asks for a target as its share of the class top alone (the terminal divisor over-asked on grass and sand):
  * a replay of a clip of 100 or before unwinds its hands-off slides and drives its AI on soft ground off their recorded lines.
+ * 102: a wall's push-out puts a car back along the face no further than it moved along it in the slice (a car turned into a face at rest slid 0.45 m a frame along it); no drive from the
+ * tyres while the body is on its side or roof (`FLIPPED_UP_Y`); a racer meeting a car head-on rounds it on the side with more road, not the side nearer its planned lane; the light bar tips
+ * about its far mount with the struck side lifting (its cage pose with it): a replay of a clip of 101 or before moves wall-pinned, flipped and head-on cars and struck light bars differently.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 101;
+const REPLAY_VERSION = 102;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

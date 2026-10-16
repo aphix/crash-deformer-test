@@ -763,13 +763,17 @@ export class RaceBrain {
         this.chase = blockerFight;
         return clamp(oLat, -room, room);
       }
-      // Met head-on (closing at both cars' speed): round it at three times the lane change rate.
-      if (blockerAlong < 0) this.swerve = Math.max(this.swerve, 2);
+      // Met head-on (closing at both cars' speed): round it at three times the lane change rate, on the side with more road beside the passing line.
+      // The planned lane is no guide here: it carries the yield nudge for a faster car behind (2 m), which steered a racer round an oncoming car on
+      // its narrow side, where it stopped and crept nose first into it.
+      const headOn = blockerAlong < 0;
+      if (headOn) this.swerve = Math.max(this.swerve, 2);
       const left = oLat + LINE_W + 0.9;
       const right = oLat - LINE_W - 0.9;
       const leftOk = left <= room;
       const rightOk = right >= -room;
-      if (leftOk && (!rightOk || Math.abs(left - want) <= Math.abs(right - want))) want = left;
+      const leftFirst = headOn ? room - left >= right + room : Math.abs(left - want) <= Math.abs(right - want);
+      if (leftOk && (!rightOk || leftFirst)) want = left;
       else if (rightOk) want = right;
       if (!leftOk && !rightOk) {
         if (blockerAhead < 10) this.follow = blockerAlong;

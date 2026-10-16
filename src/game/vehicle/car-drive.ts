@@ -253,9 +253,12 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const command = pedal(input.steer, -1, THROTTLE_STEPS);
   const brake = pedal(input.brake, 0, BRAKE_STEPS);
   // No wheel within its springs' reach of a surface (flight, a belly on a roof) or no drivetrain: the car keeps its ballistic velocity and spin.
+  // Nor on its side or roof (`FLIPPED_UP_Y`, the body's up·world-up from its quaternion): wheels touching then rest on a wall or a car, and a tyre
+  // pushing along its own plane drove a truck lying against the arena wall through the 1 m wall at 0.5 m/s.
   const alive = car.deform.drivetrainAlive;
   car.airThrottle = alive && car.airborne ? throttle : 0; // in the air the gas winds the wheels (`spinWheels`)
-  if (!alive || car.wheelsDown === 0) return idleDriveState(d);
+  const q = car.group.quaternion;
+  if (!alive || car.wheelsDown === 0 || 1 - 2 * (q.x * q.x + q.z * q.z) < FLIPPED_UP_Y) return idleDriveState(d);
   // A pedal wakes a sleeping wreck only where it acts: the clip records the outputs (`idleDriveState` zeroes a dead or wheel-less car's), so a wake on the raw input would be one the replay never sees.
   if (throttle !== 0 || brake !== 0 || input.ebrake) car.wake();
   const k = CLASSES[carClass(car)];

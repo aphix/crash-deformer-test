@@ -6,8 +6,9 @@ import { LIGHT_BAR_FOOT } from "./car-materials.ts";
 const BAR_ROLL = 0.5;
 
 /**
- * Where a hinged lid (`cowl` hood, `tail` boot) or the light bar (`bar`, tilting on its far mount, the struck side dropping with `inwardX`'s
- * sign) stands at hinge value `t = p.hingeT` (from rest, which turns nothing): position x, y, z then quaternion x, y, z, w into `out` at `o`.
+ * Where a hinged lid (`cowl` hood, `tail` boot) or the light bar (`bar`, tilting on its far mount, the struck side lifting off its mount with `inwardX`'s
+ * sign: a push on a bar standing on two feet tips it about the foot away from the hit, and turned the other way its struck end went 0.38 m down through
+ * the roof it rides on) stands at hinge value `t = p.hingeT` (from rest, which turns nothing): position x, y, z then quaternion x, y, z, w into `out` at `o`.
  * The one pose the drawn mesh (`CarParts.posePart`) and the car's cage (`CageRig`) both take, from the part's state alone.
  */
 export function hingePose(p: DetachPart, inwardX: number, out: Float64Array, o: number): void {
@@ -27,7 +28,7 @@ export function hingePose(p: DetachPart, inwardX: number, out: Float64Array, o: 
     turn = t * 0.5;
   } else {
     const dir = inwardX < 0 ? -1 : 1;
-    turn = dir * t * BAR_ROLL;
+    turn = -dir * t * BAR_ROLL;
     const px = dir * LIGHT_BAR_FOOT.x;
     x += px * (1 - detCos(turn));
     y -= px * detSin(turn);

@@ -11,6 +11,33 @@ import { runWall, type CrashResult } from "../contact/crash-scenarios.test-util.
 import { assertSameNumbers, DT, paint } from "./test-support.ts";
 import { LIES_FLAT, lowest, RESTS, thinAxisUp } from "./loose-step.test-util.ts";
 
+/** How far (m) the light bar may sink into the roof skin under it past where it sits at rest: its feet's seat (measured 0.022 at worst, struck and tilted). */
+const BAR_SEAT_M = 0.03;
+/** A roof skin vertex counts as under a bar vertex within this plan distance (m): the skin's vertex spacing on the roof. */
+const UNDER_M = 0.15;
+
+/** How deep (m) the light bar's deepest vertex sits under the roof skin directly beneath it (negative: clear of it). */
+function barDepth(car: Probe): number {
+  car.flushDeferredSkin();
+  car.updateSkin();
+  car.group.updateMatrixWorld(true);
+  const pos = car.body.geometry.getAttribute("position") as THREE.BufferAttribute;
+  const skin: THREE.Vector3[] = [];
+  for (let i = 0; i < pos.count; i++) skin.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(car.body.matrixWorld));
+  let deepest = -Infinity;
+  car.part("lightBar").object.traverse((o) => {
+    if (!(o instanceof THREE.Mesh) || !o.visible) return;
+    const bp = o.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < bp.count; i++) {
+      v.fromBufferAttribute(bp, i).applyMatrix4(o.matrixWorld);
+      let roof = -Infinity;
+      for (const s of skin) if (Math.hypot(s.x - v.x, s.z - v.z) < UNDER_M) roof = Math.max(roof, s.y);
+      if (roof > -Infinity) deepest = Math.max(deepest, roof - v.y);
+    }
+  });
+  return deepest;
+}
 /** The car with its parts and its hood readable, and a part tearable at a chosen impulse. */
 class Probe extends DeformableCar {
   get allParts(): DetachPart[] {
@@ -133,12 +160,19 @@ describe("given the standard crashes into a wall, body panels hinge, then tear",
     assert.ok(car.allParts.every((p) => !p.region || !p.open));
   });
 
-  it("when a police car hits a wall at 56 km/h, then its light bar tilts on one mount and does not shear off (it shears off at 64)", () => {
+  it("when a police car hits a wall at 56 km/h, then its light bar tilts on one mount, stays on the roof it rides (not through it), and does not shear off (it shears off at 64)", () => {
     const car = probe("police");
     const r = runWall(56, 1, "front", { car });
     assert.ok(!r.detached.includes("lightBar"));
     assert.ok(r.hinge.lightBar! > 0.3 && r.hinge.lightBar! < 0.95, `bar hinge ${r.hinge.lightBar}`);
-    assert.ok(Math.abs(car.part("lightBar").object.rotation.z) > 0.1, `bar rolled ${car.part("lightBar").object.rotation.z} rad`);
+    const bar = car.part("lightBar");
+    assert.ok(Math.abs(bar.object.rotation.z) > 0.1, `bar rolled ${bar.object.rotation.z} rad`);
+    const rest = probe("police");
+    rest.spawnFacing(0, 0, 0, 0);
+    const atRest = barDepth(rest);
+    const struck = barDepth(car);
+    // Tipped about its far mount with the struck side going down, the bar stood 0.35 m through the roof for the rest of the run.
+    assert.ok(struck <= atRest + BAR_SEAT_M, `the struck bar is ${struck.toFixed(3)} m into the roof under it, ${atRest.toFixed(3)} at rest`);
   });
 });
 
