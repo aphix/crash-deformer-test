@@ -203,12 +203,17 @@ function overSkull(ys: readonly number[], d: number, role: number, front: (y: nu
 /** A head shell: ten sides, riding the head bone, so nothing on it can come apart from the skull. */
 const headShell = (kinds: number, rings: readonly Ring[], top?: number, bottom?: number): Shell => ({ ...tube(0, kinds, rigid(HEAD), rings, top, bottom), sides: HEAD_SIDES });
 
-/** Metres the cap's peak stands out of its crown; the crown's and the hair's thickness over the skull; the height above which the fringe shows. */
+/**
+ * Metres the cap's peak stands out of its crown; the crown's and the hair's thickness over the skull; the height above which the fringe shows,
+ * and how far under the skin the face half of a hair ring below it is drawn: at 0.8 the shell still stood out of the cheeks between the ear and
+ * the eye (a dark band across the face at eye level); at 0.5 it is under the skin everywhere but a sliver at the ear.
+ */
 const PEAK_REACH = 0.085;
 const CROWN_OUT = 0.02;
 const HAIR_OUT = 0.012;
 const FRINGE_ON = 1.69;
-const fringe = (y: number) => (y < FRINGE_ON ? 0.8 : 1);
+const UNDER_SKIN = 0.5;
+const fringe = (y: number) => (y < FRINGE_ON ? UNDER_SKIN : 1);
 
 /** The face: the skull, a short neck under it, eyes with brows, a nose, glasses on a cop, a moustache where worn. */
 function faceShells(): Shell[] {
@@ -229,7 +234,7 @@ function faceShells(): Shell[] {
     lens(1),
     box(0, eyeY, faceZ(eyeY) + 0.006, 0.02, 0.008, 0.012, EYES, EVERY_BUILD | UNIFORM, head),
     box(0, 1.6, faceZ(1.6) + 0.006, 0.03, 0.05, 0.03, SKIN, EVERY_BUILD, head),
-    box(0, 1.575, faceZ(1.575) + 0.004, 0.09, 0.02, 0.02, MUSTACHE, EVERY_BUILD | WHISKERS, head),
+    box(0, 1.575, faceZ(1.575) + 0.004, 0.06, 0.014, 0.016, MUSTACHE, EVERY_BUILD | WHISKERS, head),
   ];
 }
 
