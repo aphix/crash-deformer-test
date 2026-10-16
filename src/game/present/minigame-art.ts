@@ -21,9 +21,10 @@ import { makeRingFlingArt } from "./ring-fling-art.ts";
 /** The flat ground reaches this far (m) past the stations' bands and far ends: along x, and across z. */
 export const GROUND_MARGIN = { x: 40, z: 60 } as const;
 
-/** Names of the flat ground's meshes: the ground around the bands, and a plug's prefix (the mode follows). */
+/** Names of the composer's own meshes: the ground around the bands, a plug's prefix (the mode follows), and the cardboard boxes. */
 export const OUTER_GROUND_NAME = "minigame-outer-ground";
 export const STATION_PLUG_PREFIX = "station-plug:";
+export const BOXES_MESH_NAME = "cardboard-boxes";
 
 /** The station's band as a world rectangle. */
 function bandInWorld(mode: MinigameMode): GroundRectangle {
@@ -100,6 +101,7 @@ export class MinigameArt {
   constructor() {
     this.group.name = "minigame-art";
     this.group.visible = false;
+    this.boxes.mesh.name = BOXES_MESH_NAME;
     this.boxes.mesh.visible = false;
     this.ground.name = "minigame-ground";
     this.ground.add(...MINIGAME_MODES.map((mode) => this.plugs[mode]));

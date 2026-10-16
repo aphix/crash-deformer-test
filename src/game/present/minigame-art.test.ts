@@ -10,7 +10,7 @@ import { RING_BACKSTOP, RING_BOARD_BOUNDS } from "../scenes/minigame-ring.ts";
 import { RANGE } from "../scenes/range.ts";
 import { makeHighJumpArt } from "./high-jump-art.ts";
 import { makeLongJumpArt } from "./long-jump-art.ts";
-import { GROUND_MARGIN, MinigameArt, OUTER_GROUND_NAME, STATION_PLUG_PREFIX } from "./minigame-art.ts";
+import { BOXES_MESH_NAME, GROUND_MARGIN, MinigameArt, OUTER_GROUND_NAME, STATION_PLUG_PREFIX } from "./minigame-art.ts";
 import { SURFACE_DRAW_CALL_BUDGET } from "./minigame-surface-art.ts";
 import { BOX_POSE_FLOATS } from "./ragdoll-boxes.ts";
 import { makeRingFlingArt, RING_FLING_DRAW_BUDGET } from "./ring-fling-art.ts";
@@ -133,7 +133,7 @@ describe("given the minigame stations' composer", () => {
         shown,
         `only ${shown} shows`,
       );
-      assert.equal(art.group.getObjectByName("cardboard-boxes")?.visible, shown === "highJump", `the boxes show with the High jump alone (mode ${shown})`);
+      assert.equal(art.group.getObjectByName(BOXES_MESH_NAME)?.visible, shown === "highJump", `the boxes show with the High jump alone (mode ${shown})`);
     }
     art.setMode(null);
     assert.equal(art.group.visible, false);
@@ -141,7 +141,7 @@ describe("given the minigame stations' composer", () => {
       MINIGAME_MODES.filter((mode) => stationOf(art, mode).visible),
       [],
     );
-    assert.equal(art.group.getObjectByName("cardboard-boxes")?.visible, false);
+    assert.equal(art.group.getObjectByName(BOXES_MESH_NAME)?.visible, false);
     art.dispose();
   });
 
@@ -274,7 +274,7 @@ describe("given the minigame stations' composer", () => {
       poses.set([5 + boxIndex, 0.5 + boxIndex / 10, STATION_ANCHORS.highJump.z - 3 + boxIndex / 3, turn.x, turn.y, turn.z, turn.w], boxIndex * BOX_POSE_FLOATS);
     }
     art.updateBoxes(poses, placements.length);
-    const boxes = art.group.getObjectByName("cardboard-boxes") as THREE.InstancedMesh;
+    const boxes = art.group.getObjectByName(BOXES_MESH_NAME) as THREE.InstancedMesh;
     assert.deepEqual(boxes.position.toArray(), [0, 0, 0], "the boxes' mesh stays at the world origin");
     assert.equal(boxes.parent, art.group, "not inside a station group (which sits at an anchor)");
     assert.equal(boxes.count, placements.length);
