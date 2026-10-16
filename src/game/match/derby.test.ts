@@ -194,7 +194,8 @@ describe("given a two-car derby match where the car with more points is disabled
   });
 });
 
-const ARENA_APPROACH_ANGLE = -Math.PI / 8;
+/** A lane clear of the free props and the tyre berms. At -π/8 the spawn stood inside the crash pad at (-10.6, 23.8): the side hit cut the engine in the first slice and the car coasted 3 s undriven. */
+const ARENA_APPROACH_ANGLE = -Math.PI / 8 - Math.PI / 12;
 const APPROACH_START_FROM_WALL = 12;
 const APPROACH_SPEED = 25;
 const FIRST_HIT_SECONDS = 1;
@@ -216,6 +217,7 @@ describe("given a derby car driven at the arena wall at 25 m/s from 12 m out (th
       const slice = physicsSlice(1 / FRAME_HZ, Math.max(car.speed, 4));
       applyDrive(car, { ...idleDrive(), throttle: 1 }, slice);
       stepWorld(world, slice);
+      if (elapsed === 0) assert.equal(car.stalledS, 0, "the engine was cut in the first slice: the car starts in a prop, not on its run at the wall");
       elapsed += slice;
     }
     const reach = Math.hypot(car.group.position.x, car.group.position.z);
