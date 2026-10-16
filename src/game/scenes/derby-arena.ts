@@ -90,6 +90,8 @@ const CONTAINER_METALNESS = 0.3;
 const GLASS_THICKNESS = 0.2;
 const GLASS_ROUGHNESS = 0.1;
 const GLASS_METALNESS = 0;
+/** The glass draw's name in the arena group (the tests find it by it). */
+export const GLASS_MESH_NAME = "glass";
 
 /** Mounds in the ring beyond the wall (count). */
 const MOUND_COUNT = 20;
@@ -383,7 +385,7 @@ function makeGlass(): THREE.InstancedMesh {
     roughness: GLASS_ROUGHNESS,
     metalness: GLASS_METALNESS,
   });
-  const glass = makeInstancedBoxes("glass", panes, DERBY_ARENA.concreteHeight, { material, colours: [WHITE], tile: { across: PANEL_METRES, up: glassHeight } });
+  const glass = makeInstancedBoxes(GLASS_MESH_NAME, panes, DERBY_ARENA.concreteHeight, { material, colours: [WHITE], tile: { across: PANEL_METRES, up: glassHeight } });
   glass.castShadow = false;
   glass.receiveShadow = false;
   return glass;

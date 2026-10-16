@@ -5,7 +5,7 @@ import { PR_BASE, PR_HX, PR_HZ, PR_TOP, PR_X, PR_YAW, PR_Z } from "../world/pris
 import type { Plateau } from "../world/terrain.ts";
 import { P_STRIDE, PRISM, Q_KIND, Q_STRIDE } from "../world/surfaces.ts";
 import { DERBY_ARENA } from "./constants.ts";
-import { makeDerbyArena } from "./derby-arena.ts";
+import { GLASS_MESH_NAME, makeDerbyArena } from "./derby-arena.ts";
 import { DERBY_BOXES, DERBY_PLATEAUS, DERBY_PROP, DERBY_RAMPS, DERBY_TABLE_TOP, DerbyGround } from "./derby-ground.ts";
 
 /** Metres (and radians) two drawn numbers may differ by and still be one: the instance matrices are Float32. */
@@ -322,7 +322,7 @@ describe("derby arena ramp decks", () => {
 });
 
 describe("derby arena glass", () => {
-  const glass = boxMesh("glass");
+  const glass = boxMesh(GLASS_MESH_NAME);
   const panes = placementsOf(glass);
   const wallPieces = listedBoxes.filter((box) => box.kind === DERBY_PROP.wall);
 
@@ -363,10 +363,12 @@ describe("derby arena glass", () => {
 
 describe("derby arena materials", () => {
   const floorMap = standardMaterialOf(meshNamed("derby-floor")).map;
+  assert.ok(floorMap instanceof THREE.DataTexture, "the floor's map is a painted texture");
+  const floorMapImage = floorMap.image;
   const deckMaterial = standardMaterialOf(meshNamed("derby-ramp-decks"));
   const mapCases = [
-    { name: "floor map width", read: () => floorMap?.image.width, expected: DIRT_TEXTURE_SIZE, then: "it is one 1024 texel square" },
-    { name: "floor map height", read: () => floorMap?.image.height, expected: DIRT_TEXTURE_SIZE, then: "it is one 1024 texel square" },
+    { name: "floor map width", read: () => floorMapImage.width, expected: DIRT_TEXTURE_SIZE, then: "it is one 1024 texel square" },
+    { name: "floor map height", read: () => floorMapImage.height, expected: DIRT_TEXTURE_SIZE, then: "it is one 1024 texel square" },
     { name: "floor map horizontal wrap", read: () => floorMap?.wrapS, expected: THREE.ClampToEdgeWrapping, then: "it clamps: one map covers the arena, no tiling" },
     { name: "ramp deck map horizontal wrap", read: () => deckMaterial.map?.wrapS, expected: THREE.RepeatWrapping, then: "the planks repeat" },
     { name: "ramp deck map vertical wrap", read: () => deckMaterial.map?.wrapT, expected: THREE.RepeatWrapping, then: "the planks repeat" },
@@ -382,7 +384,7 @@ describe("derby arena materials", () => {
 /** Metres one tile of each texture covers across and up its box faces (the textures' own scale: 1 m tiles, a 3 m panel, a 1.83 x 1.8 m K-rail panel, 1.3 m of two tyres), and the glass tile is its whole height. */
 const tileCases = [
   { name: DERBY_PROP.wall, across: 3, up: 3.5 },
-  { name: "glass", across: 3, up: DERBY_ARENA.wallHeight - DERBY_ARENA.concreteHeight },
+  { name: GLASS_MESH_NAME, across: 3, up: DERBY_ARENA.wallHeight - DERBY_ARENA.concreteHeight },
   { name: DERBY_PROP.container, across: 1, up: 1 },
   { name: DERBY_PROP.rail, across: 1.83, up: 1.8 },
   { name: DERBY_PROP.pad, across: 1, up: 1 },
