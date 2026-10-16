@@ -44,10 +44,11 @@ export function insidePolygon(poly: readonly (readonly [number, number])[], x: n
 
 /**
  * Paint each polygon's surface over the grid cells (`surf`, nx wide from (minX, minZ), `cell` apart) that are still bare
- * terrain: a road or its runoff keeps its own.
+ * terrain: a road or its runoff keeps its own. Returns how many cells were looked at.
  */
-export function paintGrid(paint: readonly Paint[], surf: Uint8Array, terrain: number, minX: number, minZ: number, nx: number, cell: number): void {
+export function paintGrid(paint: readonly Paint[], surf: Uint8Array, terrain: number, minX: number, minZ: number, nx: number, cell: number): number {
   const nz = surf.length / nx;
+  let visited = 0;
   for (const p of paint) {
     const id = SURFACE_IDS.indexOf(p.surface);
     // Only the cells over the polygon's bounds can be inside it (a cell wider each way: the bounds' rounding never drops one).
@@ -68,10 +69,12 @@ export function paintGrid(paint: readonly Paint[], surf: Uint8Array, terrain: nu
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
         const c = j * nx + i;
+        visited++;
         if (surf[c] === terrain && insidePolygon(p.poly, minX + i * cell, minZ + j * cell)) surf[c] = id;
       }
     }
   }
+  return visited;
 }
 
 /** Lift the grid `heights` by `plateaus`, and lay each top's surface on its flat. */

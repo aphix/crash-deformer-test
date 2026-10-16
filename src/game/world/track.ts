@@ -30,7 +30,8 @@ const BLEND = 24;
 const MEET = 8;
 /** `capsuleRow`'s out: the x run's two ends. */
 const _row = new Float64Array(2);
-const CELL = 1;
+/** Edge (m) of a cell of the baked ground. */
+export const CELL = 1;
 /**
  * A gate reaches this far (m) past its road and runoff: `WALL_REACH` where a wall stands, `OPEN_REACH` on a side with no wall
  * (a shortcut's road, an opening in the main wall at a mouth). A car fishtailing or knocked 5-10 m off the road where there is no
@@ -605,6 +606,8 @@ export class TrackGround extends Ground {
   readonly surf: Uint8Array;
   /** The main loop's road + runoff, crease kept (`RoadCrease`). */
   private readonly crease: RoadCrease;
+  /** What the bake did, for the tests that pin its cost: street runs stamped, cells measured against them, cells looked at by the paint polygons. */
+  readonly bakeCounts = { runsStamped: 0, cellsMeasured: 0, paintCellsVisited: 0 };
   private readonly terrainHills: TrackJson["environment"]["hills"];
   private readonly terrain: number;
 
@@ -629,7 +632,7 @@ export class TrackGround extends Ground {
     this.stampPath(track.path, stamp, false);
     stamp.under = this.heights.slice();
     for (const p of track.paths()) if (p !== track.path) this.stampPath(p, stamp, true);
-    paintGrid(env.paint, this.surf, this.terrain, this.minX, this.minZ, this.nx, CELL);
+    this.bakeCounts.paintCellsVisited = paintGrid(env.paint, this.surf, this.terrain, this.minX, this.minZ, this.nx, CELL);
     raisePlateaus(env.plateaus, this.heights, this.surf, this.minX, this.minZ, this.nx, CELL);
     this.register(track);
   }
@@ -693,6 +696,7 @@ export class TrackGround extends Ground {
       // Ends of the stamped run (an open path's ends, a deck's abutments) are rounded off, not stretched along.
       const openEnd = (!p.closed && b === p.count - 1) || (p.deck[b] === 1 && b < segs);
       const openStart = (!p.closed && k === 0) || p.deck[(k - 1 + p.count) % p.count] === 1;
+      this.bakeCounts.runsStamped++;
       const reach = p.half[k]! + Math.max(p.runL[k]!, p.runR[k]!) + BLEND;
       const i0 = Math.max(0, Math.floor((Math.min(p.x[k]!, p.x[b]!) - reach - this.minX) / CELL));
       const i1 = Math.min(this.nx - 1, Math.ceil((Math.max(p.x[k]!, p.x[b]!) + reach - this.minX) / CELL));
@@ -708,6 +712,7 @@ export class TrackGround extends Ground {
         if (!capsuleRow(p.x[k]!, p.z[k]!, p.x[b]!, p.z[b]!, reach, z, _row)) continue;
         const r0 = Math.max(i0, Math.floor((_row[0]! - this.minX) / CELL) - 1);
         const r1 = Math.min(i1, Math.ceil((_row[1]! - this.minX) / CELL) + 1);
+        this.bakeCounts.cellsMeasured += r1 - r0 + 1;
         for (let i = r0; i <= r1; i++) {
           const x = this.minX + i * CELL;
           let f = ((x - p.x[k]!) * ex + (z - p.z[k]!) * ez) / len2;

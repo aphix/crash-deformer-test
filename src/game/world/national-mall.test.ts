@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { LINCOLN, PREFABS } from "./catalog.ts";
 import { CAPITOL_POOL } from "./landmarks.ts";
 import { placeProps } from "./placements.ts";
-import { blankProjection, Track } from "./track.ts";
+import { blankProjection, CELL, Track } from "./track.ts";
 import { TRACKS } from "./tracks/index.ts";
 import { RaceSession } from "../match/session.ts";
 import { centreline, field, polyline, runTo } from "../match/session-drive.test-util.ts";
@@ -12,18 +12,27 @@ import { centreline, field, polyline, runTo } from "../match/session-drive.test-
 const CIRCUIT_M = 2736;
 /** The published frontstretch: 0.4 miles of Pennsylvania Avenue. */
 const FRONTSTRETCH_M = 644;
-/** The longest the course's ground may take to bake (ms): 0.38 s measured alone (1.4 s with every metre of a street stamped, 2.1 s with every paint polygon tested over the whole ground), held with room for a loaded test machine. */
-const BAKE_MS = 1200;
+/** The fewest metres of open street one stamped run covers on this course: a straight run is stamped once, where stamping every metre's sample would be 1 m a run. */
+const MIN_STREET_RUN_M = 10;
+/** The most times the bake measures a ground cell against a street's segment, averaged over the course's cells (a straight run is measured once, not once per metre of it). */
+const MAX_MEASURES_PER_CELL = 8;
+/** A polygon's bounds cover at most its extent in cells plus this many: the floor and the ceiling of its edges each add up to a cell, and the edge's own cell counts. */
+const BOX_EDGE_CELLS = 3;
 /** The Mall's lawn between Madison Drive (north) and Jefferson Drive (south), 7th Street to 3rd Street (z south). */
 const LAWN = { minX: -572, maxX: 0, minZ: -345, maxZ: -160 };
+
+function boxCells(poly: readonly (readonly [number, number])[]): number {
+  const xs = poly.map(([x]) => x);
+  const zs = poly.map(([, z]) => z);
+  return ((Math.max(...xs) - Math.min(...xs)) / CELL + BOX_EDGE_CELLS) * ((Math.max(...zs) - Math.min(...zs)) / CELL + BOX_EDGE_CELLS);
+}
 
 describe("given the National Mall street circuit (x east, z south, origin 3rd St and Independence Ave)", () => {
   const json = TRACKS.find((j) => new Track(j).id === "national-mall");
   assert.ok(json, "the race menu lists the national-mall course");
   const track = new Track(json);
-  const bakeStarted = performance.now();
   const ground = track.ground();
-  const bakeMs = performance.now() - bakeStarted;
+  const baked = ground.bakeCounts;
   const placed = placeProps(track);
   const far = track.json.environment.far;
   const pr = blankProjection();
@@ -224,8 +233,29 @@ describe("given the National Mall street circuit (x east, z south, origin 3rd St
     assert.ok(Math.abs(statue.pedestal.z) + statue.pedestal.hz < cella.hz - cella.wall, "the statue inside the chamber");
   });
 
-  it(`when its ground (some 4 M one-metre cells under 50 streets) is baked on loading, then it takes under ${BAKE_MS / 1000} s (6.2 s before each street's straight runs were stamped once)`, () => {
-    assert.ok(bakeMs < BAKE_MS, `baked in ${bakeMs.toFixed(0)} ms`);
+  it(`when its ground is baked, then each open street's straight run is stamped once: at most one stamp per ${MIN_STREET_RUN_M} m of street, never one per metre's sample`, () => {
+    const streets = [...track.paths()].filter((p) => p !== track.path);
+    const openStreets = streets.filter((p) => !p.closed);
+    // The main loop and each closed street are stamped a segment at a time.
+    const stampedPerSample = [track.path, ...streets.filter((p) => p.closed)].reduce((n, p) => n + p.count, 0);
+    const openStreetRuns = baked.runsStamped - stampedPerSample;
+    const openStreetMetres = openStreets.reduce((m, p) => m + p.length, 0);
+    assert.ok(openStreetRuns >= openStreets.length, `${openStreetRuns} runs stamped over ${openStreets.length} open streets, one each at least`);
+    assert.ok(openStreetRuns * MIN_STREET_RUN_M <= openStreetMetres, `${openStreetRuns} runs stamped over ${openStreetMetres.toFixed(0)} m of open street`);
+  });
+
+  it(`when its ground (some 4 M one-metre cells under 50 streets) is baked, then each cell is measured against a street segment at most ${MAX_MEASURES_PER_CELL} times on average, not once for every metre of street reaching it`, () => {
+    const streetMetres = [...track.paths()].reduce((m, p) => m + p.length, 0);
+    const groundCells = ground.nx * ground.nz;
+    assert.ok(baked.cellsMeasured > streetMetres, `${baked.cellsMeasured} cells measured over ${streetMetres.toFixed(0)} m of street, a cell at least per metre`);
+    assert.ok(baked.cellsMeasured <= MAX_MEASURES_PER_CELL * groundCells, `${baked.cellsMeasured} cells measured over ${groundCells} ground cells`);
+  });
+
+  it("when its ground is baked, then each paint polygon is tried only over the cells its bounds cover, not over the whole ground", () => {
+    const paint = track.json.environment.paint;
+    const boxes = paint.reduce((n, p) => n + boxCells(p.poly), 0);
+    assert.ok(baked.paintCellsVisited >= paint.length, `${baked.paintCellsVisited} cells visited by ${paint.length} polygons, one each at least`);
+    assert.ok(baked.paintCellsVisited <= boxes, `${baked.paintCellsVisited} cells visited over ${boxes.toFixed(0)} cells of polygon bounds`);
   });
 
   it("when the Washington Monument's grounds are walked (owner, 2026-10-14: like the map of them), then it stands on a knoll in a paved circle ringed by 50 flags, gravel walks loop round it and cross the lawn, and the lawn round them is open", () => {
