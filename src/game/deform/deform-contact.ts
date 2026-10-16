@@ -251,8 +251,14 @@ export abstract class DeformContact extends DeformState {
     const off = _a.length();
     if (dt > 0 && off > 1e-9) {
       _a.multiplyScalar(Math.min(1, (dt * SEAT_SPEED) / off)).applyQuaternion(group.quaternion);
-      // Seat along the ground, never up or down: a wreck on its side has a body axis for world vertical, and the step moved it through the ground.
-      _a.y = 0;
+      // The seat steps in the body's x-z plane. Upright or on the roof that plane is (near) level and a tilted wreck's small vertical part is
+      // its settle onto its cell: trimmed by its tilt's cos² a sedan missing two diagonal wheels crept 1.6 mm/s, cut whole a truck crept
+      // 3.5 mm/s. On its side or nose the plane holds the world vertical and the step drove the wreck through the ground. So the vertical
+      // part is kept by 1 - sin⁴ of the tilt: 1 - 6e-5 at 5°, nothing on the side, whole on the roof.
+      const q = group.quaternion;
+      const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
+      const tilt = 1 - upY * upY;
+      _a.y *= 1 - tilt * tilt;
       group.position.add(_a);
       group.updateWorldMatrix(false, false);
       _toLocal.copy(group.matrixWorld).invert();
