@@ -120,6 +120,6 @@ Change a number in `scenes/minigame-constants.ts`, then run the tests that print
 | `engine/minigame-store.ts` | `localStorage` bests |
 | `present/ragdoll-boxes.ts`, `cardboard-art.ts` | box piles (Rapier cuboids) and their art |
 | `present/minigame-art.ts`, `high-jump-art.ts`, `ring-fling-art.ts`, `long-jump-art.ts`, `minigame-surface-art.ts` | per-station art |
-| `present/ride-cam.ts` | the minigame framing (`Framing.lead`): aim led by the shown velocity, opens on the follow shot, eye lifted clear of cup rims |
+| `present/ride-cam.ts` | the minigame framing (`Framing.lead`): aim led by the shown velocity, opens on the follow shot (eased from the drive cam), eye 5 m aside, 12 m back at speed, 8 m back and 6 m up at rest, lifted clear of the ground and `sight` solids |
 | `vehicle/ejection.ts` | `throwDriverNow`, vertical carry |
 | `components/minigame-panel*.tsx` / `.ts` | score card and buttons |

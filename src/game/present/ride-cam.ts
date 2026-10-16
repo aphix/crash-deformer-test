@@ -50,6 +50,18 @@ const VIEW_STOP = 0.25;
 const MAX_TURN = 4;
 /** With a `Framing.lead` the aim turns at most this fast (rad/s): a climber at 58 m/s passes an eye 5 m off at about 12 rad/s, and an aim held to `MAX_TURN` loses him out of the frame. */
 const LEAD_MAX_TURN = 12;
+/** With a `Framing.lead` the follow eye stands at least `LEAD_STANDOFF_PER_SPEED` s of the heads' shown speed behind them, at most `LEAD_STANDOFF_MAX` m (a climber at 60 m/s passes anything within that of his line, a height board across it included). */
+const LEAD_STANDOFF_PER_SPEED = 0.25;
+const LEAD_STANDOFF_MAX = 12;
+/** With a `Framing.lead` the follow eye stands this far (m) to the side of the heads' line: clear of a frame's posts (3 m out, up to 1 m thick) and the boards between them. */
+const LEAD_SIDE = 5;
+/** With a `Framing.lead` heads shown slower than `LEAD_REST_FULL_SPEED` m/s are resting (a landing among boxes), faster than `LEAD_REST_NONE_SPEED` are not, and between the share is linear: a resting eye stands `LEAD_REST_STANDOFF` m behind and `LEAD_REST_HEIGHT` m above them, to see them over what lies round them. */
+const LEAD_REST_FULL_SPEED = 1;
+const LEAD_REST_NONE_SPEED = 4;
+const LEAD_REST_STANDOFF = 8;
+const LEAD_REST_HEIGHT = 6;
+/** With a `Framing.lead` the ride's first frame eases from the camera's last pose to the follow eye over this long (s), the aim on the heads throughout. */
+const LEAD_OPEN_BLEND_T = 0.25;
 /** The follow frame turns at most this fast (rad/s) with the dummies' travel: a dummy leaving the group never swings the eye round the rest. */
 const HEADING_RATE = 1.5;
 /**
@@ -112,11 +124,11 @@ const _eye = new THREE.Vector3();
 const _probe = new THREE.Vector3();
 const _vel = new THREE.Vector3();
 
-/** Is the ground or a solid on the straight line from `eye` to `target` (up to `VIEW_STOP` m short of it)? */
+/** Is the ground or a solid at `eye`, or on the straight line from it to `target` (up to `VIEW_STOP` m short of it)? */
 function viewBlocked(sight: Sight, eye: THREE.Vector3, target: THREE.Vector3): boolean {
   const length = eye.distanceTo(target);
   const near = gather(sight, eye.x, eye.z, target.x, target.z, VIEW_PAD);
-  for (let reach = VIEW_STEP; reach < length - VIEW_STOP; reach += VIEW_STEP) {
+  for (let reach = 0; reach < length - VIEW_STOP; reach += VIEW_STEP) {
     const share = reach / length;
     if (solid(sight, eye.x + (target.x - eye.x) * share, eye.y + (target.y - eye.y) * share, eye.z + (target.z - eye.z) * share, VIEW_PAD, near)) return true;
   }
@@ -153,6 +165,8 @@ export class RideCam {
   /** The aim's orientation, turned toward the look-at at most `MAX_TURN` rad/s (a dummy flying past the eye cannot whip it). */
   private readonly aimQ = new THREE.Quaternion();
   private snap = true;
+  /** The heads' shown speed (m/s): their move since the last frame, or the sim's speed before there is one (`trackShown`). */
+  private shownSpeed = 0;
   private readonly exitAt = new THREE.Vector3();
   /** Where the driver left the car (the pane's point, the throw's moment): the windshield eye must see it as well as the heads. */
   private readonly exitPane = new THREE.Vector3();
@@ -243,10 +257,11 @@ export class RideCam {
     this.turn(f, dt, this.fresh || f.cut);
     this.trackShown(f, dt);
     if (this.fresh) {
-      // The ride's first frame is a cut (to the windshield, or with a lead to the follow shot).
+      // The ride's first frame is a cut (to the windshield), or with a lead an ease from where the camera was to the follow shot.
       this.fresh = false;
       this.enter(f, f.lead > 0 ? "follow" : this.shot);
-      this.blend = 1;
+      if (f.lead > 0) this.startOpenBlend(camera);
+      else this.blend = 1;
     } else if (f.cut) {
       this.change(camera, f, "follow");
     }
@@ -277,14 +292,26 @@ export class RideCam {
     this.blendT = THREE.MathUtils.clamp(fly / FLY_SPEED, BLEND_T, BLEND_MAX);
   }
 
-  /** With a lead: the heads' shown velocity from their move since the last frame (zero on the ride's first frame, a cut or a change of dummies); without one nothing is tracked. */
+  /** The first frame with a lead: ease from the camera's pose to the follow eye over `LEAD_OPEN_BLEND_T`. */
+  private startOpenBlend(camera: THREE.PerspectiveCamera): void {
+    this.from.copy(camera.position);
+    this.blend = 0;
+    this.blendT = LEAD_OPEN_BLEND_T;
+  }
+
+  /** With a lead: the heads' shown velocity from their move since the last frame (zero on the ride's first frame, a cut or a change of dummies, where `shownSpeed` is the sim's); without one nothing is tracked. */
   private trackShown(f: Framing, dt: number): void {
     if (f.lead === 0) {
       this.shownCount = 0;
       return;
     }
-    if (this.shownCount === f.n && !f.cut && dt > 0) this.shownVelocity.copy(f.c).sub(this.shownFrom).divideScalar(dt);
-    else this.shownVelocity.set(0, 0, 0);
+    if (this.shownCount === f.n && !f.cut && dt > 0) {
+      this.shownVelocity.copy(f.c).sub(this.shownFrom).divideScalar(dt);
+      this.shownSpeed = this.shownVelocity.length();
+    } else {
+      this.shownVelocity.set(0, 0, 0);
+      this.shownSpeed = hypot3(f.vx, f.vy, f.vz) / f.n;
+    }
     this.shownFrom.copy(f.c);
     this.shownCount = f.n;
   }
@@ -359,17 +386,20 @@ export class RideCam {
       const b = this.blend;
       const w = smoother(b);
       camera.position.lerpVectors(this.from, this.pos, w);
-      camera.quaternion.slerpQuaternions(this.fromQ, this.aimQ, w);
+      if (f.lead > 0) camera.lookAt(this.look);
+      else camera.quaternion.slerpQuaternions(this.fromQ, this.aimQ, w);
     }
     easeFov(camera, this.shot === "trackside" ? this.probe.fov : f.lens, cut ? Infinity : dt);
   }
 
-  /** The follow shot's eye: ahead of or behind the heads' travel, to the side and up (`followLift` more with a lead), over the ground. */
+  /** The follow shot's eye: ahead of or behind the heads' travel, to the side and up (with a lead: `LEAD_STANDOFF_*` back, `LEAD_SIDE` aside, the rest and probe lifts more), over the ground. */
   private followEye(out: THREE.Vector3, f: Framing): THREE.Vector3 {
-    const back = (BACK + f.spread * 1.6) * (f.hold ? -1 : this.side);
-    const side = SIDE + f.spread * 0.5;
+    const rest = f.lead > 0 ? THREE.MathUtils.clamp((LEAD_REST_NONE_SPEED - this.shownSpeed) / (LEAD_REST_NONE_SPEED - LEAD_REST_FULL_SPEED), 0, 1) : 0;
+    const moving = f.lead > 0 ? Math.max(BACK + f.spread * 1.6, Math.min(LEAD_STANDOFF_MAX, LEAD_STANDOFF_PER_SPEED * this.shownSpeed)) : BACK + f.spread * 1.6;
+    const back = (moving + rest * (LEAD_REST_STANDOFF - moving)) * (f.hold ? -1 : this.side);
+    const side = f.lead > 0 ? LEAD_SIDE : SIDE + f.spread * 0.5;
     const d = this.dir;
-    out.set(f.c.x + d.x * back - d.z * side, f.c.y + UP + f.spread * 0.4 + this.followLift, f.c.z + d.z * back + d.x * side);
+    out.set(f.c.x + d.x * back - d.z * side, f.c.y + UP + f.spread * 0.4 + this.followLift + rest * LEAD_REST_HEIGHT, f.c.z + d.z * back + d.x * side);
     const ground = activeGround().heightAt(out.x, out.z);
     if (Number.isFinite(ground)) out.y = Math.max(out.y, ground + 0.6);
     return out;
