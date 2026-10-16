@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { detCos, hypot2 } from "../kernel/physics-core.js";
+import { detAtan2, detCos, hypot2 } from "../kernel/physics-core.js";
 
 /** Procedural `DataTexture`s of the derby arena (no canvas: node tests build them), seeded so every build is identical. */
 /** Row 0 is the bottom (v = 0), column 0 the left (u = 0); sRGB, linear magnification, mipmapped. */
@@ -71,19 +71,27 @@ const RUST_BLOTCH_TO = 0.93;
 const RUST_TOP_FROM = 0.5;
 const RUST_FADE_FROM = 0.4;
 
-/** Tyre stack: texture size, tyres per tile row (0.5 m tyres, rows staggered by half a tyre), and radii (texels) of the whole tyre, its lighter tread ring and its hole. */
+/** Tyre stack: texture size, tyre pitch (0.5 m tyres, tyres per row, odd rows shifted half a tyre), and radii (texels) of the whole tyre, its tread ring and its hole. */
 const TYRE_SIZE = 128;
 const TYRE_PITCH = 64;
+const TYRES_ACROSS = TYRE_SIZE / TYRE_PITCH;
 const TYRE_RADIUS = 32;
 const TYRE_TREAD_FROM = 23;
 const TYRE_HOLE_RADIUS = 11;
 const TYRE_RUBBER = 30;
-const TYRE_TREAD = 78;
+const TYRE_TREAD = 66;
 const TYRE_HOLE_COLOUR = [6, 6, 7];
-const TYRE_GAP_COLOUR = [10, 10, 10];
-/** Grain spread (levels) and the top-lit gradient (share of a tyre's height). */
+const TYRE_GAP_COLOUR = [2, 2, 3];
+/** Grain spread (levels), the top-lit gradient (share of a tyre's height), the spread of each tyre's own grey (share, seeded). */
 const TYRE_GRAIN = 8;
 const TYRE_LIGHT = 0.3;
+const TYRE_GREY_SPREAD = 0.36;
+/** Tread blocks round the outer band: count, the share of each that is a dark groove and its shade; the dusty upper-left highlight on a sidewall (levels); the dark rim (texels and shade lost). */
+const TYRE_BLOCKS = 28;
+const TYRE_GROOVE_SHARE = 0.3;
+const TYRE_GROOVE_SHADE = 0.45;
+const TYRE_HIGHLIGHT = 60;
+const TYRE_RIM = { texels: 3, shade: 0.5 };
 
 /** Rubber: texture size, grain spread and base (levels), edge band (texels) and lift, stud spacing and radius (texels) and lift. */
 const RUBBER_SIZE = 64;
@@ -305,30 +313,38 @@ export function makeCorrugatedTexture(): THREE.DataTexture {
   );
 }
 
-/** Hex-packed round tyres seen end-on: near-black sidewall, lighter tread ring, dark hole, black between them. */
+/** The tyre of the brick bond nearest a texel: its distance and offset from its middle (texels) and which of the tile's four tyres it is. */
+function nearestTyre(column: number, row: number) {
+  const rowIndex = Math.floor(row / TYRE_PITCH);
+  let nearest = { distance: Infinity, offsetColumn: 0, offsetRow: 0, id: 0 };
+  for (let candidate = rowIndex - 1; candidate <= rowIndex + 1; candidate++) {
+    const shifted = column + 0.5 - wrapped(candidate, 2) * (TYRE_PITCH / 2);
+    const offsetColumn = wrapped(shifted, TYRE_PITCH) - TYRE_PITCH / 2;
+    const offsetRow = row + 0.5 - (candidate * TYRE_PITCH + TYRE_PITCH / 2);
+    const distance = hypot2(offsetColumn, offsetRow);
+    if (distance < nearest.distance) nearest = { distance, offsetColumn, offsetRow, id: wrapped(candidate, 2) * TYRES_ACROSS + wrapped(Math.floor(shifted / TYRE_PITCH), TYRES_ACROSS) };
+  }
+  return nearest;
+}
+
+/** Round tyres seen end-on in a brick bond: dusty highlight on each sidewall's upper left, tread blocks round the outer band, a dark rim, a hole, black between, each tyre its own grey. */
 export function makeTyreStackTexture(): THREE.DataTexture {
   const random = makeSeededRandom(SEEDS.tyre);
+  const greys = Array.from({ length: TYRES_ACROSS * TYRES_ACROSS }, () => 1 + (random() - 0.5) * TYRE_GREY_SPREAD);
   return makeTexture(
     TYRE_SIZE,
     TYRE_SIZE,
     (column, row) => {
-      const rowIndex = Math.floor(row / TYRE_PITCH);
-      let nearest = Infinity;
-      let offsetRow = 0;
-      for (let candidate = rowIndex - 1; candidate <= rowIndex + 1; candidate++) {
-        const stagger = wrapped(candidate, 2) * (TYRE_PITCH / 2);
-        const offsetColumn = wrapped(column + 0.5 - stagger, TYRE_PITCH) - TYRE_PITCH / 2;
-        const rowOffset = row + 0.5 - (candidate * TYRE_PITCH + TYRE_PITCH / 2);
-        const distance = hypot2(offsetColumn, rowOffset);
-        if (distance >= nearest) continue;
-        nearest = distance;
-        offsetRow = rowOffset;
+      const tyre = nearestTyre(column, row);
+      if (tyre.distance > TYRE_RADIUS) return TYRE_GAP_COLOUR;
+      if (tyre.distance < TYRE_HOLE_RADIUS) return TYRE_HOLE_COLOUR;
+      let level = TYRE_RUBBER + TYRE_HIGHLIGHT * Math.max(0, (tyre.offsetRow - tyre.offsetColumn) / (Math.SQRT2 * TYRE_TREAD_FROM));
+      if (tyre.distance >= TYRE_TREAD_FROM) {
+        const phase = wrapped((detAtan2(tyre.offsetRow, tyre.offsetColumn) / FULL_TURN) * TYRE_BLOCKS + 0.5, 1);
+        level = phase < TYRE_GROOVE_SHARE ? TYRE_TREAD * TYRE_GROOVE_SHADE : TYRE_TREAD;
       }
-      if (nearest > TYRE_RADIUS) return TYRE_GAP_COLOUR;
-      if (nearest < TYRE_HOLE_RADIUS) return TYRE_HOLE_COLOUR;
-      const level = nearest >= TYRE_TREAD_FROM ? TYRE_TREAD : TYRE_RUBBER;
-      const lit = 1 - (offsetRow / TYRE_RADIUS) * TYRE_LIGHT;
-      const grained = level * lit + (random() - 0.5) * TYRE_GRAIN;
+      level *= (1 - (tyre.offsetRow / TYRE_RADIUS) * TYRE_LIGHT) * greys[tyre.id] * (1 - TYRE_RIM.shade * ramp(TYRE_RADIUS - TYRE_RIM.texels, TYRE_RADIUS, tyre.distance));
+      const grained = level + (random() - 0.5) * TYRE_GRAIN;
       return [grained, grained, grained * COOL_TINT];
     },
     TEXTURE_WRAP.repeat,

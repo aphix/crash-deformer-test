@@ -3,59 +3,66 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { DERBY_ARENA } from "./constants.ts";
-import { DIRT_EXTENT, DIRT_TRACK_PATHS, TRACK_GAUGE, TRACK_LANE_WIDTH, TRACK_RIDGE_WIDTH, makeDirtTexture, pointOnPath } from "./derby-dirt-texture.ts";
+import {
+  DIRT_EXTENT,
+  DIRT_TRACK_PATHS,
+  LANE_GRID,
+  RUT_GRID,
+  TRACK_GAUGE,
+  TRACK_LANE_WIDTH,
+  endFadeAt,
+  makeDirtTexture,
+  paintTracks,
+  pointOnPath,
+  sampleField,
+  type TrackFields,
+  type TrackPath,
+} from "./derby-dirt-texture.ts";
 
 const dirt = makeDirtTexture();
 const CHANNELS = 4;
 const OPAQUE = 255;
 const ALPHA_INDEX = 3;
+const FULL_TURN = 2 * Math.PI;
 
 function luminanceAtTexel(column: number, row: number): number {
-  const offset = (row * dirt.image.width + column) * CHANNELS;
-  return (dirt.image.data[offset] + dirt.image.data[offset + 1] + dirt.image.data[offset + 2]) / 3;
+  return dirt.image.data[(row * dirt.image.width + column) * CHANNELS];
 }
 
-function luminanceAtWorld(worldX: number, worldZ: number): number {
-  const column = Math.floor(((worldX + DIRT_EXTENT) / (2 * DIRT_EXTENT)) * dirt.image.width);
-  const row = Math.floor(((worldZ + DIRT_EXTENT) / (2 * DIRT_EXTENT)) * dirt.image.height);
-  return luminanceAtTexel(column, row);
-}
-
-const CENTRELINE_SAMPLES = 1500;
-const centreline = DIRT_TRACK_PATHS.flatMap((path) => Array.from({ length: CENTRELINE_SAMPLES + 1 }, (_, sample) => pointOnPath(path, sample / CENTRELINE_SAMPLES)));
-
-function nearestCentrelineMetres(worldX: number, worldZ: number): number {
-  let nearest = Infinity;
-  for (const point of centreline) nearest = Math.min(nearest, Math.hypot(point.x - worldX, point.z - worldZ));
-  return nearest;
-}
-
-/** A point `offsetMetres` to the side of a path sample counts only where its own centreline is the nearest one, to within this (m). */
-const OFFSET_TOLERANCE = 0.12;
-
-/** The luminance `offsetMetres` to the side of a path at `fraction`, or undefined where another path is nearer than the offset. */
-function luminanceAtOffset(path: (typeof DIRT_TRACK_PATHS)[number], fraction: number, offsetMetres: number): number | undefined {
-  const point = pointOnPath(path, fraction);
-  const worldX = point.x - point.headingZ * offsetMetres;
-  const worldZ = point.z + point.headingX * offsetMetres;
-  if (Math.abs(nearestCentrelineMetres(worldX, worldZ) - Math.abs(offsetMetres)) > OFFSET_TOLERANCE) return undefined;
-  return luminanceAtWorld(worldX, worldZ);
-}
-
-const QUERY_STRIDE = 15;
-
-function meanLuminanceAtOffset(offsetMetres: number): { mean: number; samples: number } {
+/** Mean luminance of the texels whose distance from the middle satisfies `inside`. */
+function meanLuminanceWhere(inside: (distance: number) => boolean): number {
   let total = 0;
-  let samples = 0;
-  for (const path of DIRT_TRACK_PATHS) {
-    for (let sample = 0; sample <= CENTRELINE_SAMPLES; sample += QUERY_STRIDE) {
-      const luminance = luminanceAtOffset(path, sample / CENTRELINE_SAMPLES, offsetMetres);
-      if (luminance === undefined) continue;
-      total += luminance;
-      samples++;
+  let count = 0;
+  for (let row = 0; row < dirt.image.height; row++) {
+    for (let column = 0; column < dirt.image.width; column++) {
+      const worldX = ((column + 0.5) / dirt.image.width) * 2 * DIRT_EXTENT - DIRT_EXTENT;
+      const worldZ = ((row + 0.5) / dirt.image.height) * 2 * DIRT_EXTENT - DIRT_EXTENT;
+      if (!inside(Math.hypot(worldX, worldZ))) continue;
+      total += luminanceAtTexel(column, row);
+      count++;
     }
   }
-  return { mean: total / samples, samples };
+  return total / count;
+}
+
+function pathNamed(overrides: Partial<TrackPath>): TrackPath {
+  return { shape: "line", x: 0, z: 0, radiusX: 15, radiusZ: 0, tilt: 0, startRadians: 0, sweepRadians: 0, strength: 1, wander: 0, feather: 6, ...overrides };
+}
+
+function unitOf(world: number): number {
+  return (world + DIRT_EXTENT) / (2 * DIRT_EXTENT);
+}
+
+function laneAt(fields: TrackFields, worldX: number, worldZ: number): number {
+  return sampleField(fields.lane, LANE_GRID, unitOf(worldX), unitOf(worldZ));
+}
+
+function rutAt(fields: TrackFields, worldX: number, worldZ: number): number {
+  return sampleField(fields.rut, RUT_GRID, unitOf(worldX), unitOf(worldZ));
+}
+
+function ridgeAt(fields: TrackFields, worldX: number, worldZ: number): number {
+  return sampleField(fields.ridge, LANE_GRID, unitOf(worldX), unitOf(worldZ));
 }
 
 describe("given the dirt texture", () => {
@@ -85,48 +92,85 @@ describe("given the dirt texture", () => {
   it("when its mean luminance is taken, then it is pale and warm: 0.80 to 0.90 of white", () => {
     const LEAST = 0.8;
     const MOST = 0.9;
-    let total = 0;
-    for (let index = 0; index < dirt.image.data.length; index += CHANNELS) total += dirt.image.data[index];
-    const mean = total / (dirt.image.data.length / CHANNELS) / OPAQUE;
+    const mean = meanLuminanceWhere(() => true) / OPAQUE;
     assert.ok(mean >= LEAST, "mean luminance at least 0.80");
     assert.ok(mean <= MOST, "mean luminance at most 0.90");
   });
 
-  it("when horizontally adjacent texels of plain dirt are compared, then they differ by little (smooth, not speckle)", () => {
-    const PROBE_ROW = 16;
-    const ADJACENT_LIMIT = 6;
-    let difference = 0;
-    for (let column = 0; column < dirt.image.width - 1; column++) difference += Math.abs(luminanceAtTexel(column, PROBE_ROW) - luminanceAtTexel(column + 1, PROBE_ROW));
-    assert.ok(difference / (dirt.image.width - 1) < ADJACENT_LIMIT, "mean adjacent texel difference");
+  it("when the ring where cars circle (24-36 m) meets the square's far corners (beyond 46 m), then the ring is at least 7% darker", () => {
+    const RING_LEAST = 24;
+    const RING_MOST = 36;
+    const CORNER_FROM = 46;
+    const RING_SHARE_MOST = 0.93;
+    const ring = meanLuminanceWhere((distance) => distance >= RING_LEAST && distance <= RING_MOST);
+    const corners = meanLuminanceWhere((distance) => distance > CORNER_FROM);
+    assert.ok(ring < corners * RING_SHARE_MOST, "ring mean luminance under corner mean luminance");
+  });
+
+  it("when each texel is compared with its 5 x 5 neighbourhood, then 5.5% to 12% differ by over 20 levels (pebbles and grit, not smooth parchment, not noise)", () => {
+    const SPAN = 2;
+    const DEVIATION = 20;
+    const LEAST_SHARE = 0.055;
+    const MOST_SHARE = 0.12;
+    let deviating = 0;
+    let texels = 0;
+    for (let row = SPAN; row < dirt.image.height - SPAN; row++) {
+      for (let column = SPAN; column < dirt.image.width - SPAN; column++) {
+        let sum = 0;
+        for (let rowShift = -SPAN; rowShift <= SPAN; rowShift++) {
+          for (let columnShift = -SPAN; columnShift <= SPAN; columnShift++) sum += luminanceAtTexel(column + columnShift, row + rowShift);
+        }
+        if (Math.abs(luminanceAtTexel(column, row) - sum / (2 * SPAN + 1) ** 2) > DEVIATION) deviating++;
+        texels++;
+      }
+    }
+    assert.ok(deviating / texels >= LEAST_SHARE, "deviating share at least 5.5%");
+    assert.ok(deviating / texels <= MOST_SHARE, "deviating share at most 12%");
   });
 });
 
-describe("given the tyre track paths", () => {
-  const shapeCases = [
-    { it: "when the loops and arcs are counted, then there are four", shape: "ellipse", expectedCount: 4 },
-    { it: "when the figure-eights are counted, then there is one", shape: "eight", expectedCount: 1 },
-    { it: "when the straight skid runs are counted, then there are two", shape: "line", expectedCount: 2 },
+describe("given the generated tyre track paths", () => {
+  const familyCases = [
+    { it: "when the long ring arcs (radius 20 m or more) are counted, then there are at least 15", shape: "ellipse", radiusLeast: 20, radiusMost: 40, leastCount: 15 },
+    { it: "when the figure-eights are counted, then there are at least 3", shape: "eight", radiusLeast: 10, radiusMost: 15, leastCount: 3 },
+    { it: "when the skid streaks 8-20 m long are counted, then there are at least 8", shape: "line", radiusLeast: 4, radiusMost: 10, leastCount: 8 },
+    { it: "when the donut rings (radius 3-6 m, a full turn) are counted, then there are at least 4", shape: "ellipse", radiusLeast: 3, radiusMost: 6, leastCount: 4 },
   ] as const;
 
-  for (const testCase of shapeCases) {
+  for (const testCase of familyCases) {
     it(testCase.it, () => {
-      assert.equal(DIRT_TRACK_PATHS.filter((path) => path.shape === testCase.shape).length, testCase.expectedCount, "count");
+      const matching = DIRT_TRACK_PATHS.filter((path) => path.shape === testCase.shape && path.radiusX >= testCase.radiusLeast && path.radiusX <= testCase.radiusMost);
+      assert.ok(matching.length >= testCase.leastCount, "matching path count");
     });
   }
 
-  it("when the curved paths are measured, then their radii run from 8 m to 26 m", () => {
-    const LEAST_RADIUS = 8;
-    const MOST_RADIUS = 26;
-    const curved = DIRT_TRACK_PATHS.filter((path) => path.shape !== "line");
-    assert.equal(Math.min(...curved.map((path) => Math.min(path.radiusX, path.radiusZ))), LEAST_RADIUS, "smallest radius");
-    assert.equal(Math.max(...curved.map((path) => Math.max(path.radiusX, path.radiusZ))), MOST_RADIUS, "largest radius");
+  it("when the paths are counted, then there are 40 to 60", () => {
+    assert.ok(DIRT_TRACK_PATHS.length >= 40, "at least 40 paths");
+    assert.ok(DIRT_TRACK_PATHS.length <= 60, "at most 60 paths");
   });
 
-  it("when every centreline point is measured from the middle, then none comes within 4 m (the open bowl) and every lane stays on the floor", () => {
-    const DEAD_MIDDLE_RADIUS = 4;
-    const distances = centreline.map((point) => Math.hypot(point.x, point.z));
-    assert.ok(Math.min(...distances) >= DEAD_MIDDLE_RADIUS, "nearest approach to the middle");
-    assert.ok(Math.max(...distances) + TRACK_LANE_WIDTH / 2 + TRACK_RIDGE_WIDTH <= DERBY_ARENA.radius, "farthest lane edge from the middle");
+  it("when open paths are checked at both ends, then each end is outside r = 38 or has faded to under 5% strength, and there are open paths ending inside to prove it", () => {
+    const FADED = 0.05;
+    let endsInside = 0;
+    let freeEnds = 0;
+    for (const path of DIRT_TRACK_PATHS) {
+      if (path.shape !== "line" && path.sweepRadians >= FULL_TURN) continue;
+      for (const fraction of [0, 1]) {
+        const end = pointOnPath(path, fraction);
+        if (Math.hypot(end.x, end.z) >= DERBY_ARENA.radius) continue;
+        endsInside++;
+        if (endFadeAt(path, fraction) >= FADED) freeEnds++;
+      }
+    }
+    assert.ok(endsInside >= 40, "open path ends inside the arena");
+    assert.equal(freeEnds, 0, "ends inside the arena still at 5% strength or more");
+  });
+
+  it("when open paths are checked, then every one feathers over at least 5 m (or half its length)", () => {
+    const FEATHER_LEAST = 5;
+    const shortest = Math.min(...DIRT_TRACK_PATHS.filter((path) => path.shape === "line").map((path) => 2 * path.radiusX));
+    assert.ok(Math.min(...DIRT_TRACK_PATHS.map((path) => path.feather)) >= FEATHER_LEAST, "least feather (m)");
+    assert.ok(shortest >= 2 * FEATHER_LEAST - 2, "the shortest skid (m) still tapers to a point over its half length");
   });
 
   it("when the gauge is read, then it is the car's wheel pair: twice CAR_HALF.x", () => {
@@ -134,53 +178,95 @@ describe("given the tyre track paths", () => {
   });
 });
 
-describe("given the tyre tracks laid in the dirt", () => {
+describe("given one straight skid laid alone", () => {
+  const fields = paintTracks([pathNamed({})]);
   const RUT_CENTRE = TRACK_GAUGE / 2;
-  const INSIDE_RUT = 0.2;
-  const OUTSIDE_RUT = 0.45;
-  const LANE_CENTRE = 0;
   const PLAIN = 3.4;
-  const RIDGE = TRACK_LANE_WIDTH / 2 + TRACK_RIDGE_WIDTH / 2;
-  const MIN_SAMPLES = 150;
-  const profileCases = [
-    { it: "when a rut meets the lane centre between the ruts, then the rut is at least 10 levels darker", darkerOffset: RUT_CENTRE, lighterOffset: LANE_CENTRE, leastGapLevels: 10 },
-    { it: "when the lane centre meets plain dirt beside the lane, then the lane is at least 25 levels darker", darkerOffset: LANE_CENTRE, lighterOffset: PLAIN, leastGapLevels: 25 },
-    { it: "when plain dirt meets the pushed-up ridge outside the lane, then the ridge is at least 5 levels lighter", darkerOffset: PLAIN, lighterOffset: RIDGE, leastGapLevels: 5 },
-    { it: "when 0.2 m inside a rut on the lane side meets the lane 0.45 m from the rut's middle, then the rut is at least 6 levels darker (it is wider than 0.4 m)", darkerOffset: RUT_CENTRE - INSIDE_RUT, lighterOffset: RUT_CENTRE - OUTSIDE_RUT, leastGapLevels: 6 },
-    { it: "when 0.2 m inside a rut on the outer side meets plain dirt, then the rut is at least 12 levels darker (it is wider than 0.4 m)", darkerOffset: RUT_CENTRE + INSIDE_RUT, lighterOffset: PLAIN, leastGapLevels: 12 },
+  const lane = (offset: number) => laneAt(fields, 0, offset);
+  const rut = (offset: number) => rutAt(fields, 0, offset);
+  const ridge = (offset: number) => ridgeAt(fields, 0, offset);
+  const fieldCases = [
+    { it: "when the lane centre is read, then the lane is laid (0.1 or more) and 3.4 m off it there is none", read: "lane", centre: 0, leastCentre: 0.1, away: PLAIN, mostAway: 0.001 },
+    { it: "when the rut centre is read, then the rut is laid (0.1 or more) and the lane centre between the ruts has none", read: "rut", centre: RUT_CENTRE, leastCentre: 0.1, away: 0, mostAway: 0.001 },
   ] as const;
 
-  for (const testCase of profileCases) {
+  for (const testCase of fieldCases) {
     it(testCase.it, () => {
-      const darker = meanLuminanceAtOffset(testCase.darkerOffset);
-      const lighter = meanLuminanceAtOffset(testCase.lighterOffset);
-      assert.ok(darker.samples >= MIN_SAMPLES, "darker offset sample count");
-      assert.ok(lighter.samples >= MIN_SAMPLES, "lighter offset sample count");
-      assert.ok(lighter.mean - darker.mean >= testCase.leastGapLevels, "gap between the means (levels)");
+      const read = testCase.read === "lane" ? lane : rut;
+      assert.ok(read(testCase.centre) >= testCase.leastCentre, "value at the centre");
+      assert.ok(read(testCase.away) <= testCase.mostAway, "value away from it");
     });
   }
 
-  it("when a full loop is read in sixteenths, then the ruts fade in and out: their contrast with plain dirt varies by at least 30 levels", () => {
-    const BINS = 16;
-    const SAMPLES_PER_BIN = 30;
-    const FADE_RANGE_LEAST = 30;
-    const contrasts = [];
-    for (let bin = 0; bin < BINS; bin++) {
-      let rutTotal = 0;
-      let plainTotal = 0;
-      let samples = 0;
-      for (let sample = 0; sample < SAMPLES_PER_BIN; sample++) {
-        const fraction = (bin + sample / SAMPLES_PER_BIN) / BINS;
-        const rut = luminanceAtOffset(DIRT_TRACK_PATHS[0], fraction, RUT_CENTRE);
-        const plain = luminanceAtOffset(DIRT_TRACK_PATHS[0], fraction, PLAIN);
-        if (rut === undefined || plain === undefined) continue;
-        rutTotal += rut;
-        plainTotal += plain;
-        samples++;
+  it("when the lane is read across, then it is soft and 2.4 m wide: over half its strength at 0.6 m, under 2% at 1.4 m", () => {
+    assert.ok(lane(0.6) >= lane(0) * 0.5, "lane at 0.6 m");
+    assert.ok(lane(TRACK_LANE_WIDTH / 2 + 0.2) <= lane(0) * 0.02, "lane at 1.4 m");
+  });
+
+  it("when a rut is read across, then it is 0.55 m wide: 30% of its strength 0.2 m off its middle on both sides, nothing 0.45 m off", () => {
+    const INSIDE = 0.2;
+    const OUTSIDE = 0.45;
+    assert.ok(rut(RUT_CENTRE - INSIDE) >= rut(RUT_CENTRE) * 0.3, "inside, lane side");
+    assert.ok(rut(RUT_CENTRE + INSIDE) >= rut(RUT_CENTRE) * 0.3, "inside, outer side");
+    assert.ok(rut(RUT_CENTRE - OUTSIDE) <= rut(RUT_CENTRE) * 0.02, "outside, lane side");
+    assert.ok(rut(RUT_CENTRE + OUTSIDE) <= rut(RUT_CENTRE) * 0.02, "outside, outer side");
+  });
+
+  it("when the ridge is read, then it stands just outside the lane (1.35 m), not in it and not far away", () => {
+    const BESIDE_LANE = TRACK_LANE_WIDTH / 2 + 0.15;
+    assert.ok(ridge(BESIDE_LANE) >= 0.05, "ridge beside the lane");
+    assert.ok(ridge(0) < ridge(BESIDE_LANE), "ridge in the lane under ridge beside it");
+    assert.ok(ridge(PLAIN) <= 0.001, "ridge far away");
+  });
+
+  it("when tread chevrons are counted, then they are pressed into the ruts and not between them", () => {
+    const WIDTH = 0.3;
+    const cellMetres = (2 * DIRT_EXTENT) / 1024;
+    let inRuts = 0;
+    let between = 0;
+    for (let row = 0; row < 1024; row++) {
+      for (let column = 0; column < 1024; column++) {
+        if (fields.tread[row * 1024 + column] === 0) continue;
+        const worldZ = (row + 0.5) * cellMetres - DIRT_EXTENT;
+        if (Math.abs(Math.abs(worldZ) - RUT_CENTRE) < WIDTH) inRuts++;
+        else if (Math.abs(worldZ) < RUT_CENTRE - WIDTH) between++;
       }
-      if (samples > 0) contrasts.push((plainTotal - rutTotal) / samples);
     }
-    assert.ok(contrasts.length >= BINS / 2, "sixteenths with a clean reading");
-    assert.ok(Math.max(...contrasts) - Math.min(...contrasts) >= FADE_RANGE_LEAST, "range of rut contrast over the loop (levels)");
+    assert.ok(inRuts >= 100, "tread texels in the ruts");
+    assert.equal(between, 0, "tread texels between the ruts");
+  });
+});
+
+describe("given tracks laid more than once, fading and feathering", () => {
+  it("when two identical skids overlap, then the lane darkens more but less than twice (it saturates)", () => {
+    const single = laneAt(paintTracks([pathNamed({})]), 0, 0);
+    const double = laneAt(paintTracks([pathNamed({}), pathNamed({})]), 0, 0);
+    assert.ok(double > single, "two passes over one");
+    assert.ok(double < single * 2, "two passes under twice one");
+  });
+
+  it("when an open arc is read at its ends and its middle, then it feathers to under 20% of the middle at both ends", () => {
+    const arc = pathNamed({ shape: "ellipse", x: 0, z: 0, radiusX: 12, radiusZ: 12, startRadians: 0, sweepRadians: 3, feather: 6 });
+    const fields = paintTracks([arc]);
+    const ENDS = 0.02;
+    const at = (fraction: number) => {
+      const point = pointOnPath(arc, fraction);
+      return laneAt(fields, point.x, point.z);
+    };
+    assert.ok(at(0.5) >= 0.1, "lane at the middle");
+    assert.ok(at(ENDS) <= at(0.5) * 0.2, "lane near the start");
+    assert.ok(at(1 - ENDS) <= at(0.5) * 0.2, "lane near the end");
+  });
+
+  it("when a full loop is read in 48 steps, then its strength varies by at least 0.15 (it fades in and out)", () => {
+    const loop = pathNamed({ shape: "ellipse", x: -2, z: 3, radiusX: 25, radiusZ: 22, sweepRadians: FULL_TURN });
+    const fields = paintTracks([loop]);
+    const STEPS = 48;
+    const FADE_RANGE_LEAST = 0.15;
+    const readings = Array.from({ length: STEPS }, (_, step) => {
+      const point = pointOnPath(loop, step / STEPS);
+      return laneAt(fields, point.x, point.z);
+    });
+    assert.ok(Math.max(...readings) - Math.min(...readings) >= FADE_RANGE_LEAST, "range of lane strength round the loop");
   });
 });
