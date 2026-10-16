@@ -20,12 +20,16 @@ const FLAT_TOLERANCE = 0.05;
 const CARRY_TOLERANCE = 0.5;
 /** Frames (60 Hz) a run lasts: 2.5 s, past every throw below. */
 const FRAMES = 150;
+/** The watch's look-back (`PRE`, 0.35 s) in frames: a run longer than this has lost its first samples when the throw is judged. */
+const WATCH_LOOKBACK_FRAMES = 21;
 /** The wedges the plan-only contact kernel still kills a driver on at 25 m/s (a 22 degree one leaves the block at health 0.72, a 45 degree one at 1.0). */
 const KILLING_WEDGE_DEG = 20;
 /** Where the wall stands on the wedge (m of x; the wedge's face runs x -10 to 10), and the car's speed along the face, for the one-car row and the whole fleet's. */
 const WALL_X = 9;
-const SEDAN_CLIMB_MPS = 25;
-const FLEET_CLIMB_MPS = 30;
+/** A car starts this far (m of x) down the wedge's face (the foot is at -10): about 0.4 s of climb before the wall, beyond the watch's look-back. */
+const LEAD_START_X = -4;
+const SEDAN_CLIMB_MPS = 28;
+const FLEET_CLIMB_MPS = 33;
 /** The ledge a car drives off (m above the sand) and where its wall stands past the edge: the car falls 0.8 s, 7 m/s, before it. */
 const LEDGE_HEIGHT = 6;
 const LEDGE_WALL_X = 20;
@@ -56,17 +60,17 @@ function wallPrism(x: number, base: number, top: number): Surface {
   return solidsOf([], [{ index: 0, prefab: null, body: "solid", x, z: 0, yaw: 0, kind: "box", r: 8, hx: 0.5, hz: 8, mass: 0, base, top, ends: 3 }]);
 }
 
-/** A car of `cls` on the middle of `wedge`, nose up the face, driving up it at `speed` m/s along the face. */
-function climbing(cls: VehicleClassId, wedge: Wedge, speed: number): DeformableCar {
+/** A car of `cls` on the face of `wedge` at x = `startX`, nose up the face, driving up it at `speed` m/s along the face. */
+function climbing(cls: VehicleClassId, wedge: Wedge, speed: number, startX = 0): DeformableCar {
   const car = classCar(cls);
-  launch(car, 0, 0, Math.PI / 2, 0, 0);
+  launch(car, startX, 0, Math.PI / 2, 0, 0);
   const normal = new THREE.Vector3(-Math.sin(wedge.deg * RAD), Math.cos(wedge.deg * RAD), 0);
   car.group.quaternion.setFromUnitVectors(UP, normal).multiply(new THREE.Quaternion().setFromAxisAngle(UP, Math.PI / 2));
   const euler = new THREE.Euler().setFromQuaternion(car.group.quaternion, "YXZ");
   car.yaw = euler.y;
   car.pitch = euler.x;
   car.roll = euler.z;
-  car.group.position.set(0, wedge.heightAt(0, 0), 0);
+  car.group.position.set(startX, wedge.heightAt(startX, 0), 0);
   car.velocity.set(speed * Math.cos(wedge.deg * RAD), speed * Math.sin(wedge.deg * RAD), 0);
   car.speed = speed;
   car.spawnSpeed = speed;
@@ -104,8 +108,8 @@ function peakClosingVerticalSpeed(history: Throw["history"]): number {
 }
 
 const CLIMBS = [
-  { it: "when a sedan climbs a 20 degree wedge at 25 m/s into a wall, then its driver is thrown with the car's vertical speed at the fastest-closing sample plus 3.5 m/s", cls: "sedan", mps: SEDAN_CLIMB_MPS },
-  ...VEHICLE_CLASS_IDS.map((cls) => ({ it: `when a ${cls} climbs a 20 degree wedge at 30 m/s into a wall, then its driver is thrown with the car's vertical speed at the fastest-closing sample plus 3.5 m/s`, cls, mps: FLEET_CLIMB_MPS })),
+  { it: `when a sedan climbs a 20 degree wedge at ${SEDAN_CLIMB_MPS} m/s into a wall, then its driver is thrown with the car's vertical speed at the fastest-closing sample plus 3.5 m/s`, cls: "sedan", mps: SEDAN_CLIMB_MPS },
+  ...VEHICLE_CLASS_IDS.map((cls) => ({ it: `when a ${cls} climbs a 20 degree wedge at ${FLEET_CLIMB_MPS} m/s into a wall, then its driver is thrown with the car's vertical speed at the fastest-closing sample plus 3.5 m/s`, cls, mps: FLEET_CLIMB_MPS })),
 ] as const;
 
 describe("given a car climbing a wedge into a wall that kills it (a ramp's flat-up carry)", () => {
@@ -114,9 +118,10 @@ describe("given a car climbing a wedge into a wall that kills it (a ramp's flat-
       const wedge = new Wedge(KILLING_WEDGE_DEG);
       setGround(wedge);
       const top = wedge.heightAt(WALL_X, 0);
-      const car = climbing(testCase.cls, wedge, testCase.mps);
+      const car = climbing(testCase.cls, wedge, testCase.mps, LEAD_START_X);
       const run = runIntoWall(car, wallPrism(WALL_X, top - 3, top + 12));
-      const climbSpeed = peakClosingVerticalSpeed(run.history);
+      assert.ok(run.history.length > WATCH_LOOKBACK_FRAMES, "the throw comes after the look-back has passed the placement sample");
+      const climbSpeed = peakClosingVerticalSpeed(run.history.slice(-WATCH_LOOKBACK_FRAMES));
       car.dispose();
       assert.equal(run.events.length, 1, "one throw");
       assert.equal(run.events[0]!.exit, "windshield", "thrown out of the windshield");
@@ -133,7 +138,7 @@ describe("given a car driving off a ledge and falling into a wall that kills it"
     launch(car, -10, 0, Math.PI / 2, LEDGE_SPEED, 0);
     car.group.position.y = LEDGE_HEIGHT;
     const run = runIntoWall(car, wallPrism(LEDGE_WALL_X, 0, LEDGE_HEIGHT + 3));
-    const fallSpeed = peakClosingVerticalSpeed(run.history.slice(-Math.round(0.35 * 60)));
+    const fallSpeed = peakClosingVerticalSpeed(run.history.slice(-WATCH_LOOKBACK_FRAMES));
     car.dispose();
     assert.equal(run.events.length, 1, "one throw");
     assert.ok(fallSpeed < -FLAT_THROW_UP, `the car was falling at ${fallSpeed.toFixed(2)} m/s`);
