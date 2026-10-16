@@ -12,15 +12,23 @@ import { JOINTS, PARTS } from "./ragdoll-body.ts";
 export const ROLE = { SHIRT: 0, SKIN: 1, LEGS: 2, HAIR: 3, SHOE: 4, BRIM: 5, BADGE: 6, EYES: 7, LOCKS: 8, MUSTACHE: 9, TIE: 10, COLLAR: 11 } as const;
 export const ROLES = 12;
 
-/** A slot's build is one of these bits in its flags; a vertex is drawn when its kinds share the slot's build bit (and, when its kinds hold `WHISKERS`, the slot wears whiskers). */
+/**
+ * A slot's flags: its build (one of `BUILD`) and the optional bits it wears. A vertex is drawn when its kinds share the slot's
+ * build bit and every optional bit its kinds hold is in the slot's flags: whiskers, a cap (a civilian's or a cop's), a uniform's
+ * glasses, bare hair (no cap).
+ */
 export const BUILD = { MAN: 1, WOMAN: 2, PORTLY: 4 } as const;
 export const WHISKERS = 8;
+export const CAPPED = 16;
+export const UNIFORM = 32;
+export const BARE = 64;
+export const OPTIONAL = WHISKERS | CAPPED | UNIFORM | BARE;
 const CIVIL = BUILD.MAN | BUILD.WOMAN;
 const EVERY_BUILD = CIVIL | BUILD.PORTLY;
 
 /** Whether a vertex of `kinds` is drawn on a slot with `flags`: `dollShown` in the shader, line for line. */
 export function isDrawn(kinds: number, flags: number): boolean {
-  return (kinds & flags & EVERY_BUILD) !== 0 && ((kinds & WHISKERS) === 0 || (flags & WHISKERS) !== 0);
+  return (kinds & flags & EVERY_BUILD) !== 0 && (kinds & OPTIONAL & ~flags) === 0;
 }
 
 /** The geometry's attributes beside `position` and `normal`; the shader declares them by these names. */
@@ -83,8 +91,8 @@ function weigh(chain: Chain, y: number, out: number[]): void {
   }
 }
 
-/** One cross-section: height, half widths in x and z (to the polygon's corners), the z of its middle, its role. */
-type Ring = readonly [y: number, rx: number, rz: number, cz: number, role: number];
+/** One cross-section: height, half widths in x and z (to the polygon's corners), the z of its middle, its role, and the share of its z half width its face half (z above the middle) keeps (default 1). */
+type Ring = readonly [y: number, rx: number, rz: number, cz: number, role: number, front?: number];
 /** A lofted shell: rings top to bottom around the vertical axis at `x`, closed at an end by a pole `top` above the first ring or `bottom` below the last (open when absent). */
 type Shell = { x: number; sides: number; kinds: number; chain: Chain; rings: readonly Ring[]; top?: number; bottom?: number };
 
@@ -163,23 +171,102 @@ function leg(x: number, thigh: number): Shell[] {
   return [tube(x, EVERY_BUILD, chain, jeans, 0.03), tube(x, EVERY_BUILD, chain, shoe, undefined, 0)];
 }
 
-/** The head, the neck and the hair of each build, the face's features, the collar and the tie. */
-function headShells(): Shell[] {
+/** The skull standing: rings (y, half widths in x and z, the z of its middle) from the chin up, the egg of a cranium over a narrower jaw; its top pole is `SKULL_TOP`. */
+const SKULL = [[1.5, 0.035, 0.04, 0.045], [1.53, 0.06, 0.07, 0.035], [1.57, 0.082, 0.09, 0.02], [1.62, 0.098, 0.103, 0], [1.67, 0.1, 0.108, -0.004], [1.71, 0.093, 0.1, -0.006], [1.745, 0.07, 0.08, -0.006]] as const;
+const SKULL_TOP = 1.765;
+const HEAD_SIDES = 10;
+/** The skull's half widths and middle at height `y`, between its rings. */
+function skullAt(y: number): readonly [number, number, number] {
+  for (let i = 0; i + 1 < SKULL.length; i++) {
+    const [a, b] = [SKULL[i]!, SKULL[i + 1]!];
+    if (y < a[0] || y > b[0]) continue;
+    const t = (y - a[0]) / (b[0] - a[0]);
+    return [a[1] + t * (b[1] - a[1]), a[2] + t * (b[2] - a[2]), a[3] + t * (b[3] - a[3])];
+  }
+  throw new RangeError(`no skull at y = ${y}`);
+}
+
+/** The skull's face at height `y`: the z of its front vertex. */
+function faceZ(y: number): number {
+  const [, rz, cz] = skullAt(y);
+  return cz + rz;
+}
+
+/** Rings over the skull at heights `ys` (top to bottom), `d` m out of it, the face half of each ring scaled by `front(y)` (below 1: under the skin, so the shell ends in a hairline). */
+function overSkull(ys: readonly number[], d: number, role: number, front: (y: number) => number): Ring[] {
+  return ys.map((y): Ring => {
+    const [rx, rz, cz] = skullAt(y);
+    return [y, rx + d, rz + d, cz, role, front(y)];
+  });
+}
+
+/** A head shell: ten sides, riding the head bone, so nothing on it can come apart from the skull. */
+const headShell = (kinds: number, rings: readonly Ring[], top?: number, bottom?: number): Shell => ({ ...tube(0, kinds, rigid(HEAD), rings, top, bottom), sides: HEAD_SIDES });
+
+/** Metres the cap's peak stands out of its crown; the crown's and the hair's thickness over the skull; the height above which the fringe shows. */
+const PEAK_REACH = 0.085;
+const CROWN_OUT = 0.02;
+const HAIR_OUT = 0.012;
+const FRINGE_ON = 1.69;
+const fringe = (y: number) => (y < FRINGE_ON ? 0.8 : 1);
+
+/** The face: the skull, a short neck under it, eyes with brows, a nose, glasses on a cop, a moustache where worn. */
+function faceShells(): Shell[] {
   const head = rigid(HEAD);
+  const eyeY = 1.635;
+  const eye = (side: number): Shell => box(side * 0.036, eyeY, faceZ(eyeY), 0.022, 0.016, 0.012, EYES, EVERY_BUILD, head);
+  const brow = (side: number): Shell => box(side * 0.036, eyeY + 0.024, faceZ(eyeY + 0.024), 0.04, 0.008, 0.012, LOCKS, EVERY_BUILD, head);
+  const lens = (side: number): Shell => box(side * 0.038, eyeY, faceZ(eyeY) + 0.006, 0.052, 0.03, 0.012, EYES, EVERY_BUILD | UNIFORM, head);
+  const skull: Ring[] = SKULL.map(([y, rx, rz, cz]): Ring => [y, rx, rz, cz, SKIN]);
+  return [
+    tube(0, EVERY_BUILD, SPINE, [[1.34, 0.045, 0.045, -0.005, SKIN], [1.42, 0.045, 0.045, 0, SKIN], [1.46, 0.045, 0.047, 0.008, SKIN], [1.5, 0.046, 0.048, 0.012, SKIN], [1.56, 0.046, 0.05, 0.017, SKIN]]),
+    headShell(EVERY_BUILD, skull, SKULL_TOP - 1.745, 0.01),
+    eye(-1),
+    eye(1),
+    brow(-1),
+    brow(1),
+    lens(-1),
+    lens(1),
+    box(0, eyeY, faceZ(eyeY) + 0.006, 0.02, 0.008, 0.012, EYES, EVERY_BUILD | UNIFORM, head),
+    box(0, 1.6, faceZ(1.6) + 0.006, 0.03, 0.05, 0.03, SKIN, EVERY_BUILD, head),
+    box(0, 1.575, faceZ(1.575) + 0.004, 0.09, 0.02, 0.02, MUSTACHE, EVERY_BUILD | WHISKERS, head),
+  ];
+}
+
+/** Hair, caps and the other head wear: each a shell over the skull's own rings, so it follows its surface. */
+function hairShells(): Shell[] {
+  const crown = overSkull([1.745, 1.71, 1.67], CROWN_OUT, HAIR, () => 1);
+  const rim = crown[crown.length - 1]!;
+  const reach = 1 + PEAK_REACH / rim[2];
+  const peak: Ring[] = [[rim[0], rim[1], rim[2], rim[3], BRIM], [rim[0] - 0.006, rim[1], rim[2], rim[3], BRIM, reach], [rim[0] - 0.014, rim[1], rim[2], rim[3], BRIM, reach], [rim[0] - 0.014, rim[1], rim[2], rim[3], BRIM]];
+  const napeY = 1.585;
+  const [, napeZ, napeC] = skullAt(napeY);
+  const longHair: Ring[] = [
+    ...overSkull([1.745, 1.71, 1.67, 1.62], HAIR_OUT + 0.002, LOCKS, fringe),
+    [1.57, 0.105, 0.085, -0.03, LOCKS, 0.5],
+    [1.5, 0.105, 0.07, -0.05, LOCKS, 0.4],
+    [1.42, 0.1, 0.06, -0.06, LOCKS, 0.4],
+    [1.36, 0.085, 0.05, -0.06, LOCKS, 0.4],
+  ];
+  const jowls: Ring[] = [1.51, 1.545, 1.59, 1.64].map((y): Ring => {
+    const [rx, rz, cz] = skullAt(y);
+    return [y, rx * 1.15, rz * 1.08, cz, SKIN];
+  });
+  return [
+    headShell(BUILD.MAN | BARE, overSkull([1.745, 1.71, 1.67, 1.62], HAIR_OUT, HAIR, fringe), SKULL_TOP + HAIR_OUT - 1.745),
+    box(0, napeY, napeC - napeZ + 0.014, 0.15, 0.07, 0.04, LOCKS, BUILD.MAN, rigid(HEAD)),
+    headShell(BUILD.WOMAN, longHair, SKULL_TOP + HAIR_OUT + 0.002 - 1.745, 0.04),
+    headShell(BUILD.PORTLY, jowls, 0.01, 0.01),
+    headShell(BUILD.PORTLY | BARE, overSkull([1.745, 1.71, 1.67, 1.62, 1.57], 0.03, HAIR, (y) => (y < 1.6 ? 0.5 : y < FRINGE_ON ? 0.75 : 1)), SKULL_TOP + 0.03 - 1.745),
+    headShell(EVERY_BUILD | CAPPED, crown, SKULL_TOP + CROWN_OUT - 1.745),
+    headShell(EVERY_BUILD | CAPPED, peak),
+  ];
+}
+
+/** The collar and tie of the portly man, and the badge (a pocket on a civilian's jacket). */
+function clothesShells(): Shell[] {
   const tieRings = [1.37, 1.3, 1.22, 1.12, 1.02, 0.98].map((y): Ring => [y, 0.04, 0.02, portlyFront(y) + 0.006, TIE]);
   return [
-    tube(0, EVERY_BUILD, SPINE, [[1.34, 0.055, 0.055, -0.005, SKIN], [1.42, 0.055, 0.055, 0, SKIN], [1.46, 0.055, 0.057, 0.008, SKIN], [1.5, 0.056, 0.058, 0.012, SKIN], [1.56, 0.056, 0.06, 0.017, SKIN]]),
-    tube(0, EVERY_BUILD, head, [[1.5, 0.045, 0.055, 0.035, SKIN], [1.545, 0.09, 0.098, 0.025, SKIN], [1.61, 0.105, 0.115, 0, SKIN], [1.68, 0.108, 0.118, -0.003, SKIN], [1.735, 0.092, 0.1, -0.006, SKIN]], 0.035, 0.01),
-    box(0, 1.655, 0.108, 0.14, 0.026, 0.016, EYES, EVERY_BUILD, head),
-    box(0, 1.615, 0.115, 0.034, 0.055, 0.03, SKIN, EVERY_BUILD, head),
-    box(0, 1.575, 0.112, 0.09, 0.02, 0.02, MUSTACHE, EVERY_BUILD | WHISKERS, head),
-    box(0, 1.715, 0.14, 0.2, 0.024, 0.08, BRIM, EVERY_BUILD, head),
-    tube(0, CIVIL, head, [[1.6, 0.112, 0.122, -0.02, HAIR], [1.65, 0.116, 0.126, -0.018, HAIR], [1.7, 0.116, 0.126, -0.016, HAIR], [1.745, 0.098, 0.108, -0.01, HAIR]], 0.04),
-    box(0, 1.58, -0.115, 0.19, 0.075, 0.045, LOCKS, BUILD.MAN, head),
-    tube(0, BUILD.WOMAN, SPINE, [[1.72, 0.118, 0.126, -0.02, LOCKS], [1.65, 0.122, 0.13, -0.025, LOCKS], [1.56, 0.118, 0.1, -0.055, LOCKS], [1.45, 0.105, 0.085, -0.08, LOCKS], [1.34, 0.085, 0.06, -0.095, LOCKS]], undefined, 0.04),
-    tube(0, BUILD.PORTLY, head, [[1.5, 0.075, 0.08, 0.04, SKIN], [1.545, 0.12, 0.125, 0.025, SKIN], [1.6, 0.118, 0.12, 0.015, SKIN], [1.65, 0.105, 0.11, 0, SKIN]], 0.01, 0.01),
-    tube(0, BUILD.PORTLY, head, [[1.58, 0.126, 0.136, -0.03, HAIR], [1.65, 0.13, 0.14, -0.02, HAIR], [1.71, 0.126, 0.136, -0.01, HAIR], [1.765, 0.105, 0.11, -0.005, HAIR]], 0.05),
-    tube(0, BUILD.PORTLY, head, [[1.6, 0.126, 0.136, -0.03, LOCKS], [1.55, 0.118, 0.115, -0.04, LOCKS], [1.5, 0.09, 0.08, -0.04, LOCKS]], undefined, 0.01),
     tube(0, BUILD.PORTLY, rigid(TORSO), [[1.45, 0.07, 0.068, 0, COLLAR], [1.425, 0.085, 0.078, 0, COLLAR], [1.39, 0.115, 0.095, 0, COLLAR]]),
     { ...tube(0, BUILD.PORTLY, rigid(TORSO), tieRings, undefined, 0), sides: 4 },
     box(0.095, 1.25, 0.14, 0.055, 0.065, 0.02, BADGE, CIVIL, rigid(TORSO)),
@@ -191,7 +278,9 @@ function bodyShells(): Shell[] {
     torsoShell(BUILD.MAN, MAN_JACKET, MAN_PELVIS),
     torsoShell(BUILD.WOMAN, WOMAN_JACKET, WOMAN_PELVIS),
     torsoShell(BUILD.PORTLY, PORTLY_JACKET, PORTLY_PELVIS),
-    ...headShells(),
+    ...faceShells(),
+    ...hairShells(),
+    ...clothesShells(),
   ];
   for (const [sign, armBone, legBone] of [[1, LEFT_ARM, LEFT_LEG], [-1, RIGHT_ARM, RIGHT_LEG]] as const) shells.push(...arm(ARM_X * sign, armBone), ...leg(LEG_X * sign, legBone));
   return shells;
@@ -211,7 +300,12 @@ function loft(s: Shell, mesh: Lofted): void {
     mesh.position.push(x, y, z);
     return mesh.position.length / 3 - 1;
   };
-  const rings = s.rings.map(([y, rx, rz, cz, role]) => Array.from({ length: n }, (_, k) => vertex(y, s.x + rx * Math.cos(phase + (2 * Math.PI * k) / n), cz + rz * Math.sin(phase + (2 * Math.PI * k) / n), role)));
+  const rings = s.rings.map(([y, rx, rz, cz, role, front = 1]) =>
+    Array.from({ length: n }, (_, k) => {
+      const sin = Math.sin(phase + (2 * Math.PI * k) / n);
+      return vertex(y, s.x + rx * Math.cos(phase + (2 * Math.PI * k) / n), cz + rz * sin * (sin > 0 ? front : 1), role);
+    }),
+  );
   for (let r = 0; r + 1 < rings.length; r++) {
     for (let k = 0; k < n; k++) {
       const [a, b, c, d] = [rings[r]![k]!, rings[r]![(k + 1) % n]!, rings[r + 1]![(k + 1) % n]!, rings[r + 1]![k]!];

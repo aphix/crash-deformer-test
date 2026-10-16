@@ -148,10 +148,11 @@ export abstract class EngineScenes extends EngineDerby {
     // The stack and the Lab run their own car counts and give the sandbox's back.
     const wasLab = this.showLab;
     const wasGarage = this.showGarage;
+    const wasShowcase = this.showShowcase;
     if (this.showRange || this.showStack || this.showLab || this.showGarage || this.showShowcase) this.ensureCars(this.sandboxCars);
     if (this.race.active && next !== this.sceneId) this.setRace(false);
-    // The workshop's lights go with the Lab and the garage, before a race lights its course.
-    if ((wasLab && next !== "lab") || (wasGarage && next !== "garage")) this.stage.look(null);
+    // The workshop's lights go with the Lab, the garage and the showcase, before a race lights its course.
+    if ((wasLab && next !== "lab") || ((wasGarage || wasShowcase) && next !== "garage" && next !== "showcase")) this.stage.look(null);
     if (this.derbyMode !== (next === "derby")) this.setDerby(next === "derby");
     if (next === "range" || next === "stack" || next === "lab" || next === "garage" || next === "showcase") {
       this.sandboxCars = this.carCount;
@@ -175,7 +176,10 @@ export abstract class EngineScenes extends EngineDerby {
       this.stage.look(LAB_LIGHT);
       this.view.frameReset(true, this.live(), GARAGE.angle, GARAGE.shot);
     }
-    if (next === "showcase") this.frameShowcase();
+    if (next === "showcase") {
+      this.stage.look(LAB_LIGHT);
+      this.frameShowcase();
+    }
     this.emitHud();
   }
 

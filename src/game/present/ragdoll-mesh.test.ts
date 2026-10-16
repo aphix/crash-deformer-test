@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { driverLook, JEANS, type DriverLook } from "./driver-look.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 import { JOINTS, PARTS } from "./ragdoll-body.ts";
-import { BONES_ATTRIBUTE, BUILD, KINDS_ATTRIBUTE, ROLE, ROLES, skinPoint, WHISKERS } from "./dummy-skin.ts";
+import { BONES_ATTRIBUTE, BUILD, FLAGS_AT, isDrawn, KINDS_ATTRIBUTE, ROLE, ROLES, skinPoint, WHISKERS } from "./dummy-skin.ts";
 
 const MAN: DriverLook = { woman: false, shirt: 0xc0392b, pants: JEANS, hair: 0x18120f, hat: null, mustache: false };
 const WOMAN: DriverLook = { woman: true, shirt: 0x2a9d8f, pants: JEANS, hair: 0xd2b062, hat: null, mustache: false };
@@ -88,7 +88,7 @@ describe("given the crash-test dummies drawn for thrown drivers", () => {
     assert.notEqual(man.length, woman.length, "a different body");
   });
 
-  it("when a portly man in a suit is dressed against a plain man, then he is broader through the chest and belly, wears a red tie and a white collar, and has more hair over his crown", () => {
+  it("when a portly man in a suit is dressed against a plain man, then he is broader through the chest and belly, wears a red tie and a white collar, and has fuller hair over his crown", () => {
     const suit = { ...MAN, shirt: 0x1f3463, pants: 0x1f3463, hair: 0xe8bf6c };
     const plain = drawn(suit, false);
     const portly = drawn({ ...suit, portly: true }, false);
@@ -100,8 +100,8 @@ describe("given the crash-test dummies drawn for thrown drivers", () => {
     assert.ok(section(portly) > section(plain) * 1.3, `torso section ${section(portly).toFixed(3)} m² against ${section(plain).toFixed(3)} m²`);
     assert.ok(has(portly, 0xb3202a) && !has(plain, 0xb3202a), "a red tie");
     assert.ok(has(portly, 0xf4f4f1) && !has(plain, 0xf4f4f1), "a white collar");
-    const hair = (rows: Drawn[]) => ofRole(rows, ROLE.HAIR).length + ofRole(rows, ROLE.LOCKS).length;
-    assert.ok(hair(portly) > hair(plain), `${hair(portly)} hair vertices against ${hair(plain)}`);
+    const hairWidth = (rows: Drawn[]) => Math.max(...ofRole(rows, ROLE.HAIR).map((r) => Math.abs(r.at.x)));
+    assert.ok(hairWidth(portly) > hairWidth(plain) + 0.01, `${hairWidth(portly).toFixed(3)} m across the hair against ${hairWidth(plain).toFixed(3)} m`);
   });
 
   it("when a driver picks trousers, a cap and a moustache, then his legs wear the trousers' colour, his crown the cap's, and his face gains a moustache in his hair's colour", () => {
@@ -309,5 +309,85 @@ describe("given a dummy ray-picked as the garage's driver is", () => {
     assert.ok(hit.point.z > 6 && hit.point.z < 6.2, `hit at z = ${hit.point.z}`);
     const miss = new THREE.Raycaster(new THREE.Vector3(-4, 1.2, 8), new THREE.Vector3(0, 0, -1));
     assert.equal(miss.intersectObject(mesh).length, 0, "a ray past him misses");
+  });
+});
+
+/** The head's skin triangles (rigid on the head bone, the skull and its face features) of the standing slot 0. */
+function skinTriangles(mesh: DummyMesh): THREE.Triangle[] {
+  const geo = mesh.geometry;
+  const [pos, skin, kinds, index] = [geo.getAttribute("position"), geo.getAttribute(BONES_ATTRIBUTE), geo.getAttribute(KINDS_ATTRIBUTE), geo.index!];
+  const onHead = (i: number) => kinds.getX(i) === ROLE.SKIN && skin.getX(i) === 1 && skin.getY(i) === 1 && pos.getY(i) >= 1.5 && isDrawn(kinds.getY(i), mesh["rows"][FLAGS_AT * 4]!);
+  const out: THREE.Triangle[] = [];
+  for (let t = 0; t < index.count; t += 3) {
+    const [a, b, c] = [index.getX(t), index.getX(t + 1), index.getX(t + 2)];
+    if (onHead(a) && onHead(b) && onHead(c)) out.push(new THREE.Triangle(new THREE.Vector3().fromBufferAttribute(pos, a), new THREE.Vector3().fromBufferAttribute(pos, b), new THREE.Vector3().fromBufferAttribute(pos, c)));
+  }
+  return out;
+}
+
+/**
+ * How far (m) head wear may stand from the skull's skin. Hair and the cap's crown are shells `HAIR_OUT` to 0.03 m out of the skull
+ * (portly hair), their face half pulled up to half its width under the skin (0.5 of a 0.1 m radius: 0.05 m), so 0.03 and 0.05 give 0.06 with
+ * a centimetre to spare. The peak stands 0.085 m out of a crown 0.02 m out of the skull, and its tip is the most distant point: 0.12 m.
+ */
+const WEAR_BOUND = 0.06;
+const PEAK_BOUND = 0.12;
+/** A woman's long hair hangs below the jaw by design: the check covers the head wear from this height (m, the cheek) up. */
+const HANGS_BELOW = 1.57;
+/** The peak's rim is the crown's own ring: at least this many of its vertices lie on a crown vertex (within a millimetre). */
+const PEAK_ATTACHED = 10;
+
+const HEADS = [
+  { name: "bare man", look: MAN, cop: false },
+  { name: "woman with long hair", look: WOMAN, cop: false },
+  { name: "portly man", look: { ...MAN, portly: true }, cop: false },
+  { name: "man in a cap", look: { ...MAN, hat: 0x2255aa }, cop: false },
+  { name: "cop in his cap", look: MAN, cop: true },
+] as const;
+
+describe("given the dummy's head", () => {
+  for (const head of HEADS) {
+    it(`when the ${head.name} is drawn, then every hair, cap and peak vertex stands within a bound of the skull's skin, and a drawn peak is fastened to its crown`, () => {
+      const mesh = new DummyMesh(1);
+      mesh.dress(0, head.cop, head.look);
+      show(mesh, posture({}));
+      const skin = skinTriangles(mesh);
+      assert.ok(skin.length > 60, `${skin.length} skin triangles on the head`);
+      const geo = mesh.geometry;
+      const [kinds, bones] = [geo.getAttribute(KINDS_ATTRIBUTE), geo.getAttribute(BONES_ATTRIBUTE)];
+      const at = new THREE.Vector3();
+      const near = new THREE.Vector3();
+      const peak: THREE.Vector3[] = [];
+      const crown: THREE.Vector3[] = [];
+      let checked = 0;
+      for (let i = 0; i < kinds.count; i++) {
+        const role = kinds.getX(i);
+        if (![ROLE.HAIR, ROLE.LOCKS, ROLE.BRIM].includes(role as never) || !mesh.posed(0, i, at) || at.y < HANGS_BELOW) continue;
+        assert.ok(bones.getX(i) === 1 && bones.getY(i) === 1, `vertex ${i} of the head wear rides the head bone alone`);
+        let best = Infinity;
+        for (const tri of skin) best = Math.min(best, tri.closestPointToPoint(at, near).distanceTo(at));
+        const bound = role === ROLE.BRIM ? PEAK_BOUND : WEAR_BOUND;
+        assert.ok(best <= bound, `vertex ${i} (role ${role}) floats ${best.toFixed(3)} m off the skull, bound ${bound} m`);
+        if (role === ROLE.BRIM) peak.push(at.clone());
+        if (role === ROLE.HAIR) crown.push(at.clone());
+        checked++;
+      }
+      assert.ok(checked > 40, `${checked} head wear vertices checked`);
+      if (head.cop || head.look.hat !== null) {
+        const fastened = peak.filter((p) => crown.some((c) => c.distanceTo(p) < 1e-3)).length;
+        assert.ok(fastened >= PEAK_ATTACHED, `${fastened} of ${peak.length} peak vertices lie on the crown, at least ${PEAK_ATTACHED} must`);
+      } else assert.equal(peak.length, 0, "no peak without a cap");
+    });
+  }
+
+  it("when a civilian and a cop are drawn, then the civilian has two small eyes with a gap between them, and the cop has a pair of dark lenses over them seated on the face", () => {
+    const civilian = drawn(MAN, false);
+    const cop = drawn(MAN, true);
+    const eyes = (rows: Drawn[]) => ofRole(rows, ROLE.EYES).filter((r) => r.at.z > 0.05 && r.at.y > 1.55);
+    const gap = Math.min(...eyes(civilian).map((r) => Math.abs(r.at.x)));
+    assert.ok(gap > 0.015, `the eyes are ${(gap * 2).toFixed(3)} m apart at their nearest, not one bar`);
+    assert.ok(Math.max(...eyes(civilian).map((r) => Math.abs(r.at.x))) < 0.06, "small eyes");
+    assert.ok(eyes(cop).length > eyes(civilian).length * 2, `${eyes(cop).length} dark vertices on the cop's face against ${eyes(civilian).length}`);
+    assert.ok(Math.max(...eyes(cop).map((r) => r.at.z)) > Math.max(...eyes(civilian).map((r) => r.at.z)), "the lenses stand out of the face");
   });
 });

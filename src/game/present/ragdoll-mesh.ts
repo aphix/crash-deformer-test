@@ -3,7 +3,7 @@ import { JEANS, type DriverLook } from "./driver-look.ts";
 import { PARTS } from "./ragdoll-body.ts";
 import { applySpray, sprayUniforms, type SprayBitmap } from "./spray.ts";
 import { PERSON_SPRAY } from "../match/look-data.ts";
-import { BONES_ATTRIBUTE, BUILD, dummyGeometry, FLAGS_AT, isDrawn, KINDS_ATTRIBUTE, PALETTE_AT, ROLE, ROLES, ROW_TEXELS, skinPoint, WHISKERS } from "./dummy-skin.ts";
+import { BARE, BONES_ATTRIBUTE, BUILD, CAPPED, dummyGeometry, FLAGS_AT, isDrawn, KINDS_ATTRIBUTE, OPTIONAL, PALETTE_AT, ROLE, ROLES, ROW_TEXELS, skinPoint, UNIFORM, WHISKERS } from "./dummy-skin.ts";
 
 /** FlatOut's thrown driver (sRGB, by role): skin, dark shoes and eyes are fixed; the tee, trousers and hair roles take the driver's `DriverLook`. */
 const CIVILIAN = [0, 0xd8a27f, 0, 0, 0x1c1c1e, 0, 0, 0x1a1410, 0, 0, 0xb3202a, 0xf4f4f1];
@@ -30,7 +30,7 @@ vec3 dollTurn(vec4 q, vec3 v) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + 
 bool dollShown() {
   int flags = int(dollTexel(${FLAGS_AT}).x + 0.5);
   int kinds = int(roleKind.y + 0.5);
-  return (kinds & flags & 7) != 0 && ((kinds & ${WHISKERS}) == 0 || (flags & ${WHISKERS}) != 0);
+  return (kinds & flags & 7) != 0 && (kinds & ${OPTIONAL} & ~flags) == 0;
 }
 void dollSkin(out vec3 p, out vec3 n) {
   int a = int(bones.x + 0.5);
@@ -114,7 +114,8 @@ export class DummyMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.M
   dress(s: number, cop: boolean, look: DriverLook): void {
     const row = s * ROW_TEXELS * 4;
     const build = look.woman ? BUILD.WOMAN : look.portly ? BUILD.PORTLY : BUILD.MAN;
-    this.rows[row + FLAGS_AT * 4] = build | (look.mustache ? WHISKERS : 0);
+    const capped = cop || look.hat !== null;
+    this.rows[row + FLAGS_AT * 4] = build | (look.mustache ? WHISKERS : 0) | (capped ? CAPPED : BARE) | (cop ? UNIFORM : 0);
     const base = cop ? COP : CIVILIAN;
     for (let role = 0; role < ROLES; role++) {
       if (!cop && look.hat !== null && role === ROLE.HAIR) _c.setHex(look.hat);
