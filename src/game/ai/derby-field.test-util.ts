@@ -14,6 +14,7 @@ import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { aggressive, ScootWatch, type ScootShare } from "./derby-scoot.test-util.ts";
 import { FRAME_HZ } from "../kernel/constants.ts";
 import { zipBound } from "../contact/zip-bound.test-util.ts";
+import { SPIN_RATE_BAR, verticalTurn } from "./vertical-turn.test-util.ts";
 
 export type Field = {
   seed: number;
@@ -77,7 +78,7 @@ export type FieldWatch = { step?: (cars: DeformableCar[], t: number, h: number, 
  * A derby of `n` AI cars through the engine's stack (`stepWorld` with the derby's hit credit and arena,
  * cars dressed as `dressCar` does at the game's defaults), at the default slider, to the end of the heat.
  * `playerClass` is car 0's class (the HUD's player class, the sedan by default).
- * Spins: |yaw rate| > 5 rad/s for > 0.2 s in the first 2 min, split by a car contact in the 0.3 s before the spin began.
+ * Spins: turn rate about the vertical (`verticalTurn`) > `SPIN_RATE_BAR` for > 0.2 s in the first 2 min, split by a car contact in the 0.3 s before the spin began.
  * Zips: a live mass centroid moving more than 3·v·h + 5 cm in a step. Impacts: AI hits closing ≥ 3 m/s,
  * by the attacker's face. Moves: swings, J-turns and sideswipes, each a manoeuvre (`MOVE_GAP`).
  */
@@ -135,9 +136,11 @@ function runFieldHeat(n: number, seed: number, playerClass?: VehicleClassId, on?
     carSeconds: 0,
   };
   const watch = new ScootWatch(n);
-  const yaw0 = cars.map((c) => c.yaw);
+  /** Per car: its orientation one step ago, and the turn about the vertical it has made since the start (rad, unwrapped). */
+  const lastTurn = cars.map((c) => c.group.quaternion.clone());
+  const heading = new Array<number>(n).fill(0);
   const spinFor = new Array<number>(n).fill(0);
-  /** Per car: [t, yaw] pairs spanning about 0.1 s, for the contact peak. */
+  /** Per car: [t, heading] pairs spanning about 0.1 s, for the contact peak. */
   const ring = cars.map((): number[] => []);
   const touched = new Array<number>(n).fill(-9);
   /** Per car, when it was last in each move: back in it within MOVE_GAP s is the same manoeuvre. */
@@ -195,22 +198,20 @@ function runFieldHeat(n: number, seed: number, playerClass?: VehicleClassId, on?
       if (alive[i] && !c.deform.drivetrainAlive) out.deaths.push(+t.toFixed(1));
       alive[i] = c.deform.drivetrainAlive;
       if (match.board[i]!.out && !out.outs.includes(i)) out.outs.push(i);
-      let dyaw = c.yaw - yaw0[i]!;
-      dyaw -= Math.round(dyaw / (Math.PI * 2)) * Math.PI * 2;
-      yaw0[i] = c.yaw;
-      if (Math.abs(dyaw) / h > 5) spinFor[i]! += h;
+      const dyaw = verticalTurn(lastTurn[i]!, c.group.quaternion);
+      lastTurn[i]!.copy(c.group.quaternion);
+      heading[i]! += dyaw;
+      if (Math.abs(dyaw) / h > SPIN_RATE_BAR) spinFor[i]! += h;
       else spinFor[i] = 0;
       if (spinFor[i]! > 0.2 && spinFor[i]! - h <= 0.2 && t < 120) {
         const note = `t=${t.toFixed(1)} c${i} ${(Math.abs(dyaw) / h).toFixed(1)} rad/s`;
         (t - touched[i]! < 0.5 ? out.contactSpins : out.freeSpins).push(note);
       }
       const rb = ring[i]!;
-      rb.push(t, c.yaw);
+      rb.push(t, heading[i]!);
       while (rb.length > 4 && rb[2]! <= t - 0.1) rb.splice(0, 2);
       if (t - rb[0]! >= 0.099 && t - touched[i]! < 0.5 && t < 120) {
-        let turn = c.yaw - rb[1]!;
-        turn -= Math.round(turn / (Math.PI * 2)) * Math.PI * 2;
-        const rate = Math.abs(turn) / (t - rb[0]!);
+        const rate = Math.abs(heading[i]! - rb[1]!) / (t - rb[0]!);
         if (rate > out.contactPeak.rate) out.contactPeak = { rate, note: `c${i} ${rate.toFixed(2)} rad/s at t=${t.toFixed(1)}` };
       }
       const a = before[i];
