@@ -10,14 +10,14 @@ import { INITIAL_HUD } from "../hud/hud-store.ts";
 import type { PropHits } from "../contact/prop-contact.ts";
 import { DERBY_ARENA } from "./constants.ts";
 import { arenaWorld, leaveArena } from "./derby-arena.test-util.ts";
-import { DERBY_PLATEAUS } from "./derby-ground.ts";
+import { DERBY_RAMPS, type DerbyRamp } from "./derby-ground.ts";
 
 /**
  * A derby car stays in the arena however it gets to the wall. It is driven flat out, boosting, at the wall from the open floor at its
- * class's top speed, across the whole arena from the far side (over the table-top, the jumps and the props that lie on the way) and
- * at each jump from the far end of the jump's straight entry (the longest run-up the layout allows). "In" is the whole drawn body: no
- * cage vertex is ever past the wall's outer face, the car ends inside the inner face, and whenever the body touches the wall it is
- * well under the wall's top.
+ * class's top speed, across the whole arena from the far side (over the table-top, the ramps and the props that lie on the way), at
+ * each bowl ramp from the far end of its long run (the longest run-up the layout allows), and out of each ramp's lip from the foot of
+ * its run and from its crest at top speed. "In" is the whole drawn body: no cage vertex is ever past the wall's outer face, the car
+ * ends inside the inner face, and whenever the body touches the wall it is well under the wall's top.
  */
 const FLAT_OUT: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: true };
 /** Seconds a launch plays: from rest across the arena or from a jump's far entry, the run-up and the wall; from the open ring at its top speed the car meets the wall at once (the last it was seen to move outward was 0.3 s in, in every class). */
@@ -34,7 +34,8 @@ const OUTER_FACE = radius + wallThickness;
 /** How far inside the wall a run-up starts (m): a car's length and a margin. */
 const RUN_UP_MARGIN = 4.5;
 /** The most of the wall's height (m) any part of a car may be at while it touches the wall: the rest is the margin to the top. */
-const WALL_TOUCH_CEILING = wallHeight - 1;
+const WALL_TOP_MARGIN = 1;
+const WALL_TOUCH_CEILING = wallHeight - WALL_TOP_MARGIN;
 
 type Flight = { maxRadius: number; maxHeightAtWall: number; finalRadius: number };
 
@@ -95,36 +96,60 @@ function acrossLaunches(stride: number): Launch[] {
   );
 }
 
-/** Each jump (a plateau whose runs differ a lot): from the wall end of its longest run, toward the lip. */
-function jumpLaunches(): Launch[] {
-  return DERBY_PLATEAUS.filter((plateau) => Math.max(...plateau.run) > 2 * Math.min(...plateau.run) && plateau.halfX + plateau.halfZ < 6).map((plateau) => {
-    const entrySide = plateau.run.indexOf(Math.max(...plateau.run));
-    const alongX = entrySide < 2;
-    const sign = entrySide % 2 === 0 ? -1 : 1;
-    const across = alongX ? plateau.z : plateau.x;
-    const start = sign * (Math.sqrt(radius ** 2 - across ** 2) - RUN_UP_MARGIN);
+/** Each ramp's far entry: the far end of its long run on the opposite side of the arena, the longest run-up the layout allows, heading up the ramp into the wall. */
+function farEntryLaunches(): Launch[] {
+  return DERBY_RAMPS.map((ramp) => {
+    const across = ramp.toward.x !== 0 ? ramp.plateau.z : ramp.plateau.x;
+    const start = Math.sqrt(radius ** 2 - across ** 2) - RUN_UP_MARGIN;
     return {
-      label: `jump at (${plateau.x}, ${plateau.z}) from its far entry`,
-      x: alongX ? start : plateau.x,
-      z: alongX ? plateau.z : start,
-      yaw: alongX ? -sign * (Math.PI / 2) : sign > 0 ? Math.PI : 0,
+      label: `${ramp.name} ramp from its far entry`,
+      x: ramp.toward.x !== 0 ? -ramp.toward.x * start : ramp.plateau.x,
+      z: ramp.toward.z !== 0 ? -ramp.toward.z * start : ramp.plateau.z,
+      yaw: Math.atan2(ramp.toward.x, ramp.toward.z),
       speed: 0,
       seconds: SECONDS,
     };
   });
 }
 
+/** A car `distance` m from the middle along a ramp's rising direction, on the ramp's own line, heading up it. */
+function onRamp(ramp: DerbyRamp, distance: number, label: string, speed: number, seconds: number): Launch {
+  const { plateau, toward } = ramp;
+  return {
+    label: `${ramp.name} ramp ${label}`,
+    x: toward.x !== 0 ? toward.x * distance : plateau.x,
+    z: toward.z !== 0 ? toward.z * distance : plateau.z,
+    yaw: Math.atan2(toward.x, toward.z),
+    speed,
+    seconds,
+  };
+}
+
+/** Outward flights: from rest at the foot of each ramp's long run (the run-up its own length allows), and from each ramp's crest at the class's top speed (the fastest and highest a car leaves a lip). */
+function outwardLaunches(cls: VehicleClassId): Launch[] {
+  return DERBY_RAMPS.flatMap((ramp) => {
+    const { plateau, toward } = ramp;
+    const crest = toward.x * plateau.x + toward.z * plateau.z;
+    const crestHalfDepth = Math.abs(toward.x) * plateau.halfX + Math.abs(toward.z) * plateau.halfZ;
+    return [
+      onRamp(ramp, crest - crestHalfDepth - ramp.length, "from the foot of its run", 0, SECONDS),
+      onRamp(ramp, crest, "from its crest at top speed", CLASSES[cls].topSpeed, OPEN_FLOOR_SECONDS),
+    ];
+  });
+}
+
 /**
- * The launches of one class: the open ring in every direction, across the arena at every `stride`th of the headings, and each jump's far entry. The per-commit suite
- * (`derby-containment.test.ts`) takes every fourth heading across the arena, the full-sanity suite (`derby-containment.ai-long-run.ts`) every one. Not a test file itself.
+ * The launches of one class: the open ring in every direction, across the arena at every `stride`th of the headings, each ramp's far entry, and each ramp's outward flights
+ * (from the foot of its run, from its crest at top speed). The per-commit suite (`derby-containment.test.ts`) takes every fourth heading across the arena, the full-sanity
+ * suite (`derby-containment.ai-long-run.ts`) every one. Not a test file itself.
  */
 export function containmentCases(stride: number): void {
   afterEach(leaveArena);
 
   describe("given a derby car driven flat out at the arena wall", () => {
     for (const cls of VEHICLE_CLASS_IDS) {
-      const launches = [...openFloorLaunches(cls), ...acrossLaunches(stride), ...jumpLaunches()];
-      it(`when the ${cls} is launched from the open ring in every direction, across the arena (${stride === 1 ? "every direction" : `every ${stride}th`}) and from each jump's far entry, then no part of it passes the wall's outer face and it ends inside`, () => {
+      const launches = [...openFloorLaunches(cls), ...acrossLaunches(stride), ...farEntryLaunches(), ...outwardLaunches(cls)];
+      it(`when the ${cls} is launched from the open ring in every direction, across the arena (${stride === 1 ? "every direction" : `every ${stride}th`}), from each ramp's far entry, its foot and its crest, then no part of it passes the wall's outer face and it ends inside`, () => {
         for (const launch of launches) {
           const flight = fly(cls, launch.x, launch.z, launch.yaw, launch.speed, launch.seconds);
           assert.ok(flight.maxRadius < OUTER_FACE, `${launch.label}: a vertex reached ${flight.maxRadius.toFixed(2)} m, past the outer face at ${OUTER_FACE} m`);
