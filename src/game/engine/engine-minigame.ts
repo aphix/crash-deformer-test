@@ -6,18 +6,18 @@ import type { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { MinigameArt } from "../present/minigame-art.ts";
 import { NET_HALF_WIDTH } from "../present/high-jump-art.ts";
 import { HIGH_JUMP_MEASURED, STATION_ANCHORS, THROWS_PER_SET, type MinigameMode } from "../scenes/minigame-constants.ts";
-import { MinigameGround, type StationStart } from "../scenes/minigame-ground.ts";
+import { MinigameGround, type MinigameBounds, type StationStart } from "../scenes/minigame-ground.ts";
 import { BOX_COUNT, highJumpLayout, type TorsoSample } from "../scenes/minigame-high-jump.ts";
 import { lipHeight } from "../scenes/minigame-profile.ts";
 import { MinigameSession, type MinigameHudState } from "../scenes/minigame-session.ts";
 import { minigameStore } from "./minigame-store.ts";
 
 /**
- * The High jump's lens (deg): the ride camera trails a dummy climbing at 50-70 m/s, and at the 50 degree default he leaves the top of the
- * frame for about a quarter of the flight (worst 1.38 half-heights off centre at a 113 m apex); at 70 degrees he stays inside the frame
- * (worst 0.92) at apexes up to 217 m (`engine-minigame.test.ts`).
+ * Per mode, the lens (deg) the camera takes while it is on (the default elsewhere). The High jump's: the ride camera trails a dummy
+ * climbing at 50-70 m/s, and at the 50 degree default he leaves the top of the frame for about a quarter of the flight (worst 1.38
+ * half-heights off centre at a 113 m apex); at 70 degrees he stays inside the frame (worst 0.92) at apexes up to 217 m (`engine-minigame.test.ts`).
  */
-export const HIGH_JUMP_LENS_DEGREES = 70;
+export const MODE_LENS_DEGREES: Readonly<Partial<Record<MinigameMode, number>>> = { highJump: 70 };
 
 /** What `Minigames.begin` needs from the engine: the scene its art joins, and the cars and the ejection watch the lip throws act on. */
 type MinigameStart = { mode: MinigameMode; carType: string; scene: THREE.Object3D; cars: readonly DeformableCar[]; ejection: EjectionWatch };
@@ -41,7 +41,8 @@ export class Minigames {
   private art: MinigameArt | null = null;
   private ground: MinigameGround | null = null;
   private collideHook: ((car: DeformableCar, index: number) => void) | null = null;
-  private boxPlacements: readonly BoxPlacement[] = [];
+  /** The modes that have a box pile, and where their boxes stand (world coordinates). */
+  private boxPlacements: Partial<Record<MinigameMode, readonly BoxPlacement[]>> = {};
   private readonly highJumpLipY = lipHeight("highJump");
   private readonly highJump = highJumpLayout(HIGH_JUMP_MEASURED, this.highJumpLipY);
   private readonly boxPoses = new Float32Array(BOX_COUNT * BOX_POSE_FLOATS);
@@ -66,7 +67,7 @@ export class Minigames {
   }
 
   /** The world rectangle the free camera may roam while a mode is on, else null. */
-  bounds(): { minX: number; maxX: number; minZ: number; maxZ: number } | null {
+  bounds(): MinigameBounds | null {
     return this.groundInPlay?.minigameBounds() ?? null;
   }
 
@@ -93,7 +94,7 @@ export class Minigames {
     this.ground = new MinigameGround({ highJump: { netX: this.highJump.netX, netHalfWidth: NET_HALF_WIDTH, netHeight: this.highJump.netHeight } });
     this.collideHook = this.ground.collideHook(start.cars, start.ejection);
     this.art = new MinigameArt();
-    this.boxPlacements = this.art.setHighJumpLayout(this.highJump, this.highJumpLipY);
+    this.boxPlacements = { highJump: this.art.setHighJumpLayout(this.highJump, this.highJumpLipY) };
     start.scene.add(this.art.group);
   }
 
@@ -127,7 +128,8 @@ export class Minigames {
   armRagdolls(ragdolls: RagdollSystem): void {
     this.thrown = false;
     ragdolls.holdThrown();
-    if (this.activeMode === "highJump") ragdolls.setBoxes(this.boxPlacements);
+    const boxes = this.activeMode === null ? undefined : this.boxPlacements[this.activeMode];
+    if (boxes) ragdolls.setBoxes(boxes);
   }
 
   /** Where the active station parks the player's car. */
@@ -164,7 +166,7 @@ export class Minigames {
       torso.still = still;
     }
     this.session.step({ pedalPressed, thrown: this.thrown, torso });
-    if (this.activeMode === "highJump") this.art?.updateBoxes(this.boxPoses, ragdolls.copyBoxPoses(this.boxPoses));
+    if (this.boxPlacements[this.activeMode]) this.art?.updateBoxes(this.boxPoses, ragdolls.copyBoxPoses(this.boxPoses));
   }
 
   /** Retry after a scored throw (a new set after a Ring Fling set's last); false, and nothing changes, before the throw is scored. */

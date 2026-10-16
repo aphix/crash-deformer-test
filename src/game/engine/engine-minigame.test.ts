@@ -31,6 +31,9 @@ const THROW_TIMEOUT_S = 60;
 const HOLD_CHECK_S = 60;
 const IDLE_WAIT_S = 3;
 const START_TOLERANCE = 0.05;
+/** The parked car shows within this share of the frame's half-size from its middle, and the eye stands within this many metres of it. */
+const PARKED_CAR_FRAME_LIMIT = 0.5;
+const PARKED_CAR_EYE_DISTANCE_LIMIT = 30;
 
 /** An in-memory `localStorage`, the browser's key/value store. */
 function memoryStorage(): Storage {
@@ -168,6 +171,19 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
         assert.equal(minigameHud().phase, "ready", "ready");
       });
 
+      it("when the camera has settled on the parked car, then the car is in frame, near the middle, within 30 m of the eye", (t) => {
+        const camera = engine["camera"];
+        camera.clearViewOffset();
+        camera.aspect = 4 / 3;
+        camera.updateProjectionMatrix();
+        camera.updateMatrixWorld(true);
+        const inFrame = car().group.position.clone().project(camera);
+        const distance = camera.position.distanceTo(car().group.position);
+        t.diagnostic(`${mode}: car at (${inFrame.x.toFixed(2)}, ${inFrame.y.toFixed(2)}) of the frame, ${distance.toFixed(1)} m from the eye`);
+        assert.ok(inFrame.z <= 1 && Math.abs(inFrame.x) < PARKED_CAR_FRAME_LIMIT && Math.abs(inFrame.y) < PARKED_CAR_FRAME_LIMIT, `car at (${inFrame.x}, ${inFrame.y})`);
+        assert.ok(distance < PARKED_CAR_EYE_DISTANCE_LIMIT, `${distance} m from the eye`);
+      });
+
       it("when the throttle is pressed, then the seat takes the wheel, the car drives off and the attempt is running", () => {
         const before = car().group.position.clone();
         engine["keys"].add(THROTTLE_KEY);
@@ -239,7 +255,7 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
         it("when Retry restacks the boxes, then every box stands at its placement", () => {
           const poses = new Float32Array(BOX_COUNT * BOX_POSE_FLOATS);
           const count = engine["ragdolls"].copyBoxPoses(poses);
-          const placements = engine["minigames"]["boxPlacements"];
+          const placements = engine["minigames"]["boxPlacements"].highJump!;
           assert.equal(count, placements.length, "box count");
           for (let box = 0; box < count; box++) {
             const placement = placements[box]!;
