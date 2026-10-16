@@ -38,10 +38,10 @@ const PEBBLE_LEVELS = { least: 22, most: 55 };
 const PEBBLE_SEED = 777;
 
 /** Wheel ruts 0.55 m wide, a pair `2 x CAR_HALF.x` apart, in a trodden lane 2.4 m wide whose pushed-up ridge (0.45 m) lies outside it. */
-export const TRACK_RUT_WIDTH = 0.55;
+const TRACK_RUT_WIDTH = 0.55;
 export const TRACK_GAUGE = 2 * CAR_HALF.x;
 export const TRACK_LANE_WIDTH = 2.4;
-export const TRACK_RIDGE_WIDTH = 0.45;
+const TRACK_RIDGE_WIDTH = 0.45;
 const TRACK_RUT_HALF = TRACK_RUT_WIDTH / 2;
 const TRACK_LANE_HALF = TRACK_LANE_WIDTH / 2;
 /** Share of a half width (from the middle) that stays fully dark before the soft edge: the lane is softer than a rut. */

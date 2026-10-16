@@ -14,6 +14,7 @@ import {
   makeRubberTexture,
   makeTyreStackTexture,
 } from "./derby-textures.ts";
+import { pixelsOf } from "./derby-textures.test-util.ts";
 
 const BUILDERS = {
   plank: makePlankTexture,
@@ -40,7 +41,7 @@ const BLUE_INDEX = 2;
 const ALPHA_INDEX = 3;
 
 function channelAt(texture: THREE.DataTexture, column: number, row: number, channel: number): number {
-  return texture.image.data[(row * texture.image.width + column) * CHANNELS + channel];
+  return pixelsOf(texture)[(row * texture.image.width + column) * CHANNELS + channel];
 }
 
 function luminanceAt(texture: THREE.DataTexture, column: number, row: number): number {
@@ -61,8 +62,10 @@ function columnMean(texture: THREE.DataTexture, column: number, fromRow: number,
 }
 
 function firstMismatch(first: THREE.DataTexture, second: THREE.DataTexture): number {
-  for (let index = 0; index < first.image.data.length; index++) {
-    if (first.image.data[index] !== second.image.data[index]) return index;
+  const firstPixels = pixelsOf(first);
+  const secondPixels = pixelsOf(second);
+  for (let index = 0; index < firstPixels.length; index++) {
+    if (firstPixels[index] !== secondPixels[index]) return index;
   }
   return -1;
 }
@@ -82,8 +85,9 @@ describe("given each procedural arena texture", () => {
     it(testCase.it, () => {
       const texture = textureOf(testCase.builder);
       let translucentTexels = 0;
-      for (let index = ALPHA_INDEX; index < texture.image.data.length; index += CHANNELS) {
-        if (texture.image.data[index] < OPAQUE) translucentTexels++;
+      const pixels = pixelsOf(texture);
+      for (let index = ALPHA_INDEX; index < pixels.length; index += CHANNELS) {
+        if (pixels[index] < OPAQUE) translucentTexels++;
       }
       assert.equal(texture.image.width, testCase.width, "width");
       assert.equal(texture.image.height, testCase.height, "height");
@@ -363,8 +367,9 @@ describe("given the glass texture", () => {
   it("when the interior alphas are scanned, then the reflection streak lifts the strongest one to the streak alpha", () => {
     const texture = textureOf("glass");
     let strongestInterior = 0;
-    for (let index = ALPHA_INDEX; index < texture.image.data.length; index += CHANNELS) {
-      const alpha = texture.image.data[index];
+    const pixels = pixelsOf(texture);
+    for (let index = ALPHA_INDEX; index < pixels.length; index += CHANNELS) {
+      const alpha = pixels[index];
       if (alpha < OPAQUE && alpha > strongestInterior) strongestInterior = alpha;
     }
     assert.equal(strongestInterior, GLASS_STREAK_ALPHA, "strongest interior alpha");

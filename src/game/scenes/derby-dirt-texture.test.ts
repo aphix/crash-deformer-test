@@ -21,15 +21,17 @@ import {
   type TrackFields,
   type TrackPath,
 } from "./derby-dirt-texture.ts";
+import { pixelsOf } from "./derby-textures.test-util.ts";
 
 const dirt = makeDirtTexture();
+const dirtPixels = pixelsOf(dirt);
 const CHANNELS = 4;
 const OPAQUE = 255;
 const ALPHA_INDEX = 3;
 const FULL_TURN = 2 * Math.PI;
 
 function luminanceAtTexel(column: number, row: number): number {
-  return dirt.image.data[(row * dirt.image.width + column) * CHANNELS];
+  return dirtPixels[(row * dirt.image.width + column) * CHANNELS];
 }
 
 /** Mean luminance of the texels whose distance from the middle satisfies `inside`. */
@@ -71,8 +73,8 @@ function ridgeAt(fields: TrackFields, worldX: number, worldZ: number): number {
 describe("given the dirt texture", () => {
   it("when it is built, then it is 1024 x 1024, clamped, sRGB, mipmapped and opaque", () => {
     let translucentTexels = 0;
-    for (let index = ALPHA_INDEX; index < dirt.image.data.length; index += CHANNELS) {
-      if (dirt.image.data[index] < OPAQUE) translucentTexels++;
+    for (let index = ALPHA_INDEX; index < dirtPixels.length; index += CHANNELS) {
+      if (dirtPixels[index] < OPAQUE) translucentTexels++;
     }
     assert.equal(dirt.image.width, 1024, "width");
     assert.equal(dirt.image.height, 1024, "height");
@@ -84,10 +86,10 @@ describe("given the dirt texture", () => {
   });
 
   it("when it is built twice, then no texel differs (first mismatch index -1)", () => {
-    const rebuilt = makeDirtTexture();
     let firstMismatch = -1;
-    for (let index = 0; index < dirt.image.data.length && firstMismatch === -1; index++) {
-      if (dirt.image.data[index] !== rebuilt.image.data[index]) firstMismatch = index;
+    const rebuiltPixels = pixelsOf(makeDirtTexture());
+    for (let index = 0; index < dirtPixels.length && firstMismatch === -1; index++) {
+      if (dirtPixels[index] !== rebuiltPixels[index]) firstMismatch = index;
     }
     assert.equal(firstMismatch, -1, "first mismatching byte index");
   });
@@ -112,7 +114,7 @@ describe("given the dirt texture", () => {
 
   it("when the darkest texel is found, then it is at least half the base grey (the tracks never stack to black)", () => {
     let darkest = OPAQUE;
-    for (let index = 0; index < dirt.image.data.length; index += CHANNELS) darkest = Math.min(darkest, dirt.image.data[index]);
+    for (let index = 0; index < dirtPixels.length; index += CHANNELS) darkest = Math.min(darkest, dirtPixels[index]);
     const BASE_SHARE_LEAST = 0.5;
     assert.ok(darkest >= DIRT_BASE_GREY * BASE_SHARE_LEAST, "darkest texel level");
   });
