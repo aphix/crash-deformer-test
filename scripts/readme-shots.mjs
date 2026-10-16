@@ -235,8 +235,8 @@ const SCENES = {
   particles: { hash: "cars=2&smin=22&smax=24&seed=3", seed: 3, setup: debugView("toggleParticles"), at: 0.1 },
   rig: { hash: "cars=2&smin=22&smax=24&seed=3", seed: 3, setup: debugView("toggleRig"), at: 0.1 },
   hud: { ui: true, hash: "cars=5&smin=22&smax=26&seed=2&night=1", seed: 2, setup: hudOpen, at: 0 },
-  // The hidden survey scene (docs/CONTROLS.md): shot only when named (`survey`), not one of the README's pictures.
-  showcase: { survey: true, hash: "scene=showcase", setup: () => {}, at: 0.5 },
+  // The hidden survey scene (docs/CONTROLS.md): shot only when named (`survey`), not one of the README's pictures. W flies the free camera in to the front row.
+  showcase: { survey: true, hash: "scene=showcase", setup: holdGas, at: 0.2 },
 };
 
 /** The crash animation: two cars head-on, the engine's own crash cam (not framed by hand), from just before the hit through the slow-mo. */

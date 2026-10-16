@@ -222,9 +222,10 @@ function faceShells(): Shell[] {
   const eye = (side: number): Shell => box(side * 0.036, eyeY, faceZ(eyeY), 0.022, 0.016, 0.012, EYES, EVERY_BUILD, head);
   const brow = (side: number): Shell => box(side * 0.036, eyeY + 0.024, faceZ(eyeY + 0.024), 0.04, 0.008, 0.012, LOCKS, EVERY_BUILD, head);
   const lens = (side: number): Shell => box(side * 0.038, eyeY, faceZ(eyeY) + 0.006, 0.052, 0.03, 0.012, EYES, EVERY_BUILD | UNIFORM, head);
-  const skull: Ring[] = SKULL.map(([y, rx, rz, cz]): Ring => [y, rx, rz, cz, SKIN]);
+  // `SKULL` runs chin up; a shell's rings run top to bottom (`loft`).
+  const skull: Ring[] = SKULL.map(([y, rx, rz, cz]): Ring => [y, rx, rz, cz, SKIN]).reverse();
   return [
-    tube(0, EVERY_BUILD, SPINE, [[1.34, 0.045, 0.045, -0.005, SKIN], [1.42, 0.045, 0.045, 0, SKIN], [1.46, 0.045, 0.047, 0.008, SKIN], [1.5, 0.046, 0.048, 0.012, SKIN], [1.56, 0.046, 0.05, 0.017, SKIN]]),
+    tube(0, EVERY_BUILD, SPINE, [[1.56, 0.046, 0.05, 0.017, SKIN], [1.5, 0.046, 0.048, 0.012, SKIN], [1.46, 0.045, 0.047, 0.008, SKIN], [1.42, 0.045, 0.045, 0, SKIN], [1.34, 0.045, 0.045, -0.005, SKIN]]),
     headShell(EVERY_BUILD, skull, SKULL_TOP - 1.745, 0.01),
     eye(-1),
     eye(1),
@@ -253,7 +254,7 @@ function hairShells(): Shell[] {
     [1.42, 0.1, 0.06, -0.06, LOCKS, 0.4],
     [1.36, 0.085, 0.05, -0.06, LOCKS, 0.4],
   ];
-  const jowls: Ring[] = [1.51, 1.545, 1.59, 1.64].map((y): Ring => {
+  const jowls: Ring[] = [1.64, 1.59, 1.545, 1.51].map((y): Ring => {
     const [rx, rz, cz] = skullAt(y);
     return [y, rx * 1.15, rz * 1.08, cz, SKIN];
   });
@@ -268,13 +269,13 @@ function hairShells(): Shell[] {
   ];
 }
 
-/** The collar and tie of the portly man, and the badge (a pocket on a civilian's jacket). */
+/** The collar and tie of the portly man, and the cop's badge. */
 function clothesShells(): Shell[] {
   const tieRings = [1.37, 1.3, 1.22, 1.12, 1.02, 0.98].map((y): Ring => [y, 0.04, 0.02, portlyFront(y) + 0.006, TIE]);
   return [
     tube(0, BUILD.PORTLY, rigid(TORSO), [[1.45, 0.07, 0.068, 0, COLLAR], [1.425, 0.085, 0.078, 0, COLLAR], [1.39, 0.115, 0.095, 0, COLLAR]]),
     { ...tube(0, BUILD.PORTLY, rigid(TORSO), tieRings, undefined, 0), sides: 4 },
-    box(0.095, 1.25, 0.14, 0.055, 0.065, 0.02, BADGE, CIVIL, rigid(TORSO)),
+    box(0.095, 1.25, 0.14, 0.055, 0.065, 0.02, BADGE, EVERY_BUILD | UNIFORM, rigid(TORSO)),
   ];
 }
 
@@ -294,8 +295,11 @@ function bodyShells(): Shell[] {
 type Lofted = { position: number[]; bones: number[]; roleKind: number[]; index: number[] };
 const _w = [0, 0, 0];
 
-/** Shell `s` into `mesh`: its rings joined side to side, its ends closed by a fan to a pole. */
+/** Shell `s` into `mesh`: its rings joined side to side, its ends closed by a fan to a pole. The winding faces out only for rings running top to bottom. */
 function loft(s: Shell, mesh: Lofted): void {
+  for (let r = 1; r < s.rings.length; r++) {
+    if (s.rings[r]![0] > s.rings[r - 1]![0]) throw new RangeError(`a shell's ring at y = ${s.rings[r]![0]} is above the one before it (rings run top to bottom, else the shell is drawn inside out)`);
+  }
   const n = s.sides;
   const phase = Math.PI / n;
   const vertex = (y: number, x: number, z: number, role: number): number => {
