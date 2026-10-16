@@ -189,9 +189,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 98 or before drives every car off its recorded line, off the road most of all.
  * 100: a held slide's hands-off hold fades out over a deadband of stick past `DRIVE.driftDeadband` (`held`) instead of switching off at its edge, so a slide steered out of the hold yaws
  * differently from the slice the stick crosses 0.1: a replay of a clip of 99 or before drifts its cars off their recorded line past that crossing.
+ * 101: a hands-off slide under the slip gate (`DRIVE.driftHoldSlip`) aims straight in proportion to its angle instead of jumping back to the steered angle (the body bounced off the gate,
+ * kicking the yaw rate seven times as a gentle slide unwound), and the AI asks for a target as its share of the class top alone (the terminal divisor over-asked on grass and sand):
+ * a replay of a clip of 100 or before unwinds its hands-off slides and drives its AI on soft ground off their recorded lines.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 100;
+const REPLAY_VERSION = 101;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

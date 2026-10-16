@@ -1,6 +1,6 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { applyDrive, idleDrive, THROTTLE_STEPS, type DriveInput } from "./car-drive.ts";
+import { applyDrive, DRIVE, idleDrive, THROTTLE_STEPS, type DriveInput } from "./car-drive.ts";
 import type { DeformableCar } from "./car.ts";
 import { FLIGHT } from "./car-flight.ts";
 import { makeCar } from "./ground-probe.test-util.ts";
@@ -9,6 +9,7 @@ import { Ground, setGround } from "../world/ground.ts";
 import { SURFACE } from "../world/constants.ts";
 import { SURFACE_IDS, SURFACES, type SurfaceId } from "../world/catalog.ts";
 import { FINE_HZ, QUIET_HZ } from "../kernel/constants.ts";
+import { FRICTION_G } from "../deform/physics-util.ts";
 
 // The engine's pull reaches the road through the driven axles' traction (`tractionLimit`, by the class's driveline layout); what the road
 // won't take spins the driven wheels (`drive.spinSpeed`, Uncharted 4 15:42-16:55), which revs the gauge and fades those axles' sideways grip.
@@ -304,7 +305,7 @@ for (const H of RATES) {
         };
         const grass = decel(SURFACE.grass);
         const asphalt = decel(SURFACE.asphalt);
-        const law = SURFACES.grass.roll * 9.81 + 0.0003 * 20 * 20;
+        const law = SURFACES.grass.roll * FRICTION_G + DRIVE.drag * 20 * 20;
         assert.ok(Math.abs(grass / law - 1) <= 0.3, `neutral on grass sheds ${grass.toFixed(2)} m/s² (law about ${law.toFixed(2)})`);
         assert.ok(grass > 3 * asphalt, `grass ${grass.toFixed(2)} against asphalt ${asphalt.toFixed(2)} m/s²`);
       });

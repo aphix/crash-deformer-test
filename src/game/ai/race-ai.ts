@@ -456,9 +456,10 @@ export class RaceBrain {
       out.throttle = TURN_ROUND_THROTTLE;
       out.steer = Math.sign(alpha) || p.side;
     } else if (err >= -1.5) {
-      // `applyDrive` runs to throttle × top at full rate: ask for the target itself (proportional-to-error settles ~10% short). On a soft
-      // surface the road's drag holds the car under the class top (`terminalSpeed`): asking past it is full throttle and no more.
-      out.throttle = clamp(target / Math.min(top * (out.boost ? cls.boostTop : 1), terminalSpeed(cls, rollingOver(surf.roll), out.boost ? cls.boostAccel : 1)), err > 0.4 ? 0.35 : 0, 1);
+      // `applyDrive` runs to throttle × top at full rate: ask for the target itself (proportional-to-error settles ~10% short). A soft surface's
+      // drag is the drive's own: a target over its terminal is simply not reached (`plan` caps the targets at it), and one under it needs no more
+      // throttle than its share of the top (the push is the full engine whenever the car is under `want`).
+      out.throttle = clamp(target / (top * (out.boost ? cls.boostTop : 1)), err > 0.4 ? 0.35 : 0, 1);
     } else {
       out.brake = clamp(-err / 6, 0.2, 1);
     }

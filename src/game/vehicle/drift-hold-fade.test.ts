@@ -67,5 +67,34 @@ for (const h of [1 / QUIET_HZ, 1 / FINE_HZ]) {
         assert.equal(inside.yaw - y1, centre.yaw - y0, `yaw step at ${t.toFixed(3)} s`);
       }
     });
+
+    describe("given a gentle hands-off slide (a short flick) unwinding on the gas", () => {
+      it("when the body straightens through the slip gate, then the yaw rate never rises from one slice to the next: the hold ends as a catch, not a kick back to the steered angle", () => {
+        HANDLING.realism = 0;
+        const car = makeCar("muscle");
+        car.spawnFacing(0, 0, 0, 25);
+        const step = (input: DriveInput, s: number, each?: () => void) => {
+          for (let t = 0; t < s; t += h) {
+            applyDrive(car, input, h);
+            car.integrate(h);
+            each?.();
+          }
+        };
+        step({ ...idleDrive(), throttle: 1, steer: 1, ebrake: true }, 0.12);
+        step({ ...idleDrive(), throttle: 1, steer: 1 }, 0.15);
+        assert.ok(car.drive.drift > 0.5, `sliding at drift ${car.drive.drift.toFixed(2)}`);
+        let last = Infinity;
+        const rises: string[] = [];
+        let t = 0;
+        step({ ...idleDrive(), throttle: 1, steer: 0 }, 4, () => {
+          t += h;
+          const rate = Math.abs(car.yawRate);
+          if (rate > last + 1e-9) rises.push(`${t.toFixed(2)} s: ${last.toFixed(3)} → ${rate.toFixed(3)}`);
+          last = rate;
+        });
+        assert.deepEqual(rises, [], `the yaw rate rose at ${rises.slice(0, 4).join("; ")}${rises.length > 4 ? ` (+${rises.length - 4})` : ""}`);
+        assert.equal(car.drive.drift, 0, "the slide ended");
+      });
+    });
   });
 }

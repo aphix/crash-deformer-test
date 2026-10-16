@@ -53,7 +53,8 @@ crashes every hit up to it.
 **Traction and the driveline.** What the road takes of that pull is the driven axles' traction (`tractionLimit`, by the class's
 driveline `ClassStats.drive`: the sedan and its hatchback and wagon bodies front-driven as the sourced Accord is, the muscle coupe and
 the police cruiser rear-driven, the truck and the monster locked 4wd). On dry asphalt it is the launch pull at every slider setting:
-the sourced launch was driven on real tyres, so their traction is in it already. A surface scales that: at the arcade end by the driven
+the sourced launch was driven on real tyres, so their traction is in it already; the boost lifts the cap with the pull (× `boostAccel`,
+on every surface), so a boost launch on asphalt grips as it always has. A surface scales that: at the arcade end by the driven
 axles' grip alone, at the realistic end by Gillespie's traction-limited acceleration (ch. 2: the static 50/50 split and the longitudinal
 transfer a·h/L with the class CG height `ClassStats.cgHeight`) for the layout there against dry asphalt, so a front-driven car loses more
 of its launch on a loose surface than a rear-driven one, and a locked 4wd the least. What the engine pulls past the traction spins the

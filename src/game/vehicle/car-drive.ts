@@ -102,6 +102,10 @@ const _yaw = new THREE.Quaternion();
 const turnAt = new Float64Array(2);
 /** [0]: the realism `_assist` was last filled for (NaN: never). */
 const _assistFor = new Float64Array([NaN]);
+/** `s` m/s less a slice's rolling resistance `drag` m/s: it works against the motion and never carries a car through rest. */
+function resisted(s: number, drag: number): number {
+  return s - Math.sign(s) * Math.min(Math.abs(s), drag);
+}
 /**
  * `pedals` in/out: in [0] throttle, [1] brake, [2] along, [3] muF, [4] muR, [5] top-speed scale, [6] dt, [12] handbrake grip (`drive.ebrakeK`),
  * [13] boost thrust (`drive.boostK`), [14] wheel spin (`drive.spinSpeed`, m/s), [15] the road's rolling resistance over asphalt's (m/s², a driven car's),
@@ -187,13 +191,11 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
         engine = enginePull(k, ws, realism) * scale * (1 - ebrake);
         rate = over > 0 || engine > cap ? cap : engine;
       }
-      // The road's rolling resistance works against the motion and never carries a car through rest.
-      const resisted = (s: number): number => s - Math.sign(s) * Math.min(Math.abs(s), resist * dt);
       if (pushing) {
-        const next = resisted(speed + dir * rate * dt);
+        const next = resisted(speed + dir * rate * dt, resist * dt);
         speed = dir > 0 ? Math.min(want, next) : Math.max(want, next);
       } else {
-        const next = resisted(speed - Math.sign(speed) * rate * dt);
+        const next = resisted(speed - Math.sign(speed) * rate * dt, resist * dt);
         speed = dir > 0 ? Math.max(want, next) : Math.min(want, next);
       }
     }
@@ -285,7 +287,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const along = vx * fx0 + vz * fz0;
   const lat0 = vx * fz0 - vz * fx0;
   // Each wheel bites with the grip of what it stands on (none where it hangs past its springs): an axle's is the mean of its two. The rolling
-  // resistance is the mean of the standing wheels' surfaces' (a car past the l.232 return has one).
+  // resistance is the mean of the standing wheels' surfaces' (a car past the `wheelsDown === 0` return above has one).
   const hit = car.wheelHit;
   const down = car.wheelsDown;
   _grip[0] = ((down & 1) !== 0 ? hit[C_GRIP]! : 0) / 2 + ((down & 2) !== 0 ? hit[HIT_SIZE + C_GRIP]! : 0) / 2;
@@ -339,7 +341,8 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const beta = detAtan2(-lat0, Math.max(1, Math.abs(along)));
   const dir = beta > 0.02 ? 1 : beta < -0.02 ? -1 : Math.sign(steer);
   let target = 0;
-  let held = 0; // how far the wheel is hands off (1 inside the deadband, 0 a deadband past it): a held slide keeps its body angle by this much
+  let held = 0; // how far the wheel is hands off (1 inside the deadband, 0 a deadband past it) with the body yawed past `driftHoldSlip`: a held slide keeps its body angle by this much
+  let stickOff = 0; // the stick's share of that alone: 1 inside the deadband, 0 a deadband past it
   if (along > DRIVE.slideSpeed) {
     // A slide starts as hard as the inputs are past each gate (`DRIVE.entry*`): the handbrake's grip, the lock past the deadband, the speed past the minimum.
     const flick = ebrake * unit((Math.abs(steer) - 0.15) / DRIVE.entrySteer) * unit((along - DRIVE.slideSpeed) / DRIVE.entrySpeed);
@@ -352,7 +355,8 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
     if (d.drift > 0.05 && throttle > 0.25 && brake < 0.1) {
       // The hold is not a switch at the deadband's edge (masterclass 23:34): it fades out as the stick leaves, so the aim moves from the angle
       // held to the angle steered over a deadband of travel, never in one slice (a switch dropped the yaw rate 80 % the slice the stick crossed).
-      if (Math.abs(beta) > DRIVE.driftHoldSlip) held = 1 - unit((Math.abs(steer) - DRIVE.driftDeadband) / DRIVE.driftDeadband);
+      stickOff = 1 - unit((Math.abs(steer) - DRIVE.driftDeadband) / DRIVE.driftDeadband);
+      if (Math.abs(beta) > DRIVE.driftHoldSlip) held = stickOff;
       if (held > 0 || (Math.abs(steer) > DRIVE.driftDeadband && steer * dir > -0.6)) target = Math.max(target, d.drift);
     }
   }
@@ -370,10 +374,11 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   yawRate *= 1 + DRIVE.slideYaw * drift;
   if (edge > 0) {
     // Drift assist: steer sets the body angle (into the turn = deeper, counter = shallower), the yaw follows it; hands off it holds the angle it has,
-    // the two aims blended by how far hands off the wheel is.
-    const heldAim = dir * Math.min(Math.abs(beta), a.slipCap);
+    // and under the slip gate the hands-off aim goes to straight in proportion (the catch), never back up to the steered angle: an aim that jumped
+    // to the steered angle at the gate kicked the yaw rate 0.68 → 1.55 rad/s seven times over 0.6 s as the body bounced off it.
+    const handsOffAim = dir * Math.min(Math.abs(beta), a.slipCap) * unit(Math.abs(beta) / DRIVE.driftHoldSlip);
     const steeredAim = dir * a.slipCap * Math.max(0.1, Math.min(1, 0.55 + 0.45 * steer * dir)) * drift;
-    const aim = heldAim * held + steeredAim * (1 - held);
+    const aim = handsOffAim * stickOff + steeredAim * (1 - stickOff);
     const assisted = (dir * slideBite) / Math.max(v, 4) + (aim - beta) * DRIVE.slipGain;
     const most = k.turn * DRIVE.ebrakeTurn * (1 + DRIVE.slideYaw);
     const t = (1 - realism) * Math.min(1, drift * 2) * edge;
