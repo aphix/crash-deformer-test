@@ -1,12 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { PR_BASE, PR_HX, PR_HZ, PR_TOP, PR_X, PR_YAW, PR_Z } from "../world/prism.ts";
 import type { Plateau } from "../world/terrain.ts";
 import { P_STRIDE, PRISM, Q_KIND, Q_STRIDE } from "../world/surfaces.ts";
 import { DERBY_ARENA } from "./constants.ts";
 import { GLASS_MESH_NAME, makeDerbyArena } from "./derby-arena.ts";
 import { DERBY_BOXES, DERBY_PLATEAUS, DERBY_PROP, DERBY_RAMPS, DERBY_TABLE_TOP, DerbyGround } from "./derby-ground.ts";
+import { FAKE_DEPTH } from "./fleet.ts";
 
 /** Metres (and radians) two drawn numbers may differ by and still be one: the instance matrices are Float32. */
 const TOLERANCE = 1e-4;
@@ -22,6 +24,8 @@ const DIRT_TEXTURE_SIZE = 1024;
 const EDGE_REACH = 1e-6;
 /** At least this share of the floor's vertices must be compared: a test that skipped them all would prove nothing. */
 const LEAST_COMPARED_SHARE = 0.9;
+/** A prism's base reaches down past a car sunk to `FAKE_DEPTH` (2 m) and its body, 2 x `CAR_HALF.y` (1.36 m): -3.36 m, so it still meets the wall (`prop-contact.ts` skips a prism a body is wholly under). */
+const DEEPEST_REACHED_BASE = -(FAKE_DEPTH + 2 * CAR_HALF.y);
 
 type Placement = { x: number; z: number; base: number; yaw: number; hx: number; hz: number; height: number };
 
@@ -130,8 +134,13 @@ describe("derby arena", () => {
     });
   }
 
-  it("given the ground built from the list, when its prism patches are read, then each is a listed box and each box is a prism", () => {
-    const { missing, extra } = leftOvers(listedBoxes, prismPlacements());
+  it("given the ground built from the list, when its prism patches are read, then each is sunk deep enough, each is a listed box and each box is a prism", () => {
+    const prisms = prismPlacements();
+    for (const prism of prisms) assert.ok(prism.base <= DEEPEST_REACHED_BASE, `prism at (${prism.x}, ${prism.z}) has base ${prism.base}, above ${DEEPEST_REACHED_BASE}`);
+    const { missing, extra } = leftOvers(
+      listedBoxes,
+      prisms.map((prism) => ({ ...prism, base: 0 })),
+    );
     assert.deepEqual(extra, [], "prisms that are no listed box");
     assert.deepEqual(missing, [], "boxes that are no prism");
   });
