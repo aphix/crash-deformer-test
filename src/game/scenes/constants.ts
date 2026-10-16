@@ -27,7 +27,8 @@ export const UPRIGHT = 0.9;
 export const DERBY_ARENA = {
   radius: 38,
   wallThickness: 1,
-  wallHeight: 8,
+  /** Measured need 7.83 m (monster across, heading 4.71, stride 1) + the owner's ask for a wall above 10 m: 12 m. */
+  wallHeight: 12,
   concreteHeight: 3.5,
   wallPieces: 48,
   wallMitre: 0.3,
