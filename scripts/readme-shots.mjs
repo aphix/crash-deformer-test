@@ -341,6 +341,48 @@ const SCENES = {
   },
 };
 
+/** Every car body the garage offers (`DRIVER_CARS`: the five classes, then the two styles that drive as the sedan). */
+const CAR_SHOT_IDS = ["sedan", "hatchback", "wagon", "muscle", "truck", "monster", "police"];
+
+/** The survey shots of the car-surface work (docs/CINEMATIC.md "Car finish"): each car in the garage, two distances in a race, a crushed car. */
+for (const id of CAR_SHOT_IDS) {
+  SCENES[`car-garage-${id}`] = { survey: true, hash: `scene=garage&car=${id}`, setup: (p) => frame(p, 4.6, 0.2, 2.3), at: 0.3 };
+}
+SCENES["car-race-close"] = {
+  survey: true,
+  hash: "scene=race",
+  setup: async (p) => {
+    await startRace(p, "city");
+    await frame(p, 4.5, 0.15, 0.6);
+  },
+  at: 8,
+};
+SCENES["car-race-mid"] = {
+  survey: true,
+  hash: "scene=race",
+  setup: async (p) => {
+    await startRace(p, "city");
+    await frame(p, 12, 0.2, 0.6);
+  },
+  at: 8,
+};
+SCENES["car-crushed"] = {
+  survey: true,
+  hash: "cars=2&smin=24&smax=28&seed=1",
+  seed: 1,
+  setup: async (p) => {
+    await run(p, () => {
+      const e = window.__crush;
+      for (let i = 0; i < 600 && e.phase === "approach"; i++) e.advance(1 / 60);
+      e.advance(2.5);
+      e.togglePlay();
+    });
+    await frame(p, 5, 0.3, 0.8);
+    await stepSim(p, 0.3);
+  },
+  at: 0.1,
+};
+
 /** The crash animation: two cars head-on, the engine's own crash cam (not framed by hand), from just before the hit through the slow-mo. */
 const ANIMATION = { out: "crash-slowmo", size: [1440, 576], hash: "cars=2&smin=24&smax=28&seed=1", seed: 1 };
 
