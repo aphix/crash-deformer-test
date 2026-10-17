@@ -36,8 +36,8 @@ describe("given the keys and sticks held in the free view", () => {
     assert.equal(out.lookY, -0.5, "look y");
   });
 
-  it("when the right trigger is pulled 0.6 and the left 0.2, then rise is the difference, and X is fast", () => {
-    const pad = { ...blankPad(), rt: 0.6, lt: 0.2, held: 1 << PAD_BUTTON.west };
+  it("when the right trigger is pulled 0.6 and the left 0.2, then rise is the difference, and A is fast", () => {
+    const pad = { ...blankPad(), rt: 0.6, lt: 0.2, held: 1 << PAD_BUTTON.south };
     const out = readFreeInput(new Set(), pad, false, blankFreeInput());
     assert.ok(Math.abs(out.rise - 0.4) < 1e-9, `rise ${out.rise}`);
     assert.equal(out.fast, true, "fast");
@@ -49,7 +49,7 @@ describe("given the keys and sticks held in the free view", () => {
   });
 
   it("when a menu holds the keys, then every axis is zero with keys and sticks down", () => {
-    const pad = { ...blankPad(), lx: 1, ly: -1, rx: 1, ry: 1, rt: 1, held: 1 << PAD_BUTTON.west };
+    const pad = { ...blankPad(), lx: 1, ly: -1, rx: 1, ry: 1, rt: 1, held: 1 << PAD_BUTTON.south };
     const out = readFreeInput(new Set(["KeyW", "KeyD", "PageUp", "ShiftLeft"]), pad, true, { forward: 1, strafe: 1, rise: 1, lookX: 1, lookY: 1, fast: true });
     assert.equal(out.forward, 0, "forward");
     assert.equal(out.strafe, 0, "strafe");

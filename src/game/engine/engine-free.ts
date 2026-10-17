@@ -36,6 +36,6 @@ export function readFreeInput(keys: ReadonlySet<string>, pad: PadState, hold: bo
   out.rise = stronger(held(keys, FLY_UP_KEYS) - held(keys, FLY_DOWN_KEYS), pad.rt - pad.lt);
   out.lookX = pad.rx;
   out.lookY = pad.ry;
-  out.fast = anyHeld(keys, DRIVE_KEYS.boost) || (pad.held & (1 << PAD_BUTTON.west)) !== 0;
+  out.fast = anyHeld(keys, DRIVE_KEYS.boost) || (pad.held & (1 << PAD_BUTTON.south)) !== 0;
   return out;
 }

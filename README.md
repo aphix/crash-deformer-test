@@ -99,7 +99,7 @@ Every key, controller button and touch control is in [`docs/CONTROLS.md`](docs/C
 |---|---|---|
 | Gas / brake, then reverse | W / S | RT / LT |
 | Steer | A / D | left stick |
-| Handbrake / boost | Space / Shift | A / X (Cross / Square) |
+| Handbrake / boost | Space / Shift | X / A (Square / Cross) |
 | Recover, respawn in a race | R | D-pad ↓ |
 | Camera view | V | Y / Triangle |
 | Pause / full menu | Esc / H | Start |

@@ -212,10 +212,10 @@ export function TouchControls({ state, engine }: HudProps) {
         ) : null}
         {driving ? (
           <>
-            <PadButton engine={engine} button={PAD_BUTTON.west} label="Boost (hold)" caption="Boost" className="col-start-1 row-start-3">
+            <PadButton engine={engine} button={PAD_BUTTON.south} label="Boost (hold)" caption="Boost" className="col-start-1 row-start-3">
               <Zap />
             </PadButton>
-            <PadButton engine={engine} button={PAD_BUTTON.south} label="Handbrake (hold)" caption="Handbrake" className="col-span-2 col-start-2 row-start-3">
+            <PadButton engine={engine} button={PAD_BUTTON.west} label="Handbrake (hold)" caption="Handbrake" className="col-span-2 col-start-2 row-start-3">
               <CircleParking />
             </PadButton>
           </>

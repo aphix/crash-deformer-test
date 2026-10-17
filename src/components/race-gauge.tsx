@@ -106,7 +106,7 @@ function Nitro({ boost, boosting, drafting, drift }: { boost: number | null; boo
 /** The bottle as a button, on a touch screen only: holding it holds the thumb pad's Boost button (`usePadHold`), padded out to a finger's size around the small bottle. */
 function BoostHold({ children }: { children: ReactNode }) {
   return (
-    <button type="button" tabIndex={-1} aria-label="Nitrous bottle (hold to boost)" className="contents touch-none select-none phone-landscape:pointer-events-auto phone-landscape:-mx-4.5 phone-landscape:-mb-2 phone-landscape:-mt-6 phone-landscape:block phone-landscape:px-4.5 phone-landscape:pb-2 phone-landscape:pt-6" {...usePadHold(useEngine(), PAD_BUTTON.west)}>
+    <button type="button" tabIndex={-1} aria-label="Nitrous bottle (hold to boost)" className="contents touch-none select-none phone-landscape:pointer-events-auto phone-landscape:-mx-4.5 phone-landscape:-mb-2 phone-landscape:-mt-6 phone-landscape:block phone-landscape:px-4.5 phone-landscape:pb-2 phone-landscape:pt-6" {...usePadHold(useEngine(), PAD_BUTTON.south)}>
       {children}
     </button>
   );

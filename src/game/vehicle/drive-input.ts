@@ -10,9 +10,9 @@ type DriveIntent = {
   brake: number;
   /** -1..1 steering wheel, +1 = LEFT (A / ← / left stick left). */
   wheel: number;
-  /** Space / A (Cross). */
+  /** Space / X (Square). */
   handbrake: boolean;
-  /** Shift / X (Square). */
+  /** Shift / A (Cross). */
   boost: boolean;
   /** The winning value came from a pad axis (slew-limited, not keyboard-ramped). */
   analogWheel: boolean;
@@ -110,8 +110,8 @@ export function readIntent(keys: ReadonlySet<string>, pad: PadState | null, out:
   out.analogBrake = pBrake > kBrake;
   out.brake = Math.max(kBrake, pBrake);
   const held = p ? p.held : 0;
-  out.handbrake = anyHeld(keys, DRIVE_KEYS.handbrake) || (held & (1 << PAD_BUTTON.south)) !== 0;
-  out.boost = anyHeld(keys, DRIVE_KEYS.boost) || (held & (1 << PAD_BUTTON.west)) !== 0;
+  out.handbrake = anyHeld(keys, DRIVE_KEYS.handbrake) || (held & (1 << PAD_BUTTON.west)) !== 0;
+  out.boost = anyHeld(keys, DRIVE_KEYS.boost) || (held & (1 << PAD_BUTTON.south)) !== 0;
   return out;
 }
 

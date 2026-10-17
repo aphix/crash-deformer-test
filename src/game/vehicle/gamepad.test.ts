@@ -124,9 +124,9 @@ describe("given a gamepad driving a car", () => {
     assert.ok(i.wheel > 0.99 && i.analogWheel);
   });
 
-  it("when A (Cross) and X (Square) are pressed, then they act as the handbrake and the boost, alongside Space and Shift", () => {
+  it("when X (Square) and A (Cross) are pressed, then they act as the handbrake and the boost, alongside Space and Shift", () => {
     const s = blankPad();
-    readPad(pad([0, 0, 0, 0], [PAD_BUTTON.south, PAD_BUTTON.west]), s);
+    readPad(pad([0, 0, 0, 0], [PAD_BUTTON.west, PAD_BUTTON.south]), s);
     const i = readIntent(new Set(), s, blankIntent());
     assert.ok(i.handbrake && i.boost);
     readPad(pad([0, 0, 0, 0], [PAD_BUTTON.east]), s);
@@ -134,6 +134,16 @@ describe("given a gamepad driving a car", () => {
     assert.ok(!i.handbrake && !i.boost);
     readIntent(new Set(["Space", "ShiftRight"]), null, i);
     assert.ok(i.handbrake && i.boost);
+  });
+
+  it("when A (Cross) alone is held, then it is the boost and not the handbrake, and X (Square) alone is the handbrake and not the boost", () => {
+    const s = blankPad();
+    readPad(pad([0, 0, 0, 0], [PAD_BUTTON.south]), s);
+    const i = readIntent(new Set(), s, blankIntent());
+    assert.ok(i.boost && !i.handbrake, `A: boost ${i.boost} handbrake ${i.handbrake}`);
+    readPad(pad([0, 0, 0, 0], [PAD_BUTTON.west]), s);
+    readIntent(new Set(), s, i);
+    assert.ok(i.handbrake && !i.boost, `X: boost ${i.boost} handbrake ${i.handbrake}`);
   });
 
   it("when the touch stick is held up-left with no pad plugged in, then it is gas and a left wheel, and a sub-frame tap still presses once", () => {

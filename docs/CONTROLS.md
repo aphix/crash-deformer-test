@@ -27,10 +27,10 @@ A tap shorter than one frame still registers (the press is latched until the nex
 | Gas (brakes first while rolling backward) | W / ↑ | RT / R2 | stick up |
 | Brake, then reverse once stopped | S / ↓ | LT / L2 (analog) | stick down |
 | Steer, relative to the car. Reversing steers like a real car: left backs the tail to the left | A / ←, D / → | left stick | stick left / right |
-| Handbrake (sharper turn, slows the car) | Space | A / Cross | Handbrake (hold) |
+| Handbrake (sharper turn, slows the car) | Space | X / Square | Handbrake (hold) |
 | Hold the wheel where it is (both keys down; releasing both centres it) | A + D | | |
 | Drift start (keyboard steering): tap the brake under 0.25 s with the wheel past 0.6 at speed; the handbrake pulses 0.1 s | S (tap) while steering | | |
-| Boost (drains under gas, recharges, fills on a derby takedown and on a clean drift) | Shift | X / Square | Boost (hold) |
+| Boost (drains under gas, recharges, fills on a derby takedown and on a clean drift) | Shift | A / Cross | Boost (hold) |
 | Camera: chase → far chase → hood cam | V / C / T | Y / Triangle | View |
 | Look back from the car while held; release returns at once | ` (Backquote) | R3 (click the right stick) | Rear (hold) |
 | Look round the car (eases back 0.8 s after release) | mouse drag | right stick | one-finger drag on the view |
@@ -56,7 +56,7 @@ A tap shorter than one frame still registers (the press is latched until the nex
 | **Free fly**: the last view of the spectator cycle, in every watching view (a followed car in any scene, a spectated race car, the highlight reel, and the whole field, where View flies free from the orbit and back). The camera detaches from every car and starts from the pose it had; it is camera only (the sim, the replay and the recording never see it). View or Esc returns to the view it came from, and the next View carries on round the cycle past it. The first Esc in it ends it (in a race too: the next opens the pause menu); a scene pick or taking a wheel ends it. The eye stays 0.8 m over the ground under it and within 3 x the scene's radius of its middle, sideways and up (the fleet disc 144 m, the derby bowl 114 m, a race course its bounds), which is high enough to hold the whole derby bowl in one frame | V / C / T | Y / Triangle | View (the Spectating bar's camera button in a race; in the whole field the thumb pad's View) |
 | Free fly: move in the look plane (forward and strafe stay level, whatever the pitch) | W A S D / arrows | left stick | the thumb stick (watching a car) |
 | Free fly: rise / sink. Every letter already has a job (Q / E switch car, R reset, Space pause), so the page keys | PageUp / PageDown | RT / LT | two-finger drag |
-| Free fly: fast (x3) | Shift | X / Square | |
+| Free fly: fast (x3) | Shift | A / Cross | |
 | Free fly: speed (the cruise is the reach crossed in 6 s, 8 to 60 m/s; the wheel scales it 1/8 to 8 x) | scroll | | |
 | Free fly: look | drag, or mouse look (;) | right stick | one-finger drag |
 | Free fly: pan the view with the fingers, fly forward or back along the view | | | two-finger drag, pinch out / in |
