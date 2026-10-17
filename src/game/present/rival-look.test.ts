@@ -1,8 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { SPRAY_PALETTE } from "../match/look-data.ts";
+import { CAR_SPRAY, SPRAY_PALETTE } from "../match/look-data.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 import { RIVAL_INK_CONTRAST, RIVAL_PATTERNS, RivalLooks, rivalLook } from "./rival-look.ts";
+import type { SprayBitmap } from "./spray.ts";
 
 /** Palette colours `a` and `b` (sRGB) this far apart: the metric `RIVAL_INK_CONTRAST` is in. */
 const distance = (a: number, b: number): number => Math.hypot((a >> 16) - (b >> 16), ((a >> 8) & 0xff) - ((b >> 8) & 0xff), (a & 0xff) - (b & 0xff));
@@ -14,8 +15,12 @@ function bodiesOf(count: number): number[] {
   return bodies;
 }
 
-/** Paints no palette colour clears: where the farthest-colour fallback is the only way an ink is found. */
-const STRANDED = bodiesOf(5000).filter((body) => SPRAY_PALETTE.slice(1).every((colour) => distance(colour, body) < RIVAL_INK_CONTRAST));
+/**
+ * The paints the ink-existence row tries: every 16th level of each channel and 255, so no paint is farther than this half-diagonal from one of them
+ * (a colour moves at most that far in distance, so a margin over the contrast plus it holds for every paint between the lattice points).
+ */
+const LATTICE_STEP = 16;
+const LATTICE_HALF_DIAGONAL = Math.hypot(LATTICE_STEP / 2, LATTICE_STEP / 2, LATTICE_STEP / 2);
 
 /** The least distance that still reads as a different colour at a glance (a red on a darker red is about 90 and washes out): the bar the shipped contrast must not drop under. */
 const READABLE_CONTRAST = 100;
@@ -87,11 +92,20 @@ describe("given the inks a rival is sprayed in", () => {
     }
   });
 
-  it("when no palette colour clears the paint, then the farthest one is used", { skip: STRANDED.length === 0 && "black and white clear half their span from every paint, so no paint is stranded at this contrast" }, () => {
-    for (const body of STRANDED) {
-      const { inks } = rivalLook(5, 0, body);
-      const farthest = Math.max(...SPRAY_PALETTE.slice(1).map((colour) => distance(colour, body)));
-      assert.equal(distance(SPRAY_PALETTE[inks[0]!]!, body), farthest, `paint ${body.toString(16)}`);
+  it("when every first ink and a lattice of paints is tried, then a second ink always clears both with room to spare, so a pick never comes up empty", () => {
+    const lattice = [...Array.from({ length: 16 }, (_, step) => step * LATTICE_STEP), 255];
+    const colours = SPRAY_PALETTE.slice(1);
+    for (const red of lattice) {
+      for (const green of lattice) {
+        for (const blue of lattice) {
+          const body = (red << 16) | (green << 8) | blue;
+          assert.ok(Math.max(...colours.map((colour) => distance(colour, body))) >= RIVAL_INK_CONTRAST + LATTICE_HALF_DIAGONAL, `first ink for paint ${body.toString(16)}`);
+          for (const first of colours) {
+            const best = Math.max(...colours.filter((colour) => colour !== first).map((colour) => Math.min(distance(colour, body), distance(colour, first))));
+            assert.ok(best >= RIVAL_INK_CONTRAST + LATTICE_HALF_DIAGONAL, `second ink for paint ${body.toString(16)} after ${first.toString(16)}: best margin ${best.toFixed(1)}`);
+          }
+        }
+      }
     }
   });
 });
@@ -130,5 +144,73 @@ describe("given the rivals' bitmaps", () => {
     looks.of(2, 3, 0xcc3300);
     assert.ok(bitmap.texture.version > again, "new paint redraws too");
     looks.dispose();
+  });
+});
+
+/** The painted share of every face of `bitmap`, in `SPRAY_FACE` order. */
+function faceShares(bitmap: SprayBitmap): number[] {
+  return bitmap.layout.faces.map(([x, y, width, height]) => {
+    let painted = 0;
+    for (let row = y; row < y + height; row++) for (let column = x; column < x + width; column++) if (bitmap.texels[row * bitmap.layout.w + column] !== 0) painted++;
+    return painted / (width * height);
+  });
+}
+
+/** How far a face's painted share may differ between the standard and a finer bitmap of one look: the can's rim speckle is drawn per texel, so the two are alike, not equal (the worst face of the 20 patterns, seed 31 on a 0x336699 car, measured 0.014 at High and 0.012 at Ultra). */
+const SHARE_TOLERANCE = 0.02;
+
+describe("given the rivals' bitmaps follow the FX tier", () => {
+  it("when the tier is below High, High or Ultra, then the bitmap is the garage's CAR_SPRAY, twice or four times as many texels a side with a mip chain", () => {
+    const expected = [
+      { tier: "off", scale: 1 },
+      { tier: "minimal", scale: 1 },
+      { tier: "low", scale: 1 },
+      { tier: "high", scale: 2 },
+      { tier: "ultra", scale: 4 },
+    ] as const;
+    for (const { tier, scale } of expected) {
+      const looks = new RivalLooks();
+      looks.useTier(tier);
+      const bitmap = looks.of(3, 1, 0x336699);
+      assert.equal(bitmap.layout.w, CAR_SPRAY.w * scale, `${tier}: width`);
+      assert.equal(bitmap.layout.h, CAR_SPRAY.h * scale, `${tier}: height`);
+      assert.equal(bitmap.texture.generateMipmaps, scale > 1, `${tier}: mip chain`);
+      for (const [at, face] of CAR_SPRAY.faces.entries()) assertSameNumbers(bitmap.layout.faces[at]!, face.map((texels) => texels * scale), `${tier}: face ${at}`);
+      assertSameNumbers(bitmap.layout.min, CAR_SPRAY.min, `${tier}: box minimum`);
+      assertSameNumbers(bitmap.layout.max, CAR_SPRAY.max, `${tier}: box maximum`);
+      looks.dispose();
+    }
+  });
+
+  it("when the tier changes the bitmap's size, then the bitmaps drawn so far are freed and the next ask is a new one of that size; a tier of the same size changes nothing", () => {
+    const looks = new RivalLooks();
+    assert.equal(looks.useTier("minimal"), false, "nothing was drawn and the size is the same");
+    const standard = looks.of(3, 1, 0x336699);
+    assert.equal(looks.useTier("low"), false, "low draws the same size as minimal");
+    assert.equal(looks.of(3, 1, 0x336699), standard, "so the bitmap stays");
+    assert.equal(looks.useTier("high"), true, "High changes the size with a bitmap worn");
+    const fine = looks.of(3, 1, 0x336699);
+    assert.notEqual(fine, standard, "a new bitmap");
+    assert.equal(fine.layout.w, CAR_SPRAY.w * 2, "of the finer size");
+    assert.equal(looks.useTier("ultra"), true, "Ultra changes it again");
+    looks.dispose();
+    assert.equal(looks.useTier("off"), false, "with nothing drawn there is nothing to dress again");
+  });
+
+  it("when one look is drawn at every size, then each face is painted to the same share and the finer bitmap is a bigger picture of the same paint", () => {
+    const body = 0x336699;
+    for (let slot = 0; slot < RIVAL_PATTERNS.length; slot++) {
+      const shares: number[][] = [];
+      for (const tier of ["low", "high", "ultra"] as const) {
+        const looks = new RivalLooks();
+        looks.useTier(tier);
+        shares.push(faceShares(looks.of(31, slot, body)));
+        looks.dispose();
+      }
+      const name = rivalLook(31, slot, body).pattern.name;
+      for (const [at, share] of shares[0]!.entries()) {
+        for (const finer of [1, 2] as const) assert.ok(Math.abs(shares[finer]![at]! - share) <= SHARE_TOLERANCE, `${name}: face ${at} painted ${share.toFixed(3)} standard against ${shares[finer]![at]!.toFixed(3)} at size ${finer === 1 ? "High" : "Ultra"}`);
+      }
+    }
   });
 });

@@ -1,6 +1,7 @@
 import { hypot3 } from "../kernel/physics-core.js";
-import { SPRAY_PALETTE, CAR_SPRAY } from "../match/look-data.ts";
+import { SPRAY_PALETTE, CAR_SPRAY, type SprayLayout } from "../match/look-data.ts";
 import { mulberry32 } from "../world/placements.ts";
+import type { FxTier } from "./engine-post.ts";
 import { BAND_PATTERNS } from "./rival-patterns-bands.ts";
 import { ORGANIC_PATTERNS } from "./rival-patterns-organic.ts";
 import { RivalPen, type RivalPattern } from "./rival-pen.ts";
@@ -20,8 +21,9 @@ export const RIVAL_PATTERNS: readonly RivalPattern[] = [...BAND_PATTERNS, ...SHA
 /**
  * The least sRGB distance (Euclidean over 0-255 channels, so 441 at most) between an ink and the paint it is drawn on, or on
  * the car's other ink. 120 reads as a different colour at a glance (a red against a darker red is about 90 and washes out; red
- * against green is about 240), yet leaves most of the palette to pick from for every car paint. Black and white always clear
- * at least 194 from any colour (half the black-white span), so a candidate always exists below that.
+ * against green is about 240), yet leaves most of the palette to pick from for every car paint. A first ink always exists (one of
+ * black and white is at least 220 from any paint) and so does a second (`inkOf`: the best candidate keeps 154 over every paint and
+ * first ink), so at most 154 may stand here before a pick can come up empty.
  */
 export const RIVAL_INK_CONTRAST = 120;
 
@@ -54,16 +56,17 @@ function orderOf(seed: number): number[] {
 }
 
 /**
- * One ink (a palette index from 1) that clears `RIVAL_INK_CONTRAST` from the paint `body` and from the colour `first` when one
- * is given, and is not `first`; else the palette colour farthest from the paint that is not `first`. The roll is always drawn,
- * so a stream's later picks never move.
+ * One ink (a palette index from 1) that clears `RIVAL_INK_CONTRAST` from the paint `body` and, when given, from the colour `first`
+ * (which it also differs from): the roll picks among those that do. One always exists, so there is no fallback to write: for the
+ * first ink black and white lie 441 apart, so one of them is at least 220 from any paint; for the second, over every first ink and
+ * a lattice of paints 4 apart per channel the best candidate keeps a margin of at least 154 (measured: worst case a paint of
+ * 0x585870 after a first ink of 0xd9b98c), and a paint between lattice points moves that by at most the lattice's half-diagonal, 3.5
+ * (`rival-look.test.ts` asserts it on a coarser lattice with its half-diagonal taken off).
  */
 function inkOf(rand: () => number, body: number, first?: number): number {
   const roll = rand();
-  const palette = SPRAY_PALETTE.map((_, index) => index).slice(1).filter((index) => index !== first);
-  const clear = palette.filter((index) => colourDistance(SPRAY_PALETTE[index]!, body) >= RIVAL_INK_CONTRAST && (first === undefined || colourDistance(SPRAY_PALETTE[index]!, SPRAY_PALETTE[first]!) >= RIVAL_INK_CONTRAST));
-  if (clear.length > 0) return clear[Math.floor(roll * clear.length)]!;
-  return palette.reduce((far, index) => (colourDistance(SPRAY_PALETTE[index]!, body) > colourDistance(SPRAY_PALETTE[far]!, body) ? index : far));
+  const clear = SPRAY_PALETTE.map((_, index) => index).slice(1).filter((index) => index !== first && colourDistance(SPRAY_PALETTE[index]!, body) >= RIVAL_INK_CONTRAST && (first === undefined || colourDistance(SPRAY_PALETTE[index]!, SPRAY_PALETTE[first]!) >= RIVAL_INK_CONTRAST));
+  return clear[Math.floor(roll * clear.length)]!;
 }
 
 /**
@@ -78,22 +81,53 @@ export function rivalLook(seed: number, slot: number, bodyColour: number): { rea
   return { pattern, inks: pattern.inks === 1 ? [first] : [first, inkOf(rand, bodyColour, first)] };
 }
 
+/**
+ * Texels a metre of the rivals' bitmap has, as a multiple of the garage's `CAR_SPRAY`, per FX tier: the rivals are procedural
+ * and never cross the wire or a clip, so the finer the tier the finer the paint (up close the garage's 3.7 cm texel along the car
+ * is stair-stepped on a flame's edge): the garage's own bitmap below High, twice the texels a side at High, four times at Ultra.
+ */
+const RIVAL_SPRAY_SCALE: Record<FxTier, number> = { off: 1, minimal: 1, low: 1, high: 2, ultra: 4 };
+
+/** `CAR_SPRAY` with every texel `scale` times finer each way: the same box and the same faces, so the paint shader (its face rectangles are fractions of the bitmap) reads it unchanged. */
+function scaledLayout(scale: number): SprayLayout {
+  return { ...CAR_SPRAY, w: CAR_SPRAY.w * scale, h: CAR_SPRAY.h * scale, faces: CAR_SPRAY.faces.map(([x, y, width, height]) => [x * scale, y * scale, width * scale, height * scale] as const) };
+}
+
 /** What a slot's bitmap was drawn for. */
 type Drawn = { readonly bitmap: SprayBitmap; seed: number; body: number };
 
 /**
- * The rivals' bitmaps, one `CAR_SPRAY` per slot, drawn on first ask and redrawn in place (the same bitmap, so its texture
- * stays the one the car's paint samples) only when the slot's seed or paint changes. Memory: at most 32 slots (the engine's
- * car cap) of 16 KiB texels + 64 KiB rgba on the CPU and 64 KiB on the GPU, about 4.6 MiB for a full field.
+ * The rivals' bitmaps, one per slot, drawn on first ask and redrawn in place (the same bitmap, so its texture stays the one the
+ * car's paint samples) only when the slot's seed or paint changes. The bitmap's size follows the FX tier (`useTier`,
+ * `RIVAL_SPRAY_SCALE`); the finer ones are mip-mapped, so a far car's paint does not shimmer. Memory for the engine's 32 slots
+ * (texels + CPU rgba + GPU, the GPU copy a third bigger with its mips): below High 144 KiB a car, 4.5 MiB a field; High (256 x 256)
+ * 661 KiB a car, 20.6 MiB a field; Ultra (512 x 512) 2.6 MiB a car, 82.7 MiB a field. Drawing all 31 rivals of a full field takes
+ * about 55 ms at High and 170 ms at Ultra (node), once when a race starts and once more when the tier changes.
  */
 export class RivalLooks {
   private readonly drawn = new Map<number, Drawn>();
+  private scale = RIVAL_SPRAY_SCALE.off;
+  private layout = CAR_SPRAY;
+
+  /**
+   * Draw for FX tier `tier` from now on. Every bitmap drawn so far is freed when that changes the size: true then, and the cars
+   * wearing one must be dressed again (their paint samples a freed texture until they are).
+   */
+  useTier(tier: FxTier): boolean {
+    const scale = RIVAL_SPRAY_SCALE[tier];
+    if (scale === this.scale) return false;
+    this.scale = scale;
+    this.layout = scale === 1 ? CAR_SPRAY : scaledLayout(scale);
+    const wasWorn = this.drawn.size > 0;
+    this.dispose();
+    return wasWorn;
+  }
 
   /** The bitmap wearing the look of car `slot` for `seed` and `bodyColour`. */
   of(seed: number, slot: number, bodyColour: number): SprayBitmap {
     let entry = this.drawn.get(slot);
     if (entry === undefined) {
-      entry = { bitmap: new SprayBitmap(CAR_SPRAY), seed, body: bodyColour };
+      entry = { bitmap: new SprayBitmap(this.layout, this.scale > 1), seed, body: bodyColour };
       this.drawn.set(slot, entry);
     } else if (entry.seed === seed && entry.body === bodyColour) {
       return entry.bitmap;

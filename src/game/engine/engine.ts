@@ -375,6 +375,7 @@ export class CrashEngine extends EngineGarage {
     this.labArt?.dispose();
     this.garage?.dispose();
     this.looks.dispose();
+    this.rivals.dispose();
     this.wheels.dispose();
     this.lampBatch.dispose();
     this.sparks.dispose();
@@ -431,6 +432,8 @@ export class CrashEngine extends EngineGarage {
     if (this.warming) return;
     this.stepSceneFade(wallDt);
     this.fxFrame(wallDt, this.pace.lost);
+    // The rivals' sprays are drawn as fine as the FX tier allows (`RIVAL_SPRAY_SCALE`): a tier change, the player's pick or the auto tier's, dresses the cars again.
+    if (this.rivals.useTier(this.cine.tier)) for (let i = 0; i < this.cars.length; i++) this.dressCar(this.cars[i]!);
     // The new scene's sim waits behind the transition's black (a slow first-use warm-up would play its opening unseen).
     // Local presentation only: a netplay session or the results replay owns time, so they never wait.
     const held = this.sceneFade.holding && this.net.role === "off" && !this.highlights.playing;

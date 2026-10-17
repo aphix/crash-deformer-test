@@ -19,14 +19,16 @@ export class SprayBitmap {
   readonly rgba: Uint8Array;
   readonly texture: THREE.DataTexture;
 
-  constructor(layout: SprayLayout) {
+  /** `mipmapped`: the texture keeps a mip chain (the rivals' finer bitmaps, which a far car would otherwise alias); the garage's stays unmipped. */
+  constructor(layout: SprayLayout, mipmapped = false) {
     this.layout = layout;
     this.texels = new Uint8Array(layout.w * layout.h);
     this.rgba = new Uint8Array(layout.w * layout.h * 4);
     this.texture = new THREE.DataTexture(this.rgba, layout.w, layout.h);
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.magFilter = THREE.LinearFilter;
-    this.texture.minFilter = THREE.LinearFilter;
+    this.texture.minFilter = mipmapped ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
+    this.texture.generateMipmaps = mipmapped;
     this.texture.needsUpdate = true;
   }
 

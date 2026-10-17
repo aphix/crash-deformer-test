@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import type * as THREE from "three";
 import "../kernel/rapier-node.test-util.ts";
 import { HudStore } from "../hud/hud-store.ts";
-import { NO_CAR_PICK } from "../match/look-data.ts";
+import { CAR_SPRAY, NO_CAR_PICK } from "../match/look-data.ts";
 import type { HighlightClip } from "../match/highlights.ts";
 import { readRace, writeRace } from "../net/codec.ts";
 import { encodeSaved } from "../net/reel-codec.ts";
@@ -57,13 +57,19 @@ const rivalsOracle = new RivalLooks();
  */
 const digestOf = (texels: Uint8Array): string => createHash("sha1").update(texels).digest("hex");
 
-/** Car `car`'s worn spray digest, or null while its paint samples no spray (never worn, or the bare 1 x 1). */
-function sprayOn(car: DeformableCar): string | null {
+/** Car `car`'s worn spray texture, or null while its paint samples no spray (never worn, or the bare 1 x 1). */
+function wornMap(car: DeformableCar): THREE.DataTexture | null {
   const shader = { uniforms: {} as Record<string, { value: unknown }>, vertexShader: "", fragmentShader: "" };
   car.lookMeshes().bodyPaint.onBeforeCompile(shader as never, undefined as never);
   const map = shader.uniforms.sprayMap?.value as THREE.DataTexture | undefined;
-  return map === undefined || map === BARE_SPRAY ? null : digestOf(map.image.data as Uint8Array);
+  return map === undefined || map === BARE_SPRAY ? null : map;
 }
+
+/** Car `car`'s worn spray digest, or null while it wears none. */
+const sprayOn = (car: DeformableCar): string | null => {
+  const map = wornMap(car);
+  return map === null ? null : digestOf(map.image.data as Uint8Array);
+};
 
 /** The rival spray `seed` draws on `car` in `slot`, by a `RivalLooks` of the test's own. */
 function rivalSprayOf(seed: number, slot: number, car: DeformableCar): string {
@@ -200,6 +206,34 @@ describe("given the real engine headless", () => {
     engine.toggleRace();
     assert.equal(race().active, false);
     assert.ok(wornBy(AI_SLOTS).every((spray) => spray === null), "bare in the fleet");
+  });
+
+  it("when the FX tier rises to High during a race and falls back, then the opponents' sprays are redrawn twice as fine and then as the garage's again, each the oracle's at that tier, and the player's car keeps its own", () => {
+    engine.toggleRace();
+    startSingle();
+    run(1);
+    const standard = wornBy(AI_SLOTS);
+    const own = ownDigest();
+    const sides = (): string => AI_SLOTS.map((slot) => wornMap(cars()[slot]!)?.image.width).join(",");
+    const sidesOf = (width: number): string => AI_SLOTS.map(() => width).join(",");
+    assert.equal(sides(), sidesOf(CAR_SPRAY.w), "the garage's size at Minimal");
+    // The Sky setting off, so the High tier fetches no sky texture (the headless page has none to give).
+    engine.setSky("off");
+    try {
+      engine["cine"].setTier("high");
+      rivalsOracle.useTier("high");
+      run(0.1);
+      assert.equal(sides(), sidesOf(CAR_SPRAY.w * 2), "twice the texels a side at High");
+      assertRivals(race().look, "at High");
+      assert.equal(sprayOn(cars()[0]!), own, "the player's own spray is as it was");
+    } finally {
+      engine["cine"].setTier("minimal");
+      rivalsOracle.useTier("minimal");
+    }
+    run(0.1);
+    assert.equal(sides(), sidesOf(CAR_SPRAY.w), "the garage's size again");
+    assertSameDigest(wornBy(AI_SLOTS), standard, "the same sprays as before the rise");
+    engine.toggleRace();
   });
 
   it("when a netplay client adopts the host's race state, then its AI racers wear the host's sprays on a fresh snapshot, and the player's car and the peers' stay bare", () => {

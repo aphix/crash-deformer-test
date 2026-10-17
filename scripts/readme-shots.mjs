@@ -12,6 +12,7 @@
 // this machine renders.
 //   --at 1.2,1.6   no encoding: one still per time (sim seconds after the scene's setup) into --tmp, to find a scene's best moment.
 //   --tmp DIR      keep the raw frames there (default: a temp folder, removed after unless --keep).
+//   --fx TIER      open every scene at this FX tier instead of ultra (off, minimal, low, high): to see what a lower tier draws.
 // Needs Playwright's Chromium and ffmpeg with libwebp. On WSL the GPU is reached through ANGLE over d3d12 (a software renderer is
 // too slow for Ultra). The browser is muted. Look at every result: a washed-out or mid-fade frame is re-taken with a different `at`.
 import { spawnSync } from "node:child_process";
@@ -41,7 +42,7 @@ const HIDE_UI = "body *:not(canvas){visibility:hidden !important} canvas{visibil
 
 const { values: flags, positionals } = parseArgs({
   allowPositionals: true,
-  options: { out: { type: "string" }, tmp: { type: "string" }, at: { type: "string" }, keep: { type: "boolean" } },
+  options: { out: { type: "string" }, tmp: { type: "string" }, at: { type: "string" }, keep: { type: "boolean" }, fx: { type: "string" } },
 });
 const [target, ...wanted] = positionals;
 if (!target) {
@@ -51,6 +52,8 @@ if (!target) {
 const BASE = /^\d+$/.test(target) ? `http://127.0.0.1:${target}/` : target.replace(/\/?$/, "/");
 const OUT = resolve(flags.out ?? join(ROOT, "docs", "images"));
 const KEEP = Boolean(flags.keep || flags.tmp || flags.at);
+/** The FX tier every scene opens at: Ultra, the README's, unless `--fx` names a lower one (a survey of what each tier draws). */
+const FX_TIER = flags.fx ?? "ultra";
 const TMP = resolve(flags.tmp ?? mkdtempSync(join(tmpdir(), "readme-shots-")));
 const PROBE_AT = flags.at?.split(",").map(Number) ?? null;
 
@@ -363,8 +366,8 @@ async function open(browser, { size = [1600, 900], hash, ui }, errors) {
   const [width, height] = size;
   const page = await browser.newPage({ viewport: { width, height } });
   page.on("pageerror", (err) => errors.push(String(err)));
-  await page.goto(`${BASE}?fx=ultra#${hash}`, { waitUntil: "load" });
-  await page.waitForFunction(() => window.__crush?.cine.tier === "ultra" && !window.__crush.fxLoading, null, { timeout: LOAD_MS });
+  await page.goto(`${BASE}?fx=${FX_TIER}#${hash}`, { waitUntil: "load" });
+  await page.waitForFunction((tier) => window.__crush?.cine.tier === tier && !window.__crush.fxLoading, FX_TIER, { timeout: LOAD_MS });
   await page.waitForFunction(() => {
     const fade = window.__crush.sceneFade;
     return fade.pending === null && fade.black === 0 && fade.cel === 0;
