@@ -120,12 +120,12 @@ function shoveWreck(car: DeformableCar, nx: number, nz: number, d: number): void
  * footprint corner's speed into the face, the car's turn included, and the slice's other position corrections into it) and the
  * solver's push-out speed (`PUSH_SPEED`).
  */
-function sinkReach(car: DeformableCar, nx: number, nz: number, dt: number): number {
+function sinkReach(car: DeformableCar, nx: number, nz: number, dt: number, inboundFloor = 0): number {
   const v = car.velocity;
   const w = car.angular.y;
   const f = car.fwdFlat;
   const r = car.rightFlat;
-  let corner = 0;
+  let corner = inboundFloor;
   for (let k = 0; k < 4; k++) {
     const sl = k & 1 ? FOOT_HALF_L : -FOOT_HALF_L;
     const sw = k & 2 ? CAR_HALF.x : -CAR_HALF.x;
@@ -134,6 +134,13 @@ function sinkReach(car: DeformableCar, nx: number, nz: number, dt: number): numb
     corner = Math.max(corner, -((v.x + w * rz) * nx + (v.z - w * rx) * nz));
   }
   return (corner + PUSH_SPEED) * dt + Math.max(0, -car.deform.pushedAlong(nx, nz));
+}
+
+/** The fastest a dynamic mass of the wreck drives into the face with the unit normal (nx, nz) (m/s): a hard hit crushes the nose at the closing speed, faster than the body that carries it. */
+function massesInto(car: DeformableCar, nx: number, nz: number): number {
+  let fastest = 0;
+  for (const m of car.deform.masses) if (m.dynamic) fastest = Math.max(fastest, -(m.vel.x * nx + m.vel.z * nz));
+  return fastest;
 }
 
 /**
@@ -147,7 +154,7 @@ function sinkReach(car: DeformableCar, nx: number, nz: number, dt: number): numb
  * hold it where it touched or let it slide along the face. `held`: the wall's plane was met already this slice by another face of it
  * (the pieces of one wall share one hold face), so a hard hit has nothing left to do here.
  */
-export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz: number, pen: number, dt: number, held: boolean): void {
+export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz: number, pen: number, dt: number, held: boolean, wreckAtStart = false, top = Infinity): void {
   const v = car.velocity;
   const pos = car.group.position;
   const fx = detSin(face.yaw);
@@ -157,10 +164,17 @@ export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz:
   const into = -(v.x * fx + v.z * fz);
   if (into > WALL_CRUSH || car.deform.massActive) {
     if (held) return;
-    strikeCar(car, face, dt, true);
+    // A car that was a wreck as the slice began moves out of a solid by what it could have sunk in (`sinkReach`: its fastest footprint corner
+    // and fastest mass into the face read before the hit takes speed off it) and no more: the whole overlap of a plan footprint (a wreck
+    // that came down on a tyre stack, or crushed 3 cm under a rail's top, is 0.5-1 m over its plan) is cleared over the slices that
+    // follow, as the pair pushes are (`takePush`). Cleared at once it moved a derby wreck 0.4-1.3 m in a step (zip bound 3·v·h + 5 cm).
+    // A car that is no wreck yet is not capped, nor one the slice's first prism armed (a monument's arms are several prisms): its first
+    // crash starts with the whole depth the body drove in before its masses were armed (below).
+    const arrival = wreckAtStart ? sinkReach(car, fx, fz, dt, massesInto(car, fx, fz)) : Infinity;
+    strikeCar(car, face, dt, true, true, false, top);
     if (car.deform.massActive) {
       const over = pen - WALL_REACH;
-      if (over > 0) shoveWreck(car, nx, nz, over);
+      if (over > 0) shoveWreck(car, nx, nz, Math.min(over, arrival));
       // The drawn body (the cage's vertices, `faceDepth`) is pushed out as the slab pushes it: while the car drives in as far as the
       // crumple of the face it is struck on (`faceTravel`, as the pair's own crush reads it) left allows (`0.4 · leftover`), at rest to
       // the skin, so a wreck a car pins against the solid is never left in it. A slice pushes out what the slice could sink the body by
@@ -177,7 +191,7 @@ export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz:
       // A hit armed this slice starts with what the car drove in before the face was met (a truck at 55 m/s: 0.39 m of its drawn body
       // in a 0.79 m deep footprint), pushed out as far as the footprint is in.
       const reach = sinkReach(car, exitX, exitZ, dt);
-      if (sunk > 0) shoveWreck(car, exitX, exitZ, Math.min(sunk + 0.004, car.deform.sinceHit() <= 0 ? Math.max(pen, reach) : reach));
+      if (sunk > 0) shoveWreck(car, exitX, exitZ, Math.min(sunk + 0.004, car.deform.sinceHit() <= 0 ? Math.min(Math.max(pen, reach), Math.max(reach, arrival)) : reach));
       return;
     }
     if (pen < WALL_HOLD) return;

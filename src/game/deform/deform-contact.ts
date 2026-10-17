@@ -24,6 +24,8 @@ export const TYRE_HALF_W = 0.11;
 export const SEAT_SPEED = 1;
 /** A mass this close (m) to a rigid face still counts as resting on it. */
 const FACE_SKIN = 0.02;
+/** How far (m) under a fixed solid's top a mass's bottom may be and still stand on it: a tyre resting on a rail, a wreck crushed a few cm into one in a slice. */
+const STAND_SKIN = 0.05;
 /** A rear hit's stroke over the front's, beyond the cages' chassisRear / chassisFront ratio: 50 km/h reverse into the wall crushes the tail 0.6–1.0× the nose's 50 km/h front hit (barrier.test.ts), 0.57× at the bare 0.69 ratio. */
 const REAR_STROKE_GAIN = 1.08;
 /** Numbers per contact row of `faceHits`: x, z, nx, nz, depth. */
@@ -518,7 +520,7 @@ export abstract class DeformContact extends DeformState {
    * shoves the hub (`pushMass`). Without `ends` a mass never leaves round an end face (a fixed wall's end is the joint to the next
    * panel, which would hold it in the wall): only by the car-side face. Returns the number of rows.
    */
-  faceHits(cx: number, cz: number, hx: number, hz: number, yaw: number, ends: boolean, hits: Float64Array, who: Int32Array): number {
+  faceHits(cx: number, cz: number, hx: number, hz: number, yaw: number, ends: boolean, hits: Float64Array, who: Int32Array, topY = Infinity): number {
     if (!this.massActive) return 0;
     const rx = detCos(yaw);
     const rz = -detSin(yaw);
@@ -538,6 +540,8 @@ export abstract class DeformContact extends DeformState {
       // Planted hubs pin the wreck on a one-sided hit; a squeeze (`bidirectional`) or a face past the wheel
       // centres (`deepCrush`) meets the tyres.
       if (!m.dynamic || (planted && !this.bidirectional && !this.deepCrush)) continue;
+      // A mass whose bottom stands within `STAND_SKIN` of the solid's top (or over it) is on the top, whatever its plan overlap with the box.
+      if (m.world.y - (planted ? TYRE_R : m.radius * 0.5) >= topY - STAND_SKIN) continue;
       const ox = m.world.x - cx;
       const oz = m.world.z - cz;
       let r = m.radius * 0.5;

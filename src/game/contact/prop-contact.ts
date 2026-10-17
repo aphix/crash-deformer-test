@@ -55,13 +55,13 @@ const _foot = new Float64Array(FOOT_SIZE);
 const _hit = new Float64Array(FF_SIZE);
 
 /**
- * The car this slice, as every solid meets it (`measure`): its body's lowest and highest points (m) and its vertical speed (`fall`, m/s), its footprint (the cage's plan
+ * The car this slice, as every solid meets it (`measure`): its body's lowest and highest points (m) and its vertical speed (`fall`, m/s), whether it was a wreck as the slice began (`wreck`), its footprint (the cage's plan
  * box: the middle's offset (`cx` along right, `cz` along forward) from the origin, half width `hw`, half length `hl`, the far
  * corner's reach from the origin), how far past a solid's reach a hard-driving car is still asked about (`markApproach`), and the
  * plane of the wall piece whose hold face it was last held on (`braked`, the face's unit normal and its offset): the pieces of one
  * wall hold a car once.
  */
-const _span = { low: 0, high: 0, fall: 0, cx: 0, cz: 0, hw: 0, hl: 0, reach: 0, ahead: 0, braked: false, nx: 0, nz: 0, off: 0 };
+const _span = { low: 0, high: 0, fall: 0, wreck: false, cx: 0, cz: 0, hw: 0, hl: 0, reach: 0, ahead: 0, braked: false, nx: 0, nz: 0, off: 0 };
 
 /** Two wall faces are one wall's: normals within 5° (cos), planes within this many metres of each other. */
 const SAME_WALL_COS = 0.996;
@@ -83,6 +83,7 @@ function measure(car: DeformableCar): void {
   _span.ahead = v.x * v.x + v.z * v.z > WALL_CRUSH * WALL_CRUSH ? hypot2(v.x, v.z) * HIT_AHEAD : 0;
   _span.braked = false;
   _span.fall = v.y;
+  _span.wreck = car.deform.massActive;
 }
 
 /** Whether wall piece `b` of `s` continues piece `a`'s face: its plane is within `SAME_WALL_GAP` (centres across `a`'s axis) and `SAME_WALL_COS` of it. */
@@ -133,15 +134,22 @@ function prismBox(out: ContactBox, s: Surface, i: number): ContactBox {
 }
 
 /**
- * `car` came down onto a solid's top `under` m deep: the fall stops and the body rises out of it by what the slice could have sunk
+ * `car` came down onto a solid's top `under` m deep: the fall stops (a wreck's masses with it: a body velocity alone leaves them falling
+ * through it, and the next rigid step reads that as crush: 12 mm a slice) and the body rises out of it by what the slice could have sunk
  * it by (its fall) and the solver's push-out speed (`PUSH_SPEED`), the rest of a deeper sink the next slices'. A wreck's masses rise
  * with it, and `_span` stands where the body now does for the prisms after this one.
  */
 function standOnTop(car: DeformableCar, under: number, dt: number): void {
   const rise = Math.min(under, (Math.max(0, -_span.fall) + PUSH_SPEED) * dt);
-  car.velocity.y = Math.max(0, car.velocity.y);
+  const stop = Math.max(0, -car.velocity.y);
+  car.velocity.y += stop;
   car.group.position.y += rise;
-  if (car.deform.massActive) for (const m of car.deform.masses) m.world.y += rise;
+  if (car.deform.massActive) {
+    for (const m of car.deform.masses) {
+      m.world.y += rise;
+      if (m.dynamic) m.vel.y += stop;
+    }
+  }
   _span.low += rise;
   _span.high += rise;
 }
@@ -214,7 +222,7 @@ function solidContact(car: DeformableCar, i: number, s: Surface, k: number, knoc
     const box = solidFace(_face, _hit[FF_FNX]!, _hit[FF_FNZ]!, _hit[FF_FX]!, _hit[FF_FZ]!, _hit[FF_FX]!, _hit[FF_FZ]!, _hit[FF_FW]!, _hit[FF_FD]!);
     box.hardness = hardness;
     box.openEnds = true;
-    wallBounce(car, box, nx, nz, pen, dt, false);
+    wallBounce(car, box, nx, nz, pen, dt, false, _span.wreck, P[o + PR_TOP]!);
     if (closing > 1.5) hits.fx(_c, _n, closing);
     hits.wall(id, i, closing, _hit[FF_CX]!, _hit[FF_CZ]!, nx, nz);
     return;
@@ -226,7 +234,7 @@ function solidContact(car: DeformableCar, i: number, s: Surface, k: number, knoc
   const again = _span.braked && fnx * _span.nx + fnz * _span.nz >= SAME_WALL_COS && Math.abs(off - _span.off) <= SAME_WALL_GAP;
   const hold = holdFace(s, k, _hit);
   hold.hardness = hardness;
-  wallBounce(car, hold, nx, nz, pen, dt, again);
+  wallBounce(car, hold, nx, nz, pen, dt, again, _span.wreck, P[o + PR_TOP]!);
   if (again) return;
   _span.braked = true;
   _span.nx = fnx;

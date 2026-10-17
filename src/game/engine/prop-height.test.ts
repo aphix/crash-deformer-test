@@ -1,3 +1,5 @@
+import { zipBound } from "../contact/zip-bound.test-util.ts";
+import { PUSH_SPEED } from "../deform/push-budget.ts";
 import { launch, makeCar as makeCrashCar } from "../contact/crash-scenarios.test-util.ts";
 import { arenaWorld, leaveArena } from "../scenes/derby-arena.test-util.ts";
 import { DERBY_BOXES } from "../scenes/derby-ground.ts";
@@ -178,12 +180,13 @@ describe("given a sedan flying a ballistic arc at 12 m/s over a wall or palm on 
 });
 
 /**
- * A body that comes down onto the top of a prism is met by the top, not by a side (`exitFace` says so of a point: `cameThroughTop`).
- * The derby arena's tyre berms (1.5 and 2 m) and K-rails (1.8 m) stand in the reach of every ramp jump: a wreck whose lowest point
- * dipped under the top by centimetres met the prism through its plan footprint, which lay metres over it, and was shoved out of that
- * overlap in one slice (the derby long-run's zips: seed 6 t=98.05 and 38.88, seed 1 t=61.10 and 10.76, 0.2-1.3 m).
+ * A wreck over a prism of the derby arena, met in single slices through the arena's ground (`DerbyGround.contact`). The tyre berms
+ * (1.5 and 2 m) and K-rails (1.8 m) stand in the reach of every ramp jump, and the footprint a prism meets is the wreck's whole plan
+ * rectangle: a wreck that came down on a berm, stands on its top or was crushed 3 cm under a rail's top is 0.5-1 m over the prism's
+ * plan while its body is a few cm from its top. A slice moved it out of that overlap whole (the derby long-run's zips on 1e9b2230: seed
+ * 6 t=98.05 and 38.88, seed 1 t=61.10, 10.76, 10.84 and 28.38, 0.2-1.3 m in a step), where the zip bound is 3·v·h + 5 cm.
  */
-describe("given a crushed wreck over a prism of the derby arena, met in one slice", () => {
+describe("given a crushed wreck over a prism of the derby arena, met in slices", () => {
   const SETTLE_STEP = 1 / QUIET_HZ;
   const centroid = (car: DeformableCar): { x: number; z: number } => {
     let [x, z, m] = [0, 0, 0];
@@ -197,9 +200,9 @@ describe("given a crushed wreck over a prism of the derby arena, met in one slic
   /**
    * The wreck of a sedan a 9 m/s head-on bullet hit along the prism's long axis, settled, then set along the prism with its middle
    * `along` m from the prism's middle and `inward` m nearer the arena's middle (clear of the ring wall), its lowest point `above` m
-   * over the prism's top, moving at `v`; the one slice `dt` of the arena's contacts it meets. What the slice did to it.
+   * over the prism's top, moving at `v`, and (with `pen`) its footprint exactly `pen` m over the prism's face.
    */
-  const meet = (id: number, along: number, inward: number, above: number, v: [number, number, number], dt: number) => {
+  const place = (id: number, along: number, inward: number, above: number, v: [number, number, number], pen?: number) => {
     const prism = DERBY_BOXES[id]!;
     const [sx, sz] = [Math.sin(prism.yaw), Math.cos(prism.yaw)];
     const wreck = makeCrashCar("shape");
@@ -207,52 +210,123 @@ describe("given a crushed wreck over a prism of the derby arena, met in one slic
     launch(wreck, 0, 0, prism.yaw, 0, 0);
     launch(bullet, 9 * sx, 9 * sz, prism.yaw + Math.PI, -9 * sx, -9 * sz);
     const walls: number[] = [];
-    const { world, ground } = arenaWorld([wreck, bullet], { knock() {}, fx() {}, wall: (i) => walls.push(i) });
+    const hits = { knock() {}, fx() {}, wall: (i: number) => walls.push(i) };
+    const { world, ground } = arenaWorld([wreck, bullet], hits);
     for (let t = 0; t < 12 && !(t > 2 && wreck.velocity.length() < 0.05); t += SETTLE_STEP) stepWorld(world, SETTLE_STEP);
     bullet.group.position.x = -40;
     const reach = Math.hypot(prism.x, prism.z);
+    /** The unit from the prism toward the arena's middle. */
+    const [ix, iz] = [-prism.x / reach, -prism.z / reach];
     const from = centroid(wreck);
-    const dx = prism.x + sx * along - (prism.x / reach) * inward - from.x;
-    const dz = prism.z + sz * along - (prism.z / reach) * inward - from.z;
+    const dx = prism.x + sx * along + ix * inward - from.x;
+    const dz = prism.z + sz * along + iz * inward - from.z;
     const dy = prism.height + above - lowestY(wreck);
-    wreck.deform.translateMasses(dx, dz, 0, 0);
+    // Placed by hand: `translateMasses` would book the whole walk from the settle point as this slice's position correction (`PushBudget`).
     for (const m of wreck.deform.masses) {
+      m.world.x += dx;
+      m.world.z += dz;
       m.world.y += dy;
       m.vel.set(...v);
     }
     wreck.group.position.set(wreck.group.position.x + dx, wreck.group.position.y + dy, wreck.group.position.z + dz);
+    if (pen !== undefined) {
+      // Moved along the unit until its footprint overlaps the prism's face by `pen` m (the footprint's middle is not the centroid, and the bullet turned the wreck a little off the prism's axis).
+      const plan = wreck.cage.fields.planBox;
+      const [cx, cz] = [(plan[0]! + plan[1]!) / 2, (plan[2]! + plan[3]!) / 2];
+      const mx = wreck.group.position.x + wreck.rightFlat.x * cx + wreck.fwdFlat.x * cz;
+      const mz = wreck.group.position.z + wreck.rightFlat.z * cx + wreck.fwdFlat.z * cz;
+      const support = ((plan[1]! - plan[0]!) / 2) * Math.abs(wreck.rightFlat.x * ix + wreck.rightFlat.z * iz) + ((plan[3]! - plan[2]!) / 2) * Math.abs(wreck.fwdFlat.x * ix + wreck.fwdFlat.z * iz);
+      const shift = support + prism.hx - pen - ((mx - prism.x) * ix + (mz - prism.z) * iz);
+      for (const m of wreck.deform.masses) {
+        m.world.x += ix * shift;
+        m.world.z += iz * shift;
+      }
+      wreck.group.position.x += ix * shift;
+      wreck.group.position.z += iz * shift;
+    }
     wreck.velocity.set(...v);
     wreck.angular.set(0, 0, 0);
     wreck.wake();
-    walls.length = 0;
-    const before = centroid(wreck);
-    ground.contact(wreck, 0, { knock() {}, fx() {}, wall: (i) => walls.push(i) }, dt);
-    const after = centroid(wreck);
-    return { shove: Math.hypot(after.x - before.x, after.z - before.z), rise: lowestY(wreck) - (prism.height + above), low: lowestY(wreck) - prism.height, vy: wreck.velocity.y, walls, towardMiddle: ((after.x - before.x) * -prism.x + (after.z - before.z) * -prism.z) / reach };
+    /** One slice of `dt` s of the arena's contacts: what it did to the wreck. */
+    const slice = (dt: number) => {
+      walls.length = 0;
+      const [before, speed] = [centroid(wreck), Math.hypot(wreck.velocity.x, wreck.velocity.z)];
+      wreck.deform.beginSlice(dt);
+      ground.contact(wreck, 0, hits, dt);
+      wreck.deform.endSlice();
+      const after = centroid(wreck);
+      let massVy = 0;
+      let mass = 0;
+      for (const m of wreck.deform.masses) {
+        massVy += m.vel.y * m.mass;
+        mass += m.mass;
+      }
+      return {
+        shove: Math.hypot(after.x - before.x, after.z - before.z),
+        /** The most the long-run's zip bound lets this slice's centroid move: the bound of a step as short as the slice, at the fastest the wreck was. */
+        bound: zipBound(Math.max(speed, Math.hypot(wreck.velocity.x, wreck.velocity.z)), dt),
+        low: lowestY(wreck) - prism.height,
+        vy: wreck.velocity.y,
+        massVy: massVy / mass,
+        walls: [...walls],
+        towardMiddle: (after.x - before.x) * ix + (after.z - before.z) * iz,
+      };
+    };
+    return { slice, prism };
   };
   afterEach(leaveArena);
 
-  const cases = [
+  const landings = [
     { it: "when it lands on the tyre stack 54 (1.5 m) at 5.5 m/s, 1.6 cm under the top (seed 6, t=98.05, 1.34 m)", id: 54, along: 0.8, inward: 1.4, under: 0.016, v: [0.18, -5.46, 0.34], dt: 0.0026 },
     { it: "when it lands on the tyre stack 55 (2 m) at 9 m/s and 11 m/s sideways, 3.6 cm under the top (seed 1, t=61.10, 0.96 m)", id: 55, along: 0, inward: 1.4, under: 0.036, v: [-10.87, -9.08, -1.7], dt: 0.0042 },
     { it: "when it comes down on the K-rail 66 (1.8 m) at 5.7 m/s with 16 m/s along, 0.9 cm under the top (seed 1, t=10.76, 0.41 m)", id: 66, along: -1, inward: 1.4, under: 0.009, v: [8.46, -5.72, 13.22], dt: 0.0021 },
     { it: "when it comes down on the tyre stack 54's end at 7.6 m/s with 8 m/s along, 2 cm under the top (seed 6, t=38.88, 0.19 m)", id: 54, along: 0, inward: 1.2, under: 0.02, v: [-8, -7.6, -1.1], dt: 0.0027 },
   ] as const;
-  for (const c of cases) {
+  for (const c of landings) {
     it(c.it, () => {
-      const prism = DERBY_BOXES[c.id]!;
-      assert.ok(prism.kind === "tyres" || prism.kind === "rail", "the arena's prism ids moved: restage the case");
-      const hit = meet(c.id, c.along, c.inward, -c.under, [c.v[0], c.v[1], c.v[2]], c.dt);
-      assert.ok(hit.shove <= Math.hypot(c.v[0], c.v[2]) * c.dt, `the slice shoved the wreck ${(hit.shove * 1000).toFixed(0)} mm, past its own ${(Math.hypot(c.v[0], c.v[2]) * c.dt * 1000).toFixed(0)} mm of travel`);
-      assert.ok(hit.low >= -1e-9 && hit.vy >= 0, `it ends ${(hit.low * 1000).toFixed(1)} mm from the top at ${hit.vy.toFixed(2)} m/s up: on the top and no longer falling`);
+      const hit = place(c.id, c.along, c.inward, -c.under, [c.v[0], c.v[1], c.v[2]]).slice(c.dt);
+      assert.ok(hit.shove <= hit.bound, `the slice shoved the wreck ${(hit.shove * 1000).toFixed(0)} mm, past its zip bound of ${(hit.bound * 1000).toFixed(0)} mm`);
+      assert.ok(hit.low >= -1e-9 && hit.vy >= -1e-9, `it ends ${(hit.low * 1000).toFixed(1)} mm from the top at ${hit.vy.toFixed(2)} m/s up: on the top and no longer falling`);
+      assert.ok(hit.massVy >= -1e-9, `its masses still fall at ${hit.massVy.toFixed(2)} m/s: the next slice reads that as crush through the top`);
     });
   }
 
-  it("when it drives outward at 8 m/s into the side of the tyre stack 54 with its body a metre under the top, then the stack pushes it back toward the arena's middle as ever", () => {
+  // Standing or sliding on a top a few mm to 3 cm under it (a wall hit crushed the wreck 3 cm in one slice, vy -0.07 m/s): the side path's
+  // push-out cleared the whole 0.6-0.8 m of plan overlap at once (seed 1 t=10.84 0.77 m, t=28.38 0.55 m, seed 6 t=40.75 0.08 m).
+  const stands = [
+    { it: "when it slides on the K-rail 66 (1.8 m) at 15 m/s and its low point has dropped 3 cm under the top, the wreck over the rail's plan (seed 1, t=10.84, 0.77 m)", id: 66, along: -1, inward: 0.5, under: 0.03, v: [8.46, -0.07, 13.22], dt: 0.0021 },
+    { it: "when it slides on the tyre stack 54 (1.5 m) at 3 m/s, 4 mm under the top and over its plan (seed 1, t=28.38, 0.55 m)", id: 54, along: 0, inward: 1.2, under: 0.004, v: [3.08, 0, -0.86], dt: 0.0021 },
+    { it: "when it slides on the tyre stack 54 (1.5 m) at 0.3 m/s, 3 mm under the top and over its plan (seed 6, t=40.75, 0.08 m)", id: 54, along: 0, inward: 1.2, under: 0.003, v: [0.1, 0, 0.3], dt: 0.0026 },
+  ] as const;
+  for (const c of stands) {
+    it(c.it, () => {
+      const hit = place(c.id, c.along, c.inward, -c.under, [c.v[0], c.v[1], c.v[2]]).slice(c.dt);
+      assert.ok(hit.shove <= hit.bound, `the slice moved the wreck's masses ${(hit.shove * 1000).toFixed(0)} mm, past its zip bound of ${(hit.bound * 1000).toFixed(0)} mm (met ${hit.walls})`);
+    });
+  }
+
+  it("when it drives outward at 8 m/s into the side of the tyre stack 54 with its body a metre under the top, then the stack pushes it back toward the arena's middle as ever, within its zip bound", () => {
     const prism = DERBY_BOXES[54]!;
     const reach = Math.hypot(prism.x, prism.z);
-    const hit = meet(54, 0, 1.5, -1, [(8 * prism.x) / reach, 0, (8 * prism.z) / reach], 0.0026);
+    const hit = place(54, 0, 1.5, -1, [(8 * prism.x) / reach, 0, (8 * prism.z) / reach]).slice(0.0026);
     assert.ok(hit.walls.length > 0 && hit.walls.every((i) => i === 54), `met the stack alone: ${hit.walls}`);
     assert.ok(hit.towardMiddle > 0.001, `pushed ${(hit.towardMiddle * 1000).toFixed(1)} mm back toward the middle`);
+    assert.ok(hit.shove <= hit.bound, `shoved ${(hit.shove * 1000).toFixed(0)} mm, past its zip bound of ${(hit.bound * 1000).toFixed(0)} mm`);
+  });
+
+  it("when it is held 0.3 m inside the tyre stack 54's side at rest, a metre under the top, then it is pushed out of the stack within the slices the push-out speed implies, every slice within its zip bound", () => {
+    const dt = 0.0042;
+    const { slice } = place(54, 0, 1.2, -1, [0, 0, 0], 0.3);
+    const implied = Math.ceil(0.3 / (PUSH_SPEED * dt));
+    let out = 0;
+    let settled = -1;
+    for (let n = 1; n <= 3 * implied; n++) {
+      const hit = slice(dt);
+      assert.ok(hit.shove <= hit.bound, `slice ${n} moved it ${(hit.shove * 1000).toFixed(1)} mm, past its zip bound of ${(hit.bound * 1000).toFixed(1)} mm`);
+      out += hit.towardMiddle;
+      if (hit.shove < 1e-4 && settled < 0) settled = n;
+    }
+    assert.ok(out > 0.05, `it was pushed out only ${(out * 1000).toFixed(0)} mm of its 0.3 m footprint overlap (the hull inside the face is cleared; the rest of the footprint stands clear of the hull)`);
+    assert.ok(settled > 0 && settled <= implied + 3, `it stopped being pushed at slice ${settled}, the push-out speed implies ${implied}`);
   });
 });

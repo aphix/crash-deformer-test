@@ -372,8 +372,8 @@ const holdDepth = new Float64Array(1);
  * mass inside it is one kernel contact along the nearer face's normal (plastic, no friction, the slab kinematic) that takes the inbound
  * speed off the mass and moves it out by the whole depth. Returns the momentum the slab took (N·s). Without `ends` a mass never leaves round an end face.
  */
-export function holdOnFace(d: DeformableCar["deform"], cx: number, cz: number, hx: number, hz: number, yaw: number, ends: boolean): number {
-  const n = d.faceHits(cx, cz, hx, hz, yaw, ends, faceHits, faceWho);
+export function holdOnFace(d: DeformableCar["deform"], cx: number, cz: number, hx: number, hz: number, yaw: number, ends: boolean, topY = Infinity): number {
+  const n = d.faceHits(cx, cz, hx, hz, yaw, ends, faceHits, faceWho, topY);
   if (n === 0) {
     holdDepth[0] = -Infinity;
     return 0;
@@ -425,7 +425,7 @@ export function holdOnFace(d: DeformableCar["deform"], cx: number, cz: number, h
  * the momentum exchange (`bodyContact`) is capped by the structure's crush force over the slice. `rigid` (closing no faster than
  * `CRASH.grazeMps`) makes every mass take the car's rigid motion. Returns the momentum (N·s) the car took off the striker along its travel.
  */
-export function strikeCar(car: DeformableCar, box: ContactBox, dt: number, crush: boolean, arm = crush, rigid = false): number {
+export function strikeCar(car: DeformableCar, box: ContactBox, dt: number, crush: boolean, arm = crush, rigid = false, topY = Infinity): number {
   const d = car.deform;
   const fx = detSin(box.yaw);
   const fz = detCos(box.yaw);
@@ -459,7 +459,7 @@ export function strikeCar(car: DeformableCar, box: ContactBox, dt: number, crush
     const ub = box.vx * fx + box.vz * fz;
     shiftVelocities(car, -fx * ub, -fz * ub);
     // The slab's thin axis (`holdOnFace` x) is the striker's travel.
-    taken = holdOnFace(d, box.x, box.z, box.hz, box.hx, box.yaw - Math.PI / 2, !box.fixed || box.openEnds);
+    taken = holdOnFace(d, box.x, box.z, box.hz, box.hx, box.yaw - Math.PI / 2, !box.fixed || box.openEnds, topY);
     // A fixed solid narrower than the car (a palm between the bumpers) meets the crush hulls before any particle: hulls on the face
     // are a contact all the same, and the hit stays open (the quiet clock ran out while the hulls held the wreck off: an 8 m/s tap
     // read 0.016 m of block travel against the slab's 0). The hulls crush the particles (`feedOverlap`) until they are on the face.
