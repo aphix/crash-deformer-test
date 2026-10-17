@@ -367,7 +367,8 @@ SCENES["car-race-mid"] = {
   },
   at: 8,
 };
-SCENES["car-crushed"] = {
+/** Two cars after a head-on hit (seed 1), paused, the orbit camera framed by hand: the first car's crushed nose from two sides, and the whole pile. */
+const crushedView = (radius, pitch, angle) => ({
   survey: true,
   hash: "cars=2&smin=24&smax=28&seed=1",
   seed: 1,
@@ -378,11 +379,14 @@ SCENES["car-crushed"] = {
       e.advance(2.5);
       e.togglePlay();
     });
-    await frame(p, 5, 0.3, 0.8);
+    await frame(p, radius, pitch, angle);
     await stepSim(p, 0.3);
   },
   at: 0.1,
-};
+});
+SCENES["car-crushed"] = crushedView(5, 0.3, 0.8);
+SCENES["car-crushed-left"] = crushedView(3.2, 0.2, 0.8);
+SCENES["car-crushed-right"] = crushedView(3.2, 0.2, 2.4);
 
 /** The crash animation: two cars head-on, the engine's own crash cam (not framed by hand), from just before the hit through the slow-mo. */
 const ANIMATION = { out: "crash-slowmo", size: [1440, 576], hash: "cars=2&smin=24&smax=28&seed=1", seed: 1 };
