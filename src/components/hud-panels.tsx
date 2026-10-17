@@ -247,7 +247,7 @@ export function StackPanel({ stack, engine }: { stack: StackHud; engine: RefObje
 /** Ejection range readout: the thrown driver's metres past the wall, live in flight, final once he lands. */
 export function RangePanel({ range, onOpenMinigames }: { range: NonNullable<CrashHudState["range"]>; onOpenMinigames?: () => void }) {
   return (
-    <div className="hud-panel w-44 p-2">
+    <div className="hud-panel pointer-events-auto w-44 p-2">
       <p className="hud-label">{range.distance === null ? "Run-up" : range.landed ? "Landed" : "Flying"}</p>
       <p className="mt-1 font-display text-3xl font-semibold leading-none tabular-nums">
         {range.distance === null ? "–" : range.distance.toFixed(1)}

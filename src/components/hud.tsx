@@ -202,7 +202,7 @@ export function Hud(props: HudProps) {
         {state.stack ? <StackPanel stack={state.stack} engine={engine} /> : null}
         {state.range ? <RangePanel range={state.range} onOpenMinigames={() => setMinigamePickOpen((open) => !open)} /> : null}
         {state.range && minigamePickOpen ? (
-          <div className="hud-panel mt-1 flex w-44 flex-col gap-1 p-2" role="group" aria-label="Mini games">
+          <div className="hud-panel pointer-events-auto mt-1 flex w-44 flex-col gap-1 p-2" role="group" aria-label="Mini games">
             {MINIGAME_MODES.map((mode) => (
               <Button
                 key={mode}

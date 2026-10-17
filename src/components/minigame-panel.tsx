@@ -24,7 +24,7 @@ export function MinigamePanel({
   const view = minigamePanelView(state);
   const stepper = view.stepper;
   return (
-    <div className="hud-panel w-48 space-y-1 p-2" role="group" aria-label={view.title}>
+    <div className="hud-panel pointer-events-auto w-48 space-y-1 p-2" role="group" aria-label={view.title}>
       <p className="hud-label">{view.title}</p>
       {view.throwCounter === null ? null : <p className="font-display text-xs tabular-nums text-muted">{view.throwCounter}</p>}
       {view.live === null && view.score !== null ? null : (
