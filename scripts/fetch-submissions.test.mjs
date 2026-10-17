@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, readdir, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { fetchSubmissions } from "./fetch-submissions.mjs";
+import { roundCard } from "../src/game/engine/bench-card.ts";
 
 const TOKEN = "owner-token-".padEnd(40, "x");
 const ROWS = [
@@ -120,6 +122,26 @@ describe("given the owner asks for each bench card's phase table (--phases)", ()
     const quiet = [];
     await fetchSubmissions({ base: "https://game.test/crush/", token: TOKEN, out, fetchImpl: server(rows).fetchImpl, pause: noPause, log: (l) => quiet.push(l) });
     assert.deepEqual(quiet, [], "no flag, no table");
+  });
+});
+
+describe("given a bench card from before the card was shortened and the same card as it is sent now", () => {
+  const fixture = JSON.parse(readFileSync(new URL("../src/game/engine/bench-card.fixture.json", import.meta.url), "utf8"));
+  const phases = { msPerSimS: { drive: 30.2512, wreck: 80.0444 }, unattributedMsPerSimS: 5.0321, workPerSimS: { steps: 240.4, skins: 479.6 } };
+  const longTasks = { count: 4, totalMs: 312.5, maxMs: 120 };
+  const card = (result, hud) => ({ id: "EEEE-5555", kind: "bench", receivedAt: "2026-10-17T10:00:00Z", sha: "519348d", size: 1, submission: { kind: "bench", payload: { hud, result } } });
+  const old = card({ ...fixture.result, phases, longTasks }, fixture.hud);
+  const now = card(roundCard({ ...fixture.result, phases, longTasks }), {});
+
+  it("when each is pulled with --phases, then both print the same table", async () => {
+    const tables = [];
+    for (const row of [old, now]) {
+      const lines = [];
+      await fetchSubmissions({ base: "https://game.test/crush/", token: TOKEN, out: await tempDir(), fetchImpl: server([row]).fetchImpl, pause: noPause, phases: true, log: (l) => lines.push(l) });
+      tables.push(lines.filter((l) => l.startsWith("    ")));
+    }
+    assert.equal(tables[0].length, 3, tables[0].join("\n"));
+    assert.deepEqual(tables[1], tables[0]);
   });
 });
 

@@ -3,6 +3,7 @@
  * for) and the move from one step to the next. The loop's state lives in the page's address, nothing is stored.
  */
 import type { CrashEngine } from "@/game/engine/engine";
+import type { CrashHudState } from "@/game/hud/hud-store";
 import type { runBench } from "@/game/engine/engine-bench";
 import { advance, loopProgress, loopSettings, newSession, parseRun, runFromPage, startRun, stepHref, stepOf, type BenchRun } from "@/game/engine/bench-loop";
 import { BENCH_QUERY } from "@/game/engine/constants";
@@ -37,7 +38,7 @@ async function finishStep(run: BenchRun): Promise<void> {
  * every option on (`runFromPage`), exactly as the Benchmark entry starts one, and its address is rewritten to say so; a bench the
  * cycle doesn't run (the lab, another course) runs once and posts.
  */
-export async function runBenchPage(engine: CrashEngine, hud: () => object): Promise<void> {
+export async function runBenchPage(engine: CrashEngine, hud: () => CrashHudState): Promise<void> {
   const search = location.search;
   const run = parseRun(search) ?? runFromPage(search, newSession());
   if (run !== null) history.replaceState(history.state, "", stepHref(location.href, run));

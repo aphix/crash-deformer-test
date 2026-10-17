@@ -13,6 +13,8 @@ import type { LabPresetId } from "../scenes/lab.ts";
 import type { SimPacer } from "./sim-pace.ts";
 import { SETTING_KEY } from "./constants.ts";
 import type { SkyMode } from "../present/sky-dome.ts";
+import { hudSettings, roundCard } from "./bench-card.ts";
+import { INITIAL_HUD, type CrashHudState } from "../hud/hud-store.ts";
 
 /** What `runBench` drives: the real engine, by its public face. */
 interface BenchEngine {
@@ -424,9 +426,9 @@ async function replayTiers(engine: BenchEngine, parts: BenchParts, t: Tap, beat:
  * cost. The engine's loop is stopped and each rAF hands it the measured wall time through `advance` (the real pacer deadline included),
  * so a frame is timed, not simulated. Warm-up, then `measureS` sampled with the game's own settings, then alternating A/B blocks (pacer,
  * detail, FX tier), then the crash replay. Afterwards the settings go back to automatic and the scene plays on under the card.
- * `hud` reads the HUD's state; `opts.submit` posts the card's JSON (Submit button, and the bench loop's `auto` post). Null: no such bench.
+ * `hud` reads the HUD's state (the card keeps the settings that differ from the defaults, `bench-card.ts`); `opts.submit` posts the card's JSON (Submit button, and the bench loop's `auto` post). Null: no such bench.
  */
-export async function runBench(engine: BenchEngine, hud: () => object, search: string, opts: { submit: SubmitBench; auto: boolean; loopProgress: string | null }): Promise<BenchResult | null> {
+export async function runBench(engine: BenchEngine, hud: () => CrashHudState, search: string, opts: { submit: SubmitBench; auto: boolean; loopProgress: string | null }): Promise<BenchResult | null> {
   const plan = benchPlan(search);
   if (!plan) return null;
   const ui = overlay(opts.loopProgress);
@@ -468,7 +470,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   const { s, w, longTasks } = await sample(engine, parts, t, beat, ui);
   const leaderWindowM = leaderAhead(parts, plan);
   const top = topTier(s, parts.cine.tier);
-  const settings = settingsOf(parts, hud() as Record<string, unknown>, top);
+  const settings = settingsOf(parts, hud() as unknown as Record<string, unknown>, top);
 
   // The A/Bs hold the tier the window mostly ran, so the pacer arms differ in the pacer alone.
   engine.setFxTier(top);
@@ -530,7 +532,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
     abSky: abSky && { full: abSky[SKY_ARM.full]!, off: abSky[SKY_ARM.off]! },
     device,
   };
-  const payload = (): object => ({ at: new Date().toISOString(), url: location.href, userAgent: navigator.userAgent, hud: hud(), result });
+  const payload = (): object => ({ at: new Date().toISOString(), url: location.href, userAgent: navigator.userAgent, hud: hudSettings(hud(), INITIAL_HUD), result: roundCard(result) });
   const send = async (): Promise<BenchReceipt> => {
     ui.receipt("sending");
     const receipt = await opts.submit(payload());

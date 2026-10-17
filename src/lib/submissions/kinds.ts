@@ -8,7 +8,7 @@ const MB = 1024 * 1024;
 /**
  * The most JSON text (bytes) each kind may carry, once any gzip is undone: the server refuses more, the client does not send it. Each is
  * twice the largest real one measured (owner traces, 2026-10-04, and bench cards and a reel clip from the browser, 2026-10-07):
- *  - bench: a card is 19 kB (strip and city, measured in the browser, the HUD state included; the result alone is 11 kB), so 48 kB; the sim's phase table, work counters, long tasks and battery add under 1.5 kB;
+ *  - bench: a card was 19 kB (strip and city, measured in the browser, the HUD state included; the result alone is 11 kB), so 48 kB, kept now that a card is 8.7 kB (numbers rounded, the HUD cut to its settings: `game/engine/bench-card.ts`) and for the cards already saved; the sim's phase table, work counters, long tasks and battery add under 1.5 kB;
  *  - capture: 46 samples of 8 cars are 5.9 MB, 41 samples of 11 cars 6.8 MB (about 166 kB a sample), so a full capture of 96 samples
  *    (`MAX_SAMPLES`) is 16 MB, and the cap 32 MB;
  *  - flag: a clip is 95k characters in practice (measured) and the game's own limit is 300k (`CLIP_MAX_CHARS`), so 400 kB with the envelope.
