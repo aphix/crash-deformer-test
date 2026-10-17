@@ -1,3 +1,7 @@
+import { launch, makeCar as makeCrashCar } from "../contact/crash-scenarios.test-util.ts";
+import { arenaWorld, leaveArena } from "../scenes/derby-arena.test-util.ts";
+import { DERBY_BOXES } from "../scenes/derby-ground.ts";
+import { stepWorld } from "./world-step.ts";
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -171,4 +175,84 @@ describe("given a sedan flying a ballistic arc at 12 m/s over a wall or palm on 
       assert.ok(fly(prefab, -1).hits > 0, "the same launch, 3.5 m lower, is stopped by it: the count sees hits");
     });
   }
+});
+
+/**
+ * A body that comes down onto the top of a prism is met by the top, not by a side (`exitFace` says so of a point: `cameThroughTop`).
+ * The derby arena's tyre berms (1.5 and 2 m) and K-rails (1.8 m) stand in the reach of every ramp jump: a wreck whose lowest point
+ * dipped under the top by centimetres met the prism through its plan footprint, which lay metres over it, and was shoved out of that
+ * overlap in one slice (the derby long-run's zips: seed 6 t=98.05 and 38.88, seed 1 t=61.10 and 10.76, 0.2-1.3 m).
+ */
+describe("given a crushed wreck over a prism of the derby arena, met in one slice", () => {
+  const SETTLE_STEP = 1 / QUIET_HZ;
+  const centroid = (car: DeformableCar): { x: number; z: number } => {
+    let [x, z, m] = [0, 0, 0];
+    for (const p of car.deform.masses) {
+      x += p.world.x * p.mass;
+      z += p.world.z * p.mass;
+      m += p.mass;
+    }
+    return { x: x / m, z: z / m };
+  };
+  /**
+   * The wreck of a sedan a 9 m/s head-on bullet hit along the prism's long axis, settled, then set along the prism with its middle
+   * `along` m from the prism's middle and `inward` m nearer the arena's middle (clear of the ring wall), its lowest point `above` m
+   * over the prism's top, moving at `v`; the one slice `dt` of the arena's contacts it meets. What the slice did to it.
+   */
+  const meet = (id: number, along: number, inward: number, above: number, v: [number, number, number], dt: number) => {
+    const prism = DERBY_BOXES[id]!;
+    const [sx, sz] = [Math.sin(prism.yaw), Math.cos(prism.yaw)];
+    const wreck = makeCrashCar("shape");
+    const bullet = makeCrashCar("shape");
+    launch(wreck, 0, 0, prism.yaw, 0, 0);
+    launch(bullet, 9 * sx, 9 * sz, prism.yaw + Math.PI, -9 * sx, -9 * sz);
+    const walls: number[] = [];
+    const { world, ground } = arenaWorld([wreck, bullet], { knock() {}, fx() {}, wall: (i) => walls.push(i) });
+    for (let t = 0; t < 12 && !(t > 2 && wreck.velocity.length() < 0.05); t += SETTLE_STEP) stepWorld(world, SETTLE_STEP);
+    bullet.group.position.x = -40;
+    const reach = Math.hypot(prism.x, prism.z);
+    const from = centroid(wreck);
+    const dx = prism.x + sx * along - (prism.x / reach) * inward - from.x;
+    const dz = prism.z + sz * along - (prism.z / reach) * inward - from.z;
+    const dy = prism.height + above - lowestY(wreck);
+    wreck.deform.translateMasses(dx, dz, 0, 0);
+    for (const m of wreck.deform.masses) {
+      m.world.y += dy;
+      m.vel.set(...v);
+    }
+    wreck.group.position.set(wreck.group.position.x + dx, wreck.group.position.y + dy, wreck.group.position.z + dz);
+    wreck.velocity.set(...v);
+    wreck.angular.set(0, 0, 0);
+    wreck.wake();
+    walls.length = 0;
+    const before = centroid(wreck);
+    ground.contact(wreck, 0, { knock() {}, fx() {}, wall: (i) => walls.push(i) }, dt);
+    const after = centroid(wreck);
+    return { shove: Math.hypot(after.x - before.x, after.z - before.z), rise: lowestY(wreck) - (prism.height + above), low: lowestY(wreck) - prism.height, vy: wreck.velocity.y, walls, towardMiddle: ((after.x - before.x) * -prism.x + (after.z - before.z) * -prism.z) / reach };
+  };
+  afterEach(leaveArena);
+
+  const cases = [
+    { it: "when it lands on the tyre stack 54 (1.5 m) at 5.5 m/s, 1.6 cm under the top (seed 6, t=98.05, 1.34 m)", id: 54, along: 0.8, inward: 1.4, under: 0.016, v: [0.18, -5.46, 0.34], dt: 0.0026 },
+    { it: "when it lands on the tyre stack 55 (2 m) at 9 m/s and 11 m/s sideways, 3.6 cm under the top (seed 1, t=61.10, 0.96 m)", id: 55, along: 0, inward: 1.4, under: 0.036, v: [-10.87, -9.08, -1.7], dt: 0.0042 },
+    { it: "when it comes down on the K-rail 66 (1.8 m) at 5.7 m/s with 16 m/s along, 0.9 cm under the top (seed 1, t=10.76, 0.41 m)", id: 66, along: -1, inward: 1.4, under: 0.009, v: [8.46, -5.72, 13.22], dt: 0.0021 },
+    { it: "when it comes down on the tyre stack 54's end at 7.6 m/s with 8 m/s along, 2 cm under the top (seed 6, t=38.88, 0.19 m)", id: 54, along: 0, inward: 1.2, under: 0.02, v: [-8, -7.6, -1.1], dt: 0.0027 },
+  ] as const;
+  for (const c of cases) {
+    it(c.it, () => {
+      const prism = DERBY_BOXES[c.id]!;
+      assert.ok(prism.kind === "tyres" || prism.kind === "rail", "the arena's prism ids moved: restage the case");
+      const hit = meet(c.id, c.along, c.inward, -c.under, [c.v[0], c.v[1], c.v[2]], c.dt);
+      assert.ok(hit.shove <= Math.hypot(c.v[0], c.v[2]) * c.dt, `the slice shoved the wreck ${(hit.shove * 1000).toFixed(0)} mm, past its own ${(Math.hypot(c.v[0], c.v[2]) * c.dt * 1000).toFixed(0)} mm of travel`);
+      assert.ok(hit.low >= -1e-9 && hit.vy >= 0, `it ends ${(hit.low * 1000).toFixed(1)} mm from the top at ${hit.vy.toFixed(2)} m/s up: on the top and no longer falling`);
+    });
+  }
+
+  it("when it drives outward at 8 m/s into the side of the tyre stack 54 with its body a metre under the top, then the stack pushes it back toward the arena's middle as ever", () => {
+    const prism = DERBY_BOXES[54]!;
+    const reach = Math.hypot(prism.x, prism.z);
+    const hit = meet(54, 0, 1.5, -1, [(8 * prism.x) / reach, 0, (8 * prism.z) / reach], 0.0026);
+    assert.ok(hit.walls.length > 0 && hit.walls.every((i) => i === 54), `met the stack alone: ${hit.walls}`);
+    assert.ok(hit.towardMiddle > 0.001, `pushed ${(hit.towardMiddle * 1000).toFixed(1)} mm back toward the middle`);
+  });
 });

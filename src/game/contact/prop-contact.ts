@@ -1,10 +1,12 @@
 import { detCos, hypot2 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { FF_CLOSING, FF_CX, FF_CZ, FF_FD, FF_FNX, FF_FNZ, FF_FW, FF_FX, FF_FZ, FF_GAP, FF_NX, FF_NZ, FF_PEN, FF_SIZE, FOOT_FX, FOOT_FZ, FOOT_HL, FOOT_HW, FOOT_RX, FOOT_RZ, FOOT_SIZE, FOOT_X, FOOT_Z, footFace, PR_BASE, PR_COS, PR_ENDS, PR_GU, PR_GW, PR_HARD, PR_HX, PR_HZ, PR_ID, PR_KNOCK_V, PR_MASS, PR_R, PR_SIN, PR_TOP, PR_WALL, PR_X, PR_YAW, PR_Z, sideFace } from "../world/prism.ts";
+import { cameThroughTop, FF_CLOSING, FF_CX, FF_CZ, FF_FD, FF_FNX, FF_FNZ, FF_FW, FF_FX, FF_FZ, FF_GAP, FF_NX, FF_NZ, FF_PEN, FF_SIZE, FOOT_FX, FOOT_FZ, FOOT_HL, FOOT_HW, FOOT_RX, FOOT_RZ, FOOT_SIZE, FOOT_X, FOOT_Z, footFace, PR_BASE, PR_COS, PR_ENDS, PR_GU, PR_GW, PR_HARD, PR_HX, PR_HZ, PR_ID, PR_KNOCK_V, PR_MASS, PR_R, PR_SIN, PR_TOP, PR_VX, PR_VZ, PR_WALL, PR_X, PR_YAW, PR_Z, sideFace } from "../world/prism.ts";
+import { ENTRY_WINDOW, SOLID_AT_REST } from "../world/constants.ts";
 import { C_ARG, C_DEPTH, C_NX, C_NY, C_NZ, HIT_SIZE, KNOCK, P_STRIDE, pointContact, PQ_BODY, PQ_SIZE, PQ_VX, PQ_VY, PQ_VZ, PQ_X, PQ_Y, PQ_Z, RIG, WALL, type Surface } from "../world/surfaces.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { type ContactBox, makeBox, partContact, solidFace } from "./external-contact.ts";
+import { PUSH_SPEED } from "../deform/push-budget.ts";
 import { HIT_AHEAD, impulseCar, markApproach, wallBounce } from "./pair-contact.ts";
 import { COM_Y, WALL_CRUSH } from "../vehicle/car-air-body.ts";
 import { cageLift } from "../vehicle/car-cage-rig.ts";
@@ -53,13 +55,13 @@ const _foot = new Float64Array(FOOT_SIZE);
 const _hit = new Float64Array(FF_SIZE);
 
 /**
- * The car this slice, as every solid meets it (`measure`): its body's lowest and highest points (m), its footprint (the cage's plan
+ * The car this slice, as every solid meets it (`measure`): its body's lowest and highest points (m) and its vertical speed (`fall`, m/s), its footprint (the cage's plan
  * box: the middle's offset (`cx` along right, `cz` along forward) from the origin, half width `hw`, half length `hl`, the far
  * corner's reach from the origin), how far past a solid's reach a hard-driving car is still asked about (`markApproach`), and the
  * plane of the wall piece whose hold face it was last held on (`braked`, the face's unit normal and its offset): the pieces of one
  * wall hold a car once.
  */
-const _span = { low: 0, high: 0, cx: 0, cz: 0, hw: 0, hl: 0, reach: 0, ahead: 0, braked: false, nx: 0, nz: 0, off: 0 };
+const _span = { low: 0, high: 0, fall: 0, cx: 0, cz: 0, hw: 0, hl: 0, reach: 0, ahead: 0, braked: false, nx: 0, nz: 0, off: 0 };
 
 /** Two wall faces are one wall's: normals within 5° (cos), planes within this many metres of each other. */
 const SAME_WALL_COS = 0.996;
@@ -80,6 +82,7 @@ function measure(car: DeformableCar): void {
   _span.reach = hypot2(Math.max(-plan[0]!, plan[1]!), Math.max(-plan[2]!, plan[3]!));
   _span.ahead = v.x * v.x + v.z * v.z > WALL_CRUSH * WALL_CRUSH ? hypot2(v.x, v.z) * HIT_AHEAD : 0;
   _span.braked = false;
+  _span.fall = v.y;
 }
 
 /** Whether wall piece `b` of `s` continues piece `a`'s face: its plane is within `SAME_WALL_GAP` (centres across `a`'s axis) and `SAME_WALL_COS` of it. */
@@ -129,6 +132,20 @@ function prismBox(out: ContactBox, s: Surface, i: number): ContactBox {
   return out;
 }
 
+/**
+ * `car` came down onto a solid's top `under` m deep: the fall stops and the body rises out of it by what the slice could have sunk
+ * it by (its fall) and the solver's push-out speed (`PUSH_SPEED`), the rest of a deeper sink the next slices'. A wreck's masses rise
+ * with it, and `_span` stands where the body now does for the prisms after this one.
+ */
+function standOnTop(car: DeformableCar, under: number, dt: number): void {
+  const rise = Math.min(under, (Math.max(0, -_span.fall) + PUSH_SPEED) * dt);
+  car.velocity.y = Math.max(0, car.velocity.y);
+  car.group.position.y += rise;
+  if (car.deform.massActive) for (const m of car.deform.masses) m.world.y += rise;
+  _span.low += rise;
+  _span.high += rise;
+}
+
 /** Car `i` against prism `k` of `s` over a slice of `dt` s (`propContact`), the car as `measure` left it. */
 function solidContact(car: DeformableCar, i: number, s: Surface, k: number, knocked: Uint8Array, hits: PropHits, dt: number): void {
   const P = s.p;
@@ -154,6 +171,21 @@ function solidContact(car: DeformableCar, i: number, s: Surface, k: number, knoc
     return;
   }
   const pen = _hit[FF_PEN]!;
+  // A body that came down onto a solid's top (its lowest point just under it while its footprint lies metres over the prism) is met by
+  // the top, not by a side: the plan overlap is no face it entered by, and pushing it out of that overlap shoved a derby wreck 0.4-1.3 m
+  // in a step. The rule is `exitFace`'s (`cameThroughTop`); the body stands on the top.
+  if (role !== KNOCK) {
+    const rvx = v.x - P[o + PR_VX]!;
+    const rvz = v.z - P[o + PR_VZ]!;
+    const into = -(rvx * _hit[FF_NX]! + rvz * _hit[FF_NZ]!);
+    const sideTime = into > 0 && pen / into <= ENTRY_WINDOW ? pen / into : Infinity;
+    const under = P[o + PR_TOP]! - _span.low;
+    // Crossed within a step (`ENTRY_WINDOW`), as a side must have been: a body deep in a wall's plan over its 12 m is under no top.
+    if (under <= Math.max(0, -_span.fall) * ENTRY_WINDOW && cameThroughTop(rvx * rvx + _span.fall * _span.fall + rvz * rvz > SOLID_AT_REST * SOLID_AT_REST, _span.fall, under, pen, sideTime)) {
+      standOnTop(car, under, dt);
+      return;
+    }
+  }
 
   const nx = _hit[FF_NX]!;
   const nz = _hit[FF_NZ]!;

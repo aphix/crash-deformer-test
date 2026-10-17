@@ -112,6 +112,16 @@ export const IN_SIDE = 1;
 export const IN_TOP = 2;
 
 /**
+ * Whether a body whose lowest point stands `topDepth` (m) under a prism's top is met by the top, not a side. Moving (`vy` its
+ * vertical speed against the prism's), it came in through the top when it is falling and the top was crossed more recently than the
+ * side it entered by (`sideTime` s ago, Infinity where it crossed none: `sideDepth` is that side's depth); at rest the top is the
+ * face it leaves by when it is the nearest. One rule for a point (`exitFace`) and a footprint (`propContact`).
+ */
+export function cameThroughTop(moving: boolean, vy: number, topDepth: number, sideDepth: number, sideTime: number): boolean {
+  return moving ? -vy > NOT_CLOSING && topDepth / -vy < sideTime : topDepth < sideDepth;
+}
+
+/**
  * Whether point (`x`, `y`, `z`) is inside prism `o` of `P` (in plan, over its base, under its top), and the face it came in
  * through: of its faces (the sides, and the top) the one its velocity (`vx`, `vy`, `vz`, less the prism's own) closes on that it
  * crossed last, the one with the least `depth / closing`: how long ago it crossed it. That time stays the same as the point
@@ -185,9 +195,8 @@ export function exitFace(P: Float64Array, o: number, x: number, y: number, z: nu
     if (face !== timeFace) time = Infinity;
   }
   const topDepth = topAt(P, o, u, w) - y;
-  const falling = -vy > NOT_CLOSING && moving;
   // The top is the face it came in through when it was crossed more recently than every side (or, at rest, is the nearest).
-  const top = moving ? falling && topDepth / -vy < time : topDepth < depth;
+  const top = cameThroughTop(moving, vy, topDepth, depth, time);
   if (top) return IN_TOP;
   out[F_DEPTH] = depth;
   out[F_NX] = nx;
