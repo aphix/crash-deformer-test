@@ -1,11 +1,9 @@
-import { BOTH_SIDES, FACE_SIZE, type PenFace, type RivalPattern, type RivalPen } from "./rival-pen.ts";
+import { hypot2 } from "../kernel/physics-core.js";
+import { ALL_FACES, BOTH_SIDES, END_FACES, FACE_SIZE, NOSE_FACE, TOP_FACE, type PenFace, type RivalPattern, type RivalPen } from "./rival-pen.ts";
 
 /** The organic rival patterns: flames, tiger and zebra stripes, camouflage, a tribal swoosh and scallops. Pure: only the pen's stream is random. */
 
 type Point = readonly [number, number];
-
-const ALL_FACES: readonly PenFace[] = ["left", "right", "top", "front", "back"];
-const ENDS: readonly PenFace[] = ["front", "back"];
 
 const NOSE_U = FACE_SIZE.left.u;
 const FLANK_HEIGHT = FACE_SIZE.left.v;
@@ -86,7 +84,7 @@ const NOSE_TONGUE_LENGTH_SPREAD = 0.4;
 
 /** One tongue: outer flame in ink 0 along a spine from (startU, startV) heading (directionU, directionV), inner flame in ink 1. */
 function flameTongue(pen: RivalPen, faces: readonly PenFace[], startU: number, startV: number, directionU: number, directionV: number, length: number, curl: number): void {
-  const norm = Math.hypot(directionU, directionV);
+  const norm = hypot2(directionU, directionV);
   const alongU = directionU / norm;
   const alongV = directionV / norm;
   const sidewaysU = alongV;
@@ -107,12 +105,12 @@ function drawFlames(pen: RivalPen): void {
   for (let tongue = 0; tongue < HOOD_TONGUES; tongue++) {
     const startV = HOOD_TONGUE_FIRST_OFFSET + tongue * HOOD_TONGUE_STEP;
     const length = HOOD_TONGUE_MIN_LENGTH + HOOD_TONGUE_LENGTH_SPREAD * jitter(tongue + SECOND_DRAW_OFFSET);
-    flameTongue(pen, ["top"], NOSE_U, startV, -1, 0, length, (TOP_CENTRE - startV) * HOOD_TONGUE_CONVERGE);
+    flameTongue(pen, TOP_FACE, NOSE_U, startV, -1, 0, length, (TOP_CENTRE - startV) * HOOD_TONGUE_CONVERGE);
   }
   for (let tongue = 0; tongue < NOSE_TONGUES; tongue++) {
     const startU = NOSE_TONGUE_FIRST_OFFSET + tongue * NOSE_TONGUE_STEP;
     const length = NOSE_TONGUE_MIN_LENGTH + NOSE_TONGUE_LENGTH_SPREAD * jitter(tongue + SECOND_DRAW_OFFSET * 2);
-    flameTongue(pen, ["front"], startU, 0, 0, 1, length, (END_WIDTH / 2 - startU) * HOOD_TONGUE_CONVERGE);
+    flameTongue(pen, NOSE_FACE, startU, 0, 0, 1, length, (END_WIDTH / 2 - startU) * HOOD_TONGUE_CONVERGE);
   }
 }
 
@@ -164,7 +162,7 @@ function drawTigerStripes(pen: RivalPen): void {
     tigerStripe(pen, "top", 0, startU, 0, 0, 1, TIGER_TOP_MIN_LENGTH + TIGER_TOP_LENGTH_SPREAD * jitter(leftIndex), lean(leftIndex), TIGER_BASE_RADIUS);
     tigerStripe(pen, "top", 0, startU + TIGER_SILL_SHIFT, TOP_WIDTH, 0, -1, TIGER_TOP_MIN_LENGTH + TIGER_TOP_LENGTH_SPREAD * jitter(rightIndex), lean(rightIndex), TIGER_BASE_RADIUS);
   }
-  for (const [endIndex, end] of ENDS.entries()) {
+  for (const [endIndex, end] of END_FACES.entries()) {
     for (let stripe = 0, startU = TIGER_MARGIN; startU < END_WIDTH; stripe++, startU += TIGER_PITCH) {
       const index = stripe + SIDE_INDEX_STRIDE * (5 + endIndex);
       tigerStripe(pen, end, 0, startU, FLANK_HEIGHT, 0, -1, TIGER_END_MIN_LENGTH + TIGER_END_LENGTH_SPREAD * jitter(index), lean(index), TIGER_BASE_RADIUS);
@@ -271,7 +269,7 @@ function drawTribalSwoosh(pen: RivalPen): void {
     const acrossCar = lerp(HOOD_SWOOSH_START_V, HOOD_SWOOSH_END_V, easeOut(fraction)) + SWOOSH_WAVE * Math.sin(fraction * FULL_TURN) * (1 - fraction);
     return [lerp(NOSE_U, HOOD_SWOOSH_END_U, fraction), mirror ? TOP_WIDTH - acrossCar : acrossCar];
   };
-  for (const mirror of [false, true]) taperedPath(pen, ["top"], 0, sampleCurve(hoodSwoosh(mirror)), HOOD_SWOOSH_BASE_RADIUS, SWOOSH_TIP_RADIUS);
+  for (const mirror of [false, true]) taperedPath(pen, TOP_FACE, 0, sampleCurve(hoodSwoosh(mirror)), HOOD_SWOOSH_BASE_RADIUS, SWOOSH_TIP_RADIUS);
 }
 
 // ---- scallops ----
@@ -316,7 +314,7 @@ function scallopRows(pen: RivalPen, face: PenFace, rowAt: readonly number[], spa
 
 function drawScallops(pen: RivalPen): void {
   for (const side of BOTH_SIDES) scallopRows(pen, side, FLANK_SCALLOP_ROWS, NOSE_U, [0, -1], true);
-  for (const end of ENDS) scallopRows(pen, end, END_SCALLOP_ROWS, END_WIDTH, [0, -1], true);
+  for (const end of END_FACES) scallopRows(pen, end, END_SCALLOP_ROWS, END_WIDTH, [0, -1], true);
   scallopRows(pen, "top", HOOD_SCALLOP_ROWS, TOP_WIDTH, [-1, 0], false);
 }
 

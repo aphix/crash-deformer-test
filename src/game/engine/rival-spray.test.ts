@@ -15,6 +15,7 @@ import { BARE_SPRAY } from "../present/spray.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { setGround } from "../world/ground.ts";
 import { FRAME_HZ } from "../kernel/constants.ts";
+import { assertSameDigest } from "../vehicle/test-support.ts";
 import { recordFlat, type Spawn } from "./replay-fidelity.test-util.ts";
 import { TRAFFIC_NAME } from "./engine-race-field.ts";
 import { CrashEngine } from "./engine.ts";
@@ -170,9 +171,9 @@ describe("given the real engine headless", () => {
     const look = race().look;
     const firstGrid = [...race()["grid"]];
     for (let second = 0; second < MAX_RACING_SECONDS && race().hud().standings.every((row, place) => row.id === firstGrid[place]); second++) run(1);
-    assert.notDeepEqual(
-      race().hud().standings.map((row) => row.id),
-      firstGrid,
+    assert.notEqual(
+      race().hud().standings.map((row) => row.id).join(","),
+      firstGrid.join(","),
       "the field's order changed on the road",
     );
     const roundOne = wornBy(AI_SLOTS);
@@ -182,15 +183,15 @@ describe("given the real engine headless", () => {
     assert.equal(race().menu, "standings", "the round is scored");
     engine.raceCommand({ type: "next" });
     assert.equal(race().menu, null, "round two is racing");
-    assert.notDeepEqual(race()["grid"], firstGrid, "the grid reordered by the standings");
+    assert.notEqual(race()["grid"].join(","), firstGrid.join(","), "the grid reordered by the standings");
     assert.equal(race().look, look, "the field's look is the campaign's");
-    assert.deepEqual(wornBy(AI_SLOTS), roundOne, "round two's opponents wear what they wore in round one");
+    assertSameDigest(wornBy(AI_SLOTS), roundOne, "round two's opponents wear what they wore in round one");
     engine.raceCommand({ type: "retry" });
-    assert.deepEqual(wornBy(AI_SLOTS), roundOne, "a retry keeps them");
+    assertSameDigest(wornBy(AI_SLOTS), roundOne, "a retry keeps them");
     engine.raceCommand({ type: "quit" });
     engine.raceCommand({ type: "start" });
     assert.notEqual(race().look, look, "a new field rolls a new look");
-    assert.notDeepEqual(wornBy(AI_SLOTS), roundOne, "and the opponents change with it");
+    assert.notEqual(wornBy(AI_SLOTS).join("|"), roundOne.join("|"), "and the opponents change with it");
   });
 
   it("when the race is left, then every car is bare again", () => {
@@ -215,7 +216,7 @@ describe("given the real engine headless", () => {
     assert.notEqual(race().look, hostLook, "the client's own field has its own look");
     race().look = wire.look;
     race().applySnapshot(wire.snap, RACERS + 1);
-    assert.deepEqual(wornBy(AI_SLOTS), host, "the client's opponents wear the host's sprays");
+    assertSameDigest(wornBy(AI_SLOTS), host, "the client's opponents wear the host's sprays");
     assert.equal(sprayOn(cars()[0]!), ownDigest(), "the host's player is a peer here: no rival spray");
     engine.toggleRace();
   });
@@ -226,9 +227,9 @@ describe("given the real engine headless", () => {
     engine["ensureCars"](RACERS);
     engine.toggleDerby();
     const round = engine["derbyRound"];
-    for (const slot of [1, 3]) assert.deepEqual(sprayOn(cars()[slot]!), rivalSprayOf(round, slot, cars()[slot]!), `derby car ${slot} wears round ${round}'s rival look`);
+    for (const slot of [1, 3]) assert.equal(sprayOn(cars()[slot]!), rivalSprayOf(round, slot, cars()[slot]!), `derby car ${slot} wears round ${round}'s rival look`);
     assert.equal(sprayOn(cars()[PEER_SLOT]!), null, "the seated peer's car wears nothing of ours");
-    assert.deepEqual(sprayOn(cars()[0]!), own, "the player's own spray wins on car 0");
+    assert.equal(sprayOn(cars()[0]!), own, "the player's own spray wins on car 0");
     engine["looks"].mine.carSpray.load(null);
   });
 
@@ -240,10 +241,10 @@ describe("given the real engine headless", () => {
     engine.toggleDerby();
     engine.toggleDerby();
     assert.notEqual(engine["derbyRound"], hostRound, "the client's own derby is a round on");
-    assert.notDeepEqual(wornBy([1, 3]), host, "and its cars wear that round's sprays");
+    assert.notEqual(wornBy([1, 3]).join("|"), host.join("|"), "and its cars wear that round's sprays");
     engine["applyNetDerby"](state, -1);
     assert.equal(engine["derbyRound"], hostRound);
-    assert.deepEqual(wornBy([1, 3]), host, "the client's AI cars wear the host's round");
+    assertSameDigest(wornBy([1, 3]), host, "the client's AI cars wear the host's round");
     engine.toggleDerby();
     assert.ok(wornBy([1, 3]).every((spray) => spray === null), "the fleet's cars are bare");
   });

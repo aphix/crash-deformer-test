@@ -1,8 +1,6 @@
-import { BOTH_SIDES, type PenFace, type RivalPattern, type RivalPen } from "./rival-pen.ts";
+import { BOTH_SIDES, TOP_FACE, type PenFace, type RivalPattern, type RivalPen } from "./rival-pen.ts";
 
 /** Shape patterns: bold, simple figures (roundels, stars, rays, dots, hearts, bolts) at the door, hood and roof. */
-
-const TOP_FACE: readonly PenFace[] = ["top"];
 
 /** Where the figures sit, in metres from each face's lower corner (flanks and top: u along the car, rear 0 to nose 4.7). */
 const DOOR_CENTRE_U = 2.4;

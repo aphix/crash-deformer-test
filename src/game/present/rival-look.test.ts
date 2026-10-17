@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SPRAY_PALETTE } from "../match/look-data.ts";
+import { assertSameNumbers } from "../vehicle/test-support.ts";
 import { RIVAL_INK_CONTRAST, RIVAL_PATTERNS, RivalLooks, rivalLook } from "./rival-look.ts";
 
 /** Palette colours `a` and `b` (sRGB) this far apart: the metric `RIVAL_INK_CONTRAST` is in. */
@@ -32,10 +33,10 @@ describe("given the rivals' pattern collection and its seeded order", () => {
       const a = rivalLook(77, slot, 0x3366aa);
       const b = rivalLook(77, slot, 0x3366aa);
       assert.equal(a.pattern.name, b.pattern.name, `slot ${slot} pattern`);
-      assert.deepEqual(a.inks, b.inks, `slot ${slot} inks`);
+      assertSameNumbers(a.inks, b.inks, `slot ${slot} inks`);
       const first = new RivalLooks();
       const second = new RivalLooks();
-      assert.deepEqual(first.of(77, slot, 0x3366aa).texels, second.of(77, slot, 0x3366aa).texels, `slot ${slot} texels`);
+      assertSameNumbers(first.of(77, slot, 0x3366aa).texels, second.of(77, slot, 0x3366aa).texels, `slot ${slot} texels`);
       first.dispose();
       second.dispose();
     }
@@ -121,10 +122,10 @@ describe("given the rivals' bitmaps", () => {
     const version = bitmap.texture.version;
     assert.equal(looks.of(1, 3, 0x336699), bitmap, "same key, same bitmap");
     assert.equal(bitmap.texture.version, version, "same key leaves the texture alone");
-    assert.deepEqual(bitmap.texels, before, "same key leaves the texels alone");
+    assertSameNumbers(bitmap.texels, before, "same key leaves the texels alone");
     assert.equal(looks.of(2, 3, 0x336699), bitmap, "new seed, same bitmap object");
     assert.ok(bitmap.texture.version > version, "new seed uploads the texture again");
-    assert.notDeepEqual(bitmap.texels, before, "new seed paints new texels");
+    assert.notEqual(Buffer.compare(bitmap.texels, before), 0, "new seed paints new texels");
     const again = bitmap.texture.version;
     looks.of(2, 3, 0xcc3300);
     assert.ok(bitmap.texture.version > again, "new paint redraws too");

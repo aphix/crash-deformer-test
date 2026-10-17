@@ -1,3 +1,4 @@
+import { hypot3 } from "../kernel/physics-core.js";
 import { SPRAY_PALETTE, CAR_SPRAY } from "../match/look-data.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { BAND_PATTERNS } from "./rival-patterns-bands.ts";
@@ -38,7 +39,7 @@ function streamOf(salt: number, seed: number, slot = -1): () => number {
 
 /** Palette colours `a` and `b` (sRGB) this far apart. */
 function colourDistance(a: number, b: number): number {
-  return Math.hypot((a >> 16) - (b >> 16), ((a >> 8) & 0xff) - ((b >> 8) & 0xff), (a & 0xff) - (b & 0xff));
+  return hypot3((a >> 16) - (b >> 16), ((a >> 8) & 0xff) - ((b >> 8) & 0xff), (a & 0xff) - (b & 0xff));
 }
 
 /** The pattern order of a field: a Fisher-Yates shuffle of the pattern indices, a function of the seed alone. */

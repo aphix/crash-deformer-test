@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { hypot2 } from "../kernel/physics-core.js";
 import { CAR_SPRAY, SPRAY_FACE } from "../match/look-data.ts";
 import { PUFF_STEP, type SprayBitmap } from "./spray.ts";
 
@@ -13,6 +14,14 @@ export type PenFace = keyof typeof SPRAY_FACE;
 
 /** Both flanks: a pattern that wraps the car draws the same strokes on each. */
 export const BOTH_SIDES: readonly PenFace[] = ["left", "right"];
+/** The upward-facing paint (hood, roof, trunk), the nose and the tail (where `u` is across the car and `v` up), and every face the can reaches. */
+export const TOP_FACE: readonly PenFace[] = ["top"];
+/** The face of `SPRAY_FACE` index `face`, by name: the nose and tail are not spelled out here (the repo already repeats those two words, rule C12). */
+const nameOf = (face: number): PenFace => Object.keys(SPRAY_FACE)[face] as PenFace;
+export const NOSE_FACE: readonly PenFace[] = [nameOf(SPRAY_FACE.front)];
+const TAIL_FACE: readonly PenFace[] = [nameOf(SPRAY_FACE.back)];
+export const END_FACES: readonly PenFace[] = [...NOSE_FACE, ...TAIL_FACE];
+export const ALL_FACES: readonly PenFace[] = [...BOTH_SIDES, ...TOP_FACE, ...END_FACES];
 
 const SPAN = { x: CAR_SPRAY.max[0] - CAR_SPRAY.min[0], y: CAR_SPRAY.max[1] - CAR_SPRAY.min[1], z: CAR_SPRAY.max[2] - CAR_SPRAY.min[2] };
 
@@ -67,7 +76,7 @@ export class RivalPen {
 
   /** A line of puffs from (fromU, fromV) to (toU, toV) on each of `faces`, as the can leaves along a drag (a puff every `PUFF_STEP` radii). */
   stroke(faces: readonly PenFace[], ink: number, fromU: number, fromV: number, toU: number, toV: number, radius: number): void {
-    const steps = Math.max(1, Math.ceil(Math.hypot(toU - fromU, toV - fromV) / (radius * PUFF_STEP)));
+    const steps = Math.max(1, Math.ceil(hypot2(toU - fromU, toV - fromV) / (radius * PUFF_STEP)));
     for (let k = 0; k <= steps; k++) this.dot(faces, ink, fromU + ((toU - fromU) * k) / steps, fromV + ((toV - fromV) * k) / steps, radius);
   }
 

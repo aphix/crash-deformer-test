@@ -1,4 +1,4 @@
-import { BOTH_SIDES, FACE_SIZE, type PenFace, type RivalPen, type RivalPattern } from "./rival-pen.ts";
+import { BOTH_SIDES, END_FACES, FACE_SIZE, TOP_FACE, type PenFace, type RivalPen, type RivalPattern } from "./rival-pen.ts";
 
 /** The band patterns: stripes, sashes, chevrons and a checker run along or across the car, drawn with the rivals' pen. */
 
@@ -6,10 +6,6 @@ const LENGTH = FACE_SIZE.left.u;
 const FLANK_HEIGHT = FACE_SIZE.left.v;
 const CAR_WIDTH = FACE_SIZE.top.v;
 const CENTRE_ACROSS = CAR_WIDTH / 2;
-
-/** The faces a wrapping band crosses besides the top: nose and tail, where `u` is across the car and `v` up. */
-const ENDS: readonly PenFace[] = ["front", "back"];
-const TOP: readonly PenFace[] = ["top"];
 
 /** Belt line height on a flank: the door's mid-height, where the side bands ride. */
 const BELT_V = 0.7;
@@ -135,10 +131,10 @@ const racingStripes: RivalPattern = {
     for (const side of [-1, 1]) {
       const stripeAcross = CENTRE_ACROSS + side * STRIPE_OFFSET;
       const pinlineAcross = stripeAcross + side * STRIPE_PINLINE_GAP;
-      ribbon(pen, { faces: TOP, ink: 0, from: [0, stripeAcross], to: [LENGTH, stripeAcross], shiftAxis: "v", halfWidth: STRIPE_HALF_WIDTH, radius: FILL_RADIUS });
-      ribbon(pen, { faces: ENDS, ink: 0, from: [stripeAcross, 0], to: [stripeAcross, FLANK_HEIGHT], shiftAxis: "u", halfWidth: STRIPE_HALF_WIDTH, radius: FILL_RADIUS });
-      line(pen, TOP, 1, [0, pinlineAcross], [LENGTH, pinlineAcross], "v");
-      line(pen, ENDS, 1, [pinlineAcross, 0], [pinlineAcross, FLANK_HEIGHT], "u");
+      ribbon(pen, { faces: TOP_FACE, ink: 0, from: [0, stripeAcross], to: [LENGTH, stripeAcross], shiftAxis: "v", halfWidth: STRIPE_HALF_WIDTH, radius: FILL_RADIUS });
+      ribbon(pen, { faces: END_FACES, ink: 0, from: [stripeAcross, 0], to: [stripeAcross, FLANK_HEIGHT], shiftAxis: "u", halfWidth: STRIPE_HALF_WIDTH, radius: FILL_RADIUS });
+      line(pen, TOP_FACE, 1, [0, pinlineAcross], [LENGTH, pinlineAcross], "v");
+      line(pen, END_FACES, 1, [pinlineAcross, 0], [pinlineAcross, FLANK_HEIGHT], "u");
     }
   },
 };
@@ -161,7 +157,7 @@ const pinstripe: RivalPattern = {
   draw(pen) {
     line(pen, BOTH_SIDES, 0, [0, PINSTRIPE_FLANK_V], [LENGTH, PINSTRIPE_FLANK_V], "v");
     for (const acrossV of [PINSTRIPE_ROOF_INSET, CAR_WIDTH - PINSTRIPE_ROOF_INSET]) {
-      line(pen, TOP, 0, [0, acrossV], [LENGTH, acrossV], "v");
+      line(pen, TOP_FACE, 0, [0, acrossV], [LENGTH, acrossV], "v");
     }
   },
 };
@@ -193,13 +189,13 @@ const twoToneSplit: RivalPattern = {
   inks: 1,
   draw(pen) {
     const reach = SPLIT_FILL_RADIUS;
-    ribbon(pen, { faces: TOP, ink: 0, from: [-reach, CENTRE_ACROSS], to: [LENGTH + reach, CENTRE_ACROSS], shiftAxis: "v", halfWidth: CENTRE_ACROSS + reach, radius: SPLIT_FILL_RADIUS });
+    ribbon(pen, { faces: TOP_FACE, ink: 0, from: [-reach, CENTRE_ACROSS], to: [LENGTH + reach, CENTRE_ACROSS], shiftAxis: "v", halfWidth: CENTRE_ACROSS + reach, radius: SPLIT_FILL_RADIUS });
     const fillLowV = SPLIT_V + SPLIT_FILL_RADIUS;
     const fillHighV = FLANK_HEIGHT + reach;
     const edgeLowV = SPLIT_V + SPLIT_EDGE_RADIUS * PUFF_CORE_FRACTION;
     for (const [faces, faceWidth] of [
       [BOTH_SIDES, LENGTH],
-      [ENDS, FACE_SIZE.front.u],
+      [END_FACES, FACE_SIZE.front.u],
     ] as const) {
       ribbon(pen, { faces, ink: 0, from: [-reach, (fillLowV + fillHighV) / 2], to: [faceWidth + reach, (fillLowV + fillHighV) / 2], shiftAxis: "v", halfWidth: (fillHighV - fillLowV) / 2, radius: SPLIT_FILL_RADIUS });
       ribbon(pen, { faces, ink: 0, from: [-reach, (edgeLowV + fillLowV) / 2], to: [faceWidth + reach, (edgeLowV + fillLowV) / 2], shiftAxis: "v", halfWidth: (fillLowV - edgeLowV) / 2, radius: SPLIT_EDGE_RADIUS });
@@ -213,7 +209,7 @@ const diagonalSash: RivalPattern = {
   draw(pen) {
     for (const [faces, from, to] of [
       [BOTH_SIDES, SASH_FLANK_FROM, SASH_FLANK_TO],
-      [TOP, SASH_TOP_FROM, SASH_TOP_TO],
+      [TOP_FACE, SASH_TOP_FROM, SASH_TOP_TO],
     ] as const) {
       ribbon(pen, { faces, ink: 0, from, to, shiftAxis: "u", halfWidth: SASH_HALF_WIDTH, radius: FILL_RADIUS });
       for (const side of [-1, 1]) {
@@ -232,7 +228,7 @@ const chevrons: RivalPattern = {
       const ink = index % 2;
       const topApex = CHEVRON_TOP_APEX - index * CHEVRON_PITCH;
       const flankApex = CHEVRON_FLANK_APEX - index * CHEVRON_PITCH;
-      pen.path(TOP, ink, chevronPoints(topApex, CENTRE_ACROSS, CHEVRON_TOP_BACK, CHEVRON_TOP_REACH), CHEVRON_RADIUS);
+      pen.path(TOP_FACE, ink, chevronPoints(topApex, CENTRE_ACROSS, CHEVRON_TOP_BACK, CHEVRON_TOP_REACH), CHEVRON_RADIUS);
       pen.path(BOTH_SIDES, ink, chevronPoints(flankApex, CHEVRON_FLANK_V, CHEVRON_FLANK_BACK, CHEVRON_FLANK_REACH), CHEVRON_RADIUS);
     }
   },
