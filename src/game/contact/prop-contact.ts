@@ -133,21 +133,15 @@ function prismBox(out: ContactBox, s: Surface, i: number): ContactBox {
 }
 
 /**
- * `car` is on a solid's top, `under` m deep: its fall stops (a wreck's masses with it: a body velocity alone leaves them falling
- * through it as crush) and it rises out of it by what the slice could have sunk it by (its fall) and the solver's push-out speed
- * (`PUSH_SPEED`), the rest of a deeper sink the next slices'. `_span` stands where the body now does for the prisms after this one.
+ * `car` came down onto a solid's top `under` m deep: the fall stops and the body rises out of it by what the slice could have sunk
+ * it by (its fall) and the solver's push-out speed (`PUSH_SPEED`), the rest of a deeper sink the next slices'. A wreck's masses rise
+ * with it, and `_span` stands where the body now does for the prisms after this one.
  */
 function standOnTop(car: DeformableCar, under: number, dt: number): void {
   const rise = Math.min(under, (Math.max(0, -_span.fall) + PUSH_SPEED) * dt);
-  const stop = Math.max(0, -car.velocity.y);
-  car.velocity.y += stop;
+  car.velocity.y = Math.max(0, car.velocity.y);
   car.group.position.y += rise;
-  if (car.deform.massActive) {
-    for (const m of car.deform.masses) {
-      m.world.y += rise;
-      if (m.dynamic) m.vel.y += stop;
-    }
-  }
+  if (car.deform.massActive) for (const m of car.deform.masses) m.world.y += rise;
   _span.low += rise;
   _span.high += rise;
 }
@@ -177,22 +171,17 @@ function solidContact(car: DeformableCar, i: number, s: Surface, k: number, knoc
     return;
   }
   const pen = _hit[FF_PEN]!;
-  // A body on a solid's top is met by the top, not by a side: the plan overlap is no face it entered by, and pushing it out of that overlap
-  // shoved a derby wreck 0.4-1.3 m in a step. Two bodies are on it: one that came down onto it (`cameThroughTop`, `exitFace`'s rule, its
-  // low point under the top by what its fall crossed within `ENTRY_WINDOW`), and one standing or sliding on it, its low point within what a
-  // slice's fall and push-out (`PUSH_SPEED`) put under the top (a wreck that has just landed slides across the rail at 16 m/s with gravity's
-  // 0.02 m/s of fall: no crossing time to compare, a mm under the top).
+  // A body that came down onto a solid's top (its lowest point just under it while its footprint lies metres over the prism) is met by
+  // the top, not by a side: the plan overlap is no face it entered by, and pushing it out of that overlap shoved a derby wreck 0.4-1.3 m
+  // in a step. The rule is `exitFace`'s (`cameThroughTop`); the body stands on the top.
   if (role !== KNOCK) {
     const rvx = v.x - P[o + PR_VX]!;
     const rvz = v.z - P[o + PR_VZ]!;
     const into = -(rvx * _hit[FF_NX]! + rvz * _hit[FF_NZ]!);
     const sideTime = into > 0 && pen / into <= ENTRY_WINDOW ? pen / into : Infinity;
     const under = P[o + PR_TOP]! - _span.low;
-    const fall = Math.max(0, -_span.fall);
-    const moving = rvx * rvx + _span.fall * _span.fall + rvz * rvz > SOLID_AT_REST * SOLID_AT_REST;
-    // A crossing within a step, as a side must have been: a body deep in a wall's plan under its 12 m is under no top.
-    const landed = under <= fall * ENTRY_WINDOW && cameThroughTop(moving, _span.fall, under, pen, sideTime);
-    if (landed || under <= (fall + PUSH_SPEED) * dt) {
+    // Crossed within a step (`ENTRY_WINDOW`), as a side must have been: a body deep in a wall's plan over its 12 m is under no top.
+    if (under <= Math.max(0, -_span.fall) * ENTRY_WINDOW && cameThroughTop(rvx * rvx + _span.fall * _span.fall + rvz * rvz > SOLID_AT_REST * SOLID_AT_REST, _span.fall, under, pen, sideTime)) {
       standOnTop(car, under, dt);
       return;
     }

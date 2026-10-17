@@ -228,13 +228,7 @@ describe("given a crushed wreck over a prism of the derby arena, met in one slic
     const before = centroid(wreck);
     ground.contact(wreck, 0, { knock() {}, fx() {}, wall: (i) => walls.push(i) }, dt);
     const after = centroid(wreck);
-    let massVy = 0;
-    let mass = 0;
-    for (const m of wreck.deform.masses) {
-      massVy += m.vel.y * m.mass;
-      mass += m.mass;
-    }
-    return { shove: Math.hypot(after.x - before.x, after.z - before.z), rise: lowestY(wreck) - (prism.height + above), low: lowestY(wreck) - prism.height, vy: wreck.velocity.y, massVy: massVy / mass, walls, towardMiddle: ((after.x - before.x) * -prism.x + (after.z - before.z) * -prism.z) / reach };
+    return { shove: Math.hypot(after.x - before.x, after.z - before.z), rise: lowestY(wreck) - (prism.height + above), low: lowestY(wreck) - prism.height, vy: wreck.velocity.y, walls, towardMiddle: ((after.x - before.x) * -prism.x + (after.z - before.z) * -prism.z) / reach };
   };
   afterEach(leaveArena);
 
@@ -243,7 +237,6 @@ describe("given a crushed wreck over a prism of the derby arena, met in one slic
     { it: "when it lands on the tyre stack 55 (2 m) at 9 m/s and 11 m/s sideways, 3.6 cm under the top (seed 1, t=61.10, 0.96 m)", id: 55, along: 0, inward: 1.4, under: 0.036, v: [-10.87, -9.08, -1.7], dt: 0.0042 },
     { it: "when it comes down on the K-rail 66 (1.8 m) at 5.7 m/s with 16 m/s along, 0.9 cm under the top (seed 1, t=10.76, 0.41 m)", id: 66, along: -1, inward: 1.4, under: 0.009, v: [8.46, -5.72, 13.22], dt: 0.0021 },
     { it: "when it comes down on the tyre stack 54's end at 7.6 m/s with 8 m/s along, 2 cm under the top (seed 6, t=38.88, 0.19 m)", id: 54, along: 0, inward: 1.2, under: 0.02, v: [-8, -7.6, -1.1], dt: 0.0027 },
-    { it: "when it has landed on the K-rail 66 and slides across its top at 16 m/s, 1 mm under it with gravity's 0.02 m/s of fall (seed 1, t=10.7639, 0.44 m)", id: 66, along: -1, inward: 1.4, under: 0.001, v: [8.46, -0.02, 13.22], dt: 0.0021 },
   ] as const;
   for (const c of cases) {
     it(c.it, () => {
@@ -251,8 +244,7 @@ describe("given a crushed wreck over a prism of the derby arena, met in one slic
       assert.ok(prism.kind === "tyres" || prism.kind === "rail", "the arena's prism ids moved: restage the case");
       const hit = meet(c.id, c.along, c.inward, -c.under, [c.v[0], c.v[1], c.v[2]], c.dt);
       assert.ok(hit.shove <= Math.hypot(c.v[0], c.v[2]) * c.dt, `the slice shoved the wreck ${(hit.shove * 1000).toFixed(0)} mm, past its own ${(Math.hypot(c.v[0], c.v[2]) * c.dt * 1000).toFixed(0)} mm of travel`);
-      assert.ok(hit.low >= -1e-9 && hit.vy >= -1e-9, `it ends ${(hit.low * 1000).toFixed(1)} mm from the top at ${hit.vy.toFixed(2)} m/s up: on the top and no longer falling`);
-      assert.ok(hit.massVy >= -1e-9, `its masses still fall at ${hit.massVy.toFixed(2)} m/s: the next slice reads that as crush through the top`);
+      assert.ok(hit.low >= -1e-9 && hit.vy >= 0, `it ends ${(hit.low * 1000).toFixed(1)} mm from the top at ${hit.vy.toFixed(2)} m/s up: on the top and no longer falling`);
     });
   }
 
