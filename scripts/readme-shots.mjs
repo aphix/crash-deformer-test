@@ -367,8 +367,11 @@ SCENES["car-race-mid"] = {
   },
   at: 8,
 };
-/** Two cars after a head-on hit (seed 1), paused, the orbit camera framed by hand: the first car's crushed nose from two sides, and the whole pile. */
-const crushedView = (radius, pitch, angle) => ({
+/**
+ * Two cars after a head-on hit (seed 1), paused. `car-crushed` orbits the pile; the close views fly the free eye (`view.enterFree`) to
+ * `eyeMetres` = [right, up, ahead] of the first car's nose, in that car's own frame, and look at the crushed nose.
+ */
+const crushedView = (eyeMetres) => ({
   survey: true,
   hash: "cars=2&smin=24&smax=28&seed=1",
   seed: 1,
@@ -379,14 +382,37 @@ const crushedView = (radius, pitch, angle) => ({
       e.advance(2.5);
       e.togglePlay();
     });
-    await frame(p, radius, pitch, angle);
-    await stepSim(p, 0.3);
+    if (!eyeMetres) {
+      await frame(p, 5, 0.3, 0.8);
+      await stepSim(p, 0.3);
+      return;
+    }
+    await run(p, () => window.__crush.view.enterFree());
+    await stepSim(p, 0.1);
+    await run(
+      p,
+      ([right, up, ahead]) => {
+        const e = window.__crush;
+        const car = e.cars[0];
+        const forward = car.forward;
+        const nose = { x: car.group.position.x + forward.x * 2.1, y: car.group.position.y + 0.6, z: car.group.position.z + forward.z * 2.1 };
+        const eye = { x: nose.x + forward.x * ahead + forward.z * right, y: nose.y + up, z: nose.z + forward.z * ahead - forward.x * right };
+        const free = e.view.free;
+        free.eye.set(eye.x, eye.y, eye.z);
+        const dx = nose.x - eye.x;
+        const dz = nose.z - eye.z;
+        free.yaw = Math.atan2(-dx, -dz);
+        free.pitch = Math.atan2(nose.y - eye.y, Math.hypot(dx, dz));
+      },
+      eyeMetres,
+    );
+    await stepSim(p, 0.1);
   },
   at: 0.1,
 });
-SCENES["car-crushed"] = crushedView(5, 0.3, 0.8);
-SCENES["car-crushed-left"] = crushedView(3.2, 0.2, 0.8);
-SCENES["car-crushed-right"] = crushedView(3.2, 0.2, 2.4);
+SCENES["car-crushed"] = crushedView(null);
+SCENES["car-crushed-left"] = crushedView([-2.2, 1.1, 1.8]);
+SCENES["car-crushed-right"] = crushedView([2.2, 1.1, 1.8]);
 
 /** The crash animation: two cars head-on, the engine's own crash cam (not framed by hand), from just before the hit through the slow-mo. */
 const ANIMATION = { out: "crash-slowmo", size: [1440, 576], hash: "cars=2&smin=24&smax=28&seed=1", seed: 1 };
