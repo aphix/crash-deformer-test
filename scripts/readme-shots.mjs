@@ -349,6 +349,24 @@ for (const id of CAR_SHOT_IDS) {
   SCENES[`car-garage-${id}`] = { survey: true, hash: `scene=garage&car=${id}`, setup: (p) => frame(p, 4.6, 0.2, 2.3), at: 0.3 };
 }
 SCENES["car-garage-close"] = { survey: true, hash: "scene=garage&car=sedan", setup: (p) => frame(p, 2.4, 0.12, 2.1), at: 0.3 };
+/** The garage sedan with a spray stripe along each flank and a puff on the bonnet: the decals ride the finished body. */
+SCENES["car-garage-spray"] = {
+  survey: true,
+  hash: "scene=garage&car=sedan",
+  setup: async (p) => {
+    await run(p, () => {
+      const e = window.__crush;
+      const random = () => 0.5;
+      for (const side of [-1, 1]) {
+        for (let z = -1.6; z <= 1.6; z += 0.2) e.looks.mine.carSpray.spray({ x: side * 0.9, y: 0.55, z }, { x: side, y: 0, z: 0 }, 0.16, 4, random);
+      }
+      e.looks.mine.carSpray.spray({ x: 0, y: 0.8, z: 1.2 }, { x: 0, y: 1, z: 0 }, 0.3, 9, random);
+      e.restyle();
+    });
+    await frame(p, 4.6, 0.2, 2.3);
+  },
+  at: 0.3,
+};
 SCENES["car-race-close"] = {
   survey: true,
   hash: "scene=race",
