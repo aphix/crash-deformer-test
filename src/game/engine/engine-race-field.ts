@@ -37,6 +37,9 @@ import { carLayout } from "../net/car-pose.ts";
 import type { CourseMenu } from "../net/net-ports.ts";
 import type { HighlightClip } from "../match/highlights.ts";
 
+/** The name a clip gives a car that is no racer (traffic, and the cops past it: `entrants` has no row for them). */
+export const TRAFFIC_NAME = "Traffic";
+
 /** What the director needs from `CrashEngine`. */
 interface RaceHost {
   readonly scene: THREE.Scene;
@@ -336,6 +339,14 @@ export abstract class RaceField {
     });
   }
 
+  /**
+   * The seed car `slot`'s rival spray is drawn from (`RivalLooks.of`): this field's `look` while the slot is an AI racer of a live,
+   * non-survival race, else null. AI racers only: the player's, a netplay peer's, the cops' and the traffic cars never wear one.
+   */
+  rivalSeed(slot: number): number | null {
+    return this.active && this.session !== null && !this.survival && this.entrants[slot]?.kind === "ai" ? this.look : null;
+  }
+
   /** Single race: the AI field in car order, then the network peers, this browser's car (if it races) at the back. */
   protected defaultGrid(): number[] {
     const ai = this.entrants.filter((e) => e.kind === "ai").map((e) => e.id);
@@ -427,7 +438,7 @@ export abstract class RaceField {
       seat.focus(this.grid[0]!);
     }
     this.host.setPaused(false);
-    this.recorder.begin(tr.id, HANDLING.realism, this.host.bleeds(), racers, (i) => this.entrants[i]?.name ?? "Traffic", this.look);
+    this.recorder.begin(tr.id, HANDLING.realism, this.host.bleeds(), racers, (i) => this.entrants[i]?.name ?? TRAFFIC_NAME, this.look);
   }
 
   /** Every knocked prop back on its spot for the rules (a race start, each highlight clip; the drawn ones go back with the scene's `clear`). */

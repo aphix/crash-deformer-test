@@ -85,6 +85,8 @@ export abstract class EngineDerby extends EngineHud {
     d.winnerName = s.winnerId == null ? null : (s.board.find((r) => r.id === s.winnerId)?.name ?? s.winnerName);
     if (s.round === this.derbyRound) return;
     this.derbyRound = s.round;
+    // This browser's AI cars wear the host's round's rival sprays, not those of its own local `spawnDerby` count.
+    for (const car of this.live()) this.dressCar(car);
     if (seated) {
       this.seat.focus(self);
       this.seat.mode = "drive";

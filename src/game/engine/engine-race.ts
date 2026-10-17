@@ -471,6 +471,11 @@ export class RaceDirector extends RaceHudLayer {
     // A Survival run the host has just ended: the same result card the host reads.
     if (this.survival && snap.phase === "finished" && prev?.phase !== "finished") this.settle(this.session);
     if (!fresh) return;
+    // A client never places the cars: its AI racers put on the host's field's rival sprays (`rivalSeed`) now their entrants are known.
+    for (const entrant of entrants) {
+      const car = entrant?.kind === "ai" ? this.host.live()[entrant.id] : undefined;
+      if (car) this.host.dress(car);
+    }
     this.stowSecret();
     this.menu = null;
     this.overFor = 0;

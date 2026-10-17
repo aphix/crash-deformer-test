@@ -61,7 +61,9 @@ import type { LabArt } from "../present/lab-art.ts";
 import type { Garage } from "./garage.ts";
 import type { Showcase } from "./showcase.ts";
 import { PlayerLooks } from "./player-looks.ts";
-import { wearCarLook } from "../present/car-look.ts";
+import { lookColours, wearCarLook } from "../present/car-look.ts";
+import { RivalLooks } from "../present/rival-look.ts";
+import { rivalSeedOf } from "./rival-seed.ts";
 import { NO_CAR_PICK } from "../match/look-data.ts";
 import { FLOOR } from "../scenes/lab.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
@@ -245,6 +247,8 @@ export abstract class EngineCore {
   protected labFlick: LabFlick | null = null;
   /** Every player's look this browser draws (its own and its netplay peers'); worn on each dress (`dressCar`). */
   protected readonly looks = new PlayerLooks();
+  /** The rival spray of every AI car of a race or derby (`rivalSeedOf`): one bitmap per car slot, worn on each dress (`dressCar`). */
+  protected readonly rivals = new RivalLooks();
   /** The garage's room, standing driver and spray can; built on first entering the garage. */
   protected garage: Garage | null = null;
   /** The showcase's set; built on first entering it. */
@@ -488,8 +492,15 @@ export abstract class EngineCore {
     const cls = carClass(car);
     assignClass(car, cls);
     armKill(car.deform, killClass(car), HANDLING.realism, this.derbyMode ? "derby" : "default");
-    const look = this.looks.of(car.group.userData.carIndex as number, this.ownCar());
-    wearCarLook(car, look?.car ?? NO_CAR_PICK, look?.carSpray ?? null);
+    const slot = car.group.userData.carIndex as number;
+    const look = this.looks.of(slot, this.ownCar());
+    // A car with no player's look wears its rival spray when the race or derby has one for it (the first dress runs before `race` is assigned).
+    const seed = look || !this.race ? null : rivalSeedOf(slot, this.race, this.derbyMode ? { round: this.derbyRound, seated: this.derbySeated } : null);
+    if (seed === null) {
+      wearCarLook(car, look?.car ?? NO_CAR_PICK, look?.carSpray ?? null);
+      return;
+    }
+    wearCarLook(car, NO_CAR_PICK, this.rivals.of(seed, slot, lookColours(car, NO_CAR_PICK).body));
   }
 
   /** This browser's own car: its netplay seat as a guest, else the player's car 0. */

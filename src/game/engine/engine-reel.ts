@@ -6,6 +6,9 @@ import { reelParts } from "../net/reel-wire.ts";
 import { clipTitle, type HighlightClip } from "../match/highlights.ts";
 import type { FlagClip, RaceCommand, RaceHud, ReelCoverId, ViewBox } from "../match/types.ts";
 import { RESULTS_DELAY } from "./engine-race.ts";
+import { TRAFFIC_NAME } from "./engine-race-field.ts";
+import { lookColours, wearCarLook } from "../present/car-look.ts";
+import { NO_CAR_PICK } from "../match/look-data.ts";
 import { coverLens, type ReelDirector } from "./engine-highlights.ts";
 import { autoPurge, deleteSaved, listSaved, loadSaved, purgeOutdated, saveClip, setAutoPurge } from "./highlight-store.ts";
 import { EngineInput } from "./engine-input.ts";
@@ -137,8 +140,16 @@ export abstract class EngineReel extends EngineInput {
     this.ensureCars(Math.max(this.carCount, ...clip.cars.map((c) => c.slot + 1)));
     const looks = clip.cars.map((c) => ({ slot: c.slot, style: this.cars[c.slot]!.style.id, cls: carClass(this.cars[c.slot]!) }));
     for (const c of clip.cars) this.matchCar(c.slot, c.style, c.cls);
+    // The racers of the recording wear what they wore in that race (`clip.look`); a look this browser holds (its own car's) and the traffic stay as dressed.
+    const rivals = clip.cars.filter((c) => c.name !== TRAFFIC_NAME && this.looks.of(c.slot, this.ownCar()) === null);
+    for (const c of rivals) {
+      const car = this.cars[c.slot]!;
+      wearCarLook(car, NO_CAR_PICK, this.rivals.of(clip.look, c.slot, lookColours(car, NO_CAR_PICK).body));
+    }
     this.highlights.viewSaved(clip, performance.now() / 1000, () => {
       for (const l of looks) this.matchCar(l.slot, l.style, l.cls);
+      // The setup field has no race, so the cars are bare again.
+      for (const c of rivals) this.dressCar(this.cars[c.slot]!);
       this.race.command({ type: "program", options: null });
       this.race.reset();
     });
