@@ -3,6 +3,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { hypot2, detSin } from "../kernel/physics-core.js";
 import { PRIMER_ATTRIBUTE } from "./constants.ts";
 import { CAR_STYLES, type BodyStyle, type ProfileStation, type YZ } from "./car-variants.ts";
+import { splitCreases } from "./car-crease.ts";
 
 export const WHEEL_POS: [number, number, number][] = [
   [-0.74, 0.32, 1.34],
@@ -31,6 +32,27 @@ export const WINDSHIELD_W = { base: 1.3, top: 0.96 } as const;
 export const B_PILLAR_Z = { rear: -0.13, front: -0.03 } as const;
 export const GLASS_BELT_Y = 0.83;
 const GLASS_BELT_X = 0.85;
+
+/**
+ * The hard edges the drawn parts declare: the angle (degrees) between two faces past which `splitCreases` gives the edge its
+ * own vertices, so the live per-skin normals stay hard across a crush and smooth everywhere else. Faces turning less than the
+ * angle shade as one surface.
+ * - deckLid: a bonnet or boot lid's top meets its skirt at 90° (the shut line); its dome and skirt chords turn under 2°. Its flat end
+ *   caps (own vertices, set by the loft) meet a side wall that leans in plan by up to 30°, i.e. at 60° or more, so the angle stays under that.
+ * - tailgate: the hatch's bowed panel meets its edge at 90°; its bow turns under 2° a chord; the same cap rule.
+ * - door: the slab's edge wall meets the inner face at 90°; the edge roll turns 45° at most a chord and the shoulder under 30°.
+ * - bumper: the fascia's splitter lip and back turn 73° and 90° (the lip's lower chord 67°); its rounded top and intake recess turn
+ *   49° at most a chord. A quad the corner wrap warps folds 63° along its diagonal, which no fan of vertices can keep hard, so the angle sits above that.
+ * The body loft is never split (`panelRegions` primes and peels it by vertex id: a copy would stay painted while its original tears
+ * to primer), and the greenhouse pillars, roof, liners and bulkheads are parts with their own vertices, hard against each other.
+ */
+export const CREASE_DEGREES = { deckLid: 45, tailgate: 45, door: 60, bumper: 70 } as const;
+
+/**
+ * Which build of a body part a builder draws. `drawn`: the smoothed mesh the player sees. `cage`: the plain build the collision
+ * cage is decimated from (`cageSourceOf`); the sim was tuned on it, so smoothing never reaches it.
+ */
+export type BodySource = "drawn" | "cage";
 
 type Pt = { x: number; y: number };
 type V3 = readonly [number, number, number];
@@ -206,9 +228,14 @@ function sideX(y: number, hw: number, yb: number): number {
 
 /** Shoulder arc angles sampled by the ring (rad), top down; the feature line (0) follows. Two 30° chords sag 3 mm. */
 const SHOULDER_RING = [SHOULDER_TOP, Math.PI / 6] as const;
-/** Half-ring indices of the feature line and the rocker: the side points between them flare at the arches. */
+/**
+ * Points the ring spends on the tuck-under between the feature line and the rocker, evenly spaced down the side. The drawn body
+ * gives the arch lip's parabola (`TUCK`, 3 cm) three chords, which sag under 1 mm each; the cage's plain build keeps its one.
+ */
+const TUCK_ROWS = { drawn: 2, cage: 1 } as const;
+/** Half-ring indices of the feature line, and the drawn body's rocker: the side points between them flare at the arches. */
 const FLARE_FIRST = 4;
-const ROCKER = 6;
+export const ROCKER = FLARE_FIRST + TUCK_ROWS.drawn + 1;
 
 /**
  * Lower body ring (left half top→bottom, keel, right half bottom→top; the
@@ -216,7 +243,7 @@ const ROCKER = 6;
  * line → tuck-under → rocker → sill. Tubs open the deck into a floor with walls;
  * the door cut drops the side to the sill. Greenhouse is never lofted metal.
  */
-function sectionPoints(s: ProfileStation, style: BodyStyle): Pt[] {
+function sectionPoints(s: ProfileStation, style: BodyStyle, source: BodySource): Pt[] {
   const { hw, yBelt: yb, z } = s;
   const hole = doorAperture(z);
   const tub = tubAt(z, style);
@@ -225,32 +252,36 @@ function sectionPoints(s: ProfileStation, style: BodyStyle): Pt[] {
   const inset = seamInset(z, style);
   const yF = yb - FEATURE_DROP;
   const side = (y: number): [number, number] => [sideX(y, hw, yb) - inset, y];
-  // One tuck point between the feature line and the rocker: the parabola's two chords sag under 2 mm.
+  const tuckRows = TUCK_ROWS[source];
+  const rocker = FLARE_FIRST + tuckRows + 1;
+  // The ring's half: deck crown and edge, the shoulder, the feature line, the tuck-under, the rocker, then the sill and the floor.
   const half: [number, number][] = [
     [lerp(hw - 0.22, hw - 0.06, tub.t), lerp(yb + 0.012, tub.floor, tub.t)],
     [lerp(hw - 0.07, hw - 0.06, tub.t), lerp(yb + 0.004, yb - 0.006, tub.t)],
     ...SHOULDER_RING.map((a) => side(yF + SHOULDER[1] * detSin(a))),
     side(yF),
-    side(lerp(yF, ROCKER_Y, 0.5)),
+    ...Array.from({ length: tuckRows }, (_, row) => side(lerp(yF, ROCKER_Y, (row + 1) / (tuckRows + 1)))),
     side(ROCKER_Y),
     [hw - 0.05, 0.165],
     [hw * 0.8, Y_FLOOR + 0.004],
   ];
-  // The door cut: every point above the rocker drops onto the sill's top.
+  // The door cut: every point above the rocker drops onto the sill's top, the last tuck row onto its far edge.
   const sill: [number, number][] = [
     [hw - 0.1, 0.235],
     [hw - 0.07, 0.236],
     [hw - 0.05, 0.234],
     [hw - 0.036, 0.231],
     [hw - 0.029, 0.226],
-    [hw - TUCK + SIDE_OUT, 0.22],
+    ...Array.from({ length: tuckRows }, (_, row): [number, number] =>
+      row === tuckRows - 1 ? [hw - TUCK + SIDE_OUT, 0.22] : [lerp(hw - 0.029, hw - TUCK + SIDE_OUT, (row + 1) / tuckRows), lerp(0.226, 0.22, (row + 1) / tuckRows)],
+    ),
   ];
   for (let i = 0; i < sill.length; i++) {
     const p = half[i]!;
     p[0] = lerp(p[0], sill[i]![0], hole);
     p[1] = lerp(p[1], sill[i]![1], hole);
   }
-  for (let i = FLARE_FIRST; i <= ROCKER; i++) half[i]![0] += 0.022 * archFlare(z, half[i]![1]);
+  for (let i = FLARE_FIRST; i <= rocker; i++) half[i]![0] += 0.022 * archFlare(z, half[i]![1]);
   for (const p of half) {
     if (well < 0.03 || p[0] < hw * 0.58 || p[1] > archY + 0.02) continue;
     const t = THREE.MathUtils.smoothstep((p[0] - hw * 0.58) / (hw * 0.42), 0, 1);
@@ -266,8 +297,48 @@ const BASE_SLICES = 40;
 /** >1 spreads slices over the cabin and packs them into the crumple zones. */
 const SLICE_WARP = 1.166;
 
-/** Loft stations: warped base spacing (≈7 cm at nose/tail, 13 cm mid) plus feature edges. */
-function sliceZs(style: BodyStyle): number[] {
+/**
+ * The nose and tail roll over in a quarter ellipse `END_ROLL_LENGTH` (m) long: it leaves the straight loft that far from the end
+ * face (inside the bumper seat, so the loft at the seat is the straight loft) and ends `END_ROLL_INSET` (m) pulled in at the flat
+ * face, in `END_ROLL_STEPS` chords; the last chord then meets the face at 40°, not 90°. The inset stays small because a head lamp's
+ * housing stands within 1 cm of the nose's top corner, and the skin may recede 1.5 cm under it (`lamps.test.ts`). The first base
+ * station past the roll (7 cm from the end face) is dropped when closer than `ROLL_CLEARANCE` (m) to the roll's first ring: the roll's
+ * own three rings already resolve that end, and every ring costs the skin 21 vertices a frame.
+ */
+const END_ROLL_LENGTH = 0.03;
+const END_ROLL_INSET = 0.015;
+const END_ROLL_STEPS = 2;
+const ROLL_CLEARANCE = 0.045;
+
+/** Where along the roll the ring at `z` is: 0 on the straight loft, 1 at the end face (the sine of the roll's angle). */
+function endRollProgress(z: number, profile: readonly ProfileStation[]): number {
+  const rear = (profile[0]!.z + END_ROLL_LENGTH - z) / END_ROLL_LENGTH;
+  const front = (z - (profile[profile.length - 1]!.z - END_ROLL_LENGTH)) / END_ROLL_LENGTH;
+  return THREE.MathUtils.clamp(Math.max(rear, front), 0, 1);
+}
+
+/** How far (m) the ring at `z` is pulled in from its station's section: a quarter ellipse, 0 on the straight loft. */
+function endRollInset(z: number, profile: readonly ProfileStation[]): number {
+  const progress = endRollProgress(z, profile);
+  return END_ROLL_INSET * (1 - Math.sqrt(1 - progress * progress));
+}
+
+/** `ring` scaled about its middle so every side is `inset` closer to it. */
+function insetRing(ring: Pt[], inset: number): Pt[] {
+  if (inset === 0) return ring;
+  let cx = 0;
+  let cy = 0;
+  for (const p of ring) {
+    cx += p.x / ring.length;
+    cy += p.y / ring.length;
+  }
+  const reachX = Math.max(...ring.map((p) => Math.abs(p.x - cx)));
+  const reachY = Math.max(...ring.map((p) => Math.abs(p.y - cy)));
+  return ring.map((p) => ({ x: cx + (p.x - cx) * (1 - inset / reachX), y: cy + (p.y - cy) * (1 - inset / reachY) }));
+}
+
+/** Loft stations: warped base spacing (≈7 cm at nose/tail, 13 cm mid) plus feature edges, and the roll's own rings at each end. */
+function sliceZs(style: BodyStyle, source: BodySource): number[] {
   const p = style.profile;
   const z0 = p[0]!.z;
   const z1 = p[p.length - 1]!.z;
@@ -284,10 +355,18 @@ function sliceZs(style: BodyStyle): number[] {
     const end = i === 0 || i === BASE_SLICES - 1;
     if (end || knots.every((k) => Math.abs(k - z) > 0.022)) zs.push(z);
   }
-  return zs.sort((a, b) => a - b);
+  if (source === "cage") return zs.sort((a, b) => a - b);
+  const rollRear = z0 + END_ROLL_LENGTH;
+  const rollFront = z1 - END_ROLL_LENGTH;
+  const stations = zs.filter((z) => z > rollRear + ROLL_CLEARANCE && z < rollFront - ROLL_CLEARANCE);
+  for (let step = 0; step <= END_ROLL_STEPS; step++) {
+    const progress = Math.sin((step / END_ROLL_STEPS) * (Math.PI / 2));
+    stations.push(z0 + END_ROLL_LENGTH * (1 - progress), z1 - END_ROLL_LENGTH * (1 - progress));
+  }
+  return stations.sort((a, b) => a - b);
 }
 
-function loftFromRings(rings: Pt[][], zs: number[], u0: number, u1: number): THREE.BufferGeometry {
+function loftFromRings(rings: Pt[][], zs: number[], u0: number, u1: number, capsOwnRings = true): THREE.BufferGeometry {
   const positions: number[] = [];
   const uvs: number[] = [];
   const n = rings[0]!.length;
@@ -314,18 +393,19 @@ function loftFromRings(rings: Pt[][], zs: number[], u0: number, u1: number): THR
       indices.push(a, b, c, b, d, c);
     }
   }
-  // The end caps are the shell's real hard edges (end panels, ~50–90° off the loft): each gets its own copy of the end
+  // A small loft's end caps are its real hard edges (end panels, 50–90° off the loft): each gets its own copy of the end
   // ring, so the cap shades flat and the loft smooth instead of averaging the corner into both. The copies share rest
-  // positions, so they skin (and wrinkle) as one.
+  // positions, so they skin (and wrinkle) as one. The body's rolled ends flow into their caps, which share the end ring.
   const cap = (slice: number, inward: boolean) => {
     const ring = rings[slice]!;
     const z = zs[slice]!;
     let cx = 0,
       cy = 0;
-    const base = positions.length / 3;
+    const base = capsOwnRings ? positions.length / 3 : slice * n;
     for (const p of ring) {
       cx += p.x;
       cy += p.y;
+      if (!capsOwnRings) continue;
       positions.push(p.x, p.y, z);
       uvs.push(inward ? 0 : 1, 0.5);
     }
@@ -344,6 +424,7 @@ function loftFromRings(rings: Pt[][], zs: number[], u0: number, u1: number): THR
   geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   geo.setIndex(indices);
+  geo.userData.loft = { ring: n, slices: rings.length };
   return geo;
 }
 
@@ -431,6 +512,42 @@ function makeRoofGeometry(style: BodyStyle): THREE.BufferGeometry {
 }
 
 /**
+ * Each lengthwise edge of a greenhouse pillar, rail or header is cut by one 45° chamfer (`PILLAR_FILLET_STEPS` = 1 chord of a
+ * quarter circle of radius `PILLAR_FILLET`, m; at most `PILLAR_FILLET_SHARE` of the section side it cuts), so the section is an
+ * octagon and the vertex normals roll round the edge in two 45° steps instead of turning 90° at once. A chamfer's middle sits
+ * r / √2 = 4.95 mm inside the sharp corner it replaces: within the 5 mm silhouette allowance; the section never grows past the box.
+ */
+const PILLAR_FILLET = 0.007;
+const PILLAR_FILLET_SHARE = 0.3;
+const PILLAR_FILLET_STEPS = 1;
+/** Quarter-circle corners of the unit section, counter-clockwise from the corner at (1, 0): the corner, the arc's centre sign and its start angle (rad). */
+const FILLET_CORNERS = [
+  { x: 1, y: 0, startAngle: -Math.PI / 2 },
+  { x: 1, y: 1, startAngle: 0 },
+  { x: 0, y: 1, startAngle: Math.PI / 2 },
+  { x: 0, y: 0, startAngle: Math.PI },
+] as const;
+
+/** The fraction of a section side (m) that its fillet takes off each end. */
+function filletShare(side: number): number {
+  return Math.min(PILLAR_FILLET, PILLAR_FILLET_SHARE * side) / side;
+}
+
+/** A rectangle's outline in the unit square with elliptical-arc corners of radii `radiusU` x `radiusW` (unit fractions along each axis). */
+function filletedUnitSection(radiusU: number, radiusW: number): Pt[] {
+  const section: Pt[] = [];
+  for (const corner of FILLET_CORNERS) {
+    const centreU = corner.x === 1 ? 1 - radiusU : radiusU;
+    const centreW = corner.y === 1 ? 1 - radiusW : radiusW;
+    for (let step = 0; step <= PILLAR_FILLET_STEPS; step++) {
+      const angle = corner.startAngle + (step / PILLAR_FILLET_STEPS) * (Math.PI / 2);
+      section.push({ x: centreU + radiusU * Math.cos(angle), y: centreW + radiusW * Math.sin(angle) });
+    }
+  }
+  return section;
+}
+
+/**
  * Box mapped onto four outer-face corners (+x side), thickness inward;
  * sign -1 mirrors to the left without flipping the winding.
  */
@@ -454,13 +571,57 @@ function boxFromCorners(
   return geo;
 }
 
+/**
+ * Chamfered pillar mapped onto four outer-face corners (+x side), thickness inward;
+ * sign -1 mirrors to the left without flipping the winding.
+ */
+function roundedPillarFromCorners(
+  sign: number,
+  c: { fb: V3; rb: V3; rt: V3; ft: V3 },
+  thick: number,
+  hs = 1,
+): THREE.BufferGeometry {
+  const stations = Array.from({ length: hs + 1 }, (_, k) => k / hs);
+  const at = (k: number, v: number, w: number) => lerp(lerp(c.rb[k]!, c.fb[k]!, w), lerp(c.rt[k]!, c.ft[k]!, w), v);
+  const sections = stations.map((v) => filletedUnitSection(filletShare(thick), filletShare(Math.abs(at(2, v, 1) - at(2, v, 0)))));
+  const geo = loftFromRings(sections, stations, 0, 1);
+  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const u = pos.getX(i);
+    const w = pos.getY(i);
+    const v = pos.getZ(i);
+    const outer = at(0, v, w);
+    const x = sign > 0 ? outer - (1 - u) * thick : -(outer - u * thick);
+    pos.setXYZ(i, x, at(1, v, w), at(2, v, w));
+  }
+  ensureOutwardNormals(geo);
+  return geo;
+}
+
+/** A filleted bar along z: `sectionX` x `sectionY` section, `length` long, centred on the origin. */
+function makeRoundedBar(sectionX: number, sectionY: number, length: number): THREE.BufferGeometry {
+  const section = filletedUnitSection(filletShare(sectionX), filletShare(sectionY)).map((p) => ({ x: (p.x - 0.5) * sectionX, y: (p.y - 0.5) * sectionY }));
+  const geo = loftFromRings([section, section], [-length / 2, length / 2], 0, 1);
+  ensureOutwardNormals(geo);
+  return geo;
+}
+
 function makeBox(w: number, h: number, d: number, x: number, y: number, z: number): THREE.BufferGeometry {
   const geo = new THREE.BoxGeometry(w, h, d);
   geo.translate(x, y, z);
   return geo;
 }
 
-function makeGreenhouseFrame(style: BodyStyle): THREE.BufferGeometry[] {
+/** A `width` x `height` x `depth` bar centred on (`x`, `y`, `z`): the cage's plain box, the drawn body's chamfered bar along its longer side (x or z). */
+function makeBar(source: BodySource, width: number, height: number, depth: number, x: number, y: number, z: number): THREE.BufferGeometry {
+  if (source === "cage") return makeBox(width, height, depth, x, y, z);
+  const alongX = width > depth;
+  const bar = makeRoundedBar(alongX ? depth : width, height, alongX ? width : depth);
+  return (alongX ? bar.rotateY(Math.PI / 2) : bar).translate(x, y, z);
+}
+
+export function makeGreenhouseFrame(style: BodyStyle, source: BodySource = "drawn"): THREE.BufferGeometry[] {
+  const pillarFromCorners = source === "cage" ? boxFromCorners : roundedPillarFromCorners;
   const parts: THREE.BufferGeometry[] = [];
   const [wsY, wsZ] = style.windshieldTop;
   const rg = style.rearGlass;
@@ -468,7 +629,7 @@ function makeGreenhouseFrame(style: BodyStyle): THREE.BufferGeometry[] {
   const aTopZ = wsZ - 0.05;
   for (const sign of [-1, 1]) {
     parts.push(
-      boxFromCorners(
+      pillarFromCorners(
         sign,
         {
           fb: [WINDSHIELD_W.base / 2 + 0.02, WINDSHIELD_BASE[0] + 0.01, WINDSHIELD_BASE[1] - 0.03],
@@ -484,7 +645,7 @@ function makeGreenhouseFrame(style: BodyStyle): THREE.BufferGeometry[] {
     const bTop = glassTopY(bz, style) + 0.05;
     const bX = cantX(bz, style) + 0.01;
     parts.push(
-      boxFromCorners(
+      pillarFromCorners(
         sign,
         {
           fb: [GLASS_BELT_X + 0.01, GLASS_BELT_Y - 0.02, B_PILLAR_Z.front],
@@ -496,7 +657,7 @@ function makeGreenhouseFrame(style: BodyStyle): THREE.BufferGeometry[] {
       ),
     );
     parts.push(
-      boxFromCorners(
+      pillarFromCorners(
         sign,
         {
           fb: [GLASS_BELT_X, GLASS_BELT_Y - 0.02, q.zRearBot],
@@ -512,7 +673,7 @@ function makeGreenhouseFrame(style: BodyStyle): THREE.BufferGeometry[] {
       const mTop = glassTopY(m, style) + 0.03;
       const mX = cantX(m, style) + 0.012;
       parts.push(
-        boxFromCorners(
+        pillarFromCorners(
           sign,
           {
             fb: [GLASS_BELT_X + 0.012, GLASS_BELT_Y - 0.02, m + 0.04],
@@ -525,21 +686,22 @@ function makeGreenhouseFrame(style: BodyStyle): THREE.BufferGeometry[] {
       );
     }
     const railLen = B_PILLAR_Z.front - q.zRearBot;
-    parts.push(makeBox(0.03, 0.03, railLen, sign * (GLASS_BELT_X + 0.015), GLASS_BELT_Y + 0.005, q.zRearBot + railLen * 0.5));
+    parts.push(makeBar(source, 0.03, 0.03, railLen, sign * (GLASS_BELT_X + 0.015), GLASS_BELT_Y + 0.005, q.zRearBot + railLen * 0.5));
   }
-  parts.push(makeBox(WINDSHIELD_W.top + 0.1, 0.06, 0.08, 0, wsY + 0.03, wsZ - 0.02));
-  parts.push(makeBox(rg.wTop + 0.12, 0.06, 0.08, 0, rg.top[0] + 0.04, rg.top[1] - 0.02));
+  parts.push(makeBar(source, WINDSHIELD_W.top + 0.1, 0.06, 0.08, 0, wsY + 0.03, wsZ - 0.02));
+  parts.push(makeBar(source, rg.wTop + 0.12, 0.06, 0.08, 0, rg.top[0] + 0.04, rg.top[1] - 0.02));
   return parts;
 }
 
-export function makeChassisGeometry(style: BodyStyle = SEDAN): THREE.BufferGeometry {
-  const zs = sliceZs(style);
-  const rings = zs.map((z) => sectionPoints(sampleSlice(z, style.profile), style));
-  const body = loftFromRings(rings, zs, 0, 1);
+export function makeChassisGeometry(style: BodyStyle = SEDAN, source: BodySource = "drawn"): THREE.BufferGeometry {
+  const zs = sliceZs(style, source);
+  const sectionAt = (z: number) => sectionPoints(sampleSlice(z, style.profile), style, source);
+  const rings = zs.map((z) => (source === "cage" ? sectionAt(z) : insetRing(sectionAt(z), endRollInset(z, style.profile))));
+  const body = loftFromRings(rings, zs, 0, 1, source === "cage");
   ensureOutwardNormals(body);
   const parts: THREE.BufferGeometry[] = [body, makeRoofGeometry(style)];
   for (const [wx, wy, wz] of WHEEL_POS) parts.push(makeWellLiner(wx, wy, wz));
-  parts.push(...makeGreenhouseFrame(style));
+  parts.push(...makeGreenhouseFrame(style, source));
   parts.push(makeBox(1.2, 0.52, 0.045, 0, 0.6, 0.72));
   const rb = style.rearBulkhead;
   parts.push(makeBox(1.16, rb.yTop - 0.34, 0.045, 0, (rb.yTop + 0.34) * 0.5, rb.z));
@@ -557,7 +719,7 @@ export function makeChassisGeometry(style: BodyStyle = SEDAN): THREE.BufferGeome
 }
 
 /** Lid lofted on the deck line (hood / trunk), local to its hinge origin. */
-function makeDeckPanel(style: BodyStyle, z0: number, z1: number, origin: YZ): THREE.BufferGeometry {
+function makeDeckPanel(style: BodyStyle, z0: number, z1: number, origin: YZ, source: BodySource): THREE.BufferGeometry {
   const segs = 10;
   const tk = 0.04;
   const drop = 0.06;
@@ -589,6 +751,7 @@ function makeDeckPanel(style: BodyStyle, z0: number, z1: number, origin: YZ): TH
   }
   const geo = loftFromRings(rings, zs, 0, 1);
   ensureOutwardNormals(geo);
+  if (source === "drawn") splitCreases(geo, CREASE_DEGREES.deckLid);
   geo.computeBoundingBox();
   return geo;
 }
@@ -597,7 +760,7 @@ function makeDeckPanel(style: BodyStyle, z0: number, z1: number, origin: YZ): TH
 const TAILGATE_INSET = 0.135;
 
 /** Hatch / tailgate: a slightly bowed vertical panel hinged at its top edge. */
-function makeTailgate(style: BodyStyle, y0: number, origin: YZ): THREE.BufferGeometry {
+function makeTailgate(style: BodyStyle, y0: number, origin: YZ, source: BodySource): THREE.BufferGeometry {
   const [y1, oz] = origin;
   const w = sampleSlice(oz, style.profile).hw - TAILGATE_INSET;
   const tk = 0.03;
@@ -621,18 +784,19 @@ function makeTailgate(style: BodyStyle, y0: number, origin: YZ): THREE.BufferGeo
   const pos = geo.getAttribute("position") as THREE.BufferAttribute;
   for (let i = 0; i < pos.count; i++) pos.setXYZ(i, pos.getX(i), pos.getZ(i), -pos.getY(i));
   ensureOutwardNormals(geo);
+  if (source === "drawn") splitCreases(geo, CREASE_DEGREES.tailgate);
   geo.computeBoundingBox();
   return geo;
 }
 
-export function makeHoodGeometry(style: BodyStyle = SEDAN): THREE.BufferGeometry {
-  return makeDeckPanel(style, 0.76, 1.98, [0.7, 0.74]);
+export function makeHoodGeometry(style: BodyStyle = SEDAN, source: BodySource = "drawn"): THREE.BufferGeometry {
+  return makeDeckPanel(style, 0.76, 1.98, [0.7, 0.74], source);
 }
 
 /** Trunk lid, hatch or tailgate per style; local to `style.boot.origin` ([y, z]). */
-export function makeTrunkGeometry(style: BodyStyle = SEDAN): THREE.BufferGeometry {
+export function makeTrunkGeometry(style: BodyStyle = SEDAN, source: BodySource = "drawn"): THREE.BufferGeometry {
   const b = style.boot;
-  return b.kind === "lid" ? makeDeckPanel(style, b.z0, b.z1, b.origin) : makeTailgate(style, b.y0, b.origin);
+  return b.kind === "lid" ? makeDeckPanel(style, b.z0, b.z1, b.origin, source) : makeTailgate(style, b.y0, b.origin, source);
 }
 
 const FASCIA: readonly (readonly [number, number])[] = [
@@ -682,7 +846,7 @@ export function makeBumperGeometry(front: boolean, style: BodyStyle): THREE.Buff
     pos.setXYZ(i, Math.sign(x) * Math.min(Math.abs(x), side), y, z);
   }
   ensureOutwardNormals(geo);
-  return geo;
+  return splitCreases(geo, CREASE_DEGREES.bumper);
 }
 
 /**
@@ -707,28 +871,115 @@ export const DOOR = {
 
 /** Door skin over the body side at its outer face (m). */
 const DOOR_PROUD = 0.003;
+/** The door skin is a slab this thick (m) inboard of its outer face. */
+const DOOR_THICKNESS = 0.05;
+/** The skin's length along z (m) between its leading and trailing edge. */
+const DOOR_LENGTH = 0.58;
+/** Outer-face rows (bunched toward the top by `DOOR_ROW_WARP`, so the shoulder roll reads round) and columns before the edge rolls are added. */
+const DOOR_ROWS = 8;
+const DOOR_ROW_WARP = 1.6;
+const DOOR_COLUMNS = 6;
+/** The outer face rolls over its perimeter in a quarter circle of this radius (m), in `DOOR_EDGE_STEPS` chords, and meets the slab's edge wall tangent to it. */
+const DOOR_EDGE_RADIUS = 0.02;
+const DOOR_EDGE_STEPS = 2;
+/** A face row or column nearer than this (m) to where the edge roll starts is dropped: two stations a few millimetres apart are only skin cost. */
+const DOOR_EDGE_CLEARANCE = 0.01;
+/** The skin's trailing end slopes down and the leading end up past these z (m), as the body side does at the hinge and latch. */
+const DOOR_FRONT_SLOPE = { fromZ: 0.16, rise: -0.06 } as const;
+const DOOR_REAR_SLOPE = { fromZ: -0.2, rise: -0.04 } as const;
+
+/** Stations along one axis of the door skin, from `-halfExtent` to `halfExtent`: the edge roll's chords at each end, `interior` stations between them. */
+function doorStations(halfExtent: number, interior: readonly number[]): number[] {
+  const fromEdge = Array.from({ length: DOOR_EDGE_STEPS + 1 }, (_, k) => DOOR_EDGE_RADIUS * (1 - Math.sin((Math.PI / 2) * (1 - k / DOOR_EDGE_STEPS))));
+  const kept = interior.filter((station) => halfExtent - Math.abs(station) >= DOOR_EDGE_RADIUS + DOOR_EDGE_CLEARANCE);
+  return [...fromEdge.map((d) => d - halfExtent), ...kept, ...[...fromEdge].reverse().map((d) => halfExtent - d)];
+}
+
+/** How far (m) the outer face has rolled back at `distanceToRowEdge` and `distanceToColumnEdge` from the outline: 0 where the roll starts, `DOOR_EDGE_RADIUS` at the outline. */
+function doorEdgeDrop(distanceToRowEdge: number, distanceToColumnEdge: number): number {
+  const r = DOOR_EDGE_RADIUS;
+  const into = Math.min(r, Math.hypot(Math.max(r - distanceToRowEdge, 0), Math.max(r - distanceToColumnEdge, 0)));
+  return r - Math.sqrt(r * r - into * into);
+}
+
+/** Loop of grid vertex ids around a `columns` x `rows` grid (row-major), bottom row left to right, then up the right side, back along the top and down the left. */
+function gridPerimeter(columns: number, rows: number): number[] {
+  const loop: number[] = [];
+  for (let c = 0; c < columns; c++) loop.push(c);
+  for (let r = 1; r < rows; r++) loop.push(r * columns + columns - 1);
+  for (let c = columns - 2; c >= 0; c--) loop.push((rows - 1) * columns + c);
+  for (let r = rows - 2; r >= 1; r--) loop.push(r * columns);
+  return loop;
+}
 
 /**
  * Door skin in hinge-local space (parent at the A-pillar hinge, the skin `DOOR.skinZ` behind it). The outer face
- * follows the body side (`sideX`) at each height and station, 5 cm thick inboard; its rows bunch toward the top so
- * the shoulder roll reads round.
+ * follows the body side (`sideX`) at each height and station and rolls over its perimeter in a rounded edge into a
+ * slab `DOOR_THICKNESS` thick inboard, closed by a flat inner face; its rows bunch toward the top so the shoulder
+ * roll reads round.
  */
 export function makeDoorGeometry(sign: number, style: BodyStyle = SEDAN): THREE.BufferGeometry {
   const h = DOOR.halfHeight;
-  const geo = new THREE.BoxGeometry(0.05, 2 * h, 0.58, 2, 8, 6);
-  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
-  for (let i = 0; i < pos.count; i++) {
-    const out = pos.getX(i) * sign;
-    // float32 rows can sit a hair past ±h: clamp before the fractional power.
-    const t = THREE.MathUtils.clamp((pos.getY(i) + h) / (2 * h), 0, 1);
-    let y = h * (1 - 2 * (1 - t) ** 1.6);
-    const z = pos.getZ(i);
-    if (z > 0.16) y += (z - 0.16) * -0.06;
-    if (z < -0.2) y += (-0.2 - z) * -0.04;
-    const sl = sampleSlice(DOOR.hingeZ + DOOR.skinZ + z, style.profile);
-    const outer = sideX(DOOR.hingeY + y, sl.hw, sl.yBelt) + DOOR_PROUD - DOOR.hingeX;
-    pos.setXYZ(i, sign * (outer - 0.025 + out), y, z);
+  const halfLength = DOOR_LENGTH / 2;
+  const rowInterior = Array.from({ length: DOOR_ROWS - 1 }, (_, k) => h * (1 - 2 * (1 - (k + 1) / DOOR_ROWS) ** DOOR_ROW_WARP));
+  const columnInterior = Array.from({ length: DOOR_COLUMNS - 1 }, (_, k) => -halfLength + (DOOR_LENGTH * (k + 1)) / DOOR_COLUMNS);
+  const rows = doorStations(h, rowInterior);
+  const columns = doorStations(halfLength, columnInterior);
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const outerX: number[] = [];
+  const tri = (a: number, b: number, c: number, outward: boolean) => (outward ? indices.push(a, b, c) : indices.push(a, c, b));
+  for (const rowStation of rows) {
+    for (const z of columns) {
+      let y = rowStation;
+      if (z > DOOR_FRONT_SLOPE.fromZ) y += (z - DOOR_FRONT_SLOPE.fromZ) * DOOR_FRONT_SLOPE.rise;
+      if (z < DOOR_REAR_SLOPE.fromZ) y += (DOOR_REAR_SLOPE.fromZ - z) * DOOR_REAR_SLOPE.rise;
+      const sl = sampleSlice(DOOR.hingeZ + DOOR.skinZ + z, style.profile);
+      const outer = sideX(DOOR.hingeY + y, sl.hw, sl.yBelt) + DOOR_PROUD - DOOR.hingeX;
+      const drop = doorEdgeDrop(Math.min(rowStation + h, h - rowStation), Math.min(z + halfLength, halfLength - z));
+      positions.push(sign * (outer - drop), y, z);
+      outerX.push(outer);
+      uvs.push((z + halfLength) / DOOR_LENGTH, (rowStation + h) / (2 * h));
+    }
   }
+  const faceVertices = positions.length / 3;
+  for (let r = 0; r < rows.length - 1; r++) {
+    for (let c = 0; c < columns.length - 1; c++) {
+      const a = r * columns.length + c;
+      const b = a + 1;
+      const above = a + columns.length;
+      tri(a, b, above, sign < 0);
+      tri(b, above + 1, above, sign < 0);
+    }
+  }
+  const loop = gridPerimeter(columns.length, rows.length);
+  const slabEdge = loop.map((faceVertex, k) => {
+    positions.push(sign * (outerX[faceVertex]! - DOOR_THICKNESS), positions[faceVertex * 3 + 1]!, positions[faceVertex * 3 + 2]!);
+    uvs.push(uvs[faceVertex * 2]!, uvs[faceVertex * 2 + 1]!);
+    return faceVertices + k;
+  });
+  let centreY = 0;
+  let centreZ = 0;
+  let centreX = 0;
+  for (const v of slabEdge) {
+    centreX += positions[v * 3]! / slabEdge.length;
+    centreY += positions[v * 3 + 1]! / slabEdge.length;
+    centreZ += positions[v * 3 + 2]! / slabEdge.length;
+  }
+  const centre = positions.length / 3;
+  positions.push(centreX, centreY, centreZ);
+  uvs.push(0.5, 0.5);
+  for (let k = 0; k < loop.length; k++) {
+    const next = (k + 1) % loop.length;
+    tri(loop[k]!, loop[next]!, slabEdge[k]!, sign > 0);
+    tri(loop[next]!, slabEdge[next]!, slabEdge[k]!, sign > 0);
+    tri(centre, slabEdge[k]!, slabEdge[next]!, sign > 0);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
   geo.computeVertexNormals();
-  return geo;
+  return splitCreases(geo, CREASE_DEGREES.door);
 }

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { StreamedDeformation } from "../deform/streamed-deform.ts";
 import { cageCoeffs } from "../deform/deform-state.ts";
 import { INF_K } from "../deform/deform-build.ts";
 import { RES_SLOTS, SKIN_K } from "../deform/deform-rig.ts";
@@ -6,6 +7,7 @@ import type { BodyPartName } from "../kernel/rig-spec.ts";
 import { CarCage, type CageLive, type CageSource, P_CAP, P_CUT_X, P_CUT_Y, P_CUT_Z, P_ROOF_CLAMP } from "./car-cage.ts";
 import type { DeformableCar } from "./car.ts";
 import { hingePose, INTERIOR_MASSES } from "./part-pose.ts";
+import { makeChassisGeometry, makeHoodGeometry, makeTrunkGeometry } from "./car-mesh.ts";
 import type { DetachPart } from "./car-core.ts";
 import { bodyLift } from "./car-suspension.ts";
 import { CLASSES, carClass } from "./vehicle-classes.ts";
@@ -54,16 +56,29 @@ function panelsOf(car: DeformableCar): Panel[] {
   return panels;
 }
 
+/** `panelsOf(car)` with the lids' meshes and rest shapes the cage build draws (`makeHoodGeometry`, `makeTrunkGeometry` as `cage`). */
+function cagePanelsOf(car: DeformableCar): Panel[] {
+  const cageLid = (panel: Panel, geometry: THREE.BufferGeometry): Panel => ({ ...panel, mesh: new THREE.Mesh(geometry), rest: Float32Array.from(geometry.getAttribute("position").array) });
+  return panelsOf(car).map((panel) => {
+    if (panel.part === "bonnet") return cageLid(panel, makeHoodGeometry(car.style, "cage"));
+    if (panel.part === "boot") return cageLid(panel, makeTrunkGeometry(car.style, "cage"));
+    return panel;
+  });
+}
+
 /**
- * The rest-only tables of `car`'s drawn body (what `CarCage.shared` reads once per style): the body mesh with its skin tables, then each
- * panel's mesh with the single cage influence `skinPanel` gives its vertices (its place in the cage's box, weight 1).
+ * The rest-only tables of `car`'s cage build (what `CarCage.shared` reads once per style): the plain body mesh (`BodySource` `cage`, not the
+ * smoothed one the car draws, so smoothing cannot move the contact shape) with the skin tables a rig builds for it, then each panel's mesh
+ * with the single cage influence `skinPanel` gives its vertices (its place in the cage's box, weight 1).
  */
 export function cageSourceOf(car: DeformableCar): CageSource {
   const rig = car.deform;
-  const bodyIndex = car.body.geometry.index;
+  const cageBody = makeChassisGeometry(car.style, "cage");
+  const bodyTables = new StreamedDeformation(cageBody, car.style.rig);
+  const bodyIndex = cageBody.index;
   if (bodyIndex === null) throw new Error("the body mesh has no index");
-  const panels = panelsOf(car);
-  const bodyCount = rig["vertexCount"];
+  const panels = cagePanelsOf(car);
+  const bodyCount = bodyTables["vertexCount"];
   let total = bodyCount;
   let triangles = bodyIndex.count;
   for (const panel of panels) {
@@ -83,17 +98,17 @@ export function cageSourceOf(car: DeformableCar): CageSource {
   const infN = new Uint8Array(total);
   const infCo = new Int32Array(total * INF_K);
   const infUvw = new Float64Array(total * INF_K * 4);
-  rest.set(rig["restPos"].subarray(0, bodyCount * 3));
-  skinN.set(rig["skinN"].subarray(0, bodyCount));
-  skinXf.set(rig["skinXf"].subarray(0, bodyCount * SKIN_K));
-  skinW.set(rig["skinW"].subarray(0, bodyCount * SKIN_K));
-  resJ.set(rig["resJ"].subarray(0, bodyCount * RES_SLOTS));
-  resW.set(rig["resW"].subarray(0, bodyCount * RES_SLOTS));
-  resC.set(rig["resC"].subarray(0, bodyCount * 3));
-  skinHub.set(rig["skinHub"].subarray(0, bodyCount));
-  infN.set(rig["infN"].subarray(0, bodyCount));
-  infCo.set(rig["infCo"].subarray(0, bodyCount * INF_K));
-  infUvw.set(rig["infUvw"].subarray(0, bodyCount * INF_K * 4));
+  rest.set(bodyTables["restPos"].subarray(0, bodyCount * 3));
+  skinN.set(bodyTables["skinN"].subarray(0, bodyCount));
+  skinXf.set(bodyTables["skinXf"].subarray(0, bodyCount * SKIN_K));
+  skinW.set(bodyTables["skinW"].subarray(0, bodyCount * SKIN_K));
+  resJ.set(bodyTables["resJ"].subarray(0, bodyCount * RES_SLOTS));
+  resW.set(bodyTables["resW"].subarray(0, bodyCount * RES_SLOTS));
+  resC.set(bodyTables["resC"].subarray(0, bodyCount * 3));
+  skinHub.set(bodyTables["skinHub"].subarray(0, bodyCount));
+  infN.set(bodyTables["infN"].subarray(0, bodyCount));
+  infCo.set(bodyTables["infCo"].subarray(0, bodyCount * INF_K));
+  infUvw.set(bodyTables["infUvw"].subarray(0, bodyCount * INF_K * 4));
   index.set(bodyIndex.array);
   let vertex = bodyCount;
   let at = bodyIndex.count;

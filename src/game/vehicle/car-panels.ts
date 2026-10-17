@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { computeNormalsFast } from "../deform/fast-normals.ts";
 import { hypot2, detSin, detCos, detAtan2, detAsin, PART_FAMILY } from "../kernel/physics-core.js";
 import { PRIMER_ATTRIBUTE } from "./constants.ts";
-import { ARCH_R, DOOR, WHEEL_POS } from "./car-mesh.ts";
+import { ARCH_R, DOOR, ROCKER, WHEEL_POS } from "./car-mesh.ts";
 import type { BodyStyle } from "./car-variants.ts";
 
 /**
@@ -55,11 +55,11 @@ const ARCH_IN = 0.12;
 const ARCH_OUT = 0.1;
 /**
  * Loft segments of the body side, counted from the deck edge down (`half` index in `sectionPoints`; left ring i is segment i, right
- * ring i is segment n - 2 - i). A quarter panel is segments 2-5 (shoulder to rocker); an arch flare also takes the tuck under the
- * rocker (6-7), which is the arch's ceiling seen from the side.
+ * ring i is segment n - 2 - i). A quarter panel is segments 2 to the one ending at the rocker (shoulder to rocker); an arch flare
+ * also takes the segment under the rocker, which is the arch's ceiling seen from the side.
  */
-const QUARTER_LAST = 5;
-const ARCH_LAST = 7;
+const QUARTER_LAST = ROCKER - 1;
+const ARCH_LAST = ROCKER + 1;
 
 const cache = new WeakMap<BodyStyle, readonly PanelRegion[]>();
 
