@@ -292,6 +292,7 @@ export abstract class NetPlayClient {
     if (!paused) {
       this.raceSilentFor += wallDt;
       if (this.derbySilentFor !== null) this.derbySilentFor += wallDt;
+      this.game.race()?.advanceClock(wallDt);
     }
     if (this.game.race() && this.heardHost && this.raceSilentFor * 1000 > RACE_GONE_MS) {
       this.game.exitRace();

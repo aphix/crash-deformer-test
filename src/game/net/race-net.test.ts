@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import { setGround } from "../world/ground.ts";
 import { FRAME, frame, makeWorld, type World } from "../world/race-world.test-util.ts";
 import { SURVIVAL } from "../match/survival.ts";
-import { readRace, writeRace } from "./codec.ts";
+import { raceKey, readRace, writeRace } from "./codec.ts";
 
-/** Host world with network peers seated on `seats` (car → name), its player named "Ann", a 3-car AI field, the oval, started. */
-function hostRace(seats: ReadonlyMap<number, string>): World {
+/** Host world with network peers seated on `seats` (car → name), its player named "Ann", an `aiCount`-car AI field, the oval, started. */
+function hostRace(seats: ReadonlyMap<number, string>, aiCount = 3): World {
   const w = makeWorld();
   w.race.enter();
   w.race.playerName = "Ann";
   w.race.setSeats(seats);
-  w.race.command({ type: "options", options: { trackId: "oval", aiCount: 3, laps: 1 } });
+  w.race.command({ type: "options", options: { trackId: "oval", aiCount, laps: 1 } });
   w.race.command({ type: "start" });
   return w;
 }
@@ -153,7 +153,7 @@ describe("given a hosted Survival run with the host and a peer Zed seated on car
     assert.equal(hud.team!.won, hostHud.team!.won);
     assert.equal(hud.survival!.cops, hostHud.survival!.cops, "the pack's cops ride the snapshot");
     assert.equal(hud.survival!.wrecked, hostHud.survival!.wrecked);
-    assert.equal(hud.survival!.result!.time, hostHud.survival!.result!.time, "the team's time");
+    assert.ok(Math.abs(hud.survival!.result!.time - hostHud.survival!.result!.time) <= 0.0005, "the team's time, as a message keeps it (to the millisecond)");
     const hostCause = hostHud.survival!.result!.cause;
     assert.equal(hud.survival!.result!.cause, hostCause, "the host's cause");
     assert.ok(hostCause === "busted" || hostCause === "wrecked", `two held humans end the run busted or wrecked, not ended (${hostCause})`);
@@ -252,3 +252,79 @@ describe("given a hosted campaign with the host and a peer seated", () => {
     client.race.exit();
   });
 });
+
+/** `a` and `b` equal, numbers within `tol` (a message keeps a fraction to the millimetre). */
+function nearlyEqual(a: unknown, b: unknown, tol: number, path = "hud"): void {
+  if (typeof a === "number" && typeof b === "number") return assert.ok(Math.abs(a - b) <= tol, `${path}: ${a} vs ${b}`);
+  if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) return assert.equal(a, b, path);
+  assert.equal(Object.keys(a).join(), Object.keys(b).join(), path);
+  for (const k of Object.keys(a)) nearlyEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], tol, `${path}.${k}`);
+}
+
+/** What the race screens show of a race, apart from which car is the viewer's own. */
+function raceView(w: World) {
+  const h = w.race.hud();
+  return {
+    phase: h.phase,
+    time: h.time,
+    laps: h.laps,
+    winnerName: h.winnerName,
+    standings: h.standings.map((r) => ({ id: r.id, name: r.name, place: r.place, lap: r.lap, status: r.status, gap: r.gap, bestLap: r.bestLap })),
+    results: h.results?.map((r) => ({ id: r.id, name: r.name, place: r.place, status: r.status, time: r.time, gap: r.gap, bestLap: r.bestLap, laps: r.laps, busted: r.busted })) ?? null,
+  };
+}
+
+/** The race message over a whole race on the oval (1 lap): what the client shows, and the bytes a second. */
+for (const { aiCount, cars, boundBps } of [{ aiCount: 3, cars: 4, boundBps: 2500 }, { aiCount: 7, cars: 8, boundBps: 6000 }]) {
+  describe(`given a ${cars}-car host race run from the grid to its results and a client fed what the host's sender sends`, () => {
+    it("when the host offers its state every 6th snapshot and sends it only when its key changed or on a keyframe, then the client's standings, clock, finish order and results equal the host's at every offer, at a fraction of the bytes", (t) => {
+      t.after(() => setGround(null));
+      const host = hostRace(new Map([[2, "Zed"]]), aiCount);
+      const client = clientOf(host, 2);
+      const state = { acc: 0 };
+      let sentKey = "";
+      let sent = 0;
+      let offers = 0;
+      let bytes = 0;
+      let unrounded = 0;
+      const statuses = new Set<string>();
+      let n = 0;
+      let overAt = -1;
+      for (; n < 60 * 200 && (overAt < 0 || n - overAt < 60 * 3); n++) {
+        if (overAt < 0 && host.race.phase === "finished") overAt = n;
+        frame(host, state);
+        client.race.advanceClock(FRAME);
+        if ((n + 1) % 12 !== 0) continue;
+        offers++;
+        const rs = { lobby: null, trackId: "oval", look: host.race.look, gate: null, next: null, snap: host.race.snapshot() };
+        const key = raceKey(rs);
+        unrounded += JSON.stringify(rs).length + 1;
+        if ((n + 1) % 60 === 0 || key !== sentKey) {
+          sentKey = key;
+          const msg = writeRace(rs);
+          bytes += msg.length;
+          sent++;
+          client.race.applySnapshot(readRace(msg)!.snap!, 2);
+        }
+        for (const c of rs.snap!.cars) statuses.add(c.status);
+        nearlyEqual(raceView(client), raceView(host), 0.0015);
+      }
+      assert.equal(host.race.phase, "finished", "the race ran to its results");
+      assert.ok(statuses.has("finished") && (statuses.has("dnf") || statuses.has("out")), `finishers and a car that did not finish: ${[...statuses]}`);
+      const seconds = (n + 1) / 60;
+      console.log(`race message, ${cars} cars: ${sent} of ${offers} offers sent, ${(bytes / seconds).toFixed(0)} B/s (${(unrounded / seconds).toFixed(0)} B/s as the array-of-objects JSON offered every time)`);
+      assert.ok(bytes / seconds < boundBps, `${(bytes / seconds).toFixed(0)} B/s of race messages with ${cars} cars`);
+      // A bust and a DNF in the final state cross the codec as they were.
+      const snap = host.race.snapshot()!;
+      snap.cars[1]!.status = "dnf";
+      snap.cars[1]!.bustedAt = 14.25;
+      client.race.applySnapshot(structuredClone(snap), 2);
+      const direct = raceView(client);
+      client.race.applySnapshot(readRace(writeRace({ lobby: null, trackId: "oval", look: 0, gate: null, next: null, snap }))!.snap!, 2);
+      assert.ok(direct.results!.some((r) => r.busted), "the bust shows in the results");
+      nearlyEqual(raceView(client), direct, 0.0015);
+      host.race.exit();
+      client.race.exit();
+    });
+  });
+}

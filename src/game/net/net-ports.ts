@@ -26,6 +26,8 @@ export interface NetRace {
   holdReset(id?: number): void;
   snapshot(): RaceSnapshot | null;
   applySnapshot(snap: RaceSnapshot, self: number): void;
+  /** Client: the race clock runs on `dt` s between the host's messages (it is not streamed). */
+  advanceClock(dt: number): void;
   showLobby(trackId: string): void;
   seatLobby(self: number): void;
   command(cmd: RaceCommand): void;

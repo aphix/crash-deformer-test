@@ -54,8 +54,9 @@ carries the peer's own meter (a sixth byte), so every browser shows any viewed c
 24: a Survival race snapshot's pack carries `cause` (why the run ended for the host's car), so every peer's result card reads the host's, and peers on 23 would show their own.
 25: a car's snapshot record carries its wheelspin byte after the meter, so a 24 peer would read the pose one byte early.
 26: one hosting flow for every game: the lobby's game kinds gain "campaign" (the host's course playlist rides the start gate, `gate.playlist`, with the course Go starts, `gate.course`), a race message carries the seconds left before a campaign moves on from its results (`next`), and public rooms of all four games are named `pub-<kind>-v<N>-…`; peers on 25 would refuse the gate of a campaign lobby and show no between-rounds clock.
+27: `MSG.race` carries its cars as a shape header (`{ cols, rows }`, not an array of objects), its fractions to the millimetre, and is sent only when its state changed (`raceKey`) and with each keyframe; a client runs the race clock on between messages, so peers on 26 would read no cars and a clock that jumps.
 */
-export const NET_VERSION = 26;
+export const NET_VERSION = 27;
 
 /** m/s per wire step of a car's wheelspin: 255 steps reach 63.75 m/s, past every class's unboosted top (muscle 58.3 m/s); a spin beyond reads as the max, where the dial is on the redline anyway. */
 const SPIN_STEP = 0.25;
@@ -730,13 +731,22 @@ const CAMPAIGN_SNAP = z
   .refine((c) => c.entry.every((id) => c.standings.some((r) => r.id === id)), "every entry has a standings row");
 
 /**
+ * A race message's cars as a shape header: the record's key names once (`cols`), each car a row of values in that order. A row of
+ * the wrong length reads as missing values, which the car's own checks (an id in range) and `RaceSession.restore` take as they come.
+ */
+const CARS = z
+  .object({ cols: z.array(z.string().max(32)).max(64), rows: z.array(z.array(z.unknown()).max(64)).max(MAX_NET_CARS) })
+  .transform(({ cols, rows }) => rows.map((row) => Object.fromEntries(cols.map((col, i) => [col, row[i]]))))
+  .pipe(z.array(z.looseObject({ id: z.number().int().min(0).max(MAX_NET_CARS - 1) })));
+
+/**
  * The parts of a `RaceSnapshot` that size what `RaceSession.restore` builds: a lap count far above any
  * race the host can set up (engine-race clamps to 9) and at most a full field. The rest is applied as is.
  */
 const RACE_SNAP = z.looseObject({
   laps: z.number().int().min(1).max(99),
   time: z.number().finite(),
-  cars: z.array(z.looseObject({ id: z.number().int().min(0).max(MAX_NET_CARS - 1) })).max(MAX_NET_CARS),
+  cars: CARS,
   order: z.array(z.number().int()).max(MAX_NET_CARS),
   firstAt: z.array(z.number().nullable()).max(100 * 256),
   survival: z.object({ bustTime: z.number().finite().min(0).max(600) }).nullable().default(null),
@@ -752,13 +762,29 @@ const RACE_SNAP = z.looseObject({
   standings: z.boolean().default(false),
 });
 
-/** A whole race message: the type byte, then the state as UTF-8 JSON. */
+/** Decimals a race message keeps on a non-integer number (ms, mm): every screen that shows one rounds far coarser. */
+const RACE_PRECISION = 1000;
+
+/** A whole race message: the type byte, then the state as UTF-8 JSON, its cars as a shape header and its fractions to `RACE_PRECISION`. */
 export function writeRace(s: RaceNetState): Uint8Array<ArrayBuffer> {
-  const body = new TextEncoder().encode(JSON.stringify(s));
+  const cols = s.snap && s.snap.cars.length > 0 ? Object.keys(s.snap.cars[0]!) : [];
+  const wire = { ...s, snap: s.snap && { ...s.snap, cars: { cols, rows: s.snap.cars.map((car) => cols.map((col) => (car as unknown as Record<string, unknown>)[col])) } } };
+  const body = new TextEncoder().encode(JSON.stringify(wire, (_key, v: unknown) => (typeof v === "number" && !Number.isInteger(v) ? Math.round(v * RACE_PRECISION) / RACE_PRECISION : v)));
   const msg = new Uint8Array(body.length + 1);
   msg[0] = MSG.race;
   msg.set(body, 1);
   return msg;
+}
+
+/**
+ * What a race message says apart from what changes every tick of a race: two states with the same key need no second message until the
+ * keepalive. Left out are the race clock (the client runs it on from the last message, `RaceDirector.advanceClock`), the cars' progress,
+ * position and road hint, their wrong-way and draft seconds (the draft only as on or off) and the police hold; a client shows them as of
+ * the last message, at most a keepalive old.
+ */
+export function raceKey(s: RaceNetState): string {
+  const snap = s.snap && { ...s.snap, time: 0, cars: s.snap.cars.map((c) => ({ ...c, progress: 0, x: 0, z: 0, seg: 0, safe: 0, wrongFor: 0, stopped: 0, draft: c.draft > 0 })) };
+  return JSON.stringify({ ...s, snap });
 }
 
 /** Reads a whole race message; null when it is not JSON in that shape or its race is out of bounds. */

@@ -55,6 +55,11 @@ function fakeGame(raceApplied?: number[], playerName = "") {
         applySnapshot(snap: RaceSnapshot, _self: number): void {
           raceApplied.push(snap.laps);
         },
+        /** Seconds the guest's race clock was run on, in all. */
+        clockRun: 0,
+        advanceClock(dt: number): void {
+          this.clockRun += dt;
+        },
         showLobby(_trackId: string): void {},
         courseId: "havana",
         survivalCourses: [{ id: "havana", name: "Havana" }],
@@ -452,7 +457,7 @@ describe("given a guest connected to its host, with other peers in the room", ()
   it("when a race state with an out-of-range lap count arrives, then it is not applied, while the same message with a sane lap count is", () => {
     const applied: number[] = [];
     const s = session({ raceApplied: applied });
-    const snap = { trackId: "oval", laps: 1e9, noReset: false, phase: "racing", time: 1, lights: 3, winnerId: null, winBy: null, cars: [], order: [], firstAt: [] };
+    const snap = { trackId: "oval", laps: 1e9, noReset: false, phase: "racing", time: 1, lights: 3, winnerId: null, winBy: null, cars: { cols: [], rows: [] }, order: [], firstAt: [] };
     const body = new TextEncoder().encode(JSON.stringify({ lobby: null, trackId: "oval", look: 0, snap }));
     s.hub.sendAs(s.hostId(), s.clientId(), new Uint8Array([codec.MSG.race, ...body]));
     s.hub.flush();
@@ -470,7 +475,7 @@ describe("given a guest connected to its host, with other peers in the room", ()
     const row = { id: 0, name: "Ann", kind: "player", aggression: 0, points: 10, wins: 1, places: [1] };
     const sound = { tracks: ["oval", "rally"], round: 1, entry: [0], standings: [row] };
     const send = (campaign: unknown): void => {
-      const snap = { trackId: "oval", laps: 3, noReset: false, phase: "racing", time: 1, lights: 3, winnerId: null, winBy: null, cars: [], order: [], firstAt: [], campaign, standings: true };
+      const snap = { trackId: "oval", laps: 3, noReset: false, phase: "racing", time: 1, lights: 3, winnerId: null, winBy: null, cars: { cols: [], rows: [] }, order: [], firstAt: [], campaign, standings: true };
       const body = new TextEncoder().encode(JSON.stringify({ lobby: null, trackId: "oval", look: 0, snap }));
       s.hub.sendAs(s.hostId(), s.clientId(), new Uint8Array([codec.MSG.race, ...body]));
       s.hub.flush();
@@ -555,7 +560,7 @@ function hostModeMessage(mode: "race" | "survival" | "derby"): Uint8Array {
     codec.writeDerby(w, { round: 1, active: true, time: 3, hold: 0, radius: 18, winnerId: null, winnerName: null, decided: null, lobby: null, seats: 0, board: [] });
     return w.done();
   }
-  const snap = { trackId: "oval", laps: 3, noReset: false, phase: "racing", time: 1, lights: 3, winnerId: null, winBy: null, cars: [], order: [], firstAt: [], survival: mode === "survival" ? { bustTime: 12 } : null };
+  const snap = { trackId: "oval", laps: 3, noReset: false, phase: "racing", time: 1, lights: 3, winnerId: null, winBy: null, cars: { cols: [], rows: [] }, order: [], firstAt: [], survival: mode === "survival" ? { bustTime: 12 } : null };
   return new Uint8Array([codec.MSG.race, ...new TextEncoder().encode(JSON.stringify({ lobby: null, trackId: "oval", look: 0, snap }))]);
 }
 
@@ -588,9 +593,9 @@ for (const testCase of hostModeCases) {
       assert.equal(exits(), 0);
     });
 
-    it("when its live host stops sending the mode for 3 s of the guest's frames, then it leaves the mode once", () => {
+    it("when its live host stops sending the mode for 4 s of the guest's frames, then it leaves the mode once", () => {
       const { s, exits } = guestInHostMode(testCase.mode);
-      s.step(3 * FRAMES_PER_SECOND);
+      s.step(4 * FRAMES_PER_SECOND);
       assert.equal(exits(), 1);
     });
   });
@@ -1352,5 +1357,33 @@ describe("given a room hosted through the one hosting flow, whatever the game", 
     assert.equal(r.hg.lobbyEntered.at(-1), true);
     assert.equal(r.host.status().gate?.kind, "campaign");
     assert.deepEqual(r.guests[0]!.status().gate?.playlist, ["rally", "oval"], "the guest is back at the gate with the same courses");
+  });
+});
+
+describe("given a host in a race whose state moves only in the fields a race message leaves out (the clock, progress, position)", () => {
+  /** One car on the grid; `laps` stands for any field the message does carry, `tick` for the ones it leaves out. */
+  const snapOf = (laps: number, tick: number) =>
+    ({ trackId: "oval", laps, noReset: false, phase: "racing", time: tick / FRAMES_PER_SECOND, lights: 3, winnerId: null, winBy: null, cars: [{ id: 0, name: "Ann", progress: tick, x: tick, z: 0, draft: 0, stopped: 0 }], order: [0], firstAt: [], survival: null, pack: null, campaign: null, standings: false }) as unknown as RaceSnapshot;
+
+  it("when 3 s pass, then the guest hears the race on the host's keyframes alone, a changed field reaches it within 6 frames, and its clock runs on every frame", () => {
+    const applied: number[] = [];
+    const s = session({ hostRace: true, raceApplied: applied });
+    let tick = 0;
+    let laps = 1;
+    s.hg.race()!.snapshot = () => snapOf(laps, tick);
+    const run0 = s.cg.race()!.clockRun;
+    for (let i = 0; i < 3 * FRAMES_PER_SECOND; i++) {
+      tick++;
+      s.step();
+    }
+    assert.ok(applied.length >= 3 && applied.length <= 5, `${applied.length} race messages in 3 s (15 when every 6th frame sends)`);
+    assert.ok(applied.every((n) => n === 1));
+    laps = 2;
+    for (let i = 0; i < 6; i++) {
+      tick++;
+      s.step();
+    }
+    assert.equal(applied.at(-1), 2, "the changed field is sent without waiting for the keyframe");
+    assert.ok(Math.abs(s.cg.race()!.clockRun - run0 - (3 * FRAMES_PER_SECOND + 6) * (FRAME_MS / 1000)) < 1e-6, "the guest's clock ran on for every frame");
   });
 });

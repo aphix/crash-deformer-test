@@ -423,6 +423,15 @@ export class RaceDirector extends RaceHudLayer {
     return this.session ? this.session.time : 0;
   }
 
+  /** The race time of the host's last message (`applySnapshot`): `time` runs on from it between messages, so a message that is behind it is a new race, not a late one. */
+  private heardTime = 0;
+
+  /** Netplay client: the host streams the race clock only with its other state, so it runs on here (`dt` s) until the next message sets it; it stands still once the race is over. */
+  advanceClock(dt: number): void {
+    const s = this.session;
+    if (s && this.mirrored && s.phase !== "finished") s.time += dt;
+  }
+
   /**
    * Netplay client: adopt the host's rules state; a client renders it and never steps its own
    * session. `self` is this peer's car: it races only if the host seated it (`remote` in the host's
@@ -437,7 +446,8 @@ export class RaceDirector extends RaceHudLayer {
     this.free = false;
     this.lobbySeatedFor = -1;
     this.mirrored = true;
-    const fresh = !prev || own || prev.track.id !== snap.trackId || snap.time < prev.time;
+    const fresh = !prev || own || prev.track.id !== snap.trackId || snap.time < this.heardTime;
+    this.heardTime = snap.time;
     const tr = this.load(snap.trackId);
     const entrants: Entrant[] = [];
     let seated = false;

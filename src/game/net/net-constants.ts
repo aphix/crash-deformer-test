@@ -24,10 +24,10 @@ export const DEFAULT_MIN_PLAYERS = 2;
 export const RESULTS_HOLD = 12;
 /** A campaign's whole stretch between rounds (its results, the highlight reel, the standings) lasts this long (s) on a host that auto-advances, then the next course loads. */
 export const BETWEEN_ROUNDS_S = 60;
-/** The race state rides along every this many snapshots (5 Hz), and with every keyframe. */
+/** The race state is looked at every this many snapshots (5 Hz) and sent when it changed (`raceKey`), and with every keyframe (1 Hz). A derby's state goes at this rate every time. */
 export const RACE_EVERY = 6;
-/** A client in race mode with no race message from its host this long (ms) leaves race mode. */
-export const RACE_GONE_MS = 2000;
+/** A client in race mode with no race or derby message from its host this long (ms) leaves race mode: past two lost keyframes (the race state's slowest rate) and a bit. */
+export const RACE_GONE_MS = 3500;
 /** A public derby's field: peers plus AI up to this many cars. */
 export const PUBLIC_DERBY_FIELD = 6;
 /** A client asks the host for a car this often (s) until it has one. */

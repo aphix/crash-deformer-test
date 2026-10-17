@@ -13,6 +13,7 @@ import {
   readInput,
   writeInput,
   writeRace,
+  raceKey,
   writeSnapshot,
   writeWreck,
   Writer,
@@ -101,6 +102,8 @@ export class NetPlay extends NetPlayClient {
   private readonly lastWreck: Uint8Array[] = [];
   private readonly lastWreckLen: number[] = [];
   private readonly wreckChangedAt: number[] = [];
+  /** The `raceKey` of the last race message sent. */
+  private raceSent = "";
 
   /** Host: seconds the finished public race has been showing its results. */
   private finishedFor = 0;
@@ -664,7 +667,7 @@ export class NetPlay extends NetPlayClient {
     t.send(this.w.done());
     this.statSnaps++;
     this.statBytes += this.w.off;
-    if (race && (s.keyframe || this.seq % RACE_EVERY === 0)) this.sendRace(race, t);
+    if (race && (s.keyframe || this.seq % RACE_EVERY === 0)) this.sendRace(race, t, s.keyframe);
     const derby = s.keyframe || this.seq % RACE_EVERY === 0 ? this.game.derbyState() : null;
     if (derby) {
       derby.lobby = this.lobbyLeft;
@@ -737,10 +740,14 @@ export class NetPlay extends NetPlayClient {
     race.advance();
   }
 
-  /** The rules state (or, in the lobby, the course, countdown and start gate) to every client. */
-  private sendRace(race: NetRace, t: NetTransport): void {
+  /** The rules state (or, in the lobby, the course, countdown and start gate) to every client: on a keyframe, and between them only when it differs from the last one sent (`raceKey`). */
+  private sendRace(race: NetRace, t: NetTransport, keyframe: boolean): void {
     const gate = this.currentGate();
-    const msg = writeRace({ lobby: this.lobbyLeft, trackId: race.courseId, look: race.look, gate: gate && { min: gate.min, kind: gate.kind, course: gate.course, playlist: gate.playlist }, next: this.nextLeft, snap: race.snapshot() });
+    const state = { lobby: this.lobbyLeft == null ? null : Math.ceil(this.lobbyLeft), trackId: race.courseId, look: race.look, gate: gate && { min: gate.min, kind: gate.kind, course: gate.course, playlist: gate.playlist }, next: this.nextLeft, snap: race.snapshot() };
+    const key = raceKey(state);
+    if (!keyframe && key === this.raceSent) return;
+    this.raceSent = key;
+    const msg = writeRace(state);
     t.send(msg);
     this.statBytes += msg.length;
   }

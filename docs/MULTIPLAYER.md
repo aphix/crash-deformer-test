@@ -97,7 +97,7 @@ out-of-the-pane direction, orientation) and his velocity relative to the car, th
 `Ejection` the host's sim made (`EjectionWatch`, [RACE_DESIGN.md](RACE_DESIGN.md)), every number f32-exact. A client queues it
 (`EjectQueue`) and launches the dummy when its draw time (the host clock `INTERP_DELAY` behind) reaches the event's, so he
 leaves with the car it is drawn leaving; a reel that plays drops it. 100 bytes, a handful a race.
-`NET_VERSION` (`codec.ts`, now 26; 26 added the campaign game kind, the lobby gate's course and playlist and the between-rounds clock, 25 the wheelspin byte, 10 moved the reel to `MSG.reelPart` frames, 8 added `look`/`driverOut`/`MSG.eject`) is bumped on any layout change:
+`NET_VERSION` (`codec.ts`, now 27; 27 shaped and thinned `MSG.race`, 26 added the campaign game kind, the lobby gate's course and playlist and the between-rounds clock, 25 the wheelspin byte, 10 moved the reel to `MSG.reelPart` frames, 8 added `look`/`driverOut`/`MSG.eject`) is bumped on any layout change:
 a host answers another build's hello with a refusal and a client refuses another build's assign, so
 mixed builds (an auto-deploy mid-session) say "reload" instead of misreading snapshots.
 
@@ -385,8 +385,16 @@ and the deterministic `RaceSession` (agreed with RaceLead):
   (`RaceDirector.playerName`, from the race setup). The AI fills the rest. Each input packet goes to `setRemoteInput(car, input)` (a
   seat with no input yet holds still on the grid, never AI-driven); an input's respawn bit calls
   `requestRespawn(car)` (the host's own menu or spectating never blocks a peer's request).
-- Host → clients: the `RaceSnapshot` JSON (or, between races, the lobby countdown and course) as
-  a `MSG.race` frame every 6th snapshot (5 Hz) and with each keyframe, ~1.2 KB for 4 cars.
+- Host → clients: the `RaceSnapshot` JSON (or, between races, the lobby countdown and course) as a `MSG.race` frame
+  (`NET_VERSION` 27). The cars ride as a shape header (`{ cols, rows }`: the record's key names once, each car a row of values) and
+  every fraction is kept to the millimetre (`RACE_PRECISION`). The host looks at the state every 6th snapshot (5 Hz) and sends it
+  when it differs from the last one sent by anything but what changes every tick of a race (`raceKey`: the clock, each car's
+  progress, position, road hint, wrong-way and draft seconds, the police hold), and with every keyframe (1 Hz, the keepalive that
+  also heals a lost datagram). A client runs the race clock on between messages (`RaceDirector.advanceClock`, each frame the host
+  is not paused, not once the race is over), so the clock, the start lights and the lap time are smooth; progress (the distance bar),
+  the draft flag and the bust hold show as of the last message, at most a second old. Measured per guest over a whole 1-lap oval
+  race, grid to results (`race-net.test.ts`): 4 cars 11.3 kB/s -> 1.7 kB/s, 8 cars 21.1 kB/s -> 3.8 kB/s (before: every 5 Hz
+  offer as an array of objects, 2.3-4.2 kB each).
 - Client: `applySnapshot(snap, self)` restores the session and rebuilds the entrants: its own car
   becomes `player`, the host's `remote`, and every car keeps the host's name for it (cleaned again,
   untrusted), so each side shows the other's chosen name; a new race seats it in drive mode, a peer not in the
@@ -420,7 +428,7 @@ two agree. With one human there is no team (`RaceHud.team` is null) and every ru
   (`{ cops, wrecked }`, Survival, host-filled), `campaign` (the table or null) and `standings`. `codec.ts` validates them (`RACE_SNAP`,
   `CAMPAIGN_SNAP`: bounded arrays, every campaign entry has its row); a guest enters Survival when the snapshot says so
   (`NetGame.enterRace(survival)`).
-- **Host leaves:** no migration. A guest that hears no race message for `RACE_GONE_MS` leaves race mode (Survival and campaign with
+- **Host leaves:** no migration. A guest that hears no race or derby message for `RACE_GONE_MS` (3.5 s: past two lost keyframes, the race state's slowest rate) leaves race mode (Survival and campaign with
   it) and is back in the fleet; the event ends with the host.
 
 ## Derby mode
