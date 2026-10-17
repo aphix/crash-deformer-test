@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { browserName, describeBench, perSecond, stat, type Block, type BenchResult, type RagdollCost, type ReplayResult, type ReplayTier } from "./engine-bench-report.ts";
+import { browserName, describeBench, perSecond, stat, type Block, type BenchResult, type PhaseCard, type RagdollCost, type ReplayResult, type ReplayTier } from "./engine-bench-report.ts";
 import { MAX_JSON_BYTES } from "../../lib/submissions/kinds.ts";
 import { benchPlan } from "./engine-bench-plan.ts";
 import { QUIET_HZ } from "../kernel/constants.ts";
@@ -9,6 +9,13 @@ const COARSE_LABEL = `1/${QUIET_HZ} s`;
 
 const S = (p50: number) => ({ mean: p50, p50, p95: p50 * 2, p99: p50 * 3, max: p50 * 4 });
 const B = (fps: number, gpuMs: number | null, fineCutsPerSimS = 0): Block => ({ frames: 270, wallS: 9, fps, simSpeedPct: 99, simMsPerSimS: 212, msPerStep: 0.9, stepsPerFrame: 2.7, cpuMs: 7.5, drawMs: 2.1, gpuMs, fineCutsPerSimS, calls: 640, triangles: 410000 });
+
+/** The phases of a 212 ms per sim-second window: ten phases and the rest sum to the headline. */
+const PHASES: PhaseCard = {
+  msPerSimS: { drive: 30, plan: 5, integrate: 25, wreck: 80, pairs: 20, structure: 18, course: 8, bake: 1, rules: 3, settle: 17 },
+  unattributedMsPerSimS: 5,
+  workPerSimS: { steps: 240, slices: 330, liveCarSlices: 3000, wreckCarSlices: 1900, asleepCarSlices: 40, pairTests: 1500, pairContacts: 210, partContacts: 3, prismQueries: 5200, prismsVisited: 21000, prismTouches: 160, skins: 480, skinVerts: 2_400_000, ragdollMessages: 0, ragdollBytes: 0 },
+};
 
 const RESULT: BenchResult = {
   course: "city",
@@ -48,6 +55,8 @@ const RESULT: BenchResult = {
   replay: null,
   replayWhy: "no clip yet",
   pageEvents: [{ phase: "warm", atS: 0, visible: true, focused: true, fullscreen: false }],
+  phases: PHASES,
+  longTasks: { count: 4, totalMs: 312.5, maxMs: 120.25 },
   settings: {
     fxTier: "high",
     fxAuto: true,
@@ -83,7 +92,7 @@ const RESULT: BenchResult = {
   abFx: { minimal: B(60, 1.1), low: B(55, 2.4), high: B(48, null) },
   abDetail: { off: B(44, null), "75 m": B(49, null), "50 m": B(56, null), "30 m": B(59, null) },
   abSky: null,
-  device: { browser: "Chrome 150", userAgent: "UA", gpu: "Mali-G715", gpuMasked: false, cores: 9, memoryGB: 8, screen: "412x915", dpr: 2.625, canvas: "1373x618", timerStepMs: 0.1 },
+  device: { browser: "Chrome 150", userAgent: "UA", gpu: "Mali-G715", gpuMasked: false, cores: 9, memoryGB: 8, screen: "412x915", dpr: 2.625, canvas: "1373x618", timerStepMs: 0.1, battery: { start: { charging: false, level: 0.83 }, end: { charging: false, level: 0.81 } } },
 };
 
 describe("given a list of frame-time samples", () => {
@@ -254,5 +263,25 @@ describe("given the bench result of a run that had no clip to replay", () => {
     assert.ok(card.includes("replay: none (the crash was not filed as a highlight)"), card.join("\n"));
     assert.ok(!card.some((l) => l.startsWith("replay of")));
     assert.ok(card.some((l) => l.startsWith("ragdoll world: 1800 steps")), "ragdoll line");
+  });
+});
+
+describe("given the bench result with the sim's phase table, its work counts, long tasks and battery", () => {
+  test("when the card is written, then one line names every phase with its ms per sim-second, the unattributed rest (summing to the headline) and the work counts, and the device line carries the long tasks and battery", () => {
+    const lines = describeBench(RESULT);
+    const phaseLine = lines.find((l) => l.startsWith("  sim phases"));
+    assert.ok(phaseLine?.startsWith("  sim phases, ms per sim-second: drive 30.0, plan 5.0, integrate 25.0, wreck 80.0, pairs 20.0, structure 18.0, course 8.0, bake 1.0, rules 3.0, settle 17.0, unattributed 5.0  (sum 212.0 of 212.0);  work per sim-second: steps 240, slices 330, liveCarSlices 3000, wreckCarSlices 1900"));
+    assert.ok(phaseLine.endsWith("ragdollMessages 0, ragdollBytes 0"));
+    assert.ok(lines.some((l) => l.startsWith("9 cores, 8 GB") && l.includes("long tasks in the window: 4, 312.5 ms in all, longest 120.3 ms   battery: 83 % on battery at the start, 81 % on battery at the end")));
+  });
+
+  test("when the browser reports no long tasks and no battery, then the line says so instead of showing zeros", () => {
+    const lines = describeBench({ ...RESULT, longTasks: null, device: { ...RESULT.device, battery: null } });
+    assert.ok(lines.some((l) => l.endsWith("long tasks: not reported   battery: not reported")));
+  });
+
+  test("when the new fields are added to a card, then they come to under 1.5 kB of JSON", () => {
+    const added = JSON.stringify({ phases: RESULT.phases, longTasks: RESULT.longTasks, battery: RESULT.device.battery }).length;
+    assert.ok(added < 1536, `${added} bytes added to a card`);
   });
 });

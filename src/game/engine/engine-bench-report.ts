@@ -135,6 +135,30 @@ export interface PageEvent {
   fullscreen: boolean;
 }
 
+/**
+ * Where the window's sim time went (docs/PERF_BENCH.md). `msPerSimS`: main-thread ms per sim second in each phase of a step, keyed by
+ * `PHASE_NAMES`; `unattributedMsPerSimS`: the card's `simMsPerSimS` less their sum (the pacer's own loop, the pose blend, the probe's clock
+ * reads), so the table sums to the headline. `workPerSimS`: counts per sim second, keyed by `COUNTER_NAMES`: the amount of work, free of timer noise.
+ */
+export interface PhaseCard {
+  msPerSimS: Record<string, number>;
+  unattributedMsPerSimS: number;
+  workPerSimS: Record<string, number>;
+}
+
+/** Long tasks (`PerformanceObserver` "longtask": main-thread tasks of 50 ms or more) over the window: how many, their total and longest ms. */
+export interface LongTasks {
+  count: number;
+  totalMs: number;
+  maxMs: number;
+}
+
+/** The battery as `navigator.getBattery()` reports it: whether it charges and its level (0-1). */
+export interface Battery {
+  charging: boolean;
+  level: number;
+}
+
 export interface BenchResult {
   course: string;
   /** The commit the page was built from ("dev": built without git). */
@@ -195,6 +219,10 @@ export interface BenchResult {
    * unfocused page is throttled by the browser, so frames in those spans are not the device's speed.
    */
   pageEvents: PageEvent[];
+  /** Where the window's sim time went, by phase of a step, and the work done (`PhaseCard`). */
+  phases: PhaseCard;
+  /** Long tasks during the window; null where the browser has no "longtask" entries (not Chrome). */
+  longTasks: LongTasks | null;
   settings: BenchSettings;
   /** The pacer pinned to 1/240 s and to 1/80 s in alternating blocks (same tier), then the FX tier alternated minimal / low / high (and ultra when the page asked: `&ultra=1`). */
   abPace: { fine: Block; coarse: Block };
@@ -221,6 +249,8 @@ export interface BenchResult {
     canvas: string;
     /** The smallest step `performance.now()` took in a 25 ms spin, ms (browsers round it to 0.1, 1 or 16.7 ms). */
     timerStepMs: number;
+    /** The battery when the run began and when its card was made; null where the browser has no `getBattery` (Chrome has it, Firefox and Safari do not). */
+    battery: { start: Battery; end: Battery } | null;
   };
 }
 
@@ -304,6 +334,21 @@ const leftPage = (events: readonly PageEvent[]): string[] => {
   return changes.length ? [`PAGE LEFT during the window: ${changes.join(", ")}. Read max and p99 with that in mind: a phone holds a page it is leaving`] : [];
 };
 
+/** The window's phase table (ms per sim second) and work counts on one line: the sum names how much of the headline the phases account for. */
+const phaseLine = (p: PhaseCard, simMsPerSimS: number): string => {
+  const phases = Object.entries(p.msPerSimS);
+  const sum = phases.reduce((total, [, ms]) => total + ms, 0) + p.unattributedMsPerSimS;
+  const work = Object.entries(p.workPerSimS).map(([name, n]) => `${name} ${Math.round(n)}`).join(", ");
+  return `  sim phases, ms per sim-second: ${phases.map(([name, ms]) => `${name} ${f1(ms)}`).join(", ")}, unattributed ${f1(p.unattributedMsPerSimS)}  (sum ${f1(sum)} of ${f1(simMsPerSimS)});  work per sim-second: ${work}`;
+};
+
+/** What the device was doing besides the game: long tasks over the window, the battery before and after. */
+const deviceStateText = (longTasks: LongTasks | null, battery: BenchResult["device"]["battery"]): string => {
+  const level = (b: Battery): string => `${Math.round(100 * b.level)} %${b.charging ? " charging" : " on battery"}`;
+  const tasks = longTasks === null ? "long tasks: not reported" : `long tasks in the window: ${longTasks.count}, ${f1(longTasks.totalMs)} ms in all, longest ${f1(longTasks.maxMs)} ms`;
+  return `${tasks}   ${battery === null ? "battery: not reported" : `battery: ${level(battery.start)} at the start, ${level(battery.end)} at the end`}`;
+};
+
 /** The results card's text, top line first: the numbers the owner reads off a screenshot. */
 export function describeBench(r: BenchResult): string[] {
   const d = r.device;
@@ -321,6 +366,7 @@ export function describeBench(r: BenchResult): string[] {
     row("frame", r.frameMs),
     row("CPU", r.cpuMs),
     row("  sim", r.simMs) + `   ${f1(r.stepsPerFrame)} steps/frame, ${r.msPerStep.toFixed(2)} ms/step, ${Math.round(r.simMsPerSimS)} ms per sim-second, ${f1(r.fineCutsPerSimS)} fine-slice cuts/sim-s`,
+    phaseLine(r.phases, r.simMsPerSimS),
     row("  draw", r.renderMs),
     r.gpuMs ? row("GPU", r.gpuMs) + (waited(r.gpuMs, r.frameMs) ? "   p95 is one frame long: a wait on the display, p50 is the work" : "") : "GPU       no timer query on this device",
     ragdollLine(r.ragdoll),
@@ -339,8 +385,7 @@ export function describeBench(r: BenchResult): string[] {
     ...DETAIL_ARMS.map((a, i) => `${i ? "                   " : "A/B detail pinned: "}${arm(a.key === "off" ? "no cuts" : `body beyond ${a.key}`, r.abDetail[a.key]!)}`),
     ...(r.abSky ? [`A/B sky pinned: ${arm("full", r.abSky.full)}`, `                ${arm("off", r.abSky.off)}`] : []),
     ...replayLines(r.replay, r.replayWhy),
-    `load: options ${f1(r.setupMs.options)} ms, start ${f1(r.setupMs.start)} ms`,
-    `${d.gpu}${d.gpuMasked ? "   [masked by the browser: not the real GPU]" : ""}`,
-    `${d.cores} cores${d.memoryGB ? `, ${d.memoryGB} GB` : ""}  screen ${d.screen} @${d.dpr}  canvas ${d.canvas}  timer step ${f1(d.timerStepMs)} ms`,
+    `${d.gpu}${d.gpuMasked ? "   [masked by the browser: not the real GPU]" : ""}   load: options ${f1(r.setupMs.options)} ms, start ${f1(r.setupMs.start)} ms`,
+    `${d.cores} cores${d.memoryGB ? `, ${d.memoryGB} GB` : ""}  screen ${d.screen} @${d.dpr}  canvas ${d.canvas}  timer step ${f1(d.timerStepMs)} ms   ${deviceStateText(r.longTasks, d.battery)}`,
   ];
 }

@@ -2,14 +2,15 @@
 /**
  * Pull what players sent from the game (benchmark cards, JSON captures, flagged replay clips) down from the server.
  *
- *   SUBMISSIONS_OWNER_TOKEN=<token> node scripts/fetch-submissions.mjs <app url> [--kind bench|capture|flag] [--limit 50] [--id XXXX-XXXX] [--out dir]
+ *   SUBMISSIONS_OWNER_TOKEN=<token> node scripts/fetch-submissions.mjs <app url> [--kind bench|capture|flag] [--limit 50] [--id XXXX-XXXX] [--out dir] [--phases]
  *
  * `<app url>` is where the game is served, e.g. https://example.org/crush/ . Each submission is saved as `<out>/<receipt id>.json` (default
  * `.bench/submissions`, which git ignores); one already saved is not fetched again. The token is read from the environment only, so it
- * never appears in a process list or a shell history line. Exit 0 when every request went; 1 otherwise.
+ * never appears in a process list or a shell history line. `--phases` prints each bench card's sim phase table (ms per sim-second by phase, the work
+ * counts, long tasks and battery) under its line, for cards already saved too. Exit 0 when every request went; 1 otherwise.
  */
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -20,6 +21,29 @@ const RETRY_429_MS = 1_500;
 const RETRY_429_MAX = 20;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const f1 = (v) => v.toFixed(1);
+
+/**
+ * The lines of a bench card's phase table, for a submission as `readOne` answers it; none for another kind. A card from before the phase timing
+ * has no `phases` and says so.
+ */
+export function phaseTable(one) {
+  const result = one.submission?.payload?.result;
+  if (one.kind !== "bench" || !result) return [];
+  const p = result.phases;
+  if (!p) return ["    phases: none (a card from before the phase timing)"];
+  const phases = Object.entries(p.msPerSimS).map(([name, ms]) => `${name} ${f1(ms)}`).join("  ");
+  const work = Object.entries(p.workPerSimS).map(([name, n]) => `${name} ${Math.round(n)}`).join("  ");
+  const tasks = result.longTasks ? `${result.longTasks.count} long tasks, ${f1(result.longTasks.totalMs)} ms` : "long tasks n/a";
+  const battery = result.device?.battery;
+  const level = (b) => `${Math.round(100 * b.level)} %${b.charging ? " charging" : ""}`;
+  return [
+    `    ${result.course} ${f1(result.simMsPerSimS)} ms/sim-s = ${phases}  unattributed ${f1(p.unattributedMsPerSimS)}`,
+    `    per sim-s: ${work}`,
+    `    ${tasks}; battery ${battery ? `${level(battery.start)} -> ${level(battery.end)}` : "n/a"}`,
+  ];
+}
 
 /** GET `url` with the bearer token, waiting out 429s. Resolves to the JSON body; throws with the status and the server's words otherwise. */
 async function get(url, token, fetchImpl, pause) {
@@ -46,7 +70,7 @@ async function get(url, token, fetchImpl, pause) {
  * already there; rejects on the first request the server refuses.
  */
 export async function fetchSubmissions(options) {
-  const { base, token, out, kind, limit, id, fetchImpl = fetch, pause = sleep, log = () => {} } = options;
+  const { base, token, out, kind, limit, id, phases = false, fetchImpl = fetch, pause = sleep, log = () => {} } = options;
   if (!token || token.length < 24) throw new Error("SUBMISSIONS_OWNER_TOKEN is not set (24 characters or more)");
   if (kind !== undefined && !KINDS.includes(kind)) throw new Error(`--kind is one of ${KINDS.join(", ")}`);
   if (id !== undefined && !RECEIPT.test(id)) throw new Error("--id is a receipt id like K7QM-2XWD");
@@ -68,12 +92,14 @@ export async function fetchSubmissions(options) {
     const file = path.join(out, `${receipt}.json`);
     if (existsSync(file)) {
       skipped.push(receipt);
+      if (phases) for (const line of phaseTable(JSON.parse(await readFile(file, "utf8")))) log(line);
       continue;
     }
     const one = await get(`${api}?id=${receipt}`, token, fetchImpl, pause);
     await writeFile(file, `${JSON.stringify(one, null, 1)}\n`);
     saved.push(receipt);
     log(`${receipt}  ${one.kind.padEnd(7)} ${one.receivedAt}  build ${one.sha}  ${file}`);
+    if (phases) for (const line of phaseTable(one)) log(line);
   }
   return { saved, skipped };
 }
@@ -87,10 +113,11 @@ function parseArgs(argv) {
     else if (a === "--limit") args.limit = Number(argv[++i]);
     else if (a === "--id") args.id = argv[++i];
     else if (a === "--out") args.out = argv[++i];
+    else if (a === "--phases") args.phases = true;
     else if (a.startsWith("--")) throw new Error(`unknown option ${a}`);
     else positional.push(a);
   }
-  if (positional.length !== 1) throw new Error("usage: fetch-submissions.mjs <app url> [--kind k] [--limit n] [--id receipt] [--out dir]");
+  if (positional.length !== 1) throw new Error("usage: fetch-submissions.mjs <app url> [--kind k] [--limit n] [--id receipt] [--out dir] [--phases]");
   return { ...args, base: positional[0] };
 }
 

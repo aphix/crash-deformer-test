@@ -174,6 +174,7 @@ function solidContact(car: DeformableCar, i: number, s: Surface, k: number, knoc
   _foot[FOOT_HL] = _span.hl;
   if (role !== KNOCK) partContact(car, prismBox(_solid, s, k), dt);
   const touched = footFace(P, o, _foot, v.x, v.z, dt, _hit);
+  if (touched) s.prismTouches++;
   if (!touched) {
     if (_span.ahead > 0 && role !== KNOCK) markApproach(car, _hit[FF_GAP]!, _hit[FF_CLOSING]!);
     return;
@@ -255,6 +256,8 @@ export function propContact(car: DeformableCar, i: number, solids: Surface, knoc
   measure(car);
   const pos = car.group.position;
   const count = solids.prismsNear(pos.x, pos.z, _span.reach + DOOR_REACH + _span.ahead);
+  solids.prismQueries++;
+  solids.prismsVisited += count;
   const list = solids.nearList;
   for (let n = 0; n < count; n++) solidContact(car, i, solids, list[n]!, knocked, hits, dt);
 }

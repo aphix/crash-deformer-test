@@ -30,11 +30,18 @@ const THROW_REACH = 12;
 /** Wall ms the sim may wait for the worker's answer (`behind`) before the worker counts as failed. */
 const STALL_MS = 1500;
 
+/** What the main thread has posted to the worker so far: messages, and the bytes of the typed arrays handed over (a frame's cars, a car's cage fields; the small commands count as messages only). */
+export interface PostTraffic {
+  messages: number;
+  bytes: number;
+}
+
 /** The dummies' world in a Web Worker (`ragdoll-worker.ts`), as the main thread talks to it. */
 export class RagdollRemote {
   /** The worker has loaded Rapier and answers. */
   ready = false;
   private readonly worker: Worker;
+  private readonly traffic: PostTraffic;
   private readonly onFail: (err: Error) => void;
   private failed = false;
   /** Frames posted, and the newest answer's frame: the sim runs a frame only while the answer to frame `posted + 1 - LAG` is in. */
@@ -63,19 +70,20 @@ export class RagdollRemote {
   private readonly liftBodies = new WeakMap<DeformableCar, THREE.Object3D | null>();
   private stalledSince = 0;
 
-  private constructor(worker: Worker, onFail: (err: Error) => void) {
+  private constructor(worker: Worker, onFail: (err: Error) => void, traffic: PostTraffic) {
     this.worker = worker;
+    this.traffic = traffic;
     this.onFail = onFail;
     worker.onmessage = (event: MessageEvent<FromWorker>) => this.hear(event.data);
     worker.onerror = (event) => this.fail(new Error(event.message || "worker error"));
     worker.onmessageerror = () => this.fail(new Error("worker message could not be read"));
   }
 
-  /** The worker, or null where the browser has none (or it would not start: logged). */
-  static open(onFail: (err: Error) => void): RagdollRemote | null {
+  /** The worker, or null where the browser has none (or it would not start: logged). Its posts count into `traffic`. */
+  static open(onFail: (err: Error) => void, traffic: PostTraffic = { messages: 0, bytes: 0 }): RagdollRemote | null {
     if (typeof Worker === "undefined") return null;
     try {
-      return new RagdollRemote(new Worker(new URL("./ragdoll-worker.ts", import.meta.url), { type: "module" }), onFail);
+      return new RagdollRemote(new Worker(new URL("./ragdoll-worker.ts", import.meta.url), { type: "module" }), onFail, traffic);
     } catch (err) {
       console.error("Crush Stream ragdoll worker did not start", err);
       return null;
@@ -210,7 +218,13 @@ export class RagdollRemote {
   }
 
   private send(m: ToWorker, transfer: Transferable[] = []): void {
-    if (!this.failed) this.worker.postMessage(m, transfer);
+    if (this.failed) return;
+    this.traffic.messages++;
+    for (let i = 0; i < transfer.length; i++) {
+      const buffer = transfer[i];
+      if (buffer instanceof ArrayBuffer) this.traffic.bytes += buffer.byteLength;
+    }
+    this.worker.postMessage(m, transfer);
   }
 
   /** The cages of the cars the world wants (or that a throw is near), when they changed since last sent: each as the sim last fitted it (the world never refits a car, so it feeds nothing back). */

@@ -94,6 +94,9 @@ export class SkinTables {
 export class SkinKernel {
   private readonly sets = new Map<string, SkinTables>();
   private readonly ex: Exports;
+  /** Cars skinned so far (`run` calls) and the vertices they carried: the bench reads the difference over its window, a count free of timer noise. */
+  calls = 0;
+  verts = 0;
 
   constructor(ex: Exports) {
     this.ex = ex;
@@ -161,6 +164,8 @@ export class SkinKernel {
 
   /** Skin and normals of one car: its dynamic inputs in, `outPos` and `outNor` (the geometry's own arrays) out. */
   run(t: SkinTables, d: SkinDynamic, outPos: Float32Array, outNor: Float32Array): void {
+    this.calls++;
+    this.verts += t.nverts;
     const mem = this.ex.memory;
     if (t.buf !== mem.buffer) t.bind(mem.buffer);
     t.X.set(d.X);

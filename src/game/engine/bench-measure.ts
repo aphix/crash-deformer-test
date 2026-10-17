@@ -9,7 +9,7 @@ import { describePost, FX_TIERS, type FxTier } from "../present/engine-post.ts";
 import type { DriverSeat } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { BenchPlan } from "./engine-bench-plan.ts";
-import { browserName, perSecond, stat, type BenchResult, type BenchSettings, type Block, type RagdollCost, type ReplayResult } from "./engine-bench-report.ts";
+import { browserName, perSecond, stat, type Battery, type BenchResult, type BenchSettings, type Block, type LongTasks, type PhaseCard, type RagdollCost, type ReplayResult } from "./engine-bench-report.ts";
 import { REPLAY_TIER_S, replayTier, type ReplayFrames } from "./engine-bench-replay.ts";
 import type { HighlightClip } from "../match/highlights.ts";
 import type { RagdollSystem } from "../present/engine-ragdoll.ts";
@@ -18,6 +18,8 @@ import type { RaceDirector } from "./engine-race.ts";
 import type { SimPacer } from "./sim-pace.ts";
 import { SETTING_KEY } from "./constants.ts";
 import type { World } from "./world-step.ts";
+import { armedSolids } from "../world/surfaces.ts";
+import { PHASE_NAMES, WORK_COUNT, WORK_NAMES } from "./sim-phases.ts";
 
 /** The timings both benches share: the window, the A/B blocks. The warm-up and the course are the plan's. */
 export const BENCH = { seed: 1, measureS: 30, blockS: 3, paceCycles: 3, fxCycles: 2, detailCycles: 2, skyCycles: 2, skyWaitS: 10, settleFrames: 10 } as const;
@@ -49,10 +51,10 @@ export interface BenchParts {
   /** The distance detail and the rung its governor holds: the bench pins rungs for its A/B and puts the governor's back. */
   detail: Pick<CarDetail, "level" | "setLevel" | "setDistances">;
   governor: Pick<DetailGovernor, "level">;
-  /** The live world: the steps it cut to fine slices for a hit about to land. */
-  world: Pick<World, "fineCuts">;
-  /** The cosmetic Rapier world (the thrown drivers' and knocked props'): its step cost is its own row, not part of the engine's cpu. */
-  ragdoll: Pick<RagdollSystem, "stats">;
+  /** The live world: the steps it cut to fine slices for a hit about to land, and where its step's time and work are counted (`phases`: the clock reads go on for the window only). */
+  world: Pick<World, "fineCuts" | "phases">;
+  /** The cosmetic Rapier world (the thrown drivers' and knocked props'): its step cost is its own row, not part of the engine's cpu; `traffic` is what the sim posted to its worker. */
+  ragdoll: Pick<RagdollSystem, "stats" | "traffic">;
   /** The race's sky: the bytes of the picture it holds (0 until the strip is in, and for no sky). */
   sky: Pick<SkyDome, "textureBytes">;
 }
@@ -176,6 +178,95 @@ export function wrecks(parts: BenchParts): number {
   return n;
 }
 
+/** The deterministic counters of a window, in the order `readCounters` fills them: the pacer's steps, the world's work (`WORK_NAMES`), then the counters of the contact surface, the skin kernel and the ragdoll worker's posts. */
+export const COUNTER_NAMES = ["steps", ...WORK_NAMES, "prismQueries", "prismsVisited", "prismTouches", "skins", "skinVerts", "ragdollMessages", "ragdollBytes"] as const;
+export const COUNTER_COUNT = COUNTER_NAMES.length;
+
+/** The counters as they stand now, into `out` (`COUNTER_COUNT` long). Each only counts up: a window's work is the difference of two reads. */
+export function readCounters(parts: BenchParts, pace: Pick<SimPacer, "total">, out: Float64Array): void {
+  out[0] = pace.total;
+  out.set(parts.world.phases.work, 1);
+  let k = 1 + WORK_COUNT;
+  const solids = armedSolids();
+  out[k++] = solids?.prismQueries ?? 0;
+  out[k++] = solids?.prismsVisited ?? 0;
+  out[k++] = solids?.prismTouches ?? 0;
+  const kernel = skinKernel();
+  out[k++] = kernel?.calls ?? 0;
+  out[k++] = kernel?.verts ?? 0;
+  out[k++] = parts.ragdoll.traffic.messages;
+  out[k] = parts.ragdoll.traffic.bytes;
+}
+
+/** The phase table of a window of `clockS` sim seconds whose sim cost `simMs` ms: `phaseMs` and `counts` are the window's differences. */
+export function phaseCard(phaseMs: Float64Array, counts: Float64Array, simMs: number, clockS: number): PhaseCard {
+  const perS = (v: number): number => (clockS ? v / clockS : 0);
+  const msPerSimS: Record<string, number> = {};
+  let attributed = 0;
+  for (let i = 0; i < PHASE_NAMES.length; i++) {
+    msPerSimS[PHASE_NAMES[i]!] = perS(phaseMs[i]!);
+    attributed += phaseMs[i]!;
+  }
+  const workPerSimS: Record<string, number> = {};
+  for (let i = 0; i < COUNTER_COUNT; i++) workPerSimS[COUNTER_NAMES[i]!] = perS(counts[i]!);
+  return { msPerSimS, unattributedMsPerSimS: perS(simMs - attributed), workPerSimS };
+}
+
+/** The sim's phase clock and counters over one window: the clock reads go on at the call and off at `end`, which returns the differences (`Window.phaseMs`, `Window.counts`). */
+export function watchWork(parts: BenchParts, pace: Pick<SimPacer, "total">): { end(): { phaseMs: Float64Array; counts: Float64Array } } {
+  const phases = parts.world.phases;
+  const phaseMs0 = phases.ms.slice();
+  const counts0 = new Float64Array(COUNTER_COUNT);
+  readCounters(parts, pace, counts0);
+  phases.on = true;
+  return {
+    end: () => {
+      phases.on = false;
+      const counts = new Float64Array(COUNTER_COUNT);
+      readCounters(parts, pace, counts);
+      const phaseMs = phases.ms.slice();
+      for (let i = 0; i < phaseMs.length; i++) phaseMs[i] = phaseMs[i]! - phaseMs0[i]!;
+      for (let i = 0; i < COUNTER_COUNT; i++) counts[i] = counts[i]! - counts0[i]!;
+      return { phaseMs, counts };
+    },
+  };
+}
+
+/** Counts the long tasks (`PerformanceObserver` "longtask") from now until `stop`, which returns them; `stop` returns null where the browser has no such entries (Chrome only). */
+export function watchLongTasks(): { stop(): LongTasks | null } {
+  if (typeof PerformanceObserver === "undefined" || !PerformanceObserver.supportedEntryTypes.includes("longtask")) return { stop: () => null };
+  const found: LongTasks = { count: 0, totalMs: 0, maxMs: 0 };
+  const take = (entries: PerformanceEntryList): void => {
+    for (const entry of entries) {
+      found.count++;
+      found.totalMs += entry.duration;
+      found.maxMs = Math.max(found.maxMs, entry.duration);
+    }
+  };
+  const observer = new PerformanceObserver((list) => take(list.getEntries()));
+  observer.observe({ type: "longtask" });
+  return {
+    stop: () => {
+      take(observer.takeRecords());
+      observer.disconnect();
+      return found;
+    },
+  };
+}
+
+/** The battery now, null where the browser has no `navigator.getBattery` (Chrome has it; a refusal is logged and reads as none). */
+export async function readBattery(): Promise<Battery | null> {
+  const nav = navigator as Navigator & { getBattery?: () => Promise<Battery> };
+  if (nav.getBattery === undefined) return null;
+  try {
+    const battery = await nav.getBattery();
+    return { charging: battery.charging, level: battery.level };
+  } catch (err) {
+    console.warn("Crush bench: navigator.getBattery failed", err);
+    return null;
+  }
+}
+
 /** One value per sampled frame. */
 export interface Samples {
   n: number;
@@ -207,6 +298,9 @@ export interface Window {
   thrown: number;
   /** The cosmetic Rapier world's `world.step()` cost over the window. */
   ragdoll: RagdollCost;
+  /** The differences of the sim's phase clock (`PHASE_NAMES` order, ms) and counters (`COUNTER_NAMES` order) over the window. */
+  phaseMs: Float64Array;
+  counts: Float64Array;
 }
 
 /** Sums over the frames of one arm (all its blocks). */
@@ -303,7 +397,7 @@ function sharesOf(counts: Float64Array, order: Uint8Array, seen: number, frames:
   return shares;
 }
 
-export function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "labThrown" | "settings" | "abPace" | "abFx" | "abDetail" | "abSky" | "device" | "pageEvents" | "gpuMs" | "replay" | "replayWhy"> {
+export function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "labThrown" | "settings" | "abPace" | "abFx" | "abDetail" | "abSky" | "device" | "pageEvents" | "gpuMs" | "replay" | "replayWhy" | "longTasks"> {
   const { race } = parts;
   const { n, iv } = s;
   const third = Math.floor(n / 3);
@@ -353,16 +447,18 @@ export function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Win
     detailPct: sharesOf(s.levelCounts, s.levelOrder, s.levelsSeen, n, (slot) => rungKey(slot - 1)),
     setupMs,
     ragdoll: w.ragdoll,
+    phases: phaseCard(w.phaseMs, w.counts, simSum, w.clockS),
   };
 }
 
-/** The device, as this page sees it. */
-export async function deviceOf(parts: BenchParts, timerStepMs: number): Promise<BenchResult["device"]> {
+/** The device, as this page sees it; `batteryStart` is what `readBattery` said when the run began. */
+export async function deviceOf(parts: BenchParts, timerStepMs: number, batteryStart: Battery | null): Promise<BenchResult["device"]> {
   const { renderer } = parts;
   const gl = renderer.getContext();
   const gpu = gpuRenderer(gl) ?? "unknown GPU";
   const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
   const brave = await (navigator as Navigator & { brave?: { isBrave(): Promise<boolean> } }).brave?.isBrave().catch(() => false);
+  const batteryEnd = await readBattery();
   return {
     browser: browserName(navigator.userAgent) + (brave ? " (Brave)" : ""),
     userAgent: navigator.userAgent,
@@ -374,6 +470,7 @@ export async function deviceOf(parts: BenchParts, timerStepMs: number): Promise<
     dpr: Math.round(devicePixelRatio * 1000) / 1000,
     canvas: `${renderer.domElement.width}x${renderer.domElement.height}`,
     timerStepMs,
+    battery: batteryStart && batteryEnd && { start: batteryStart, end: batteryEnd },
   };
 }
 

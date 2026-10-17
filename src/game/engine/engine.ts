@@ -11,6 +11,7 @@ import { PoseBlend } from "../present/pose-blend.ts";
 import { INITIAL_HUD, type HudStore } from "../hud/hud-store.ts";
 import { easeTimeScale, PRE_IMPACT_LEAD, preImpact, stepPhase } from "../match/phase.ts";
 import { settleStep, stepWorld } from "./world-step.ts";
+import { lap, PHASE, startLaps } from "./sim-phases.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { GROUND_LEVEL, LAB_PRESET } from "../scenes/constants.ts";
 import { groundMaterial, levelOrder } from "../scenes/ground-stack.ts";
@@ -142,10 +143,13 @@ export class CrashEngine extends EngineGarage {
   private readonly wreckCoast = idleDrive();
   private readonly slice = (h: number): void => {
     const cars = this.live();
+    const phases = this.world.phases;
+    startLaps(phases);
     this.blend.begin(cars);
     this.fixedStep(h);
     this.elapsedSim += h;
     settleStep(cars, h, this.clock.wallSinceImpact > 0.2);
+    lap(phases, PHASE.settle);
     this.blend.end(cars);
   };
   private readonly hitFx = (contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void => {
@@ -687,6 +691,7 @@ export class CrashEngine extends EngineGarage {
     if (!this.race.active && !this.showLab) this.syncRigs();
     this.ejection.ctx = this.derbyMode ? "derby" : "default";
     w.fine = this.pace.fine;
+    lap(w.phases, PHASE.drive);
     stepWorld(w, dt);
     // The slab names no car: a hit it took from the watched one, at the step's hardest contact next to that car.
     const watched = this.seat.mode !== "global" ? cars[this.seat.carIndex] : undefined;
@@ -718,6 +723,7 @@ export class CrashEngine extends EngineGarage {
       this.sparkAt = this.elapsedWall;
       this.sparkShower(contact, normal, impulse);
     }
+    lap(w.phases, PHASE.rules);
   }
 
   private emitContactFx(): void {

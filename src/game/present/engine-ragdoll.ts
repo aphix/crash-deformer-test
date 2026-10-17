@@ -42,7 +42,7 @@ import { CarProxies, DOLL_REACH, NEAR_HOLD, NEAR_MARGIN, PROP_BAND_HIGH, PROP_BA
 import type { RagCar } from "./ragdoll-car-view.ts";
 import { dollGroups, FIXED_GROUPS, knockedGroups, MAX_ACC, propGroups, SLOTS, STEP, thrownGroups } from "./ragdoll-config.ts";
 import { RagdollDebug } from "./ragdoll-debug.ts";
-import { RagdollRemote } from "./ragdoll-remote.ts";
+import { RagdollRemote, type PostTraffic } from "./ragdoll-remote.ts";
 import { RideAlong } from "./ragdoll-ride.ts";
 import type { RideFrame } from "./ride-cam.ts";
 import type { Sight } from "./spectate-cam.ts";
@@ -197,6 +197,8 @@ export class RagdollSystem {
   private loading: Promise<void> | null = null;
   /** The world's worker (null: none, or it failed). */
   private remote: RagdollRemote | null = null;
+  /** What this system has posted to its worker (messages, array bytes): the bench reads the difference over its window. */
+  readonly traffic: PostTraffic = { messages: 0, bytes: 0 };
   /** Where this run's dummies are, chosen at its first throw or knock (`pick`): this thread's world or the worker's. Null: not yet. */
   private mode: "inline" | "remote" | null = null;
   /** The course's props as drawn (`setCourse`): where the worker's world has them, `adopt` places them. */
@@ -260,7 +262,7 @@ export class RagdollSystem {
   }
 
   private async load(): Promise<void> {
-    if (!this.hosted) this.remote ??= RagdollRemote.open((err) => this.fallBack(err));
+    if (!this.hosted) this.remote ??= RagdollRemote.open((err) => this.fallBack(err), this.traffic);
     const R = await loadRapier();
     if (this.disposed) return;
     this.R = R;

@@ -115,6 +115,14 @@ function bigCapture(samples: number): Envelope {
   return envelope("capture", { payload: { version: 1, samples: rows } }) as Envelope;
 }
 
+/** The value at `path` under `value`, each step an object's own member; fails where a step is not an object. */
+function member(value: unknown, ...path: string[]): unknown {
+  return path.reduce((at, key) => {
+    assert.ok(typeof at === "object" && at !== null, `${key} is not under an object`);
+    return Reflect.get(at, key);
+  }, value);
+}
+
 describe("given the submissions endpoint on a freshly migrated database", () => {
   for (const kind of KINDS) {
     for (const gzip of [false, true]) {
@@ -134,6 +142,37 @@ describe("given the submissions endpoint on a freshly migrated database", () => 
       });
     }
   }
+
+  it("when a bench card with the sim's phase table, work counters, long tasks and battery is posted, then the owner reads each field back, and an older card without them is still stored beside it", async () => {
+    const sql = await freshDb();
+    const added = {
+      phases: {
+        msPerSimS: { drive: 30.25, plan: 5, integrate: 25, wreck: 80, pairs: 20, structure: 18, course: 8, bake: 1, rules: 3, settle: 17 },
+        unattributedMsPerSimS: 5,
+        workPerSimS: { steps: 240, slices: 330, liveCarSlices: 3000, wreckCarSlices: 1900, asleepCarSlices: 40, pairTests: 1500, pairContacts: 210, partContacts: 3, prismQueries: 5200, prismsVisited: 21000, prismTouches: 160, skins: 480, skinVerts: 2_400_000, ragdollMessages: 12, ragdollBytes: 38_400 },
+      },
+      longTasks: { count: 4, totalMs: 312.5, maxMs: 120.25 },
+      device: { battery: { start: { charging: false, level: 0.83 }, end: { charging: true, level: 0.81 } } },
+    };
+    const sent = envelope("bench", { payload: { at: "2026-10-17T10:00:00.000Z", result: { fps: 10, build: "3e214dff", ...added }, hud: { carCount: 16 } } });
+    const receipt = await post(sql, sent);
+    assert.equal(receipt.status, 201);
+    const old = await post(sql, envelope("bench"));
+    assert.equal(old.status, 201, "a card from before the phase table is accepted");
+    const card = (await owner(sql, `?id=${receipt.body.id}`)).body.submission;
+    assert.equal(member(card, "payload", "result", "phases", "msPerSimS", "drive"), 30.25, "a phase's ms");
+    assert.equal(member(card, "payload", "result", "phases", "unattributedMsPerSimS"), 5, "the unattributed ms");
+    assert.equal(member(card, "payload", "result", "phases", "workPerSimS", "skinVerts"), 2_400_000, "a work counter");
+    assert.equal(member(card, "payload", "result", "phases", "workPerSimS", "ragdollBytes"), 38_400, "the ragdoll bytes");
+    assert.equal(member(card, "payload", "result", "longTasks", "maxMs"), 120.25, "the longest task");
+    assert.equal(member(card, "payload", "result", "device", "battery", "end", "charging"), true, "the battery at the end");
+    const oldCard = (await owner(sql, `?id=${old.body.id}`)).body.submission;
+    assert.equal(member(oldCard, "payload", "result", "fps"), 58.5, "the older card is read back as it was sent");
+    assert.equal(member(oldCard, "payload", "result", "phases"), undefined, "and has no phase table");
+    const addedBytes = Buffer.byteLength(JSON.stringify(added));
+    assert.ok(addedBytes < 2048, `the new fields are ${addedBytes} bytes: a 19 kB card stays under half the ${MAX_JSON_BYTES.bench} byte cap`);
+    assert.ok(19 * 1024 + addedBytes < MAX_JSON_BYTES.bench / 2);
+  });
 
   it("when a capture of 300 samples of non-repeating numbers is posted gzipped, then the owner reads back every sample, and the store holds less than half its bytes", async () => {
     const sql = await freshDb();

@@ -26,7 +26,7 @@ function server(rows = ROWS, refuse429 = 0) {
     const id = u.searchParams.get("id");
     if (id === null) return Response.json({ submissions: rows });
     const row = rows.find((r) => r.id === id);
-    return row ? Response.json({ ...row, submission: { kind: row.kind } }) : new Response('{"error":"not found"}', { status: 404 });
+    return row ? Response.json({ ...row, submission: row.submission ?? { kind: row.kind } }) : new Response('{"error":"not found"}', { status: 404 });
   };
   return { fetchImpl, calls };
 }
@@ -77,6 +77,49 @@ describe("given an owner pulling submissions from the server", () => {
     const result = await fetchSubmissions({ base: "https://game.test/crush/", token: TOKEN, out: await tempDir(), fetchImpl, pause: async (ms) => void pauses.push(ms) });
     assert.equal(result.saved.length, 2);
     assert.equal(pauses.length, 2);
+  });
+});
+
+const PHASED = {
+  id: "CCCC-3333",
+  kind: "bench",
+  receivedAt: "2026-10-17T10:00:00Z",
+  sha: "3e214dff",
+  size: 20000,
+  submission: {
+    kind: "bench",
+    payload: {
+      result: {
+        course: "city",
+        simMsPerSimS: 215.5,
+        phases: { msPerSimS: { drive: 30.25, wreck: 80 }, unattributedMsPerSimS: 5, workPerSimS: { steps: 240, skins: 479.6 } },
+        longTasks: { count: 4, totalMs: 312.5, maxMs: 120 },
+        device: { battery: { start: { charging: false, level: 0.83 }, end: { charging: true, level: 0.81 } } },
+      },
+    },
+  },
+};
+const OLD_CARD = { id: "DDDD-4444", kind: "bench", receivedAt: "2026-10-01T10:00:00Z", sha: "3295bad", size: 11000, submission: { kind: "bench", payload: { result: { course: "city", simMsPerSimS: 212 } } } };
+
+describe("given the owner asks for each bench card's phase table (--phases)", () => {
+  it("when a card carries phases and another is from before them, then each prints its table or says it has none, a flag clip prints nothing, and a card already saved prints too", async () => {
+    const out = await tempDir();
+    const rows = [ROWS[0], OLD_CARD, PHASED];
+    const lines = [];
+    await fetchSubmissions({ base: "https://game.test/crush/", token: TOKEN, out, fetchImpl: server(rows).fetchImpl, pause: noPause, phases: true, log: (l) => lines.push(l) });
+    const table = lines.filter((l) => l.startsWith("    "));
+    assert.deepEqual(table, [
+      "    city 215.5 ms/sim-s = drive 30.3  wreck 80.0  unattributed 5.0",
+      "    per sim-s: steps 240  skins 480",
+      "    4 long tasks, 312.5 ms; battery 83 % -> 81 % charging",
+      "    phases: none (a card from before the phase timing)",
+    ]);
+    const again = [];
+    await fetchSubmissions({ base: "https://game.test/crush/", token: TOKEN, out, fetchImpl: server(rows).fetchImpl, pause: noPause, phases: true, log: (l) => again.push(l) });
+    assert.deepEqual(again, table, "the saved cards print their tables without a fetch");
+    const quiet = [];
+    await fetchSubmissions({ base: "https://game.test/crush/", token: TOKEN, out, fetchImpl: server(rows).fetchImpl, pause: noPause, log: (l) => quiet.push(l) });
+    assert.deepEqual(quiet, [], "no flag, no table");
   });
 });
 

@@ -297,6 +297,10 @@ export class Surface {
   readonly meshes: { vertices: Float32Array; indices: Uint32Array }[] = [];
   /** `prismsNear`'s answer: the patch indices, `count` of them valid. Rewritten by every call. */
   nearList = new Int32Array(64);
+  /** Footprint queries made (`prismsNear` by `propContact`), the prisms they returned and the ones a car's footprint touched: counts the bench reads the difference of, free of timer noise. */
+  prismQueries = 0;
+  prismsVisited = 0;
+  prismTouches = 0;
   private nearStamp = new Int32Array(0);
   private nearGen = 0;
 
@@ -926,6 +930,11 @@ export function armTops(t: Surface | null): void {
 export function armSolids(s: Surface | null): void {
   if (s !== null && !s.sealed) s.seal();
   live.solids = s;
+}
+
+/** The scene's armed solids (`armSolids`), null when none: where the bench reads the prism counters. */
+export function armedSolids(): Surface | null {
+  return live.solids;
 }
 
 /**

@@ -5,9 +5,9 @@ import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { benchPlan, leaderAhead, type BenchPlan } from "./engine-bench-plan.ts";
 import { watchPage } from "./engine-bench-page.ts";
 import { warmUp } from "./engine-bench-warm.ts";
-import { describeBench, DETAIL_ARMS, PACE_ARM, PHASE_AB_DETAIL, PHASE_AB_FX, PHASE_AB_PACE, PHASE_AB_SKY, PHASE_REPLAY, PHASE_WARM, PHASE_WINDOW, SKY_ARM, stat, type BenchResult } from "./engine-bench-report.ts";
+import { describeBench, DETAIL_ARMS, PACE_ARM, PHASE_AB_DETAIL, PHASE_AB_FX, PHASE_AB_PACE, PHASE_AB_SKY, PHASE_REPLAY, PHASE_WARM, PHASE_WINDOW, SKY_ARM, stat, type BenchResult, type LongTasks } from "./engine-bench-report.ts";
 import { CLIP_WAIT_S, CRASH_GAP, CRASH_SPEED, ragdollCost, REPLAY_SETTLE_S, REPLAY_TIER_S, START_WAIT_S, type ReplayFrames } from "./engine-bench-replay.ts";
-import { BENCH, blocksOf, CAP, deviceOf, emptyAcc, replayResult, RUNG_SLOTS, rungSlot, settingsOf, summarize, tap, timerStep, topTier, windowGpuMs, WINDOW_BLOCK, wrecks, type Acc, type BenchParts, type ReplayArm, type Samples, type Tap, type Window } from "./bench-measure.ts";
+import { BENCH, blocksOf, CAP, deviceOf, emptyAcc, readBattery, replayResult, RUNG_SLOTS, rungSlot, settingsOf, summarize, tap, timerStep, topTier, watchLongTasks, watchWork, windowGpuMs, WINDOW_BLOCK, wrecks, type Acc, type BenchParts, type ReplayArm, type Samples, type Tap, type Window } from "./bench-measure.ts";
 import type { HighlightClip } from "../match/highlights.ts";
 import type { LabPresetId } from "../scenes/lab.ts";
 import type { SimPacer } from "./sim-pace.ts";
@@ -232,7 +232,7 @@ function countSlot(counts: Float64Array, order: Uint8Array, seen: number, slot: 
 }
 
 /** `measureS` wall seconds of one sample per frame, the engine's own auto FX tier and pacer as they are. */
-async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, ui: { set(text: string): void }): Promise<{ s: Samples; w: Window }> {
+async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, ui: { set(text: string): void }): Promise<{ s: Samples; w: Window; longTasks: LongTasks | null }> {
   const { renderer, cine } = parts;
   const arr = (): Float64Array => new Float64Array(CAP);
   const s: Samples = {
@@ -260,6 +260,8 @@ async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat
   const clock0 = t.simS;
   const thrown0 = beat.lab?.throws ?? 0;
   const ragdoll0 = parts.ragdoll.stats.steps;
+  const work = watchWork(parts, pace);
+  const longTasks = watchLongTasks();
   let wall = 0;
   let shownSecond = NaN;
   t.timing = true;
@@ -286,7 +288,12 @@ async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat
     ui.set(`CRUSH BENCH: measuring ${second} / ${BENCH.measureS} s`);
   }
   t.timing = false;
-  return { s, w: { wallS: wall, lostSimS: pace.lost - lost0, cutFrames: pace.cut - cut0, fineCuts: parts.world.fineCuts - fine0, clockS: t.simS - clock0, thrown: (beat.lab?.throws ?? 0) - thrown0, ragdoll: ragdollCost(parts.ragdoll.stats, ragdoll0) } };
+  const { phaseMs, counts } = work.end();
+  return {
+    s,
+    w: { wallS: wall, lostSimS: pace.lost - lost0, cutFrames: pace.cut - cut0, fineCuts: parts.world.fineCuts - fine0, clockS: t.simS - clock0, thrown: (beat.lab?.throws ?? 0) - thrown0, ragdoll: ragdollCost(parts.ragdoll.stats, ragdoll0), phaseMs, counts },
+    longTasks: longTasks.stop(),
+  };
 }
 
 /** One setting of an A/B: `set` flips it before its block. */
@@ -425,6 +432,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   const ui = overlay(opts.loopProgress);
   ui.set("CRUSH BENCH: loading…");
   const timerStepMs = timerStep();
+  const batteryStart = await readBattery();
   await engine.ready;
   if (plan.ultra && !(await engine.loadUltra())) throw new Error("CRUSH BENCH: ultra=1, but the Ultra look did not load (see the console)");
   const parts = engine.benchParts();
@@ -457,7 +465,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   page.phase(PHASE_WARM);
   await warmUp(() => frame(engine, parts.renderer, t, beat), { race: parts.race, simS: () => t.simS, plan, ui });
   page.phase(PHASE_WINDOW);
-  const { s, w } = await sample(engine, parts, t, beat, ui);
+  const { s, w, longTasks } = await sample(engine, parts, t, beat, ui);
   const leaderWindowM = leaderAhead(parts, plan);
   const top = topTier(s, parts.cine.tier);
   const settings = settingsOf(parts, hud() as Record<string, unknown>, top);
@@ -504,7 +512,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   const abPace = blocksOf(pace, gpu);
   const abSky = sky && blocksOf(sky, gpu);
   const abFx = blocksOf(fx, gpu);
-  const device = await deviceOf(parts, timerStepMs);
+  const device = await deviceOf(parts, timerStepMs, batteryStart);
   const windowGpu = windowGpuMs(gpu);
   const result: BenchResult = {
     ...summary,
@@ -512,6 +520,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
     replay: replayRun && replayResult(replayRun, gpu),
     replayWhy,
     pageEvents,
+    longTasks,
     strip: plan.strip ? { spec: plan.strip, body: plan.body, racers: plan.racers, leaderWindowM, leaderEndM } : null,
     labThrown: plan.lab ? w.thrown : null,
     settings,

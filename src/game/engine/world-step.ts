@@ -12,6 +12,7 @@ import { armTops } from "../world/surfaces.ts";
 import { STOCK_PAINT } from "../vehicle/constants.ts";
 import { FINE_HZ, SLICES_PER_STEP } from "../kernel/constants.ts";
 import { FINE_SLICE } from "./sim-pace.ts";
+import { lap, PHASE, SimPhases, WORK } from "./sim-phases.ts";
 
 /**
  * Everything one physics step touches besides the cars. The engine fills it per scene; a headless harness
@@ -66,6 +67,8 @@ export type World = {
   fine: number;
   /** Steps in contact that `stepWorld` ran in more slices than a step of that length out of contact takes (1, or 2 for a step longer than the quiet step), counted up for ever where `fine` is set (the bench reads differences). */
   fineCuts: number;
+  /** Where the live step's time goes and how much work it did (`SimPhases`): the engine's bench switches the clock reads on for its measured window; a world nobody times keeps them off. */
+  readonly phases: SimPhases;
 };
 
 export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier | null = null, ejection: EjectionWatch | null = null): World {
@@ -87,6 +90,7 @@ export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier 
     partStirs: [],
     fine: 0,
     fineCuts: 0,
+    phases: new SimPhases(),
   };
 }
 
@@ -140,6 +144,8 @@ function carsInReach(cars: readonly DeformableCar[]): boolean {
  * slice's near pairs only (`collectNear`).
  */
 export function stepWorld(w: World, dt: number): void {
+  const ph = w.phases;
+  const work = ph.work;
   armTops(w.surfaces);
   const { cars, barrier, strongest } = w;
   const n = cars.length;
@@ -190,9 +196,14 @@ export function stepWorld(w: World, dt: number): void {
     w.surfaces.sync(ci, cars[ci]!);
   }
   w.surfaces.retire(n);
+  lap(ph, PHASE.plan);
 
   for (let i = 0; i < slices; i++) {
-    if (w.beforeSlice?.(h)) continue;
+    if (w.beforeSlice?.(h)) {
+      lap(ph, PHASE.integrate);
+      continue;
+    }
+    work[WORK.slices] = work[WORK.slices]! + 1;
     w.surfaces.cars = cars;
     w.surfaces.met = w.partTouch;
     for (let ci = 0; ci < n; ci++) {
@@ -207,12 +218,15 @@ export function stepWorld(w: World, dt: number): void {
       for (let k = 0; k < w.partStirs.length; k += 3) if (w.partStirs[k] === i && w.partStirs[k + 1] === ci) car.wakeBody(w.partStirs[k + 2]!);
       // A sleeper at rest that this slice wakes (`integrateWreck`: nothing but `stirNear` wakes a still one) was stirred in slice `i`.
       const sleeper = wreck && car.asleep && car.velocity.lengthSq() + car.angular.lengthSq() === 0;
+      const slot = car.asleep ? WORK.asleepCarSlices : wreck ? WORK.wreckCarSlices : WORK.liveCarSlices;
+      work[slot] = work[slot]! + 1;
       car.integrate(h);
       if (sleeper && !car.asleep) car.stirSlice = i;
       if (!wreck) {
         if (car.deform.massActive) car.syncPose(h);
         else car.refreshBasis();
       }
+      lap(ph, wreck ? PHASE.wreck : PHASE.integrate);
     }
     // Every roof moves to where its car now is once all the cars have stepped: each car stepped against the roofs as the slice began,
     // whichever order the list has them in. Synced as each car stepped, the cars after it read its new roof and those before it its
@@ -232,6 +246,7 @@ export function stepWorld(w: World, dt: number): void {
       // Cars at different heights (one flying over the other, on a bridge over it) never touch; nor does a fake falling off the fleet disc.
       if (dx * dx + dz * dz > 28 || !bandsMeet(ca, cb) || ca.falling || cb.falling) continue;
       if (partContactPair(ca, cb, h)) {
+        work[WORK.partContacts] = work[WORK.partContacts]! + 1;
         wakePair(ca, cb);
         w.partTouch?.(a, b);
       }
@@ -258,8 +273,10 @@ export function stepWorld(w: World, dt: number): void {
       const b = nearList[k + 1]!;
       if (barrier && barrier.blocksPair(cars[a]!, cars[b]!)) continue;
       if (!bandsMeet(cars[a]!, cars[b]!) || cars[a]!.falling || cars[b]!.falling) continue;
+      work[WORK.pairTests] = work[WORK.pairTests]! + 1;
       const pair = resolveCarPair(cars[a]!, cars[b]!, h);
       if (pair) {
+        work[WORK.pairContacts] = work[WORK.pairContacts]! + 1;
         wakePair(cars[a]!, cars[b]!);
         w.pairHit?.(a, b, pair);
         strongest.offer(pair);
@@ -271,6 +288,7 @@ export function stepWorld(w: World, dt: number): void {
     // -7.4 m/s against its masses' -2.8 without it: stack-column 'owner's drops').
     for (let ci = 0; ci < n; ci++) if (cars[ci]!.deform.massActive) cars[ci]!.syncPose(0);
     armCrushRows(h);
+    lap(ph, PHASE.pairs);
 
     for (let ci = 0; ci < n; ci++) {
       const car = cars[ci]!;
@@ -280,11 +298,14 @@ export function stepWorld(w: World, dt: number): void {
       car.afterContacts(h);
       w.afterCar?.(car, h);
     }
+    lap(ph, PHASE.structure);
     if (w.collide) for (let ci = 0; ci < n; ci++) w.collide(cars[ci]!, ci, h);
+    lap(ph, PHASE.course);
     for (let ci = 0; ci < n; ci++) cars[ci]!.deform.endSlice();
     // A step's last slice is baked by its caller (`stepBreakage`); the slices before it take their own, so the next slice reads the body
     // as this one's crush left it, not as the step began (a hit cut in two slices crushed what its first slice did not see).
     if (i < slices - 1) for (let ci = 0; ci < n; ci++) cars[ci]!.bakeBetweenSlices(h);
+    lap(ph, PHASE.bake);
   }
   w.ejection?.step(cars, dt);
   w.shape = slices - 1;
