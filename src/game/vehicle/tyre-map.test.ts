@@ -19,19 +19,15 @@ import {
   TYRE_MAP_HEIGHT,
   TYRE_MAP_WIDTH,
 } from "./car-materials.ts";
+import { BYTES_PER_TEXEL, deviationAt, FLAT_DEVIATION, mapBytes, normalAt, SIDEWALL_RELIEF_MIN, strongestDeviation } from "./tyre-map.test-util.ts";
 
 /** sha-256 of the 64 rows the tread-only map had (128 x 64 RGBA bytes), taken before the sidewalls were added. */
 const TREAD_ONLY_MAP_DIGEST = "7965487684e3707172607b773c8947ed96e93517e6d03586f1485dafaff784a6";
 /** Triangles of the near and far wheels before the sidewall detail: the detail is texture, never geometry. */
 const NEAR_WHEEL_TRIANGLES = 676;
 const FAR_WHEEL_TRIANGLES = 120;
-/** A texel whose normal leans less than this (the sine of its tilt) from (0, 0, 1) is flat: one 8-bit step is 0.004. */
-const FLAT_DEVIATION = 0.01;
-/** The weakest sidewall relief that shows: about 6 degrees of tilt. */
-const SIDEWALL_RELIEF_MIN = 0.1;
 /** An 8-bit normal is unit length within the rounding of its three bytes. */
 const UNIT_LENGTH_TOLERANCE = 0.01;
-const BYTES_PER_TEXEL = 4;
 const MAP_ROW_BYTES = TYRE_MAP_WIDTH * BYTES_PER_TEXEL;
 const LETTER_BAND_LAST_ROW = LETTER_FIRST_ROW + Math.max(...LETTER_DASH_ROWS) - 1;
 const OUTER_SIDEWALL_LAST_ROW = TREAD_BAND_FIRST_ROW - 1;
@@ -42,30 +38,8 @@ const TREAD_CENTRE_V = (TREAD_BAND_FIRST_ROW + TREAD_BAND_ROWS / 2) / TYRE_MAP_H
 /** A sidewall row counted from the inner bead is the outer row mirrored about the tread band. */
 const innerRow = (outerRow: number): number => TYRE_MAP_HEIGHT - outerRow;
 
-const mapBytes = (texture: THREE.DataTexture): Uint8Array => texture.image.data as Uint8Array;
 const digestOf = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 const rowBytes = (bytes: Uint8Array, firstRow: number, rows: number): Uint8Array => bytes.subarray(firstRow * MAP_ROW_BYTES, (firstRow + rows) * MAP_ROW_BYTES);
-
-/** The decoded normal of one texel. */
-function normalAt(bytes: Uint8Array, column: number, row: number): [number, number, number] {
-  const at = (row * TYRE_MAP_WIDTH + column) * BYTES_PER_TEXEL;
-  return [(bytes[at]! / 255) * 2 - 1, (bytes[at + 1]! / 255) * 2 - 1, (bytes[at + 2]! / 255) * 2 - 1];
-}
-
-/** The sine of the tilt of the texel's normal from (0, 0, 1). */
-function deviationAt(bytes: Uint8Array, column: number, row: number): number {
-  const [x, y] = normalAt(bytes, column, row);
-  return Math.hypot(x, y);
-}
-
-/** The strongest tilt over a block of rows, all columns. */
-function strongestDeviation(bytes: Uint8Array, firstRow: number, lastRow: number): number {
-  let strongest = 0;
-  for (let row = firstRow; row <= lastRow; row++) {
-    for (let column = 0; column < TYRE_MAP_WIDTH; column++) strongest = Math.max(strongest, deviationAt(bytes, column, row));
-  }
-  return strongest;
-}
 
 /** The map module built a second time from scratch: a static import would return the one cached copy, which is the point of the dynamic one. */
 async function freshBuild(): Promise<typeof CarMaterials> {

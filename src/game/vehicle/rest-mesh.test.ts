@@ -6,7 +6,8 @@ import { makeChassisGeometry } from "./car-chassis-mesh.ts";
 import { makeDoorGeometry } from "./car-door-mesh.ts";
 import { restSideProfile } from "./rest-mesh.test-util.ts";
 import { makeSideGlass, makeRearSideGlass, makeWindshield, makeRearGlass } from "./car-glass.ts";
-import { makeWheelGeometry } from "./car-materials.ts";
+import { makeWheelGeometry, RUBBER, treadNormalMap } from "./car-materials.ts";
+import { FLAT_DEVIATION, mapBytes, SIDEWALL_RELIEF_MIN, strongestDeviationSampledAt } from "./tyre-map.test-util.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 
 function bbox(geo: THREE.BufferGeometry) {
@@ -204,10 +205,33 @@ describe("given the sedan's wheel mesh (tyre, rim and hub)", () => {
     }
   });
 
-  it("when the tread-pattern coordinate of each vertex within 0.3 m of the axle is read, then it is a flat row (0 or 1), so only the tread samples the tread pattern", () => {
+  const rubber = new THREE.Color(RUBBER[0]);
+  const isTyreVertex = (i: number) => {
+    const colour = geo.getAttribute("color");
+    return colour.getX(i) === Math.fround(rubber.r) && colour.getY(i) === Math.fround(rubber.g) && colour.getZ(i) === Math.fround(rubber.b);
+  };
+
+  it("when the tread-pattern coordinate of each rim, spoke and hub vertex is read, then it is exactly a flat row (0 or 1) and the map row it samples is flat", () => {
+    const bytes = mapBytes(treadNormalMap());
+    let rimVertices = 0;
     for (let i = 0; i < pos.count; i++) {
+      if (isTyreVertex(i)) continue;
+      rimVertices++;
       const v = uv1.getY(i);
-      if (radius(i) < 0.3) assert.ok(v === 0 || v === 1, `vertex ${i} at r=${radius(i).toFixed(3)} samples tread row ${v}`);
+      assert.ok(v === 0 || v === 1, `vertex ${i} at r=${radius(i).toFixed(3)} samples tread row ${v}`);
+      const tilt = strongestDeviationSampledAt(bytes, v);
+      assert.ok(tilt < FLAT_DEVIATION, `vertex ${i} at r=${radius(i).toFixed(3)} samples a normal tilt of ${tilt.toFixed(3)}`);
     }
+    assert.ok(rimVertices > 0, "the wheel has rim, spoke and hub vertices");
+  });
+
+  it("when the tyre vertices within 0.3 m of the axle are read, then some sample sidewall relief, so the flat rim rows are not flat for want of any relief in the map", () => {
+    const bytes = mapBytes(treadNormalMap());
+    let tyreVerticesOnRelief = 0;
+    for (let i = 0; i < pos.count; i++) {
+      if (!isTyreVertex(i) || radius(i) >= 0.3) continue;
+      if (strongestDeviationSampledAt(bytes, uv1.getY(i)) > SIDEWALL_RELIEF_MIN) tyreVerticesOnRelief++;
+    }
+    assert.ok(tyreVerticesOnRelief > 0, "a sidewall vertex within 0.3 m of the axle samples relief");
   });
 });

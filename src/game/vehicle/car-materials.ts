@@ -623,7 +623,8 @@ function flatPart(g: THREE.BufferGeometry, tone: readonly [number, number, numbe
   return toned(g, ...tone);
 }
 
-const RUBBER = [0x121214, 0.92, 0.05] as const;
+/** The tyre's tone: its vertices are the wheel's only ones this colour. */
+export const RUBBER = [0x121214, 0.92, 0.05] as const;
 const ALLOY = [0xc9cdd4, 0.28, 0.92] as const;
 
 /** Give every vertex of `g` a `smear` weight: 1 on the spokes and the disc behind them, which `makeWheelMaterial` fades toward a blur. */
