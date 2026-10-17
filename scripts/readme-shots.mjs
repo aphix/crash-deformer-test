@@ -153,6 +153,38 @@ const derbyPileUp = async (p) => {
 };
 
 /**
+ * The race's grid from behind the last car on it (every other car of the field ahead of it in the picture), the HUD hidden. Logs the
+ * field's look seed and the grid (car ids, pole first), which `rivalLook` turns into the patterns by name.
+ */
+const rivalGridView = async (p) => {
+  const { look, grid } = await run(p, () => {
+    const e = window.__crush;
+    const grid = [...e.race.grid];
+    e.seat.focus(grid.at(-1));
+    return { look: e.race.look, grid };
+  });
+  console.log("race.look", look, "grid", grid.join(","));
+  await frame(p, 13, 0.32, 0);
+  await stepSim(p, 0.3);
+};
+
+/** Derby car `id` alone: the orbit round it, 6 m off its flank (square to its yaw), low. */
+const derbyCloseUp = async (p, id) => {
+  const yaw = await run(
+    p,
+    (id) => {
+      const e = window.__crush;
+      e.seat.focus(id);
+      e.view.spec = null;
+      return e.cars[id].yaw;
+    },
+    id,
+  );
+  await frame(p, 6, 0.14, yaw + Math.PI / 2);
+  await stepSim(p, 0.2);
+};
+
+/**
  * One entry per picture. `hash` is the page's shareable `#` (scene, settings, seed: docs/CONTROLS.md) the page opens at; `seed`, when
  * set, restarts the scene with that seed before `setup`, so the field is the same on every run; `size` is the viewport; `setup`
  * runs once the page has settled; `at` is the sim time (s) after `setup` the still is taken; `ui` keeps the HUD in the picture;
@@ -270,6 +302,40 @@ const SCENES = {
     },
     at: 0.3,
   },
+  // The rivals' spray (docs/CINEMATIC.md, Rival spray): the grid of a race (`rival-grid`), the same field in round 2 of a campaign (`rival-campaign`:
+  // `snap` takes rounds 1 and 2 from the same views, the cars' ids unchanged) and flank close-ups of six derby cars (`rival-close`, one still each).
+  "rival-grid": { survey: true, hash: "scene=race", setup: async (p) => { await startRace(p, "city"); await rivalGridView(p); }, at: 0.1 },
+  "rival-close": {
+    survey: true,
+    hash: "scene=derby&cars=14&seed=7",
+    seed: 7,
+    setup: async (p, snap) => {
+      for (const id of [1, 2, 3, 4, 5, 6]) {
+        await derbyCloseUp(p, id);
+        await snap(`car${id}`);
+      }
+    },
+    at: 0.1,
+  },
+  "rival-campaign": {
+    survey: true,
+    hash: "scene=race",
+    setup: async (p, snap) => {
+      await run(p, () => window.__crush.race.reseed(1));
+      await run(p, () => window.__crush.raceCommand({ type: "options", options: { trackId: "city", aiCount: 7, campaign: ["city", "stunt"] } }));
+      await run(p, () => window.__crush.raceCommand({ type: "campaign" }));
+      await stepSim(p, 2);
+      await rivalGridView(p);
+      await snap("round1");
+      // End the round, read the results, the standings, then the next round's start.
+      await run(p, () => window.__crush.raceCommand({ type: "end" }));
+      for (let i = 0; i < 2; i++) await run(p, () => window.__crush.raceCommand({ type: "next" }));
+      await stepSim(p, 2);
+      await rivalGridView(p);
+      await snap("round2");
+    },
+    at: 0.1,
+  },
 };
 
 /** The crash animation: two cars head-on, the engine's own crash cam (not framed by hand), from just before the hit through the slow-mo. */
@@ -323,7 +389,13 @@ async function shootScene(browser, name, errors) {
   const scene = SCENES[name];
   const page = await open(browser, scene, errors);
   if (scene.seed !== undefined) await restartWithSeed(page, scene.seed);
-  await scene.setup(page);
+  // A setup may take stills of its own along the way (`snap(label)`: a png `<name>-<label>.png` in --out, full size).
+  const extras = [];
+  await scene.setup(page, async (label) => {
+    const file = join(OUT, `${name}-${label}.png`);
+    await page.screenshot({ path: file });
+    extras.push(file);
+  });
   const times = PROBE_AT ?? [scene.at];
   let now = 0;
   const pngs = [];
@@ -338,7 +410,7 @@ async function shootScene(browser, name, errors) {
   if (PROBE_AT) return pngs;
   const file = join(OUT, `${name}.webp`);
   ffmpeg(["-i", pngs[0], "-vf", `scale=${scene.wide ? WIDE_W : STILL_W}:-2:flags=lanczos`, "-c:v", "libwebp", "-quality", String(WEBP_QUALITY), file]);
-  return [file];
+  return [file, ...extras];
 }
 
 async function shootAnimation(browser, errors) {
