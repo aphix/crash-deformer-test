@@ -247,8 +247,12 @@ describe("given each of the 7 car types parked on the pad of each station and re
 });
 
 describe("given the high jump's kicker made steeper, an arc of the shipped radius", () => {
-  /** The sweep's pitches (deg), and the speed (m/s) under which a car is called to have lost the climb at the lip: the plan's lowest lip speed. */
-  const SWEEP_DEGREES = [HIGH_JUMP_KICKER.lipPitchDegrees, 65, 70, 75, 80, 85];
+  /**
+   * The sweep's pitches (deg), and the speed (m/s) under which a car is called to have lost the climb at the lip: the plan's lowest lip speed.
+   * The sweep stops at 80°: past it the face bears under cos 80° = 17 % of the car's weight, and the tyres' drive fades with what the surface
+   * carries (`standingBite`), so an 85° face is a wall by the drive model (the sedan reaches its lip at 12 m/s).
+   */
+  const SWEEP_DEGREES = [HIGH_JUMP_KICKER.lipPitchDegrees, 65, 70, 75, 80];
   const LIP_SPEED_FLOOR = 17;
   /** The radius (m) the kicker had before the retune, which cliffs the sedan family's climb. */
   const OLD_RADIUS = 20;
