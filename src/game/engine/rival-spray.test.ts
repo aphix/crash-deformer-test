@@ -6,8 +6,8 @@ import type * as THREE from "three";
 import "../kernel/rapier-node.test-util.ts";
 import { HudStore } from "../hud/hud-store.ts";
 import { NO_CAR_PICK } from "../match/look-data.ts";
+import type { HighlightClip } from "../match/highlights.ts";
 import { readRace, writeRace } from "../net/codec.ts";
-import { makeClip } from "../net/reel-clip.test-util.ts";
 import { encodeSaved } from "../net/reel-codec.ts";
 import { lookColours } from "../present/car-look.ts";
 import { RivalLooks } from "../present/rival-look.ts";
@@ -15,6 +15,8 @@ import { BARE_SPRAY } from "../present/spray.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { setGround } from "../world/ground.ts";
 import { FRAME_HZ } from "../kernel/constants.ts";
+import { recordFlat, type Spawn } from "./replay-fidelity.test-util.ts";
+import { TRAFFIC_NAME } from "./engine-race-field.ts";
 import { CrashEngine } from "./engine.ts";
 import { element, stubBrowser } from "./engine-headless.test-util.ts";
 import { rivalSeedOf } from "./rival-seed.ts";
@@ -35,10 +37,16 @@ const RACERS = AI_COUNT + 1;
 const PEER_SLOT = 2;
 /** The garage can's palette index the player's own spray is filled with. */
 const OWN_INK = 4;
-/** Seconds of racing past the green light, so the field has an order for a campaign round to reshuffle. */
-const RACING_SECONDS = 12;
-/** How far ahead of the lead AI car the player is put, so the round's standings put the player first. */
-const LEAD_METRES = 25;
+/** Longest a campaign round races before its order must have changed from the grid's (seconds of sim). */
+const MAX_RACING_SECONDS = 120;
+/** The saved clip's cars (x, z, heading in rad, m/s): a head-on between cars 0 and 1 with car 2 idle 1.9 m beside their line. */
+const HEAD_ON: Spawn[] = [
+  { x: 0, z: 0, yaw: Math.PI / 2, speed: 20, throttle: 1 },
+  { x: 80, z: 0, yaw: -Math.PI / 2, speed: 20, throttle: 1 },
+  { x: 40, z: 1.9, yaw: Math.PI / 2, speed: 0, throttle: 0 },
+];
+/** The look seed the saved clip carries: the racer's rival spray is drawn from it, not from the engine's own field. */
+const CLIP_LOOK = 0x5eed1234;
 
 const rivalsOracle = new RivalLooks();
 
@@ -81,6 +89,8 @@ describe("given pure seeds for a derby and a race", () => {
 describe("given the real engine headless", () => {
   // One engine for the file: a second `CrashEngine` in the same process never resolves `ready`. The rows run in order on it.
   let engine: CrashEngine;
+  let recorded: HighlightClip;
+  let savedText: string;
   const store = new Map<string, string>();
   const run = (seconds: number): void => {
     for (let i = 0; i < seconds * FRAME_HZ; i++) engine.advance(FRAME, { frameDt: FRAME });
@@ -110,6 +120,11 @@ describe("given the real engine headless", () => {
   };
 
   before(async () => {
+    // The crash is recorded on a flat field before the engine boots: a race's ground would tilt it out of the highlight ranking.
+    setGround(null);
+    recorded = recordFlat(HEAD_ON, 8, true).clip;
+    // Filed on the oval under a look of its own; the bystander's name is the one a clip gives a car that is no racer.
+    savedText = await encodeSaved({ ...recorded, trackId: "oval", look: CLIP_LOOK, cars: recorded.cars.map((c) => (c.slot === 2 ? { ...c, name: TRAFFIC_NAME } : c)) });
     stubBrowser();
     globalThis.localStorage = { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => void store.set(key, value), removeItem: (key: string) => void store.delete(key) } as Storage;
     engine = new CrashEngine(element(), new HudStore(), element());
@@ -135,34 +150,38 @@ describe("given the real engine headless", () => {
     for (let slot = RACERS; slot < cars().length; slot++) assert.equal(sprayOn(cars()[slot]!), null, `car ${slot} (traffic or police) stays bare`);
   });
 
-  it("when the player has a garage spray and a race starts, then it stays on car 0 byte for byte while the opponents wear rival sprays", () => {
+  it("when the player has a garage spray and a race starts, then it stays on car 0 byte for byte while the opponents wear rival sprays, even when car 0 is itself an AI racer (spectating)", () => {
     const own = ownSpray();
     engine.raceCommand({ type: "start" });
     run(1);
-    assert.deepEqual(sprayOn(cars()[0]!), own, "the player's own spray is on car 0");
+    assert.equal(sprayOn(cars()[0]!), own, "the player's own spray is on car 0");
     assertRivals(race().look, "after the player's spray");
+    engine.raceCommand({ type: "options", options: { spectate: true } });
+    engine.raceCommand({ type: "start" });
+    run(1);
+    assert.equal(race()["entrants"][0]?.kind, "ai", "car 0 is an AI racer in a spectated race");
+    assert.equal(sprayOn(cars()[0]!), own, "the player's own spray still wins on car 0");
+    engine.raceCommand({ type: "options", options: { spectate: false } });
     engine["looks"].mine.carSpray.load(null);
   });
 
   it("when a campaign's first round ends and the next starts, then every car index wears the same spray as in round one on a reshuffled grid; a retry keeps them and a new field changes them", () => {
     engine.raceCommand({ type: "campaign" });
-    engine["keys"].add("KeyW");
-    run(RACING_SECONDS);
-    engine["keys"].clear();
     const look = race().look;
     const firstGrid = [...race()["grid"]];
+    for (let second = 0; second < MAX_RACING_SECONDS && race().hud().standings.every((row, place) => row.id === firstGrid[place]); second++) run(1);
+    assert.notDeepEqual(
+      race().hud().standings.map((row) => row.id),
+      firstGrid,
+      "the field's order changed on the road",
+    );
     const roundOne = wornBy(AI_SLOTS);
     assertRivals(look, "campaign round one");
-    const lead = cars()[1]!;
-    const heading = Math.atan2(lead.velocity.x, lead.velocity.z);
-    race()["place"](cars()[0]!, lead.group.position.x + Math.sin(heading) * LEAD_METRES, lead.group.position.z + Math.cos(heading) * LEAD_METRES, heading, lead.group.position.y);
-    run(1);
     engine.raceCommand({ type: "end" });
     engine.raceCommand({ type: "next" });
     assert.equal(race().menu, "standings", "the round is scored");
     engine.raceCommand({ type: "next" });
     assert.equal(race().menu, null, "round two is racing");
-    console.log("DBG", JSON.stringify(firstGrid), JSON.stringify(race()["grid"]), JSON.stringify(race().hud().standings.map((r) => [r.id, r.place, r.name])));
     assert.notDeepEqual(race()["grid"], firstGrid, "the grid reordered by the standings");
     assert.equal(race().look, look, "the field's look is the campaign's");
     assert.deepEqual(wornBy(AI_SLOTS), roundOne, "round two's opponents wear what they wore in round one");
@@ -230,18 +249,20 @@ describe("given the real engine headless", () => {
   });
 
   it("when a saved clip is played alone from the setup menu, then its racers wear the sprays of the clip's look, the traffic and the player's own car do not, and bare paint is back when the clip ends", async () => {
-    const { clip } = makeClip();
-    const saved = { ...clip, cars: [...clip.cars, { slot: 5, style: clip.cars[0]!.style, cls: clip.cars[0]!.cls, name: "Traffic" }] };
-    store.set("crush.highlight.rival", await encodeSaved(saved));
+    // The clip is the head-on of car 0 (this browser's own) and car 1 beside bystander 2, recorded in `before` by the engine's own recorder.
+    assert.deepEqual(recorded.cars.map((c) => c.slot), [0, 1, 2], "the clip holds all three cars");
+    const [racer, bystander] = [1, 2];
+    store.set("crush.highlight.rival", savedText);
     engine.toggleRace();
-    engine.raceCommand({ type: "quit" });
-    assert.equal(race().menu, "setup");
+    assert.equal(race().menu, "setup", "the race menu is up on its setup screen");
     engine.raceCommand({ type: "savedPlay", key: "rival" });
-    for (let turns = 0; turns < MAX_TURNS && !engine["highlights"].playing; turns++) await yieldToLoop();
-    assert.ok(engine["highlights"].playing, "the saved clip plays");
-    for (const { slot } of clip.cars) assert.deepEqual(sprayOn(cars()[slot]!), rivalSprayOf(clip.look, slot, cars()[slot]!), `clip car ${slot} wears the clip's look`);
-    assert.equal(sprayOn(cars()[5]!), null, "a traffic car in the clip stays bare");
+    for (let turns = 0; turns < MAX_TURNS && engine["highlights"]["solo"] === null; turns++) await yieldToLoop();
+    assert.notEqual(engine["highlights"]["solo"], null, "the saved clip is up alone");
+    const car = (slot: number): DeformableCar => engine["cars"][slot]!;
+    assert.equal(sprayOn(car(racer)), rivalSprayOf(CLIP_LOOK, racer, car(racer)), "the clip's racer wears the clip's look");
+    assert.equal(sprayOn(car(bystander)), null, "its bystander stays bare");
+    assert.equal(sprayOn(car(0)), ownDigest(), "this browser's own car keeps its own spray");
     engine.raceCommand({ type: "reelBack" });
-    for (const { slot } of clip.cars) assert.equal(sprayOn(cars()[slot]!), null, `car ${slot} is bare once the clip is over`);
+    assert.equal(sprayOn(car(racer)), null, "the racer is bare once the clip is over");
   });
 });
