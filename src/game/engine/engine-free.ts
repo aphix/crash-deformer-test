@@ -18,7 +18,7 @@ function stronger(key: number, stick: number): number {
 
 /**
  * The free view's input this frame into `out`: the drive keys fly it (W / S forward and back, A / D strafe, the arrows too, Shift fast),
- * the page keys rise and sink it. The pad: left stick flies, right stick looks, RT rises, LT sinks, X (the boost button) is fast.
+ * the page keys rise and sink it. The pad: left stick flies, right stick looks, RT rises, LT sinks, A (the boost button) is fast.
  * `hold` zeroes it all (a menu owns the keys).
  */
 export function readFreeInput(keys: ReadonlySet<string>, pad: PadState, hold: boolean, out: FreeInput): FreeInput {

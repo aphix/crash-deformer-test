@@ -121,7 +121,7 @@ function seatHint(state: CrashHudState, touch: boolean): { title: string; keys: 
     return {
       title: `Racing · ${CAM_LABEL[state.view]}`,
       keys: state.pad
-        ? "RT gas · LT brake, then reverse · left stick steer · A handbrake · X boost · Y view · R3 look back · D-pad ↓ respawn · hold D-pad ↓ back on the road, damage kept · Start pause"
+        ? "RT gas · LT brake, then reverse · left stick steer · X handbrake · A boost · Y view · R3 look back · D-pad ↓ respawn · hold D-pad ↓ back on the road, damage kept · Start pause"
         : "W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · V view · ` look back · R respawn · hold R back on the road, damage kept · Esc pause",
     };
   }
