@@ -2,6 +2,7 @@ import { hypot2 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { DRIVE } from "../vehicle/car-drive.ts";
+import { applyCarFinish, finishForTier } from "../vehicle/car-finish.ts";
 import type { ChaseCamera } from "./engine-camera.ts";
 import { TireSmokeSystem, type GlassDotSystem, type SparkSystem } from "./engine-fx.ts";
 import { SkidMarks } from "./engine-marks.ts";
@@ -457,6 +458,7 @@ export class Cinematics {
   /** The Ultra look, once loaded (`CrashEngine.loadUltra`); the tier "ultra" needs it. */
   ultra: Ultra | null = null;
   private readonly renderer: THREE.WebGLRenderer;
+  private readonly scene: THREE.Scene;
   private readonly view: ChaseCamera;
   private readonly fx: FxRefs;
   private readonly reduceMotion: boolean;
@@ -477,6 +479,7 @@ export class Cinematics {
 
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, view: ChaseCamera, fx: FxRefs, maxCars: number, reduceMotion: boolean) {
     this.renderer = renderer;
+    this.scene = scene;
     this.gpu = GpuTimer.create(renderer.getContext() as WebGL2RenderingContext);
     this.view = view;
     this.fx = fx;
@@ -510,7 +513,19 @@ export class Cinematics {
     this.fx.glass.glow(bloom ? 1.8 : 1);
     if (tier === "ultra") this.ultra!.enable();
     else if (was === "ultra") this.ultra?.disable();
+    this.dressCarFinish(tier);
     if (!on) this.reset();
+  }
+
+  /**
+   * Every car in the scene wears the paint finish on the tiers that draw it (`finishForTier`); a new or re-dressed car gets the tier's
+   * state from `dressCar`. A switch once programs exist links the changed programs now, async on the post chain's own target (a tier
+   * switch is a menu moment; first use in a frame cost a 50-800 ms stall); before the first link the boot warm-up does it, and Ultra's
+   * switch is also covered by the full warm its `enable` queues.
+   */
+  private dressCarFinish(tier: FxTier): void {
+    if (!applyCarFinish(this.scene, finishForTier(tier)) || (this.renderer.info.programs?.length ?? 0) === 0) return;
+    this.post.warm(this.scene, this.view.camera, []).catch((err: unknown) => console.error("Crush Stream car finish warm-up failed", err));
   }
 
   /** Sim time multiplier for this frame: eased below 1 during a hit-stop (`WARP_IN`/`WARP_OUT`). */

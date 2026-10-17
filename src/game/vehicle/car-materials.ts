@@ -3,6 +3,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { once } from "../kernel/scalar.ts";
 import { detSin, detCos, PART_FAMILY } from "../kernel/physics-core.js";
 import { INTERIOR_MESH } from "./constants.ts";
+import { applyFinish } from "./car-finish.ts";
 
 /** The shared car textures and materials (paint, tone grid, glass, crack map, lamp mask) and the small multi-tone parts built on them. */
 
@@ -49,65 +50,28 @@ export function makeDoorLining(sign: number): THREE.Mesh {
   return new THREE.Mesh(geo, partsMaterial());
 }
 
+/**
+ * The tones the paint's colour and roughness maps multiply in, kept from the canvas maps' base fills so every car's colour and
+ * roughness (the material's 0.42 x 0.54) stay what they were. The maps once also carried speckle, seam strokes and a dark lower band:
+ * the body, lids, doors and bumpers each have their own uv, so those landed in a different place on every part (plaid lines on
+ * the fenders, hood and doors). The surface detail is the finish now (`car-finish.ts`), in object space.
+ */
+const PAINT_COLOR_TONE_SRGB = [0xf2, 0xf2, 0xf0] as const;
+const PAINT_ROUGHNESS_TONE = 0x8a;
+const OPAQUE = 0xff;
 
-const makePaintMaps = once((): { map: THREE.CanvasTexture; roughness: THREE.CanvasTexture } => {
-  const w = 1024;
-  const h = 512;
-  const paint = document.createElement("canvas");
-  paint.width = w;
-  paint.height = h;
-  const ctx = paint.getContext("2d")!;
-  ctx.fillStyle = "#f2f2f0";
-  ctx.fillRect(0, 0, w, h);
-  for (let i = 0; i < 14000; i++) {
-    const n = Math.random();
-    ctx.fillStyle = `rgba(20,20,22,${n * 0.045})`;
-    ctx.fillRect(Math.random() * w, Math.random() * h, n > 0.85 ? 2 : 1, 1);
-  }
-  ctx.strokeStyle = "rgba(18,18,20,0.28)";
-  ctx.lineWidth = 2;
-  const seams = [0.18, 0.34, 0.5, 0.66, 0.82];
-  for (const u of seams) {
-    ctx.beginPath();
-    ctx.moveTo(u * w, 0);
-    ctx.lineTo(u * w, h);
-    ctx.stroke();
-  }
-  ctx.strokeStyle = "rgba(18,18,20,0.22)";
-  ctx.beginPath();
-  ctx.moveTo(0, h * 0.38);
-  ctx.lineTo(w, h * 0.38);
-  ctx.stroke();
-  ctx.fillStyle = "rgba(12,12,14,0.12)";
-  ctx.fillRect(0, h * 0.78, w, h * 0.22);
+/** A 1 x 1 flat texture of `texel`: built in code, so it exists with no document (tests, workers). */
+function flatTexture(texel: readonly [number, number, number], colorSpace: THREE.ColorSpace): THREE.DataTexture {
+  const texture = new THREE.DataTexture(new Uint8Array([...texel, OPAQUE]), 1, 1);
+  texture.colorSpace = colorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
 
-  const rough = document.createElement("canvas");
-  rough.width = w;
-  rough.height = h;
-  const rctx = rough.getContext("2d")!;
-  rctx.fillStyle = "#8a8a8a";
-  rctx.fillRect(0, 0, w, h);
-  rctx.strokeStyle = "#d0d0d0";
-  rctx.lineWidth = 3;
-  for (const u of seams) {
-    rctx.beginPath();
-    rctx.moveTo(u * w, 0);
-    rctx.lineTo(u * w, h);
-    rctx.stroke();
-  }
-  rctx.fillStyle = "#9a9a9a";
-  rctx.fillRect(0, h * 0.78, w, h * 0.22);
-
-  const paintTex = new THREE.CanvasTexture(paint);
-  paintTex.colorSpace = THREE.SRGBColorSpace;
-  paintTex.anisotropy = 8;
-  paintTex.wrapS = paintTex.wrapT = THREE.RepeatWrapping;
-  const roughTex = new THREE.CanvasTexture(rough);
-  roughTex.colorSpace = THREE.NoColorSpace;
-  roughTex.anisotropy = 4;
-  roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping;
-  return { map: paintTex, roughness: roughTex };
-});
+const makePaintMaps = once((): { map: THREE.DataTexture; roughness: THREE.DataTexture } => ({
+  map: flatTexture(PAINT_COLOR_TONE_SRGB, THREE.SRGBColorSpace),
+  roughness: flatTexture([PAINT_ROUGHNESS_TONE, PAINT_ROUGHNESS_TONE, PAINT_ROUGHNESS_TONE], THREE.NoColorSpace),
+}));
 
 /**
  * Soft shoulder on a car material's final linear radiance: untouched up to 0.7, rolling off to at most 1.1.
@@ -191,22 +155,25 @@ export function drawClassOf(m: THREE.Material): number {
 }
 
 export function makePaintMaterial(color: number): THREE.MeshPhysicalMaterial {
-  const maps = typeof document === "undefined" ? { map: null, roughness: null } : makePaintMaps();
+  const maps = makePaintMaps();
   return classed(
-    withPrimer(
-      capHighlights(
-        new THREE.MeshPhysicalMaterial({
-          color,
-          map: maps.map ?? null,
-          roughnessMap: maps.roughness ?? null,
-          metalness: 0.2,
-          roughness: 0.42,
-          clearcoat: 0.72,
-          clearcoatRoughness: 0.24,
-          envMapIntensity: 0.9,
-          side: THREE.FrontSide,
-        }),
+    applyFinish(
+      withPrimer(
+        capHighlights(
+          new THREE.MeshPhysicalMaterial({
+            color,
+            map: maps.map,
+            roughnessMap: maps.roughness,
+            metalness: 0.2,
+            roughness: 0.42,
+            clearcoat: 0.72,
+            clearcoatRoughness: 0.24,
+            envMapIntensity: 0.9,
+            side: THREE.FrontSide,
+          }),
+        ),
       ),
+      "paint",
     ),
     DRAW_CLASS.paint,
   );
@@ -221,7 +188,7 @@ const trimByColor = new Map<number, THREE.MeshStandardMaterial>();
 export function trimMaterial(color: number): THREE.MeshStandardMaterial {
   let m = trimByColor.get(color);
   if (m === undefined) {
-    m = classed(capHighlights(new THREE.MeshStandardMaterial({ color, metalness: 0.55, roughness: 0.38, envMapIntensity: 0.65 })), DRAW_CLASS.trim);
+    m = classed(applyFinish(capHighlights(new THREE.MeshStandardMaterial({ color, metalness: 0.55, roughness: 0.38, envMapIntensity: 0.65 })), "trim"), DRAW_CLASS.trim);
     m.userData.shared = true;
     trimByColor.set(color, m);
   }

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { KonamiCode } from "./konami.ts";
 import { DeformableCar } from "../vehicle/car.ts";
 import type { CarPaint } from "../vehicle/car-core.ts";
+import { applyCarFinish, finishForTier } from "../vehicle/car-finish.ts";
 import { WheelBatch } from "../vehicle/wheel-batch.ts";
 import { COMPACTOR, CompactorRig } from "../scenes/compactor.ts";
 import { StackRig } from "../scenes/stack-rig.ts";
@@ -498,11 +499,9 @@ export abstract class EngineCore {
     const look = this.looks.of(slot, this.ownCar());
     // A car with no player's look wears its rival spray when the race or derby has one for it (the first dress runs before `race` is assigned).
     const seed = look || !this.race ? null : rivalSeedOf(slot, this.race, this.derbyMode ? { round: this.derbyRound, seated: this.derbySeated } : null);
-    if (seed === null) {
-      wearCarLook(car, look?.car ?? NO_CAR_PICK, look?.carSpray ?? null);
-      return;
-    }
-    wearCarLook(car, NO_CAR_PICK, this.rivals.of(seed, slot, lookColours(car, NO_CAR_PICK).body));
+    if (seed === null) wearCarLook(car, look?.car ?? NO_CAR_PICK, look?.carSpray ?? null);
+    else wearCarLook(car, NO_CAR_PICK, this.rivals.of(seed, slot, lookColours(car, NO_CAR_PICK).body));
+    applyCarFinish(car.group, finishForTier(this.cine.tier));
   }
 
   /** This browser's own car: its netplay seat as a guest, else the player's car 0. */
