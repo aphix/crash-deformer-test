@@ -203,9 +203,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * keeps its world-vertical part by 1 - sin⁴ of the body's tilt (`followGroup`: whole upright or roof-down, none on the side or nose, where a body axis is the world vertical and the step sank the wreck 4-5 mm a step against the floor, 0.9 to -4.4 m in derby seed 8): a replay of a clip of 105 or before plays on different derby ground and moves a tilted wreck in contact differently.
  * 107: a thrown driver keeps the car's vertical velocity (`v.y = pre.y + THROW_UP`, it was the constant pop; the watch's velocity ring stores y), so a car leaving a ramp or kicker throws its driver along its climb; flat-ground throws are as before. The range's mini games add a forced throw
  * at a ramp's lip (`EjectionWatch.throwDriverNow`), which no other scene reaches: a replay of a clip of 106 or before throws a driver out of a car moving up or down (derby jumps, ramps, slopes) differently.
+ * 108: a body coming down onto a solid prism's top (a derby tyre stack, K-rail or container) lands on it: its plan footprint no longer shoves it out of the overlap, its fall stops and it rises by the slice's fall plus the push-out speed (`cameThroughTop`, shared with the points'
+ * top entry); it was shoved 0.4-1.3 m sideways the step its lowest point crossed the top: a replay of a clip of 107 or before moves a car or wreck landing on a prism top differently.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 107;
+const REPLAY_VERSION = 108;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
