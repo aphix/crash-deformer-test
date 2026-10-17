@@ -85,7 +85,7 @@ function spinningWreckAt(x: number, z: number, vx: number, hits: PropHits) {
   launch(bullet, 0, 9, Math.PI, 0, -BULLET_MPS);
   const { world } = arenaWorld([wreck, bullet], hits);
   for (let t = 0; t < SETTLE_MAX_S && !(t > 2 && wreck.velocity.length() < 0.05); t += SETTLE_STEP) stepWorld(world, SETTLE_STEP);
-  bullet.group.position.x = -40;
+  // The bullet stays where the hit left it, in the arena's middle, 24+ m from every grind site: moved to x = -40 (outside the ring wall, past the ground grid) it drifted off the grid and its masses' ground read threw.
   const start = dynamicCentroid(wreck);
   wreck.deform.translateMasses(x - start.x, z - start.z, 0, 0);
   wreck.group.position.x += x - start.x;
