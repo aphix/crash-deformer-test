@@ -348,6 +348,7 @@ const CAR_SHOT_IDS = ["sedan", "hatchback", "wagon", "muscle", "truck", "monster
 for (const id of CAR_SHOT_IDS) {
   SCENES[`car-garage-${id}`] = { survey: true, hash: `scene=garage&car=${id}`, setup: (p) => frame(p, 4.6, 0.2, 2.3), at: 0.3 };
 }
+SCENES["car-garage-close"] = { survey: true, hash: "scene=garage&car=sedan", setup: (p) => frame(p, 2.4, 0.12, 2.1), at: 0.3 };
 SCENES["car-race-close"] = {
   survey: true,
   hash: "scene=race",
