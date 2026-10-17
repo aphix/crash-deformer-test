@@ -778,12 +778,12 @@ export function writeRace(s: RaceNetState): Uint8Array<ArrayBuffer> {
 
 /**
  * What a race message says apart from what changes every tick of a race: two states with the same key need no second message until the
- * keepalive. Left out are the race clock (the client runs it on from the last message, `RaceDirector.advanceClock`), the cars' progress,
- * position and road hint, their wrong-way and draft seconds (the draft only as on or off) and the police hold; a client shows them as of
- * the last message, at most a keepalive old.
+ * keepalive. Left out are the race clock, each car's progress and the police hold's seconds (the client runs these on from the last
+ * message, `RaceDirector.advanceClock`; the hold's start and end are in the key as on or off), the cars' position and road hint
+ * (a client never reads them) and their wrong-way and draft seconds (the draft's start and end are in the key too).
  */
 export function raceKey(s: RaceNetState): string {
-  const snap = s.snap && { ...s.snap, time: 0, cars: s.snap.cars.map((c) => ({ ...c, progress: 0, x: 0, z: 0, seg: 0, safe: 0, wrongFor: 0, stopped: 0, draft: c.draft > 0 })) };
+  const snap = s.snap && { ...s.snap, time: 0, cars: s.snap.cars.map((c) => ({ ...c, progress: 0, x: 0, z: 0, seg: 0, safe: 0, wrongFor: 0, stopped: c.stopped > 0, draft: c.draft > 0 })) };
   return JSON.stringify({ ...s, snap });
 }
 

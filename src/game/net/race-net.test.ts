@@ -281,6 +281,16 @@ for (const { aiCount, cars, boundBps } of [{ aiCount: 3, cars: 4, boundBps: 2500
       t.after(() => setGround(null));
       const host = hostRace(new Map([[2, "Zed"]]), aiCount);
       const client = clientOf(host, 2);
+      // Both screens watch car 1, an AI car: its distance bar is under test.
+      for (const w of [host, client]) {
+        w.seat.mode = "follow";
+        w.seat.carIndex = 1;
+      }
+      let barError = 0;
+      let lastHostBar = 0;
+      let lastBar = 0;
+      let quiet = 0;
+      let moved = 0;
       const state = { acc: 0 };
       let sentKey = "";
       let sent = 0;
@@ -294,25 +304,40 @@ for (const { aiCount, cars, boundBps } of [{ aiCount: 3, cars: 4, boundBps: 2500
         if (overAt < 0 && host.race.phase === "finished") overAt = n;
         frame(host, state);
         client.race.advanceClock(FRAME);
-        if ((n + 1) % 12 !== 0) continue;
-        offers++;
-        const rs = { lobby: null, trackId: "oval", look: host.race.look, gate: null, next: null, snap: host.race.snapshot() };
-        const key = raceKey(rs);
-        unrounded += JSON.stringify(rs).length + 1;
-        if ((n + 1) % 60 === 0 || key !== sentKey) {
-          sentKey = key;
-          const msg = writeRace(rs);
-          bytes += msg.length;
-          sent++;
-          client.race.applySnapshot(readRace(msg)!.snap!, 2);
+        let heard = false;
+        if ((n + 1) % 12 === 0) {
+          offers++;
+          const rs = { lobby: null, trackId: "oval", look: host.race.look, gate: null, next: null, snap: host.race.snapshot() };
+          const key = raceKey(rs);
+          unrounded += JSON.stringify(rs).length + 1;
+          if ((n + 1) % 60 === 0 || key !== sentKey) {
+            sentKey = key;
+            const msg = writeRace(rs);
+            bytes += msg.length;
+            sent++;
+            heard = true;
+            client.race.applySnapshot(readRace(msg)!.snap!, 2);
+          }
+          for (const c of rs.snap!.cars) statuses.add(c.status);
+          nearlyEqual(raceView(client), raceView(host), 0.0015);
         }
-        for (const c of rs.snap!.cars) statuses.add(c.status);
-        nearlyEqual(raceView(client), raceView(host), 0.0015);
+        // Every frame, the distance bar of the car both screens watch: close to the host's, and moving on frames the guest heard nothing.
+        const hostBar = host.race.hud().view?.racer?.done ?? 0;
+        const bar = client.race.hud().view?.racer?.done ?? 0;
+        barError = Math.max(barError, Math.abs(bar - hostBar));
+        if (!heard && hostBar > lastHostBar && hostBar < 1) {
+          quiet++;
+          if (bar > lastBar) moved++;
+        }
+        lastHostBar = hostBar;
+        lastBar = bar;
       }
       assert.equal(host.race.phase, "finished", "the race ran to its results");
       assert.ok(statuses.has("finished") && (statuses.has("dnf") || statuses.has("out")), `finishers and a car that did not finish: ${[...statuses]}`);
+      assert.ok(barError < 0.02, `the guest's distance bar is within ${barError.toFixed(4)} of the host's (of the race's length)`);
+      assert.ok(quiet > 600 && moved >= 0.95 * quiet, `the bar moved on ${moved} of ${quiet} frames the guest heard nothing`);
       const seconds = (n + 1) / 60;
-      console.log(`race message, ${cars} cars: ${sent} of ${offers} offers sent, ${(bytes / seconds).toFixed(0)} B/s (${(unrounded / seconds).toFixed(0)} B/s as the array-of-objects JSON offered every time)`);
+      console.log(`race message, ${cars} cars: ${sent} of ${offers} offers sent, ${(bytes / seconds).toFixed(0)} B/s (${(unrounded / seconds).toFixed(0)} B/s as the array-of-objects JSON offered every time); distance bar worst ${barError.toFixed(4)} off the host's, moved on ${moved} of ${quiet} quiet frames`);
       assert.ok(bytes / seconds < boundBps, `${(bytes / seconds).toFixed(0)} B/s of race messages with ${cars} cars`);
       // A bust and a DNF in the final state cross the codec as they were.
       const snap = host.race.snapshot()!;
@@ -328,3 +353,52 @@ for (const { aiCount, cars, boundBps } of [{ aiCount: 3, cars: 4, boundBps: 2500
     });
   });
 }
+
+describe("given a hosted Survival run in which a peer Zed on car 1 is held still until the police bust it, with the owner's hold", () => {
+  it("when a guest is fed only what the host's sender sends, then its bust gauge matches the host's on every frame of the hold, the frames between messages included", (t) => {
+    t.after(() => setGround(null));
+    const host = makeWorld();
+    host.race.setSeats(new Map([[1, "Zed"]]));
+    host.race.enter(true);
+    const trackId = host.race.snapshot()!.trackId;
+    const client = survivalClientOf(host, 1);
+    const state = { acc: 0 };
+    const sit = { throttle: 0, steer: 0, brake: 0, ebrake: true, boost: false };
+    let sentKey = "";
+    let compared = 0;
+    let quiet = 0;
+    let worst = 0;
+    for (let n = 0; n < 60 * 150 && host.race.phase !== "finished"; n++) {
+      host.seat.mode = "drive";
+      host.seat.carIndex = 0;
+      host.seat.intent.analogGas = true;
+      host.seat.intent.gas = 0;
+      host.seat.intent.handbrake = true;
+      host.race.setRemoteInput(1, sit);
+      frame(host, state);
+      client.race.advanceClock(FRAME);
+      let heard = false;
+      if ((n + 1) % 12 === 0) {
+        const rs = { lobby: null, trackId, look: 0, gate: null, next: null, snap: host.race.snapshot() };
+        const key = raceKey(rs);
+        if ((n + 1) % 60 === 0 || key !== sentKey) {
+          sentKey = key;
+          heard = true;
+          client.race.applySnapshot(readRace(writeRace(rs))!.snap!, 1);
+        }
+      }
+      const hostCar = host.race.snapshot()!.cars.find((c) => c.id === 1)!;
+      const chase = client.race.hud().view?.chase;
+      if (hostCar.status !== "racing" || hostCar.stopped <= 0 || !chase) continue;
+      compared++;
+      if (!heard) quiet++;
+      worst = Math.max(worst, Math.abs(chase.left - Math.max(0, SURVIVAL.bustTime - hostCar.stopped)));
+    }
+    assert.equal(host.race.phase, "finished", "the held humans were busted");
+    assert.ok(quiet > 60, `the gauge was compared on ${quiet} frames the guest heard nothing (${compared} in all)`);
+    console.log(`bust gauge: ${compared} frames compared (${quiet} with nothing heard), worst ${worst.toFixed(4)} s off the host's`);
+    assert.ok(worst < 0.02, `the guest's gauge is ${worst.toFixed(4)} s from the host's at worst`);
+    host.race.exit();
+    client.race.exit();
+  });
+});

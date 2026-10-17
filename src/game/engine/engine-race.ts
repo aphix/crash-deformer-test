@@ -23,6 +23,8 @@ import type { GuardSpec } from "../world/track-schema.ts";
 
 /** Seconds between traffic-bubble passes. */
 const BUBBLE_EVERY = 0.25;
+/** The most m/s a guest runs a car's distance bar on at: a bit above the fastest car's top speed, so a respawn's jump back or a teleport forward is not read as a speed. */
+const MAX_PROGRESS_RATE = 100;
 /** Seconds the finish card shows before the results menu (and the results reel), and the BUSTED banner before the camera moves on. */
 export const RESULTS_DELAY = 2.5;
 
@@ -425,11 +427,24 @@ export class RaceDirector extends RaceHudLayer {
 
   /** The race time of the host's last message (`applySnapshot`): `time` runs on from it between messages, so a message that is behind it is a new race, not a late one. */
   private heardTime = 0;
+  /** Per car id, its `progress` in the host's last message and the m/s it grew at since the one before (0 for a car not racing): `advanceClock` runs the distance bar on at that rate. */
+  private readonly heardProgress: number[] = [];
+  private readonly progressRate: number[] = [];
 
-  /** Netplay client: the host streams the race clock only with its other state, so it runs on here (`dt` s) until the next message sets it; it stands still once the race is over. */
+  /**
+   * Netplay client: the host streams only what changes by event (`raceKey`), so what changes every tick runs on here (`dt` s) until the
+   * next message sets it: the race clock, each racing car's progress at its last rate, and the police hold at one second a second.
+   * It all stands still once the race is over.
+   */
   advanceClock(dt: number): void {
     const s = this.session;
-    if (s && this.mirrored && s.phase !== "finished") s.time += dt;
+    if (!s || !this.mirrored || s.phase === "finished") return;
+    s.time += dt;
+    for (const c of s.cars) {
+      if (c.status !== "racing") continue;
+      c.progress += (this.progressRate[c.id] ?? 0) * dt;
+      if (c.stopped > 0) c.stopped += dt;
+    }
   }
 
   /**
@@ -447,6 +462,7 @@ export class RaceDirector extends RaceHudLayer {
     this.lobbySeatedFor = -1;
     this.mirrored = true;
     const fresh = !prev || own || prev.track.id !== snap.trackId || snap.time < this.heardTime;
+    const dtHeard = snap.time - this.heardTime;
     this.heardTime = snap.time;
     const tr = this.load(snap.trackId);
     const entrants: Entrant[] = [];
@@ -463,6 +479,12 @@ export class RaceDirector extends RaceHudLayer {
     this.entrants = entrants;
     this.self = self;
     for (const [k, c] of snap.cars.entries()) this.rowOf[c.id] = k;
+    for (const c of snap.cars) {
+      const was = this.heardProgress[c.id];
+      const rate = fresh || was === undefined || c.status !== "racing" || dtHeard <= 0 ? 0 : (c.progress - was) / dtHeard;
+      this.progressRate[c.id] = Math.min(MAX_PROGRESS_RATE, Math.max(0, rate));
+      this.heardProgress[c.id] = c.progress;
+    }
     this.credit(this.session);
     this.pack = snap.pack;
     // The table's rows as this browser sees them: its own car the player, the host's a remote one, every name cleaned as untrusted.

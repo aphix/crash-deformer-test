@@ -389,12 +389,14 @@ and the deterministic `RaceSession` (agreed with RaceLead):
   (`NET_VERSION` 27). The cars ride as a shape header (`{ cols, rows }`: the record's key names once, each car a row of values) and
   every fraction is kept to the millimetre (`RACE_PRECISION`). The host looks at the state every 6th snapshot (5 Hz) and sends it
   when it differs from the last one sent by anything but what changes every tick of a race (`raceKey`: the clock, each car's
-  progress, position, road hint, wrong-way and draft seconds, the police hold), and with every keyframe (1 Hz, the keepalive that
-  also heals a lost datagram). A client runs the race clock on between messages (`RaceDirector.advanceClock`, each frame the host
-  is not paused, not once the race is over), so the clock, the start lights and the lap time are smooth; progress (the distance bar),
-  the draft flag and the bust hold show as of the last message, at most a second old. Measured per guest over a whole 1-lap oval
-  race, grid to results (`race-net.test.ts`): 4 cars 11.3 kB/s -> 1.7 kB/s, 8 cars 21.1 kB/s -> 3.8 kB/s (before: every 5 Hz
-  offer as an array of objects, 2.3-4.2 kB each).
+  progress, position, road hint, wrong-way and draft seconds, the police hold's seconds; the hold's and the draft's start and end
+  are in the key), and with every keyframe (1 Hz, the keepalive that also heals a lost datagram). A client runs what it left out
+  on between messages (`RaceDirector.advanceClock`, each frame the host is not paused, not once the race is over): the race clock
+  (so the start lights, the lap time and the respawn countdown are smooth), the police bust hold at one second a second from the
+  value it started at, and each racing car's progress (the distance bar) at the rate it grew between the last two messages (capped
+  at `MAX_PROGRESS_RATE`); the next message sets all three, so the bar is off by the speed change of a second at worst. Measured per
+  guest over a whole 1-lap oval race, grid to results (`race-net.test.ts`): 4 cars 11.3 kB/s -> 1.7 kB/s, 8 cars 21.1 kB/s ->
+  3.8 kB/s (before: every 5 Hz offer as an array of objects, 2.3-4.2 kB each).
 - Client: `applySnapshot(snap, self)` restores the session and rebuilds the entrants: its own car
   becomes `player`, the host's `remote`, and every car keeps the host's name for it (cleaned again,
   untrusted), so each side shows the other's chosen name; a new race seats it in drive mode, a peer not in the
