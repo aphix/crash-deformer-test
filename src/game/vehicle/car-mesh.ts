@@ -241,7 +241,7 @@ export const ROCKER = FLARE_FIRST + TUCK_ROWS.drawn + 1;
  * line → tuck-under → rocker → sill. Tubs open the deck into a floor with walls;
  * the door cut drops the side to the sill. Greenhouse is never lofted metal.
  */
-export function sectionPoints(s: ProfileStation, style: BodyStyle, source: BodySource): Pt[] {
+function halfRing(s: ProfileStation, style: BodyStyle, source: BodySource): [number, number][] {
   const { hw, yBelt: yb, z } = s;
   const hole = doorAperture(z);
   const tub = tubAt(z, style);
@@ -285,6 +285,35 @@ export function sectionPoints(s: ProfileStation, style: BodyStyle, source: BodyS
     const t = THREE.MathUtils.smoothstep((p[0] - hw * 0.58) / (hw * 0.42), 0, 1);
     p[1] = Math.max(p[1], lerp(p[1], archY, t));
   }
+  return half;
+}
+
+/** The cage's own build has one tuck row, so the cage hull's side below the feature line ends at this half-ring index. */
+const CAGE_ROCKER = FLARE_FIRST + TUCK_ROWS.cage + 1;
+
+/**
+ * The drawn side stays inside the cage hull: each tuck row the drawn ring added sits on the cage ring's chord at its height, never
+ * proud of it. The fender flare is a bump the cage's one tuck row spans with a straight chord, so a drawn row that took the flare at
+ * its own height stood up to 2.3 cm outside the hull the cage carries the ground on, and a car resting on its flank sank into the
+ * ground by that much.
+ */
+function holdInsideCageHull(half: [number, number][], cageHalf: readonly (readonly [number, number])[]): void {
+  for (let i = FLARE_FIRST + 1; i < ROCKER; i++) {
+    const point = half[i]!;
+    for (let k = FLARE_FIRST; k < CAGE_ROCKER; k++) {
+      const [upperX, upperY] = cageHalf[k]!;
+      const [lowerX, lowerY] = cageHalf[k + 1]!;
+      if (point[1] > Math.max(upperY, lowerY) || point[1] < Math.min(upperY, lowerY)) continue;
+      const chordX = lerp(upperX, lowerX, (upperY - point[1]) / (upperY - lowerY || 1));
+      point[0] = Math.min(point[0], chordX);
+      break;
+    }
+  }
+}
+
+export function sectionPoints(s: ProfileStation, style: BodyStyle, source: BodySource): Pt[] {
+  const half = halfRing(s, style, source);
+  if (source === "drawn") holdInsideCageHull(half, halfRing(s, style, "cage"));
   const left = half.map(([x, y]) => ({ x: -x, y }));
   const right = half.map(([x, y]) => ({ x, y })).reverse();
   return [...left, { x: 0, y: Y_FLOOR }, ...right];

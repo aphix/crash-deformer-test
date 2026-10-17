@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { CAR_STYLES, CAR_STYLE_IDS, type CarStyleId } from "./car-variants.ts";
-import { CREASE_DEGREES, makeBumperGeometry, makeHoodGeometry, makeTrunkGeometry } from "./car-mesh.ts";
+import { CREASE_DEGREES, makeBumperGeometry, makeHoodGeometry, makeTrunkGeometry, sampleSlice, sectionPoints } from "./car-mesh.ts";
 import { makeChassisGeometry } from "./car-chassis-mesh.ts";
 import { makeDoorGeometry } from "./car-door-mesh.ts";
 import { makeGreenhouseFrame } from "./car-greenhouse-mesh.ts";
@@ -456,6 +456,50 @@ describe("given every body style's cage source, the tables its collision cage is
     it(`when a ${testCase.id}'s cage source is hashed, then it equals the digest of the unsmoothed build, so the smoothed mesh never moves a contact shape`, () => {
       const car = new DeformableCar(paint(), new THREE.Scene(), null, testCase.id);
       assertSameDigest(cageSourceDigest(car), testCase.digest, `${testCase.id} cage source`);
+    });
+  }
+});
+
+/** A drawn ring point may stand this far (m) outside the cage source's ring at the same station: rounding in the chord interpolation. The cage carries the ground, so a car resting on its flank sinks into it by whatever the drawn side stands proud. */
+const HULL_SKIN_M = 0.001;
+/** Spacing (m) of the stations the rings are compared at: finer than the slice spacing (7 to 13 cm), so a bump between two slices shows. */
+const HULL_STATION_STEP_M = 0.02;
+
+/** How far (m) `point` stands outside the closed polygon `ring`: 0 inside, else its distance to the nearest edge. */
+function distanceOutsideRing(point: { x: number; y: number }, ring: readonly { x: number; y: number }[]): number {
+  let inside = false;
+  let nearest = Infinity;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i]!;
+    const b = ring[(i + 1) % ring.length]!;
+    if (a.y > point.y !== b.y > point.y && point.x < a.x + ((point.y - a.y) / (b.y - a.y)) * (b.x - a.x)) inside = !inside;
+    const edge = new THREE.Vector2(b.x - a.x, b.y - a.y);
+    const along = THREE.MathUtils.clamp(new THREE.Vector2(point.x - a.x, point.y - a.y).dot(edge) / (edge.lengthSq() || 1), 0, 1);
+    nearest = Math.min(nearest, Math.hypot(point.x - a.x - edge.x * along, point.y - a.y - edge.y * along));
+  }
+  return inside ? 0 : nearest;
+}
+
+describe("given every body style's drawn rings beside the cage source's rings at the same stations", () => {
+  for (const id of CAR_STYLE_IDS) {
+    it(`when a ${id}'s drawn cross-sections are compared with the cage source's every ${HULL_STATION_STEP_M * 100} cm, then no drawn point stands outside the cage ring by more than the skin`, () => {
+      const style = CAR_STYLES[id];
+      const first = style.profile[0]!.z;
+      const last = style.profile[style.profile.length - 1]!.z;
+      let worstOutside = 0;
+      let worstAt = first;
+      for (let z = first + HULL_STATION_STEP_M; z < last; z += HULL_STATION_STEP_M) {
+        const station = sampleSlice(z, style.profile);
+        const cageRing = sectionPoints(station, style, "cage");
+        for (const point of sectionPoints(station, style, "drawn")) {
+          const outside = distanceOutsideRing(point, cageRing);
+          if (outside > worstOutside) {
+            worstOutside = outside;
+            worstAt = z;
+          }
+        }
+      }
+      assert.ok(worstOutside <= HULL_SKIN_M, `${id}: a drawn ring point at z ${worstAt.toFixed(2)} stands ${(worstOutside * 100).toFixed(1)} cm outside the cage source's ring`);
     });
   }
 });
