@@ -46,7 +46,7 @@ import { RagdollRemote } from "./ragdoll-remote.ts";
 import { RideAlong } from "./ragdoll-ride.ts";
 import type { RideFrame } from "./ride-cam.ts";
 import type { Sight } from "./spectate-cam.ts";
-import { AIR_ANGULAR, AIR_LINEAR, ARM, blendPose, CALM_FOR, type Doll, GROUND_ANGULAR, GROUND_LINEAR, give, hasPhysicsMass, isCalm, JOINTS, limit, PARTS, readPose, SETTLE_AFTER, SETTLE_ANGULAR, SETTLE_LINEAR, setPartMass, SHOULDER_Y } from "./ragdoll-body.ts";
+import { AIR_ANGULAR, AIR_LINEAR, ARM, blendPose, CALM_FOR, type Doll, GROUND_ANGULAR, GROUND_LINEAR, give, isCalm, JOINTS, limit, PARTS, readPose, SETTLE_AFTER, SETTLE_ANGULAR, SETTLE_LINEAR, SHOULDER_Y } from "./ragdoll-body.ts";
 import { joinUp } from "./ragdoll-joints.ts";
 import { groundColliders, PATCH_AHEAD, PATCH_HALF, type Pole } from "./ragdoll-ground.ts";
 import { courseSolids, type Solid } from "./ragdoll-solids.ts";
@@ -263,18 +263,20 @@ export class RagdollSystem {
     world.integrationParameters.numInternalPgsIterations = INTERNAL_PASSES;
     this.proxies.load(R, world);
     for (let s = 0; s < SLOTS; s++) {
-      const bodies = PARTS.map((p, k) => {
+      const bodies = PARTS.map((p) => {
         const body = world.createRigidBody(
           R.RigidBodyDesc.dynamic().setTranslation(p.c[0], p.c[1] - 200, p.c[2]).setLinearDamping(AIR_LINEAR).setAngularDamping(AIR_ANGULAR).setEnabled(false),
         );
-        const shape = R.ColliderDesc.cuboid(p.h[0], p.h[1], p.h[2])
-          .setDensity(1000)
-          .setFriction(SLIDE)
-          .setFrictionCombineRule(R.CoefficientCombineRule.Min)
-          .setRestitution(0)
-          .setRestitutionCombineRule(R.CoefficientCombineRule.Min)
-          .setCollisionGroups(dollGroups(s));
-        world.createCollider(hasPhysicsMass(k) ? setPartMass(shape, k) : shape, body);
+        world.createCollider(
+          R.ColliderDesc.cuboid(p.h[0], p.h[1], p.h[2])
+            .setDensity(1000)
+            .setFriction(SLIDE)
+            .setFrictionCombineRule(R.CoefficientCombineRule.Min)
+            .setRestitution(0)
+            .setRestitutionCombineRule(R.CoefficientCombineRule.Min)
+            .setCollisionGroups(dollGroups(s)),
+          body,
+        );
         return body;
       });
       joinUp(R, world, bodies);

@@ -51,6 +51,13 @@ const REST_GROW = 0.05;
  * out of the box; the hand's fingertips on the slender builds are 0.05 m under the forearm box's end.
  */
 const LIMB_MARGIN = 0.05;
+/**
+ * The forearm boxes are the dummy's physics and stay as they were (elbow to 0.65 m; moving them changed his flight and landing
+ * in the replay, landing-field and minigame rows), so the drawn hand hangs past the box's foot (0.79 m): its fingertips reach
+ * 0.18 m under it (bound `HAND_BELOW_BOX`), and its thumb stands out of the box's depth by at most `HAND_FORWARD`.
+ */
+const HAND_BELOW_BOX = 0.2;
+const HAND_FORWARD = 0.07;
 
 type PartPose = { p: THREE.Vector3; q: THREE.Quaternion };
 /** The part's centre standing. */
@@ -284,7 +291,10 @@ describe("given the crash-test dummies drawn for thrown drivers", () => {
         if (a < 2 || b < 2 || kinds.getX(i) === ROLE.SHOE) continue;
         const part = w >= 0.5 ? b : a;
         const [c, h] = [PARTS[part]!.c, PARTS[part]!.h];
-        const over = Math.max(Math.abs(rest.getX(i) - c[0]) - h[0], Math.abs(rest.getY(i) - c[1]) - h[1], Math.abs(rest.getZ(i) - c[2]) - h[2]);
+        const isHand = (part === 3 || part === 5) && kinds.getX(i) === ROLE.SKIN;
+        const below = isHand ? HAND_BELOW_BOX : 0;
+        const forward = isHand ? HAND_FORWARD : 0;
+        const over = Math.max(Math.abs(rest.getX(i) - c[0]) - h[0], c[1] - h[1] - rest.getY(i) - below, rest.getY(i) - c[1] - h[1], Math.abs(rest.getZ(i) - c[2]) - h[2] - forward);
         checked++;
         if (over > worst) [worst, where] = [over, `vertex ${i} at (${rest.getX(i).toFixed(3)}, ${rest.getY(i).toFixed(3)}, ${rest.getZ(i).toFixed(3)}) on part ${part}`];
       }
