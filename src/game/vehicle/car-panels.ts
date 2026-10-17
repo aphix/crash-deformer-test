@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { computeNormalsFast } from "../deform/fast-normals.ts";
 import { hypot2, detSin, detCos, detAtan2, detAsin, PART_FAMILY } from "../kernel/physics-core.js";
 import { PRIMER_ATTRIBUTE } from "./constants.ts";
-import { ARCH_R, DOOR, ROCKER, WHEEL_POS } from "./car-mesh.ts";
+import { ARCH_R, ROCKER, WHEEL_POS } from "./car-mesh.ts";
+import { DOOR } from "./car-door-mesh.ts";
 import type { BodyStyle } from "./car-variants.ts";
 
 /**

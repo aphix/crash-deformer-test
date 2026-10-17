@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
 import type { DetachPart } from "./car-core.ts";
-import { makeChassisGeometry } from "./car-mesh.ts";
+import { makeChassisGeometry } from "./car-chassis-mesh.ts";
 import { CAR_STYLE_IDS, CAR_STYLES, type CarStyleId } from "./car-variants.ts";
 import { makeShell, PANEL_NAMES, panelRegions, poseShell } from "./car-panels.ts";
 import { DENT_MAX, newDentState, recordDent } from "./loose-dent.ts";

@@ -7,17 +7,9 @@ import { BUMPER_F, LAMP_SEAT, LID, LIGHT_BAR } from "./constants.ts";
 import { computeNormalsFast } from "../deform/fast-normals.ts";
 import { hypot2, round4 } from "../deform/physics-util.ts";
 import { PART_FAMILY } from "../kernel/physics-core.js";
-import {
-  BUMPER_SEAT,
-  DOOR,
-  WHEEL_POS,
-  makeBumperGeometry,
-  makeChassisGeometry,
-  makeDoorGeometry,
-  makeHoodGeometry,
-  makeTrunkGeometry,
-  roofTopY,
-} from "./car-mesh.ts";
+import { BUMPER_SEAT, WHEEL_POS, makeBumperGeometry, makeHoodGeometry, makeTrunkGeometry, roofTopY } from "./car-mesh.ts";
+import { makeChassisGeometry } from "./car-chassis-mesh.ts";
+import { DOOR, makeDoorGeometry } from "./car-door-mesh.ts";
 import { makeRearGlass, makeRearSideGlass, makeSideGlass, makeWindshield } from "./car-glass.ts";
 import {
   LIGHT_BAR_FOOT,

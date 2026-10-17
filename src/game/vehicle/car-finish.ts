@@ -111,6 +111,7 @@ function flakeHeight(u: number, v: number, cellsAcross: number): number {
   return tiltX * (x - cellX - 0.5) + tiltY * (y - cellY - 0.5);
 }
 
+/** An 8-bit texel channel's top value: the normalised heights are stretched onto 0..255. */
 const BYTE_MAX = 255;
 
 /** `heights` stretched so its lowest is 0 and its highest 255, written into channel `channel` of every `channels`-wide texel of `texels`. */
@@ -144,6 +145,7 @@ function tiledMap(texels: Uint8Array, size: number, format: THREE.PixelFormat): 
   return texture;
 }
 
+/** The paint map is RGBA8: waviness, peel and flake heights in R, G, B and an opaque alpha. */
 const PAINT_CHANNELS = 4;
 const CHANNEL_WAVE = 0;
 const CHANNEL_PEEL = 1;
@@ -187,11 +189,12 @@ const FINISH_STRENGTH = 1;
  * Peak-to-peak heights (m) of the three paint layers and of the trim grain, before `FINISH_STRENGTH`. Real figures: a stamped panel
  * waves about 0.5 mm over its width, orange peel stands about 10 um over a 1 to 5 mm wavelength, flake is a few um. The first shots
  * at 4.5 m showed the real-scale and 8x-scaled figures as flat plastic; the second, with the peel at 1.6 mm and the flake at 0.8 mm,
- * as sandpaper at 2.4 m and speckle at 9 m. Drawn now 40, 50, 15 and 15 times the real figures (waves 20 mm, peel 0.5 mm, flake
- * 0.15 mm, trim grain 0.6 mm): the waves bend the reflection across a door, the peel reads as a fine skin, the flake only twinkles
+ * as sandpaper at 2.4 m and speckle at 9 m. Drawn now 26, 50, 15 and 15 times the real figures (waves 13 mm, peel 0.5 mm, flake
+ * 0.15 mm, trim grain 0.6 mm; the waves were 20 mm until the lumpy side of the pickup and the monster truck showed it): the waves bend the
+ * reflection across a door, the peel reads as a fine skin, the flake only twinkles
  * close. Tuned from shots.
  */
-const WAVE_HEIGHT_M = 0.02 * FINISH_STRENGTH;
+const WAVE_HEIGHT_M = 0.013 * FINISH_STRENGTH;
 const PEEL_HEIGHT_M = 0.0005 * FINISH_STRENGTH;
 const FLAKE_HEIGHT_M = 0.00015 * FINISH_STRENGTH;
 const TRIM_GRAIN_HEIGHT_M = 0.0006 * FINISH_STRENGTH;

@@ -3,15 +3,10 @@ import { describe, it } from "node:test";
 import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { CAR_STYLES, CAR_STYLE_IDS, type CarStyleId } from "./car-variants.ts";
-import {
-  CREASE_DEGREES,
-  makeBumperGeometry,
-  makeChassisGeometry,
-  makeDoorGeometry,
-  makeGreenhouseFrame,
-  makeHoodGeometry,
-  makeTrunkGeometry,
-} from "./car-mesh.ts";
+import { CREASE_DEGREES, makeBumperGeometry, makeHoodGeometry, makeTrunkGeometry } from "./car-mesh.ts";
+import { makeChassisGeometry } from "./car-chassis-mesh.ts";
+import { makeDoorGeometry } from "./car-door-mesh.ts";
+import { makeGreenhouseFrame } from "./car-greenhouse-mesh.ts";
 import { DeformableCar } from "./car.ts";
 import { panelRegions, PANEL_NAMES } from "./car-panels.ts";
 import { cageSourceOf } from "./car-cage-rig.ts";

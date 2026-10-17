@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { computeNormalsFast } from "./fast-normals.ts";
-import { makeChassisGeometry, makeHoodGeometry } from "../vehicle/car-mesh.ts";
+import { makeHoodGeometry } from "../vehicle/car-mesh.ts";
+import { makeChassisGeometry } from "../vehicle/car-chassis-mesh.ts";
 import { CAR_STYLES } from "../vehicle/car-variants.ts";
 
 /** Deterministic dent-like noise so faces tilt the way a crushed body's do. */

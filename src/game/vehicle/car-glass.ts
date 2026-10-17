@@ -4,7 +4,7 @@ import type { GlassName } from "./car-core.ts";
 import { CAR_STYLES, type BodyStyle, type GlassQuad } from "./car-variants.ts";
 import { B_PILLAR_Z, GLASS_BELT_Y, WINDSHIELD_BASE, WINDSHIELD_W, glassTopY, glassX, lerp } from "./car-mesh.ts";
 
-// Glass panes on the shared platform: windshield, rear glass, door and quarter glass, filling the greenhouse `car-mesh.ts` builds.
+// Glass panes on the shared platform: windshield, rear glass, door and quarter glass, filling the greenhouse `car-greenhouse-mesh.ts` builds.
 
 /** The panes in the order a car adds them (`addGlass`): the order of its glass state's 2-bit fields (`glassBits`). */
 export const GLASS_NAMES: readonly GlassName[] = ["windshield", "rear", "doorL", "doorR", "quarterL", "quarterR"];

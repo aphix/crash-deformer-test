@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { hypot3, detCos } from "../kernel/physics-core.js";
 
 const RAD_PER_DEGREE = Math.PI / 180;
 /** A face thinner than this (its doubled area, m^2) has no normal worth comparing: it never decides a crease. */
@@ -47,7 +48,7 @@ function faceNormals(positions: ArrayLike<number>, indices: ArrayLike<number>): 
     const nx = aby * acz - abz * acy;
     const ny = abz * acx - abx * acz;
     const nz = abx * acy - aby * acx;
-    const doubledArea = Math.hypot(nx, ny, nz);
+    const doubledArea = hypot3(nx, ny, nz);
     if (doubledArea * doubledArea < DEGENERATE_FACE_AREA) continue;
     normals[t * 3] = nx / doubledArea;
     normals[t * 3 + 1] = ny / doubledArea;
@@ -79,7 +80,7 @@ export function splitCreases(geometry: THREE.BufferGeometry, creaseDegrees: numb
   const vertexCount = geometry.getAttribute("position").count;
   const triangleCount = indices.length / CORNERS_PER_TRIANGLE;
   const normals = faceNormals(positions, indices);
-  const smoothDot = Math.cos(creaseDegrees * RAD_PER_DEGREE);
+  const smoothDot = detCos(creaseDegrees * RAD_PER_DEGREE);
 
   const parents = Int32Array.from({ length: indices.length }, (_, corner) => corner);
   const facesOnEdge = new Map<number, number[]>();

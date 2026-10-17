@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
 import type { DetachPart } from "./car-core.ts";
 import { applyDrive, type DriveInput } from "./car-drive.ts";
-import { makeChassisGeometry } from "./car-mesh.ts";
+import { makeChassisGeometry } from "./car-chassis-mesh.ts";
 import { makeShell, panelRegions, type PanelRegion, poseShell, STAND_MAX } from "./car-panels.ts";
 import { CAR_STYLE_IDS, CAR_STYLES } from "./car-variants.ts";
 import { flapAmp, FLAP_TEAR_MPS, PANEL_FRAGILE_T } from "./car-wear.ts";

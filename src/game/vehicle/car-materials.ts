@@ -495,7 +495,7 @@ export const LETTER_DASH_ROWS = [5, 3, 5, 4, 2] as const;
 /** A 0..1 rounded ridge `distanceRows` from its crest, gone `halfRows` away on either side. */
 function roundedRidge(distanceRows: number, halfRows: number): number {
   if (Math.abs(distanceRows) >= halfRows) return 0;
-  return 0.5 * (1 + Math.cos((Math.PI * distanceRows) / halfRows));
+  return 0.5 * (1 + detCos((Math.PI * distanceRows) / halfRows));
 }
 
 /** 1 where a letter dash stands at (u, row), else 0; slot and fraction wrap at u = 1 so the seam has no step. */

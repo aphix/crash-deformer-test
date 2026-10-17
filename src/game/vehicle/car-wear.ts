@@ -1,4 +1,4 @@
-import { DOOR } from "./car-mesh.ts";
+import { DOOR } from "./car-door-mesh.ts";
 import { KPH_PER_MS } from "../kernel/constants.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
 
