@@ -23,3 +23,6 @@ kernels/skin/target
 # (docs/DEPLOY.md, "Music"). The manifest beside them is committed as the reference copy.
 public/music/*.mp3
 .soundAssetStaging/
+
+# The people's source models (README "Credits"): licensed for use in the game, not for passing on; only their bake is committed.
+assets-src/

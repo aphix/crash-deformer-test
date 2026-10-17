@@ -3,7 +3,8 @@ import { JEANS, type DriverLook } from "./driver-look.ts";
 import { PARTS } from "./ragdoll-body.ts";
 import { applySpray, sprayUniforms, type SprayBitmap } from "./spray.ts";
 import { PERSON_SPRAY } from "../match/look-data.ts";
-import { BARE, BONES_ATTRIBUTE, BUILD, CAPPED, dummyGeometry, FLAGS_AT, isDrawn, KINDS_ATTRIBUTE, OPTIONAL, PALETTE_AT, ROLE, ROLES, ROW_TEXELS, skinPoint, UNIFORM, WHISKERS } from "./dummy-skin.ts";
+import { BARE, BONES_ATTRIBUTE, BUILD, CAPPED, CHEST_ORB, dummyGeometry, FLAGS_AT, isDrawn, KINDS_ATTRIBUTE, OPTIONAL, PALETTE_AT, ROLE, ROLES, ROW_TEXELS, skinPoint, UNIFORM, WHISKERS } from "./dummy-skin.ts";
+import { FACE_ROWS, faceMap } from "./dummy-texture.ts";
 
 /** FlatOut's thrown driver (sRGB, by role): skin, dark shoes and eyes are fixed; the tee, trousers and hair roles take the driver's `DriverLook`. */
 const CIVILIAN = [0, 0xd8a27f, 0, 0, 0x1c1c1e, 0, 0, 0x1a1410, 0, 0, 0xb3202a, 0xf4f4f1];
@@ -11,10 +12,21 @@ const CIVILIAN = [0, 0xd8a27f, 0, 0, 0x1c1c1e, 0, 0, 0x1a1410, 0, 0, 0xb3202a, 0
 const COP = [0x1b2a4a, 0xd8a27f, 0x121a2e, 0x16213b, 0x0e0e10, 0x0b0b0d, 0xd4a52a, 0x0a0a0a, 0, 0, 0x101010, 0x8fa2c4];
 /** A civilian's cap peak against its crown. */
 const PEAK_SHADE = 0.6;
+/** Chest lag spring (1/s², 1/s) and the most it may trail the torso (m). A still torso keeps the offset at 0. */
+const CHEST_STIFF = 22;
+const CHEST_DAMP = 6;
+const CHEST_CAP = 0.03;
+/** Bust orbs (m), read off the woman mesh's breast peaks. */
+const ORB_X = CHEST_ORB.x;
+const ORB_Y = CHEST_ORB.y;
+const ORB_R = CHEST_ORB.r;
 const _c = new THREE.Color();
 const _o = new THREE.Vector3();
+const _chestQ = new THREE.Quaternion();
+const _chestV = new THREE.Vector3();
 const IDENTITY = new THREE.Matrix4();
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
+
 
 /**
  * The skinning in GLSL: each vertex rides bones `bones.x` and `bones.y` (weight `bones.z` on the second), moved by the
@@ -22,6 +34,9 @@ const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
  * draw collapses to a point.
  */
 const DOLL_COMMON = /* glsl */ `
+attribute vec3 shapeWoman;
+attribute vec3 shapePortly;
+attribute vec3 chestLag;
 attribute vec3 bones;
 attribute vec2 roleKind;
 uniform sampler2D dolls;
@@ -37,29 +52,49 @@ void dollSkin(out vec3 p, out vec3 n) {
   int b = int(bones.y + 0.5);
   vec4 qa = dollTexel(2 * a + 1);
   vec4 qb = dollTexel(2 * b + 1);
-  vec3 pa = dollTexel(2 * a).xyz + dollTurn(qa, position);
-  vec3 pb = dollTexel(2 * b).xyz + dollTurn(qb, position);
+  int flags = int(dollTexel(${FLAGS_AT}).x + 0.5);
+  vec3 shaped = position;
+  if ((flags & 2) != 0) shaped = shapeWoman;
+  else if ((flags & 4) != 0) shaped = shapePortly;
+  float onShirt = float(roleKind.x < 0.5);
+  float front = smoothstep(0.05, 0.10, shaped.z);
+  float leftD = length(shaped.xy - vec2(${(-ORB_X).toFixed(3)}, ${ORB_Y.toFixed(3)}));
+  float rightD = length(shaped.xy - vec2(${ORB_X.toFixed(3)}, ${ORB_Y.toFixed(3)}));
+  float dome = max(1.0 - smoothstep(0.0, ${ORB_R.toFixed(3)}, leftD), 1.0 - smoothstep(0.0, ${ORB_R.toFixed(3)}, rightD));
+  dome *= onShirt * front * float((flags & 2) != 0);
+  vec3 rest = shaped + vec3(0.0, 0.0, chestLag.z * dome);
+  vec3 pa = dollTexel(2 * a).xyz + dollTurn(qa, rest);
+  vec3 pb = dollTexel(2 * b).xyz + dollTurn(qb, rest);
   p = dollShown() ? mix(pa, pb, bones.z) : vec3(0.0);
   n = normalize(mix(dollTurn(qa, normal), dollTurn(qb, normal), bones.z));
 }
 vec3 dollColour() { return dollTexel(${PALETTE_AT} + int(roleKind.x + 0.5)).rgb; }`;
 
-/** Patch `material` to skin from `dolls`; `lit` also skins the normal and takes the vertex colour from the slot's palette. */
+/** Patch `material` to skin from `dolls`; `lit` also skins the normal, takes the vertex colour from the slot's palette, and multiplies the face by the atlas. */
 function applyDolls(material: THREE.Material, dolls: THREE.Texture, lit: boolean): void {
   const prev = material.onBeforeCompile;
   const prevKey = material.customProgramCacheKey;
+  const faces = faceMap();
   material.onBeforeCompile = (shader, renderer) => {
     prev.call(material, shader, renderer);
     shader.uniforms.dolls = { value: dolls };
-    shader.vertexShader = shader.vertexShader.replace("#include <common>", `#include <common>\n${DOLL_COMMON}`);
-    if (lit) {
-      shader.vertexShader = shader.vertexShader
-        .replace("#include <beginnormal_vertex>", "#include <beginnormal_vertex>\nvec3 dollP;\nvec3 dollN;\ndollSkin(dollP, dollN);\nobjectNormal = dollN;")
-        .replace("#include <begin_vertex>", "#include <begin_vertex>\ntransformed = dollP;")
-        .replace("#include <color_vertex>", "#include <color_vertex>\nvColor.rgb = dollColour();");
+    if (!lit) {
+      shader.vertexShader = shader.vertexShader.replace("#include <common>", `#include <common>\n${DOLL_COMMON}`);
+      shader.vertexShader = shader.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\nvec3 dollP;\nvec3 dollN;\ndollSkin(dollP, dollN);\ntransformed = dollP;");
       return;
     }
-    shader.vertexShader = shader.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\nvec3 dollP;\nvec3 dollN;\ndollSkin(dollP, dollN);\ntransformed = dollP;");
+    shader.uniforms.faces = { value: faces };
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", `#include <common>\n${DOLL_COMMON}\nattribute vec2 faceUv;\nvarying vec2 vFaceUv;\nvarying float vFaceSlot;\nvarying vec3 vCloth;\nvarying float vRole;`)
+      .replace("#include <beginnormal_vertex>", "#include <beginnormal_vertex>\nvec3 dollP;\nvec3 dollN;\ndollSkin(dollP, dollN);\nobjectNormal = dollN;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvFaceUv = faceUv;\nvFaceSlot = float(gl_InstanceID);\nvCloth = position;\nvRole = roleKind.x;\ntransformed = dollP;")
+      .replace("#include <color_vertex>", "#include <color_vertex>\nvColor.rgb = dollColour();");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `#include <common>\nvarying vec2 vFaceUv;\nvarying float vFaceSlot;\nvarying vec3 vCloth;\nvarying float vRole;\nuniform sampler2D faces;`)
+      .replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>\nif (vFaceUv.x >= 0.0 && vFaceUv.y >= 0.0) {\n  vec2 faceSt = vec2(vFaceUv.x, (vFaceUv.y + mod(vFaceSlot, ${FACE_ROWS}.0)) / ${FACE_ROWS}.0);\n  diffuseColor.rgb *= texture2D(faces, faceSt).rgb;\n}\nfloat cloth = 0.94 + 0.06 * fract(sin(dot(floor(vCloth.xy * 18.0), vec2(12.9898, 78.233))) * 43758.5453);\nif (vRole > 1.5 && vRole < 2.5) cloth *= 0.96 + 0.04 * fract(vCloth.y * 22.0 + vCloth.x * 9.0);\ndiffuseColor.rgb *= cloth;`,
+      );
   };
   material.customProgramCacheKey = () => `${prevKey.call(material)}|dolls-${lit}`;
   material.needsUpdate = true;
@@ -105,6 +140,44 @@ export class DummyMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.M
       this.dress(s, false, { woman: false, shirt: 0x2b2d32, pants: JEANS, hair: 0x2a1d15, hat: null, mustache: false });
     }
     this.count = 0;
+    const lag = new Float32Array(slots * 3);
+    const spring = new Float32Array(slots * 3);
+    const vel = new Float32Array(slots * 3);
+    const seeded = new Uint8Array(slots);
+    this.geometry.setAttribute("chestLag", new THREE.InstancedBufferAttribute(lag, 3));
+    let clock = 0;
+    this.onBeforeRender = () => {
+      const now = performance.now() * 0.001;
+      const dt = Math.min(0.05, clock === 0 ? 0.016 : now - clock);
+      clock = now;
+      for (let s = 0; s < slots; s++) {
+        const row = s * ROW_TEXELS * 4;
+        const tx = this.rows[row]!;
+        const ty = this.rows[row + 1]!;
+        const tz = this.rows[row + 2]!;
+        const o = s * 3;
+        if (seeded[s] === 0) {
+          spring[o] = tx;
+          spring[o + 1] = ty;
+          spring[o + 2] = tz;
+          seeded[s] = 1;
+        } else {
+          for (let k = 0; k < 3; k++) {
+            const acc = (this.rows[row + k]! - spring[o + k]!) * CHEST_STIFF - vel[o + k]! * CHEST_DAMP;
+            vel[o + k] = vel[o + k]! + acc * dt;
+            spring[o + k] = spring[o + k]! + vel[o + k]! * dt;
+          }
+        }
+        _chestV.set(spring[o]! - tx, spring[o + 1]! - ty, spring[o + 2]! - tz);
+        if (_chestV.length() > CHEST_CAP) _chestV.setLength(CHEST_CAP);
+        _chestQ.set(this.rows[row + 4]!, this.rows[row + 5]!, this.rows[row + 6]!, this.rows[row + 7]!).invert();
+        _chestV.applyQuaternion(_chestQ);
+        lag[o] = _chestV.x;
+        lag[o + 1] = _chestV.y;
+        lag[o + 2] = _chestV.z;
+      }
+      this.geometry.getAttribute("chestLag").needsUpdate = true;
+    };
   }
 
   /**
@@ -170,7 +243,9 @@ export class DummyMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.M
   posed(s: number, i: number, out: THREE.Vector3): boolean {
     const bones = this.geometry.getAttribute(BONES_ATTRIBUTE);
     if (!isDrawn(this.geometry.getAttribute(KINDS_ATTRIBUTE).getY(i), this.flagsOf(s))) return false;
-    skinPoint(this.rows, s, bones.getX(i), bones.getY(i), bones.getZ(i), _o.fromBufferAttribute(this.geometry.getAttribute("position"), i), out);
+    const flags = this.flagsOf(s);
+    const shape = (flags & BUILD.WOMAN) !== 0 ? "shapeWoman" : (flags & BUILD.PORTLY) !== 0 ? "shapePortly" : "position";
+    skinPoint(this.rows, s, bones.getX(i), bones.getY(i), bones.getZ(i), _o.fromBufferAttribute(this.geometry.getAttribute(shape), i), out);
     return true;
   }
 

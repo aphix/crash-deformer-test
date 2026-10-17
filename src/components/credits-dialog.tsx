@@ -75,6 +75,13 @@ export function CreditsDialog({ open, onClose }: { open: boolean; onClose: () =>
           <ExternalLink href={engine.licenseUrl}>{engine.licenseUrl}</ExternalLink>). {engine.notice}
         </p>
       </section>
+      <section className="mt-3">
+        <p className="hud-label">People</p>
+        <p className="mt-2 text-xs">
+          The drivers' and people's bodies are edited from base models by BaseMesh3d (<ExternalLink href="https://basemesh3d.com/">https://basemesh3d.com/</ExternalLink>), TurboSquid
+          Standard License.
+        </p>
+      </section>
       <form method="dialog" className="mt-4 flex justify-end">
         <Button type="submit" variant="secondary">
           Close

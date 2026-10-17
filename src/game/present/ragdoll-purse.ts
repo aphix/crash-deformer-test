@@ -34,16 +34,18 @@ const STRAP = [
   [0.09, 0.155, 0, 0.02, 0.11, 0.02],
   [0, 0.215, 0, 0.2, 0.02, 0.02],
 ] as const;
-/** What can fall out: half extents (m, a little over life size so they read from the ride camera) and colour. Lipstick, phone, keys, a gold coin, compact, a silver coin, pen. */
+/** What can fall out: half extents (m, the collider; do not change) and colour. Lipstick, phone, sunglasses, a gold coin, compact, keys, a pill bottle. */
 const ITEMS = [
-  { h: [0.016, 0.05, 0.016], color: 0xd01c3a },
-  { h: [0.04, 0.08, 0.008], color: 0x15181c },
-  { h: [0.04, 0.05, 0.008], color: 0xc8ccd2 },
+  { h: [0.016, 0.05, 0.016], color: 0xc41e3a },
+  { h: [0.04, 0.08, 0.008], color: 0x1a1c22 },
+  { h: [0.04, 0.05, 0.008], color: 0x20242c },
   { h: [0.025, 0.007, 0.025], color: 0xe8b923 },
-  { h: [0.045, 0.012, 0.045], color: 0xe8a0c0 },
-  { h: [0.025, 0.007, 0.025], color: 0xd9dde2 },
-  { h: [0.012, 0.075, 0.012], color: 0x2d6cdf },
+  { h: [0.045, 0.012, 0.045], color: 0xe7a0c4 },
+  { h: [0.025, 0.007, 0.025], color: 0xc8ccd4 },
+  { h: [0.012, 0.075, 0.012], color: 0xf4f7f2 },
 ] as const;
+/** Gold clasp on the strap's top bar. */
+const CLASP = 0xd4a84b;
 const ITEMS_MAX = ITEMS.length;
 /** Bodies per set (the purse, then each item) and drawn pieces per set (the purse, its strap, each item). */
 const BODIES = 1 + ITEMS_MAX;
@@ -80,7 +82,26 @@ const _v = new THREE.Vector3();
 /** The purses' one instanced draw: `PIECES` per slot. */
 class PropMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> {
   constructor(sets: number) {
-    super(block(), new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.1 }), sets * PIECES);
+    const geo = pieces();
+    super(geo, new THREE.MeshStandardMaterial({ roughness: 0.62, metalness: 0.12, vertexColors: true }), sets * PIECES);
+    const shapes = new Float32Array(sets * PIECES);
+    for (let s = 0; s < sets; s++) {
+      const base = s * PIECES;
+      shapes[base] = 0;
+      for (let k = 0; k < STRAP.length; k++) shapes[base + 1 + k] = 1;
+      for (let j = 0; j < ITEMS_MAX; j++) shapes[base + 1 + STRAP.length + j] = 2 + j;
+    }
+    geo.setAttribute("instanceShape", new THREE.InstancedBufferAttribute(shapes, 1));
+    const pick = (shader: { vertexShader: string }) => {
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nattribute float shapeId;\nattribute float instanceShape;")
+        .replace("#include <begin_vertex>", "#include <begin_vertex>\nif (abs(shapeId - instanceShape) > 0.5) transformed = vec3(0.0);");
+    };
+    this.material.onBeforeCompile = (shader) => pick(shader);
+    this.material.customProgramCacheKey = () => "purse-shapes";
+    this.customDepthMaterial = new THREE.MeshDepthMaterial();
+    this.customDepthMaterial.onBeforeCompile = (shader) => pick(shader);
+    this.customDepthMaterial.customProgramCacheKey = () => "purse-shapes-depth";
     for (let i = 0; i < this.count; i++) {
       this.setMatrixAt(i, HIDDEN);
       this.setColorAt(i, _c.setHex(0xffffff));
@@ -212,7 +233,7 @@ export class Purses {
     const { color } = rollPurse(seed, car);
     const base = s * PIECES;
     this.mesh.colorAt(base, color);
-    for (let k = 0; k < STRAP.length; k++) this.mesh.colorAt(base + 1 + k, color, 0.45);
+    for (let k = 0; k < STRAP.length; k++) this.mesh.colorAt(base + 1 + k, k === STRAP.length - 1 ? CLASP : color, k === STRAP.length - 1 ? 1 : 0.55);
   }
 
   /** One sim step of `dt` passed: past `BURST_AT` the things fly out of the purse; past `grace` the purse can hit its own car. */
@@ -301,7 +322,7 @@ export class Purses {
 
         const base = s * PIECES;
         if (b === 0) {
-          this.mesh.setMatrixAt(base, _m.compose(_p, _q, _s.set(PURSE_H[0] * 2, PURSE_H[1] * 2, PURSE_H[2] * 2)));
+          this.mesh.setMatrixAt(base, _m.compose(_p, _q, _s.set(1, 1, 1)));
           for (let k = 0; k < STRAP.length; k++) {
             const t = STRAP[k]!;
             _o.set(t[0], t[1], t[2]).applyQuaternion(_q).add(_p);
@@ -423,31 +444,84 @@ export class Purses {
   }
 }
 
-/** A block's foot across, against its top. */
-const TAPER = 0.78;
-/** The block's cross-section: a 1 m square with its corners cut, so it reads blocky, not round. */
-const RING = [0.5, 0.32, 0.32, 0.5, -0.32, 0.5, -0.5, 0.32, -0.5, -0.32, -0.32, -0.5, 0.32, -0.5, 0.5, -0.32];
+/** Sides on a piece. Eight reads round at a few metres and stays cheap. */
+const PIECE_SIDES = 8;
+
+type Built = { pos: number[]; shape: number[]; index: number[] };
+
+function ring(b: Built, id: number, y: number, rx: number, rz: number, cx = 0, cz = 0): number {
+  const at = b.pos.length / 3;
+  for (let k = 0; k < PIECE_SIDES; k++) {
+    const a = ((k + 0.5) * Math.PI * 2) / PIECE_SIDES;
+    b.pos.push(cx + Math.cos(a) * rx, y, cz + Math.sin(a) * rz);
+    b.shape.push(id);
+  }
+  return at;
+}
+
+function link(b: Built, top: number, bot: number): void {
+  for (let k = 0; k < PIECE_SIDES; k++) {
+    const n = (k + 1) % PIECE_SIDES;
+    b.index.push(top + k, top + n, bot + n, top + k, bot + n, bot + k);
+  }
+}
+
+function cap(b: Built, id: number, at: number, y: number, cx: number, cz: number, up: boolean): void {
+  const pole = b.pos.length / 3;
+  b.pos.push(cx, y, cz);
+  b.shape.push(id);
+  for (let k = 0; k < PIECE_SIDES; k++) {
+    const n = (k + 1) % PIECE_SIDES;
+    b.index.push(pole, up ? at + n : at + k, up ? at + k : at + n);
+  }
+}
+
+/** A tube along y, unit-ish, so the instance scale (`h * 2`) makes the real size. */
+function tube(b: Built, id: number, y0: number, y1: number, rx: number, rz: number, cx = 0, cz = 0): void {
+  const top = ring(b, id, y1, rx, rz, cx, cz);
+  const bot = ring(b, id, y0, rx, rz, cx, cz);
+  link(b, top, bot);
+  cap(b, id, top, y1, cx, cz, true);
+  cap(b, id, bot, y0, cx, cz, false);
+}
 
 /**
- * The one shape every purse piece scales: an octagonal block 1 m wide and tall, its foot `TAPER` of its top, smooth-shaded
- * round its sides and flat on its ends (28 triangles).
+ * Every purse piece in one geometry, tagged with `shapeId`. The bag is real size (the instance scale is 1); the strap bar
+ * and the items are unit shapes the existing scales turn into a handle, a lipstick, a phone, sunglasses, a coin, a compact,
+ * keys and a pill bottle. One draw; the shader keeps the instance's shape.
  */
-function block(): THREE.BufferGeometry {
-  const pos: number[] = [];
-  // Side rings (0–7 top, 8–15 foot), then the same again for the end caps (16–23, 24–31), so the caps shade flat.
-  for (let r = 0; r < 4; r++) {
-    const s = r % 2 ? TAPER : 1;
-    for (let k = 0; k < 8; k++) pos.push(RING[2 * k]! * s, r % 2 ? -0.5 : 0.5, RING[2 * k + 1]! * s);
-  }
-  const index: number[] = [];
-  for (let k = 0; k < 8; k++) {
-    const n = (k + 1) % 8;
-    index.push(k, n, 8 + n, k, 8 + n, 8 + k);
-  }
-  for (let k = 1; k < 7; k++) index.push(16, 17 + k, 16 + k, 24, 24 + k, 25 + k);
+function pieces(): THREE.BufferGeometry {
+  const b: Built = { pos: [], shape: [], index: [] };
+  const top = ring(b, 0, 0.06, 0.11, 0.038);
+  const mid = ring(b, 0, -0.01, 0.14, 0.048);
+  const foot = ring(b, 0, -0.09, 0.12, 0.04);
+  link(b, top, mid);
+  link(b, mid, foot);
+  cap(b, 0, top, 0.07, 0, 0, true);
+  cap(b, 0, foot, -0.09, 0, 0, false);
+  const flapA = ring(b, 0, 0.05, 0.09, 0.01, 0, 0.052);
+  const flapB = ring(b, 0, -0.03, 0.09, 0.01, 0, 0.052);
+  link(b, flapA, flapB);
+  cap(b, 0, flapA, 0.05, 0, 0.052, true);
+  cap(b, 0, flapB, -0.03, 0, 0.052, false);
+  tube(b, 1, -0.5, 0.5, 0.5, 0.5);
+  tube(b, 2, -0.5, 0.25, 0.32, 0.32);
+  tube(b, 2, 0.25, 0.5, 0.4, 0.4);
+  tube(b, 3, -0.48, 0.48, 0.42, 0.28);
+  tube(b, 4, -0.15, 0.15, 0.22, 0.22, -0.28, 0);
+  tube(b, 4, -0.15, 0.15, 0.22, 0.22, 0.28, 0);
+  tube(b, 4, -0.08, 0.08, 0.1, 0.06);
+  tube(b, 5, -0.2, 0.2, 0.46, 0.46);
+  tube(b, 6, -0.25, 0.25, 0.42, 0.42);
+  tube(b, 6, -0.05, 0.08, 0.48, 0.48);
+  tube(b, 7, -0.15, 0.15, 0.38, 0.38);
+  tube(b, 7, -0.12, 0.12, 0.16, 0.16);
+  tube(b, 8, -0.45, 0.2, 0.38, 0.38);
+  tube(b, 8, 0.2, 0.48, 0.28, 0.28);
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  geo.setIndex(index);
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(b.pos, 3));
+  geo.setAttribute("shapeId", new THREE.Float32BufferAttribute(b.shape, 1));
+  geo.setIndex(b.index);
   geo.computeVertexNormals();
   return geo;
 }

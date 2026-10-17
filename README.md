@@ -173,3 +173,6 @@ The papers behind the solver, each with an analysis note and the cross-paper fin
   ([`kernels/motor/LICENSE`](kernels/motor/LICENSE)).
 - Ultra textures and sky: [Poly Haven](https://polyhaven.com/license), CC0; the four sets are named in `src/game/present/ultra/ultra.ts`.
 - Ragdolls: the approach of [rapierjs-ragdoll](https://github.com/mattvb91/rapierjs-ragdoll), MIT, rewritten for this engine.
+- People's bodies: edited from [BaseMesh3d](https://basemesh3d.com/)'s slender man, slender woman and obese man base meshes (TurboSquid Standard
+  License), credited in the game's Credits dialog. The source OBJs are not in this repository (the licence covers using them in the game, not
+  passing the files on): put them in `assets-src/` to re-bake `src/game/present/dummy-bodies.ts` with `scripts/bake-dummy-bodies.mjs`.

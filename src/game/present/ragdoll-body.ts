@@ -9,15 +9,16 @@ import type { Collider, RigidBody } from "@dimforge/rapier3d-simd";
 
 /**
  * Dummy parts standing (feet at y = 0): centre, half extents (m). Torso first: the throw places it.
- * A 1.62 m crash-test dummy, about 100 kg at water's density.
+ * A 1.62 m crash-test dummy, about 100 kg at water's density. The forearm parts run from the elbow to the fingertips and are
+ * 0.14 m deep (the fitted mesh's hands, thumb forward, hang inside them); the upper arms run from the shoulder to the elbow.
  */
 export const PARTS = [
   { c: [0, 1.11, 0], h: [0.18, 0.27, 0.11] },
   { c: [0, 1.63, 0], h: [0.1, 0.11, 0.11] },
   { c: [-0.24, 1.21, 0], h: [0.05, 0.14, 0.05] },
-  { c: [-0.24, 0.93, 0], h: [0.05, 0.14, 0.05] },
+  { c: [-0.24, 0.865, 0], h: [0.05, 0.205, 0.07] },
   { c: [0.24, 1.21, 0], h: [0.05, 0.14, 0.05] },
-  { c: [0.24, 0.93, 0], h: [0.05, 0.14, 0.05] },
+  { c: [0.24, 0.865, 0], h: [0.05, 0.205, 0.07] },
   { c: [-0.09, 0.63, 0], h: [0.075, 0.21, 0.075] },
   { c: [-0.09, 0.21, 0], h: [0.075, 0.21, 0.075] },
   { c: [0.09, 0.63, 0], h: [0.075, 0.21, 0.075] },
