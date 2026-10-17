@@ -251,15 +251,19 @@ const SCENES = {
     at: 0.1,
   },
   // Every figure knocked over (the showcase's own press: Rapier loaded first, then knock and take) with the Rig debug view on (G): each body's
-  // ten part boxes and joints over its drawn mesh, to see that the skin rides its rig. Shoot it a few tenths of a second after the knock.
+  // ten part boxes and joints over its drawn mesh, to see that the skin rides its rig, falling (0.3 s) and lying on the ground (2 s and on).
+  // The free eye is set 9 m in and tipped down at the front row (no held key, so it stays put whatever `--at`).
   "showcase-rig": {
     survey: true,
     hash: "scene=showcase",
     setup: async (p) => {
-      await holdGas(p);
       await run(p, () => window.__crush.ragdolls.preload());
       await run(p, () => {
         const e = window.__crush;
+        const free = e.view.free;
+        free.eye.x -= Math.sin(free.yaw) * 9;
+        free.eye.z -= Math.cos(free.yaw) * 9;
+        free.pitch = -0.45;
         e.toggleRig();
         for (let slot = 0; slot < 12; slot++) if (e.knockShowcase(slot)) e.showcase.art.take(slot);
       });
