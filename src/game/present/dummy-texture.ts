@@ -72,11 +72,7 @@ function face(px: Uint8Array, row: number, smile: number, browLift: number): voi
   }
 }
 
-let atlas: THREE.DataTexture | undefined;
-
-/** The shared face atlas. One texture for every slot; the shader picks the row. */
-export function faceMap(): THREE.DataTexture {
-  if (atlas) return atlas;
+function buildAtlas(): THREE.DataTexture {
   const px = new Uint8Array(FACE_W * FACE_H * FACE_ROWS * 4);
   const moods = [
     [1, 0],
@@ -85,12 +81,19 @@ export function faceMap(): THREE.DataTexture {
     [1, 2],
   ] as const;
   for (let row = 0; row < FACE_ROWS; row++) face(px, row, moods[row]![0], moods[row]![1]);
-  atlas = new THREE.DataTexture(px, FACE_W, FACE_H * FACE_ROWS);
-  atlas.flipY = false;
-  atlas.colorSpace = THREE.NoColorSpace;
-  atlas.magFilter = THREE.LinearFilter;
-  atlas.minFilter = THREE.LinearMipmapLinearFilter;
-  atlas.generateMipmaps = true;
-  atlas.needsUpdate = true;
+  const texture = new THREE.DataTexture(px, FACE_W, FACE_H * FACE_ROWS);
+  texture.flipY = false;
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+const atlas = buildAtlas();
+
+/** The shared face atlas. One texture for every slot; the shader picks the row. */
+export function faceMap(): THREE.DataTexture {
   return atlas;
 }

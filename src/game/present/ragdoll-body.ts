@@ -24,12 +24,29 @@ export const PARTS = [
   { c: [0.09, 0.63, 0], h: [0.075, 0.21, 0.075] },
   { c: [0.09, 0.21, 0], h: [0.075, 0.21, 0.075] },
 ] as const;
-/** Each part's mass (kg, water's density) and largest principal inertia (kg m²): `isCalm`'s kinetic energy. */
-const MASS = PARTS.map((p) => 8000 * p.h[0] * p.h[1] * p.h[2]);
-const INERTIA = PARTS.map((p, k) => {
-  const [a, b] = [p.h[0] ** 2, p.h[1] ** 2, p.h[2] ** 2].sort((x, y) => y - x);
-  return (MASS[k]! * (a! + b!)) / 3;
-});
+/**
+ * The forearm parts are boxes long enough to hold the hand, but the dummy's weight stays what it was with the short forearm
+ * box: the part weighs 2.8 kg and has the inertia of a box of half sizes `FOREARM_PHYSICS_HALF`, about the long box's centre
+ * (moving the centre of mass to the old box's centre, 6.5 cm up, laid the Monster's dummy 3 cm into the terrain).
+ */
+const FOREARM_PHYSICS_HALF = [0.05, 0.14, 0.05] as const;
+const FOREARMS = [3, 5];
+/** Part `k`'s mass (kg, water's density) and principal inertia (kg m²) about its centre. */
+function massOf(k: number): { mass: number; inertia: [number, number, number] } {
+  const [hx, hy, hz] = FOREARMS.includes(k) ? FOREARM_PHYSICS_HALF : PARTS[k]!.h;
+  const mass = 8000 * hx * hy * hz;
+  return { mass, inertia: [(mass * (hy ** 2 + hz ** 2)) / 3, (mass * (hx ** 2 + hz ** 2)) / 3, (mass * (hx ** 2 + hy ** 2)) / 3] };
+}
+/** Whether part `k`'s collider needs its mass set by hand (`massOf`) rather than by density: its box is not the shape it weighs as. */
+export const hasPhysicsMass = (k: number) => FOREARMS.includes(k);
+/** Hands part `k`'s collider description its mass and inertia (`massOf`) about the collider's centre. */
+export function setPartMass<T extends { setMassProperties(mass: number, centre: { x: number; y: number; z: number }, inertia: { x: number; y: number; z: number }, frame: { x: number; y: number; z: number; w: number }): T }>(desc: T, k: number): T {
+  const { mass, inertia } = massOf(k);
+  return desc.setMassProperties(mass, { x: 0, y: 0, z: 0 }, { x: inertia[0], y: inertia[1], z: inertia[2] }, { x: 0, y: 0, z: 0, w: 1 });
+}
+/** Each part's mass (kg) and largest principal inertia (kg m²): `isCalm`'s kinetic energy. */
+const MASS = PARTS.map((_, k) => massOf(k).mass);
+const INERTIA = PARTS.map((_, k) => Math.max(...massOf(k).inertia));
 /** Arms (parts 2–5) start raised over the head: the superman dive out of the car. */
 export const ARM = (k: number) => k >= 2 && k <= 5;
 export const SHOULDER_Y = 1.35;

@@ -5,7 +5,21 @@ import { driverLook, JEANS, type DriverLook } from "./driver-look.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 import { JOINTS, PARTS } from "./ragdoll-body.ts";
 import { BODY_VERTICES, bodyIndex } from "./dummy-bodies.ts";
-import { BONES_ATTRIBUTE, BUILD, FLAGS_AT, JOINT_SLOPE, KINDS_ATTRIBUTE, restFits, ROLE, ROLES, skinPoint, WHISKERS } from "./dummy-skin.ts";
+import { BONES_ATTRIBUTE, BUILD, FLAGS_AT, KINDS_ATTRIBUTE, restFits, ROLE, ROLES, skinPoint, WHISKERS } from "./dummy-skin.ts";
+
+/**
+ * The steepest each `JOINTS` row's blend weight may climb per metre, restated from the band widths of dummy-skin.ts (neck
+ * 1.40..1.48 m slanted 1.2 per metre of |x|; shoulder 0.20 m along the arm by 0.08 m across it; elbow and knee +-0.05 m; hip
+ * 0.92..0.76 m with the crotch lifted 0.06 m over 0.10 m of |x|). A smoothstep over a width climbs at most 1.5 / width, a
+ * smoothstep of a coordinate that itself moves at most k per metre at most 1.5 k / width, and the product of two orthogonal ones at
+ * most the hypotenuse of their slopes. A fit whose weights climb faster than its declared bands is what a hard seam is.
+ */
+const SMOOTHSTEP_SLOPE = 1.5;
+const SLOPE_NECK = (SMOOTHSTEP_SLOPE / 0.08) * Math.hypot(1, 1.2);
+const SLOPE_SHOULDER = Math.hypot(SMOOTHSTEP_SLOPE / 0.2, SMOOTHSTEP_SLOPE / 0.08);
+const SLOPE_ELBOW_OR_KNEE = SMOOTHSTEP_SLOPE / 0.1;
+const SLOPE_HIP = (SMOOTHSTEP_SLOPE / 0.16) * Math.hypot(1, (0.06 * SMOOTHSTEP_SLOPE) / 0.1);
+const JOINT_SLOPE = [SLOPE_NECK, SLOPE_SHOULDER, SLOPE_ELBOW_OR_KNEE, SLOPE_SHOULDER, SLOPE_ELBOW_OR_KNEE, SLOPE_HIP, SLOPE_ELBOW_OR_KNEE, SLOPE_HIP, SLOPE_ELBOW_OR_KNEE] as const;
 
 const MAN: DriverLook = { woman: false, shirt: 0xc0392b, pants: JEANS, hair: 0x18120f, hat: null, mustache: false };
 const WOMAN: DriverLook = { woman: true, shirt: 0x2a9d8f, pants: JEANS, hair: 0xd2b062, hat: null, mustache: false };

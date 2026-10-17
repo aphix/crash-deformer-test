@@ -34,6 +34,9 @@ export function isDrawn(kinds: number, flags: number): boolean {
 /** The geometry's attributes beside `position` and `normal`; the shader declares them by these names. */
 export const BONES_ATTRIBUTE = "bones";
 export const KINDS_ATTRIBUTE = "roleKind";
+/** The woman's and the portly man's rest positions, beside the man's `position`; the shader declares them by these names. */
+export const SHAPE_WOMAN_ATTRIBUTE = "shapeWoman";
+export const SHAPE_PORTLY_ATTRIBUTE = "shapePortly";
 
 /** A slot's row in the pose texture: two texels per bone (translation, rotation), a texel per role colour, then the flags. */
 const BONES = PARTS.length;
@@ -57,12 +60,11 @@ const RIG_TOP = 1.74;
 /** The woman is shorter, so the shared height scale widens her past the man. This puts her shoulders back inside his. */
 const WOMAN_NARROW = 0.9;
 
-/** Smoothstep from `from` (0) to `to` (1), either way round; its steepest slope is `STEEPEST_SMOOTHSTEP / |to - from|`. */
+/** Smoothstep from `from` (0) to `to` (1), either way round. */
 function smooth(from: number, to: number, value: number): number {
   const fraction = Math.min(1, Math.max(0, (value - from) / (to - from)));
   return fraction * fraction * (3 - 2 * fraction);
 }
-const STEEPEST_SMOOTHSTEP = 1.5;
 
 /**
  * The shoulder's weight is one continuous function of where a vertex lies about the shoulder pivot: along the upper arm's axis
@@ -97,18 +99,6 @@ const NECK_FROM = 1.4;
 const NECK_TO = 1.48;
 const NECK_HALF_WIDTH = 0.07;
 const NECK_SLANT = 1.2;
-
-/**
- * The steepest each `JOINTS` row's blend weight climbs per metre, from the band widths above: a smoothstep of a coordinate
- * that itself moves at most `k` per metre climbs at most 1.5 k / width, and the product of smoothsteps of two orthogonal
- * coordinates at most the hypotenuse of their slopes. The joint-closure tests bound a band's stretch by it.
- */
-const SLOPE_NECK = (STEEPEST_SMOOTHSTEP / (NECK_TO - NECK_FROM)) * Math.hypot(1, NECK_SLANT);
-const SLOPE_SHOULDER = Math.hypot(STEEPEST_SMOOTHSTEP / (SHOULDER_ALONG_TO - SHOULDER_ALONG_FROM), STEEPEST_SMOOTHSTEP / (SHOULDER_ACROSS_TO - SHOULDER_ACROSS_FROM));
-const SLOPE_ELBOW = STEEPEST_SMOOTHSTEP / (2 * ELBOW_HALF_BAND);
-const SLOPE_HIP = (STEEPEST_SMOOTHSTEP / (HIP_TOP - HIP_BOTTOM)) * Math.hypot(1, (CROTCH_LIFT * STEEPEST_SMOOTHSTEP) / CROTCH_WIDTH);
-const SLOPE_KNEE = STEEPEST_SMOOTHSTEP / (2 * KNEE_HALF_BAND);
-export const JOINT_SLOPE = [SLOPE_NECK, SLOPE_SHOULDER, SLOPE_ELBOW, SLOPE_SHOULDER, SLOPE_ELBOW, SLOPE_HIP, SLOPE_KNEE, SLOPE_HIP, SLOPE_KNEE] as const;
 
 /** One baked body fitted to the rig: its scaled T-pose, its arms-down rest, and the weights the bending and the skinning share. */
 type Fit = {
@@ -321,10 +311,9 @@ function fitBody(raw: Float32Array, width = 1): Fit {
   return { tpose, rest, shoulderWeight, elbowWeight, hipWeight, neckWeight, fingertipY };
 }
 
-let fits: { man: Fit; woman: Fit; portly: Fit } | undefined;
-/** The three baked bodies fitted to the rig (computed once). */
+const fits = { man: fitBody(bodyPositions("slenderMan")), woman: fitBody(bodyPositions("slenderWoman"), WOMAN_NARROW), portly: fitBody(bodyPositions("obeseMan")) };
+/** The three baked bodies fitted to the rig (computed once, on load: `CHEST_ORB` needs the woman's). */
 export function restFits(): { man: Fit; woman: Fit; portly: Fit } {
-  fits ??= { man: fitBody(bodyPositions("slenderMan")), woman: fitBody(bodyPositions("slenderWoman"), WOMAN_NARROW), portly: fitBody(bodyPositions("obeseMan")) };
   return fits;
 }
 
@@ -696,8 +685,8 @@ export function dummyGeometry(): THREE.BufferGeometry {
     return all;
   };
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(withWear(man.rest), 3));
-  geometry.setAttribute("shapeWoman", new THREE.Float32BufferAttribute(withWear(woman.rest), 3));
-  geometry.setAttribute("shapePortly", new THREE.Float32BufferAttribute(withWear(portly.rest), 3));
+  geometry.setAttribute(SHAPE_WOMAN_ATTRIBUTE, new THREE.Float32BufferAttribute(withWear(woman.rest), 3));
+  geometry.setAttribute(SHAPE_PORTLY_ATTRIBUTE, new THREE.Float32BufferAttribute(withWear(portly.rest), 3));
   geometry.setAttribute("faceUv", new THREE.Float32BufferAttribute(faceUv.concat(new Array<number>((wear.position.length / 3) * 2).fill(-1)), 2));
   geometry.setAttribute(BONES_ATTRIBUTE, new THREE.Float32BufferAttribute(bones.concat(wear.bones), 3));
   geometry.setAttribute(KINDS_ATTRIBUTE, new THREE.Float32BufferAttribute(roleKind.concat(wear.roleKind), 2));

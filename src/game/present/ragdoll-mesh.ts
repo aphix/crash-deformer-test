@@ -3,7 +3,7 @@ import { JEANS, type DriverLook } from "./driver-look.ts";
 import { PARTS } from "./ragdoll-body.ts";
 import { applySpray, sprayUniforms, type SprayBitmap } from "./spray.ts";
 import { PERSON_SPRAY } from "../match/look-data.ts";
-import { BARE, BONES_ATTRIBUTE, BUILD, CAPPED, CHEST_ORB, dummyGeometry, FLAGS_AT, isDrawn, KINDS_ATTRIBUTE, OPTIONAL, PALETTE_AT, ROLE, ROLES, ROW_TEXELS, skinPoint, UNIFORM, WHISKERS } from "./dummy-skin.ts";
+import { BARE, BONES_ATTRIBUTE, BUILD, CAPPED, CHEST_ORB, dummyGeometry, FLAGS_AT, isDrawn, KINDS_ATTRIBUTE, OPTIONAL, PALETTE_AT, ROLE, ROLES, ROW_TEXELS, SHAPE_PORTLY_ATTRIBUTE, SHAPE_WOMAN_ATTRIBUTE, skinPoint, UNIFORM, WHISKERS } from "./dummy-skin.ts";
 import { FACE_ROWS, faceMap } from "./dummy-texture.ts";
 
 /** FlatOut's thrown driver (sRGB, by role): skin, dark shoes and eyes are fixed; the tee, trousers and hair roles take the driver's `DriverLook`. */
@@ -16,6 +16,8 @@ const PEAK_SHADE = 0.6;
 const CHEST_STIFF = 22;
 const CHEST_DAMP = 6;
 const CHEST_CAP = 0.03;
+/** The per-slot chest lag the jiggle orbs ride (an instanced attribute the shader declares by this name). */
+const CHEST_LAG_ATTRIBUTE = "chestLag";
 /** Bust orbs (m), read off the woman mesh's breast peaks. */
 const ORB_X = CHEST_ORB.x;
 const ORB_Y = CHEST_ORB.y;
@@ -144,7 +146,7 @@ export class DummyMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.M
     const spring = new Float32Array(slots * 3);
     const vel = new Float32Array(slots * 3);
     const seeded = new Uint8Array(slots);
-    this.geometry.setAttribute("chestLag", new THREE.InstancedBufferAttribute(lag, 3));
+    this.geometry.setAttribute(CHEST_LAG_ATTRIBUTE, new THREE.InstancedBufferAttribute(lag, 3));
     let clock = 0;
     this.onBeforeRender = () => {
       const now = performance.now() * 0.001;
@@ -176,7 +178,7 @@ export class DummyMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.M
         lag[o + 1] = _chestV.y;
         lag[o + 2] = _chestV.z;
       }
-      this.geometry.getAttribute("chestLag").needsUpdate = true;
+      this.geometry.getAttribute(CHEST_LAG_ATTRIBUTE).needsUpdate = true;
     };
   }
 
@@ -244,7 +246,7 @@ export class DummyMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.M
     const bones = this.geometry.getAttribute(BONES_ATTRIBUTE);
     if (!isDrawn(this.geometry.getAttribute(KINDS_ATTRIBUTE).getY(i), this.flagsOf(s))) return false;
     const flags = this.flagsOf(s);
-    const shape = (flags & BUILD.WOMAN) !== 0 ? "shapeWoman" : (flags & BUILD.PORTLY) !== 0 ? "shapePortly" : "position";
+    const shape = (flags & BUILD.WOMAN) !== 0 ? SHAPE_WOMAN_ATTRIBUTE : (flags & BUILD.PORTLY) !== 0 ? SHAPE_PORTLY_ATTRIBUTE : "position";
     skinPoint(this.rows, s, bones.getX(i), bones.getY(i), bones.getZ(i), _o.fromBufferAttribute(this.geometry.getAttribute(shape), i), out);
     return true;
   }
