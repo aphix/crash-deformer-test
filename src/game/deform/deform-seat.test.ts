@@ -17,6 +17,8 @@ import { Ground, setGround } from "../world/ground.ts";
 const STEP = 1 / FINE_HZ;
 const SECONDS = 1;
 const SIDE = Math.PI / 2;
+/** A wreck's tilt (rad) off lying flat on its roof: 16°, upY -0.96, what the derby's sunk wreck lay at. */
+const TILT = 0.28;
 
 /** A wreck lying at `roll` (about the body's z) and `pitch` (about its x), `y` m up, over a ground with a prism beside it. */
 function wreckAt(roll: number, pitch: number): WreckRig {
@@ -66,6 +68,11 @@ describe("given a wreck held against a prism with its cell 1-6 cm off its seat f
     { name: "on its roof, cell 3 cm off along body x", roll: Math.PI, pitch: 0, dx: -0.03, dz: 0 },
     { name: "standing on its nose, cell 3 cm off along body z", roll: 0, pitch: SIDE, dx: 0, dz: -0.03 },
     { name: "standing on its tail, cell 3 cm off along body z", roll: 0, pitch: -SIDE, dx: 0, dz: -0.03 },
+    // A wreck not quite flat on its roof: the plane the seat steps in is tilted 16°, so the step has a world-vertical part of sin 16° of SEAT_SPEED = 0.28 m/s, either way. Its tyres hold nothing up and the rigid step lifts a resting wreck out of the floor by at most REST_SPEED = 0.16 m/s, so a roof-down wreck held against a wall with its cell off its seat sank 8 cm/s into the arena's floor (derby seed 6 c9, 0.5 m under at 63 s, 4 m at 113 s).
+    { name: "on its roof 16° short of flat, cell 3 cm off along body x", roll: Math.PI - TILT, pitch: 0, dx: -0.03, dz: 0 },
+    { name: "on its roof 16° short of flat, cell 3 cm off the other way along body x", roll: Math.PI - TILT, pitch: 0, dx: 0.03, dz: 0 },
+    { name: "on its roof 16° short of flat the other way, cell 3 cm off along body x", roll: Math.PI + TILT, pitch: 0, dx: -0.03, dz: 0 },
+    { name: "on its roof 16° nose short of flat, cell 3 cm off along body z", roll: Math.PI, pitch: TILT, dx: 0, dz: -0.03 },
   ];
   for (const c of sideCases) {
     it(`when it is ${c.name}, then its height drifts under 1 µm over the second`, () => {
