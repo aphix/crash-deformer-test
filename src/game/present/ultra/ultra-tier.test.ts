@@ -15,7 +15,7 @@ function feed(fx: AutoFx, seconds: number, matchTime: (t: number) => number | nu
   for (let i = 0; t < seconds * 1000; i++) {
     const ms = 16.8 + ((i * 7) % 8) * 0.1;
     t += ms;
-    const tier = fx.frame(ms, LIGHT_WORK_MS, NO_GPU, matchTime(t / 1000));
+    const tier = fx.frame(ms, LIGHT_WORK_MS, LIGHT_WORK_MS, NO_GPU, matchTime(t / 1000));
     if (tier !== null) out.push(tier);
   }
   return out;

@@ -1,16 +1,24 @@
-// Automatic FX tier (docs/HIGHLIGHTS.md "FX tier"), decided by how full the frame is, not by the frame rate (`present/frame-work.ts`):
-// a quick check after boot lifts a capable desktop with room to spare to "high"; two windows too full for 60 fps step it down
-// high → low → minimal; a run of windows with room climbs back one tier (never into "ultra": that one is the user's pick); a match
-// starts on minimal and runs the load check again 3 s after green. A manual pick turns it off.
+// Automatic FX tier (docs/HIGHLIGHTS.md "FX tier"), decided by how full the frame's RENDER is, not by the frame rate or the sim
+// (`present/frame-work.ts`): a quick check after boot lifts a device with a hardware GPU and render time to spare to "high"; two
+// windows too full step it down high → low → minimal; a run of windows with room climbs back one tier (never into "ultra": that
+// one is the user's pick, on every device class); a match starts on minimal and runs the load check again 3 s after green. A
+// manual pick turns it off. Whether the device may host a public match is judged on the main thread's total, sim included.
 import { SLOW_WINDOWS } from "./constants.ts";
 import type { FxTier } from "./engine-post.ts";
-import { FrameWork } from "./frame-work.ts";
+import { FRAME_BUDGET_MS, FrameWork, type Judge } from "./frame-work.ts";
 
 const SOFTWARE_GPU = /swiftshader|llvmpipe|softpipe|basic render/i;
 
-/** True only on a fine-pointer device whose GPU is known and is not a software rasterizer. */
-export function hardwareDesktop(renderer: string | null, pointerFine: boolean): boolean {
-  return pointerFine && renderer !== null && !SOFTWARE_GPU.test(renderer);
+/**
+ * What the device is, from the signals the browser gives: `software` (no GPU named, or a software rasterizer: Auto stays on
+ * minimal), `mobile` (a coarse primary pointer, or the user agent says mobile: Auto judges its render, it never hosts a match,
+ * and its memory-heavy tier items are capped, `RIVAL_SPRAY_MAX_SCALE`), else `desktop`. The one place the class is decided.
+ */
+export type DeviceClass = "desktop" | "mobile" | "software";
+
+export function deviceClass(renderer: string | null, pointerFine: boolean, uaMobile: boolean): DeviceClass {
+  if (renderer === null || SOFTWARE_GPU.test(renderer)) return "software";
+  return pointerFine && !uaMobile ? "desktop" : "mobile";
 }
 
 /** What `gl.RENDERER` says when the browser withholds the GPU (Chrome, a fingerprint-resistant Firefox). */
@@ -49,17 +57,22 @@ export class AutoFx {
   auto: boolean;
   /** The last finished window's fps (0 before one). */
   fps = 0;
-  /** The last finished window's busier side (CPU or GPU median) as a share of the 60 fps frame budget. */
+  /** The last finished window's busier side (render main-thread or GPU median) as a share of the render budget (`frame-work.ts`). */
   busy = 0;
+  /** The last finished window's render ms and the rest of its main-thread ms (the sim), each as a share of the 60 fps frame budget. */
+  renderShare = 0;
+  simShare = 0;
   /** The highest tier that held this session, where a match's end returns; null until the load check decides. */
   private ceiling: FxTier | null;
   private readonly capable: boolean;
+  /** The same policy fed the same frames but judged on the main thread's total (sim included): its ceiling is `canHost`'s. Null in itself. */
+  private readonly host: AutoFx | null;
   private tier: FxTier = "minimal";
   /** The last frame's match state; null forces the next frame to apply the target tier. */
   private match: boolean | null = null;
   /** The current match's post-green load check has run. */
   private probed = false;
-  private readonly win = new FrameWork();
+  private readonly win: FrameWork;
   private slow = 0;
   private upRun = 0;
   private upNeed = UP_STREAK;
@@ -68,44 +81,51 @@ export class AutoFx {
   private downAt = -1000;
   private climbedAt = -1000;
 
-  constructor(capable: boolean, auto: boolean) {
+  /**
+   * `capable`: the load check runs (not a software GPU). `hostable`: may host a public match (a desktop; a phone never does).
+   * `judge` is the basis the tiers are judged on; only the policy's own host copy passes "work".
+   */
+  constructor(capable: boolean, auto: boolean, hostable = capable, judge: Judge = "render") {
     this.auto = auto;
     this.capable = capable;
     this.ceiling = capable ? null : "minimal";
+    this.win = new FrameWork(judge);
+    this.host = judge === "render" ? new AutoFx(hostable, auto, hostable, "work") : null;
   }
 
   /**
-   * Fit to host a public match for others (docs/MULTIPLAYER.md "Matchmaking"): the highest tier this session held
-   * is "high" or "low", or the load check has not yet judged a capable (hardware, fine-pointer) device. A phone, a
-   * software GPU, and a desktop that measured or fell to minimal are not: they search longer and host a smaller field.
+   * Fit to host a public match for others (docs/MULTIPLAYER.md "Matchmaking"): the highest tier this session held on the main
+   * thread's TOTAL (sim included: a phone whose render has room still has no room to host) is "high" or "low", or the load
+   * check has not yet judged a hostable desktop. A phone, a software GPU, and a desktop that measured or fell to minimal are
+   * not: they search longer and host a smaller field.
    */
   canHost(): boolean {
-    return this.ceiling !== "minimal";
+    return (this.host ?? this).ceiling !== "minimal";
   }
 
   /**
-   * Every rendered frame after boot: its wall interval (ms), the main thread's ms for the last frame, the newest GPU ms (-1: no
-   * timer or no reading yet); returns the tier to switch to, or null. `matchTime` is the race's or derby's clock (s, negative
-   * before green, 0 at green), null outside a match.
+   * Every rendered frame after boot: its wall interval (ms), the main thread's ms for the last frame, the draw submit's ms inside
+   * it, the newest GPU ms (-1: no timer or no reading yet); returns the tier to switch to, or null. `matchTime` is the race's or
+   * derby's clock (s, negative before green, 0 at green), null outside a match.
    */
-  frame(ms: number, workMs: number, gpuMs: number, matchTime: number | null): FxTier | null {
+  frame(ms: number, workMs: number, renderMs: number, gpuMs: number, matchTime: number | null): FxTier | null {
     if (!this.auto) return null;
+    this.host?.frame(ms, workMs, renderMs, gpuMs, matchTime);
     const match = matchTime !== null;
     if (match !== this.match) {
       this.match = match;
       this.probed = false;
       return this.switch(match ? "minimal" : (this.ceiling ?? "minimal"));
     }
-    if (match && !this.probed) return this.probe(ms, workMs, gpuMs, matchTime);
-    if (!this.capable || !this.win.add(ms, workMs, gpuMs)) return null;
+    if (match && !this.probed) return this.probe(ms, workMs, renderMs, gpuMs, matchTime);
+    if (!this.capable || !this.win.add(ms, workMs, renderMs, gpuMs)) return null;
     return this.verdict();
   }
 
   /** The load check and every later window: step down when too full, climb when there is room. */
   private verdict(): FxTier | null {
     const w = this.win;
-    this.fps = w.fps;
-    this.busy = w.busy;
+    this.record();
     this.windows++;
     const roomy = w.roomy();
     if (this.ceiling === null) {
@@ -136,14 +156,13 @@ export class AutoFx {
   }
 
   /** The match's load check: minimal until green + 3 s, then one 1 s window; room to spare lifts to the ceiling. */
-  private probe(ms: number, workMs: number, gpuMs: number, matchTime: number): FxTier | null {
+  private probe(ms: number, workMs: number, renderMs: number, gpuMs: number, matchTime: number): FxTier | null {
     if (matchTime < MATCH_PROBE_AT) {
       this.win.restart(0);
       return null;
     }
-    if (!this.win.add(ms, workMs, gpuMs)) return null;
-    this.fps = this.win.fps;
-    this.busy = this.win.busy;
+    if (!this.win.add(ms, workMs, renderMs, gpuMs)) return null;
+    this.record();
     this.probed = true;
     const roomy = this.win.roomy();
     // A first check that finds no room leaves the ceiling undecided: the load check after it judges again.
@@ -151,11 +170,21 @@ export class AutoFx {
     return this.switch(roomy ? this.ceiling! : "minimal");
   }
 
+  /** Publishes the window that just finished (the console line and the HUD read it). */
+  private record(): void {
+    const w = this.win;
+    this.fps = w.fps;
+    this.busy = w.busy;
+    this.renderShare = w.renderMs / FRAME_BUDGET_MS;
+    this.simShare = w.simMs / FRAME_BUDGET_MS;
+  }
+
   /** Auto back on from tier `current`; the next frame applies its target. */
   resume(current: FxTier): void {
     this.auto = true;
     this.tier = current;
     this.match = null;
+    this.host?.resume(current);
   }
 
   private switch(to: FxTier): FxTier | null {

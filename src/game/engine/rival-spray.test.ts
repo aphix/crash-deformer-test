@@ -137,6 +137,8 @@ describe("given the real engine headless", () => {
     engine = new CrashEngine(element(), new HudStore(), element());
     Object.assign(engine["renderer"], { render() {}, compile() {}, compileAsync: () => Promise.resolve() });
     await engine.ready;
+    // The rows set the tier by hand: the stubbed browser is a hardware GPU on a coarse pointer (a phone), where Auto now lifts the tier mid-run.
+    engine["autoFx"].auto = false;
     engine.fadeScenes = false;
     let tick = 0;
     Object.assign(engine.pace, { now: () => (tick += 0.001) });
@@ -221,14 +223,14 @@ describe("given the real engine headless", () => {
     engine.setSky("off");
     try {
       engine["cine"].setTier("high");
-      rivalsOracle.useTier("high");
+      rivalsOracle.useTier("high", "desktop");
       run(0.1);
       assert.equal(sides(), sidesOf(CAR_SPRAY.w * 2), "twice the texels a side at High");
       assertRivals(race().look, "at High");
       assert.equal(sprayOn(cars()[0]!), own, "the player's own spray is as it was");
     } finally {
       engine["cine"].setTier("minimal");
-      rivalsOracle.useTier("minimal");
+      rivalsOracle.useTier("minimal", "desktop");
     }
     run(0.1);
     assert.equal(sides(), sidesOf(CAR_SPRAY.w), "the garage's size again");

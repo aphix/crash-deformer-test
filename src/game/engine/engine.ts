@@ -20,7 +20,7 @@ import { makeJerseyBarrier, makePoolTexture } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { SKY_MODES } from "../present/sky-dome.ts";
-import { AutoFx, gpuRenderer, hardwareDesktop } from "../present/auto-fx.ts";
+import { AutoFx, deviceClass, gpuRenderer, type DeviceClass } from "../present/auto-fx.ts";
 import { PHONE_LEVEL } from "../present/car-detail.ts";
 import { DetailGovernor } from "../present/detail-governor.ts";
 import { makeRenderer } from "./engine-renderer.ts";
@@ -167,6 +167,9 @@ export class CrashEngine extends EngineGarage {
     if (this.witness.sees(contact, FX_REACH.sparks)) this.sparkShower(contact, normal, SHOT_SPARK_IMPULSE);
   };
 
+  /** What this device is (`deviceClass`), decided once from the GL context, the pointer and the user agent. */
+  private readonly deviceClass: DeviceClass;
+
   constructor(canvas: HTMLCanvasElement, hudStore: HudStore, veil: HTMLElement) {
     super();
     this.canvas = canvas;
@@ -226,8 +229,10 @@ export class CrashEngine extends EngineGarage {
     this.stage.setSky(skyParam === "0" ? "off" : skyParam === "1" ? "on" : (SKY_MODES.find((m) => m === skyParam) ?? INITIAL_HUD.sky));
     if (new URLSearchParams(window.location.search).get("stats") === "1") this.toggleStats();
     const gl = this.renderer.getContext();
-    const desktop = hardwareDesktop(gpuRenderer(gl), window.matchMedia("(pointer: fine)").matches);
-    this.autoFx = new AutoFx(desktop, fxParam === undefined);
+    const kind = deviceClass(gpuRenderer(gl), window.matchMedia("(pointer: fine)").matches, (navigator as Navigator & { userAgentData?: { mobile: boolean } }).userAgentData?.mobile === true);
+    this.deviceClass = kind;
+    const desktop = kind === "desktop";
+    this.autoFx = new AutoFx(kind !== "software", fxParam === undefined, desktop);
     // A phone starts on the nearer rung (a ~20 px car loses nothing the eye can use); the governor walks either way from the first match.
     this.detailGov = new DetailGovernor(desktop ? 0 : PHONE_LEVEL);
     this.detail.setLevel(this.detailGov.level);
@@ -433,7 +438,7 @@ export class CrashEngine extends EngineGarage {
     this.stepSceneFade(wallDt);
     this.fxFrame(wallDt, this.pace.lost);
     // The rivals' sprays are drawn as fine as the FX tier allows (`RIVAL_SPRAY_SCALE`): a tier change, the player's pick or the auto tier's, dresses the cars again.
-    if (this.rivals.useTier(this.cine.tier)) for (let i = 0; i < this.cars.length; i++) this.dressCar(this.cars[i]!);
+    if (this.rivals.useTier(this.cine.tier, this.deviceClass)) for (let i = 0; i < this.cars.length; i++) this.dressCar(this.cars[i]!);
     // The new scene's sim waits behind the transition's black (a slow first-use warm-up would play its opening unseen).
     // Local presentation only: a netplay session or the results replay owns time, so they never wait.
     const held = this.sceneFade.holding && this.net.role === "off" && !this.highlights.playing;
@@ -539,10 +544,12 @@ export class CrashEngine extends EngineGarage {
     this.lampLights.update(this.live(), this.camera, this.followedCar(), performance.now() / 1000, this.highlights.playing ? this.highlights.cars() : undefined, wallDt);
     if (this.audioOn) this.audio.frame(wallDt, this.highlights.playing ? this.highlights.cars() : this.live(), this.highlights.playing ? this.highlights.focus() : this.followedCar(), this.clock.timeScale * this.cine.timeWarp, this.playing && !held);
     if (this.stage.night) this.stage.syncPools(this.poles);
+    const drawAt = performance.now();
     if (!this.skipDraw) {
       this.scene.sync(this.warmsInFlight === 0);
       this.cine.render(this.scene, this.camera, wallDt);
     }
+    this.renderMs = performance.now() - drawAt;
     this.blend.restore();
     this.hudAcc += wallDt;
     if (this.hudAcc > (this.clock.timeScale < 0.5 ? 0.05 : 0.12)) {

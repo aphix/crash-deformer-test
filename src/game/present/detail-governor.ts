@@ -24,7 +24,7 @@ export class DetailGovernor {
   level: number;
   /** Windows with room in a row that step one rung back, doubled by a too-early step back. */
   holdWindows = FIRST_HOLD;
-  private readonly win = new FrameWork();
+  private readonly win = new FrameWork("work");
   private lostMs = 0;
   private slow = 0;
   private fine = 0;
@@ -37,17 +37,18 @@ export class DetailGovernor {
   }
 
   /**
-   * One rendered frame: its wall interval (ms), the sim time the pacer gave up in it (ms), the main thread's ms for the last frame,
-   * the newest GPU ms (-1: none) and whether a match is running. Returns the rung to switch to, or null.
+   * One rendered frame: its wall interval (ms), the sim time the pacer gave up in it (ms), the main thread's ms for the last frame
+   * (judged in total: this governor does not split sim from render), the draw submit inside it, the newest GPU ms (-1: none) and
+   * whether a match is running. Returns the rung to switch to, or null.
    */
-  frame(ms: number, lostMs: number, workMs: number, gpuMs: number, matching: boolean): number | null {
+  frame(ms: number, lostMs: number, workMs: number, renderMs: number, gpuMs: number, matching: boolean): number | null {
     if (!matching) {
       this.win.restart();
       this.lostMs = this.slow = this.fine = 0;
       return null;
     }
     const counted = !this.win.settling;
-    const done = this.win.add(ms, workMs, gpuMs);
+    const done = this.win.add(ms, workMs, renderMs, gpuMs);
     if (!counted) return null;
     this.lostMs += lostMs;
     if (!done) return null;

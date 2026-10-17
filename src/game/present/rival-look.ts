@@ -2,6 +2,7 @@ import { hypot3 } from "../kernel/physics-core.js";
 import { SPRAY_PALETTE, CAR_SPRAY, type SprayLayout } from "../match/look-data.ts";
 import { mulberry32 } from "../world/placements.ts";
 import type { FxTier } from "./engine-post.ts";
+import type { DeviceClass } from "./auto-fx.ts";
 import { BAND_PATTERNS } from "./rival-patterns-bands.ts";
 import { ORGANIC_PATTERNS } from "./rival-patterns-organic.ts";
 import { RivalPen, type RivalPattern } from "./rival-pen.ts";
@@ -87,6 +88,8 @@ export function rivalLook(seed: number, slot: number, bodyColour: number): { rea
  * is stair-stepped on a flame's edge): the garage's own bitmap below High, twice the texels a side at High, four times at Ultra.
  */
 const RIVAL_SPRAY_SCALE: Record<FxTier, number> = { off: 1, minimal: 1, low: 1, high: 2, ultra: 4 };
+/** The finest scale a device class draws (the memory below: a phone's 4x field is 83 MiB beside the page's own): a mobile pick of Ultra draws the rivals at High's 2x. */
+const RIVAL_SPRAY_MAX_SCALE: Record<DeviceClass, number> = { desktop: 4, mobile: 2, software: 4 };
 
 /** `CAR_SPRAY` with every texel `scale` times finer each way: the same box and the same faces, so the paint shader (its face rectangles are fractions of the bitmap) reads it unchanged. */
 function scaledLayout(scale: number): SprayLayout {
@@ -110,11 +113,12 @@ export class RivalLooks {
   private layout = CAR_SPRAY;
 
   /**
-   * Draw for FX tier `tier` from now on. Every bitmap drawn so far is freed when that changes the size: true then, and the cars
-   * wearing one must be dressed again (their paint samples a freed texture until they are).
+   * Draw for FX tier `tier` on a `klass` device from now on (a mobile device stops at 2x: `RIVAL_SPRAY_MAX_SCALE`). Every bitmap
+   * drawn so far is freed when that changes the size: true then, and the cars wearing one must be dressed again (their paint
+   * samples a freed texture until they are).
    */
-  useTier(tier: FxTier): boolean {
-    const scale = RIVAL_SPRAY_SCALE[tier];
+  useTier(tier: FxTier, klass: DeviceClass): boolean {
+    const scale = Math.min(RIVAL_SPRAY_SCALE[tier], RIVAL_SPRAY_MAX_SCALE[klass]);
     if (scale === this.scale) return false;
     this.scale = scale;
     this.layout = scale === 1 ? CAR_SPRAY : scaledLayout(scale);

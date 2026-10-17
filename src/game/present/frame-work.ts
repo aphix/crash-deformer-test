@@ -1,14 +1,27 @@
 /**
- * What the two quality governors (`AutoFx`, `DetailGovernor`) read: frame-WORK time against the frame budget, not the frame rate.
+ * What the quality governors (`AutoFx`, `DetailGovernor`) read: frame-WORK time against a budget, not the frame rate.
  * Under vsync the frame rate is pinned at the display's refresh whatever the headroom (a 60 Hz screen shows 60 fps at 3 ms of work
- * and at 16 ms), so a window counts, per frame, the main thread's own time (sim + draw submit, `Engine.workMs`) and, where the
- * browser has a GPU timer, the draw's GPU time; a window's medians against `FRAME_BUDGET_MS` say how full the frame is. Without
- * a GPU reading (Firefox, some phones) a window's wall rate still counts as evidence of a slow frame, and a median wall interval
- * on the 60 Hz vsync as evidence of a free one; the GPU-bound frames only the timer would show stay unseen.
+ * and at 16 ms), so a window counts, per frame, the main thread's own time (sim + draw submit, `Engine.workMs`), the part of it
+ * that is the draw submit (`Engine.renderMs`) and, where the browser has a GPU timer, the draw's GPU time. A window is JUDGED on
+ * one of two bases: `work`, the main thread's total (sim included) and the GPU against the whole 60 fps frame; or `render`, the
+ * draw submit's ms and the GPU's against `RENDER_BUDGET_MS`, the part of the frame the render may take (a tier changes the
+ * render, never the sim: a phone whose sim alone fills the frame can still show a costlier tier when its render has room).
+ * Without a GPU reading (Firefox, some phones) a window's wall rate still counts as evidence of a slow frame, and a median wall
+ * interval on the 60 Hz vsync as evidence of a free one; the GPU-bound frames only the timer would show stay unseen.
  */
 
 /** 60 fps whatever the display's refresh: a faster screen is not asked for more, a slower one is no excuse for less. */
-const FRAME_BUDGET_MS = 1000 / 60;
+export const FRAME_BUDGET_MS = 1000 / 60;
+/**
+ * The render's budget when the sim takes the rest: 0.8 of the frame (13.3 ms). `ROOM_BUSY` leaves a quarter of it free and the
+ * top tier costs up to 0.2 of the frame more than minimal (below), so the budget must be at least 0.2 / 0.25 = 0.8 of the frame
+ * for a climb to land under `DROP_BUSY`; a smaller one would climb and fall again.
+ */
+const RENDER_BUDGET_MS = 0.8 * FRAME_BUDGET_MS;
+
+/** What a window is judged on: the main thread's total (`work`) or the render alone (`render`). */
+export type Judge = "work" | "render";
+
 /** Frames ignored after boot, a match start or a switch (ms): shader links and the first allocations land here. */
 const SETTLE_MS = 1500;
 const WINDOW_MS = 1000;
@@ -37,12 +50,19 @@ export class FrameWork {
   wallMs = 0;
   /** Its median wall interval per frame (ms). */
   wallMedMs = 0;
-  /** Its median main-thread ms per frame. */
+  /** Its median main-thread ms per frame (sim and draw submit). */
   workMs = 0;
+  /** Its median draw-submit ms per frame (`Engine.renderMs`), the part of `workMs` a tier changes. */
+  renderMs = 0;
+  /** What is left of `workMs` after the render: the sim and the rest of the frame's CPU work (difference of the two medians). */
+  simMs = 0;
   /** Its median GPU ms per frame; -1 when too few frames brought a reading. */
   gpuMs = -1;
-  /** The busier of the two medians, as a share of `FRAME_BUDGET_MS`. */
+  /** The busier of the two medians on the judged basis, as a share of that basis's budget (`FRAME_BUDGET_MS` for `work`, `RENDER_BUDGET_MS` for `render`). */
   busy = 0;
+  /** The wall time the judged basis answers for: the sim's share of it comes off on the `render` basis (a frame the sim fills is not the render's to fix). */
+  private cutMs = 0;
+  private readonly judge: Judge;
   private settle = SETTLE_MS;
   private winMs = 0;
   private frames = 0;
@@ -50,6 +70,11 @@ export class FrameWork {
   private readonly work = new Float32Array(MAX_SAMPLES);
   private readonly gpu = new Float32Array(MAX_SAMPLES);
   private readonly wall = new Float32Array(MAX_SAMPLES);
+  private readonly draw = new Float32Array(MAX_SAMPLES);
+
+  constructor(judge: Judge) {
+    this.judge = judge;
+  }
 
   /** The frames now are still inside the settle: `add` ignores them. */
   get settling(): boolean {
@@ -63,10 +88,10 @@ export class FrameWork {
   }
 
   /**
-   * One frame: its wall interval, the main thread's ms for the last frame, and the newest GPU ms (-1: none this frame).
-   * True when this frame ends a window, whose figures are then the fields above.
+   * One frame: its wall interval, the main thread's ms for the last frame (`workMs`, the draw submit inside it `renderMs`), and
+   * the newest GPU ms (-1: none this frame). True when this frame ends a window, whose figures are then the fields above.
    */
-  add(wallMs: number, workMs: number, gpuMs: number): boolean {
+  add(wallMs: number, workMs: number, renderMs: number, gpuMs: number): boolean {
     if (this.settle > 0) {
       this.settle -= wallMs;
       return false;
@@ -74,6 +99,7 @@ export class FrameWork {
     this.winMs += wallMs;
     if (this.frames < MAX_SAMPLES) {
       this.work[this.frames] = workMs;
+      this.draw[this.frames] = renderMs;
       this.wall[this.frames] = wallMs;
       if (gpuMs >= 0) this.gpu[this.gpuN++] = gpuMs;
     }
@@ -83,26 +109,34 @@ export class FrameWork {
     this.fps = (this.frames * 1000) / this.winMs;
     this.wallMs = this.winMs;
     this.workMs = median(this.work, n);
+    this.renderMs = median(this.draw, n);
+    this.simMs = Math.max(0, this.workMs - this.renderMs);
     this.wallMedMs = median(this.wall, n);
     this.gpuMs = this.gpuN >= GPU_SHARE * n ? median(this.gpu, this.gpuN) : -1;
-    this.busy = Math.max(this.workMs, this.gpuMs) / FRAME_BUDGET_MS;
+    if (this.judge === "render") {
+      this.cutMs = this.simMs;
+      this.busy = Math.max(this.renderMs, this.gpuMs) / RENDER_BUDGET_MS;
+    } else {
+      this.cutMs = 0;
+      this.busy = Math.max(this.workMs, this.gpuMs) / FRAME_BUDGET_MS;
+    }
     this.winMs = this.frames = this.gpuN = 0;
     return true;
   }
 
   /**
    * The finished window cannot hold the budget: over `DROP_BUSY`, or, with no GPU reading to say the frame is cheap, a wall
-   * rate under `minFps` (a GPU-bound frame shows only there).
+   * rate under `minFps` once the sim's share is off on the `render` basis (a GPU-bound frame shows only there).
    */
   slow(minFps: number): boolean {
-    return this.busy > DROP_BUSY || (this.gpuMs < 0 && this.fps < minFps);
+    return this.busy > DROP_BUSY || (this.gpuMs < 0 && 1000 / Math.max(1, 1000 / this.fps - this.cutMs) < minFps);
   }
 
   /**
    * The finished window has room for a costlier tier or rung. Without a GPU reading the typical frame must also land on a 60 Hz
-   * vsync (the median wall interval, so one missed vsync or one hitch does not veto it, as it did the mean rate).
+   * vsync (the median wall interval less the sim's share on the `render` basis, so one missed vsync or one hitch does not veto it, as it did the mean rate).
    */
   roomy(): boolean {
-    return this.busy < ROOM_BUSY && (this.gpuMs >= 0 || this.wallMedMs <= ROOM_WALL_MS);
+    return this.busy < ROOM_BUSY && (this.gpuMs >= 0 || this.wallMedMs - this.cutMs <= ROOM_WALL_MS);
   }
 }

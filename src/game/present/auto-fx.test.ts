@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { FxTier } from "./engine-post.ts";
-import { AutoFx, gpuRenderer, hardwareDesktop } from "./auto-fx.ts";
+import { AutoFx, deviceClass, gpuRenderer } from "./auto-fx.ts";
 
 // Deterministic 60 Hz jitter spanning 16.8–17.5 ms (57–59.5 fps per frame, about 58 fps on average).
 const jitter60 = (i: number): number => 16.8 + ((i * 7) % 8) * 0.1;
@@ -22,7 +22,7 @@ function run(fx: AutoFx, seconds: number, frame: (i: number) => number, match?: 
     const ms = frame(i);
     t += ms;
     if (match) match.t += ms / 1000;
-    const to = fx.frame(ms, LIGHT_WORK_MS, NO_GPU, match ? match.t : null);
+    const to = fx.frame(ms, LIGHT_WORK_MS, LIGHT_WORK_MS, NO_GPU, match ? match.t : null);
     if (to !== null) out.push([Math.round(t / 100) / 10, to]);
   }
   return out;
@@ -32,7 +32,7 @@ function run(fx: AutoFx, seconds: number, frame: (i: number) => number, match?: 
 function onHigh(): AutoFx {
   const fx = new AutoFx(true, true);
   let t = 0;
-  for (let i = 0; fx.frame(jitter60(i), LIGHT_WORK_MS, NO_GPU, null) === null; i++) t += jitter60(i);
+  for (let i = 0; fx.frame(jitter60(i), LIGHT_WORK_MS, LIGHT_WORK_MS, NO_GPU, null) === null; i++) t += jitter60(i);
   assert.equal(Math.round(t / 100) / 10, 2.5);
   return fx;
 }
@@ -140,18 +140,24 @@ describe("given the check for being fit to host a public match", () => {
   });
 });
 
-describe("given the check for a hardware desktop (a fine pointer and a hardware GPU)", () => {
+describe("given the device class (a GPU that is hardware, and a pointer or user agent that says desktop or mobile)", () => {
   const nvidia = "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)";
-  it("when the pointer is fine and the GPU is hardware, then it is a hardware desktop", () => {
-    assert.equal(hardwareDesktop(nvidia, true), true);
+  const mali = "ANGLE (ARM, Mali-G715, OpenGL ES 3.2)";
+  it("when the pointer is fine and the GPU is hardware, then it is a desktop", () => {
+    assert.equal(deviceClass(nvidia, true, false), "desktop");
   });
-  it("when the renderer is a software rasterizer or unknown, or the pointer is coarse, then it is not a hardware desktop", () => {
-    assert.equal(hardwareDesktop("ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)", true), false);
-    assert.equal(hardwareDesktop("llvmpipe (LLVM 15.0.7, 256 bits)", true), false);
-    assert.equal(hardwareDesktop("ANGLE (Microsoft, Microsoft Basic Render Driver Direct3D11 vs_5_0 ps_5_0, D3D11)", true), false);
-    assert.equal(hardwareDesktop("Gallium 0.4 on softpipe", true), false);
-    assert.equal(hardwareDesktop(nvidia, false), false);
-    assert.equal(hardwareDesktop(null, true), false);
+  it("when the renderer is a software rasterizer or unknown, then it is software whatever the pointer", () => {
+    assert.equal(deviceClass("ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)", true, false), "software");
+    assert.equal(deviceClass("llvmpipe (LLVM 15.0.7, 256 bits)", true, false), "software");
+    assert.equal(deviceClass("ANGLE (Microsoft, Microsoft Basic Render Driver Direct3D11 vs_5_0 ps_5_0, D3D11)", true, false), "software");
+    assert.equal(deviceClass("Gallium 0.4 on softpipe", true, false), "software");
+    assert.equal(deviceClass(null, true, false), "software");
+    assert.equal(deviceClass(null, false, true), "software");
+  });
+  it("when the GPU is hardware but the pointer is coarse or the user agent says mobile, then it is mobile", () => {
+    assert.equal(deviceClass(mali, false, true), "mobile");
+    assert.equal(deviceClass(mali, false, false), "mobile");
+    assert.equal(deviceClass(nvidia, true, true), "mobile");
   });
 });
 
@@ -180,11 +186,12 @@ describe("given the GPU name read from a WebGL context", () => {
   });
 });
 
-/** A segment of identical frames: the wall interval, the main thread's ms and the GPU's ms (-1: no timer) of each, for `seconds`. */
+/** A segment of identical frames: the wall interval, the main thread's ms, the draw submit's ms inside it (none given: all of it) and the GPU's ms (-1: no timer) of each, for `seconds`. */
 interface Spell {
   seconds: number;
   wallMs: number;
   workMs: number;
+  renderMs?: number;
   gpuMs: number;
 }
 
@@ -199,7 +206,7 @@ function runSpells(fx: AutoFx, spells: Spell[]): [number, FxTier][] {
   for (const spell of spells) {
     for (let spent = 0; spent < spell.seconds * 1000; spent += spell.wallMs) {
       t += spell.wallMs;
-      const to = fx.frame(spell.wallMs, spell.workMs, spell.gpuMs, null);
+      const to = fx.frame(spell.wallMs, spell.workMs, spell.renderMs ?? spell.workMs, spell.gpuMs, null);
       if (to !== null) out.push([Math.round(t / 100) / 10, to]);
     }
   }
@@ -233,5 +240,38 @@ describe("given the tier decided by frame work (the main thread's and the GPU's 
   it("when frames stay calm for 2 minutes, then it stays on high and never asks for the ultra tier", () => {
     const asked = runSpells(new AutoFx(true, true), [calm(120)]).map((m) => m[1]);
     assert.deepEqual(asked, ["high"]);
+  });
+});
+
+describe("given the tier judged by the render alone (a phone's sim fills its frame, and no tier changes the sim)", () => {
+  /** The owner's phone card: 40 ms of sim and 6 ms of draw submit a frame, a 20 fps wall rate, no GPU timer. */
+  const phone = (seconds: number, renderMs = 6): Spell => ({ seconds, wallMs: 34 + renderMs + 10, workMs: 40 + renderMs, renderMs, gpuMs: -1 });
+  /** The owner's desktop card: about 8 ms of sim, 2 ms of draw submit, 3 ms of GPU, 60 fps. */
+  const desktop = (seconds: number): Spell => ({ seconds, wallMs: 1000 / 60, workMs: 10, renderMs: 2, gpuMs: 3 });
+
+  it("when a phone's render has room (6 ms) though its sim takes 40 ms a frame, then it lifts, and never to ultra", () => {
+    assert.deepEqual(runSpells(new AutoFx(true, true, false), [phone(120)]), [[2.6, "high"]]);
+  });
+
+  it("when a desktop's sim is light (the owner's card), then it lifts to high 2.5 s after ready and stays, as before the split", () => {
+    assert.deepEqual(runSpells(new AutoFx(true, true), [desktop(120)]), [[2.5, "high"]]);
+  });
+
+  it("when a phone's render takes 14 ms, then it steps down as a desktop's would, high to low to minimal", () => {
+    assert.deepEqual(runSpells(new AutoFx(true, true, false), [phone(4), phone(20, 14)]), [[2.6, "high"], [6.1, "low"], [9.7, "minimal"]]);
+  });
+
+  it("when the sim alone fills the frame, then the device may not host: not a phone that lifts, and not a desktop either", () => {
+    const fresh = new AutoFx(true, true, false);
+    assert.equal(fresh.canHost(), false);
+    const mobile = new AutoFx(true, true, false);
+    assert.deepEqual(runSpells(mobile, [phone(20)]), [[2.6, "high"]]);
+    assert.equal(mobile.canHost(), false, "a phone that holds high on its render is still not fit to host");
+    const heavySim = new AutoFx(true, true);
+    assert.deepEqual(runSpells(heavySim, [phone(20)]), [[2.6, "high"]]);
+    assert.equal(heavySim.canHost(), false, "judged on the main thread's total, sim included, the desktop with a 40 ms sim is not fit either");
+    const card = new AutoFx(true, true);
+    runSpells(card, [desktop(20)]);
+    assert.equal(card.canHost(), true, "the owner's desktop card is fit");
   });
 });

@@ -216,9 +216,11 @@ The host owns one `Campaign` (the existing co-op campaign, below); what the netw
       not started (host tag `lobby` or `over`: the next one starts within ~30 s) before one running (a late
       joiner spectates until it ends), then the fullest, then the lexically first name, which is the same room
       on every searcher's screen.
-    - *Capable device* (`AutoFx.canHost()`: its highest tier that held this session is not "minimal"; a hardware
-      desktop is fit before its load check, after it holds 57 fps, and when it steps down to low; a phone,
-      software GPU, desktop under 57 fps at its check, or one that fell to minimal is not): joins the best room;
+    - *Capable device* (`AutoFx.canHost()`: its highest tier that held this session is not "minimal", judged on
+      the main thread's total, sim included: Auto's own tiers judge the draw alone, so a phone whose draw has room
+      lifts its tier and is still no host, `docs/CINEMATIC.md` Auto; a hardware desktop is fit before its load
+      check, after it holds 57 fps, and when it steps down to low; a phone, software GPU, desktop under 57 fps
+      at its check, or one that fell to minimal is not): joins the best room;
       none: pauses a random 0–600 ms (`BACKOFF_MS`), looks once more, then hosts a full field.
     - *Weak device*: keeps looking, polling the list every 2.5 s (`SEARCH_POLL_MS`), for 12 s plus up to 3 s
       of jitter (`WEAK_WAIT_MS`, `WEAK_JITTER_MS`; it joins the first room that shows up), then hosts a smaller

@@ -42,7 +42,7 @@ function replay(fx: AutoFx, segments: Segment[], opts: { timer: boolean; race: b
       segMs += ms;
       t += ms;
       clock = tr.time && i < n ? tr.time[k]! : clock + ms / 1000;
-      const to = fx.frame(ms, prevWork, opts.timer ? tr.gpu[k]! : -1, opts.race ? clock : null);
+      const to = fx.frame(ms, prevWork, prevWork, opts.timer ? tr.gpu[k]! : -1, opts.race ? clock : null);
       prevWork = tr.work[k]!;
       if (to !== null) moves.push([Math.round(t / 100) / 10, to]);
     }

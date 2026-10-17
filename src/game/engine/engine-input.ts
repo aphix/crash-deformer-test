@@ -197,15 +197,16 @@ export abstract class EngineInput extends EngineRigs {
     this.lostSeen = lostSimS;
     const gpuMs = this.cine.gpuMs();
     if (this.autoFx.auto) {
-      const level = this.detailGov.frame(wallDt * 1000, lost * 1000, this.workMs, gpuMs, matchTime !== null && matchTime >= 0);
+      const level = this.detailGov.frame(wallDt * 1000, lost * 1000, this.workMs, this.renderMs, gpuMs, matchTime !== null && matchTime >= 0);
       if (level !== null) {
         console.info(`Crush Stream detail auto: ${DETAIL_LEVELS[level]!.far} m`);
         this.detail.setLevel(level);
       }
     }
-    const tier = this.autoFx.frame(wallDt * 1000, this.workMs, gpuMs, matchTime);
+    const tier = this.autoFx.frame(wallDt * 1000, this.workMs, this.renderMs, gpuMs, matchTime);
     if (tier === null) return;
-    console.info(`Crush Stream FX auto: ${tier} (last window ${this.autoFx.fps.toFixed(1)} fps, ${(this.autoFx.busy * 100).toFixed(0)} % of the frame budget)`);
+    const fx = this.autoFx;
+    console.info(`Crush Stream FX auto: ${tier} (last window ${fx.fps.toFixed(1)} fps, ${(fx.busy * 100).toFixed(0)} % of the render budget; render ${(fx.renderShare * 100).toFixed(0)} % and sim ${(fx.simShare * 100).toFixed(0)} % of the frame budget)`);
     this.cine.setTier(tier);
     this.emitHud();
   }

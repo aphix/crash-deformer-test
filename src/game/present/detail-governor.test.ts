@@ -24,7 +24,7 @@ function run(gov: DetailGovernor, seconds: number, frames: Frames, matching = tr
   for (let i = 0; t < seconds * 1000; i++) {
     const ms = frames.ms(i);
     t += ms;
-    const to = gov.frame(ms, frames.lost?.(i) ?? 0, LIGHT_WORK_MS, NO_GPU, matching);
+    const to = gov.frame(ms, frames.lost?.(i) ?? 0, LIGHT_WORK_MS, LIGHT_WORK_MS, NO_GPU, matching);
     if (to !== null) out.push([Math.round(t / 100) / 10, to]);
   }
   return out;
@@ -73,7 +73,7 @@ describe("given a match that holds its frame rate", () => {
       let t = 0;
       for (let i = 0; i < 20000; i++) {
         t += 1000 / fps;
-        const to = gov.frame(1000 / fps, 0, LIGHT_WORK_MS, NO_GPU, true);
+        const to = gov.frame(1000 / fps, 0, LIGHT_WORK_MS, LIGHT_WORK_MS, NO_GPU, true);
         if (to !== null) return { s: t / 1000, to };
       }
       throw new Error("the governor never moved");

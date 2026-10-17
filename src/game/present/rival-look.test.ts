@@ -170,7 +170,7 @@ describe("given the rivals' bitmaps follow the FX tier", () => {
     ] as const;
     for (const { tier, scale } of expected) {
       const looks = new RivalLooks();
-      looks.useTier(tier);
+      looks.useTier(tier, "desktop");
       const bitmap = looks.of(3, 1, 0x336699);
       assert.equal(bitmap.layout.w, CAR_SPRAY.w * scale, `${tier}: width`);
       assert.equal(bitmap.layout.h, CAR_SPRAY.h * scale, `${tier}: height`);
@@ -182,19 +182,33 @@ describe("given the rivals' bitmaps follow the FX tier", () => {
     }
   });
 
+  it("when the device is mobile and Ultra is picked by hand, then the rivals' bitmap stops at 2x (High's), a desktop's is 4x", () => {
+    for (const [klass, scale] of [["mobile", 2], ["desktop", 4]] as const) {
+      const looks = new RivalLooks();
+      looks.useTier("ultra", klass);
+      assert.equal(looks.of(3, 1, 0x336699).layout.w, CAR_SPRAY.w * scale, `${klass}: width at Ultra`);
+      looks.dispose();
+    }
+    const looks = new RivalLooks();
+    assert.equal(looks.useTier("high", "mobile"), false, "nothing was drawn");
+    looks.of(3, 1, 0x336699);
+    assert.equal(looks.useTier("ultra", "mobile"), false, "mobile High and mobile Ultra draw the same size: no redress");
+    looks.dispose();
+  });
+
   it("when the tier changes the bitmap's size, then the bitmaps drawn so far are freed and the next ask is a new one of that size; a tier of the same size changes nothing", () => {
     const looks = new RivalLooks();
-    assert.equal(looks.useTier("minimal"), false, "nothing was drawn and the size is the same");
+    assert.equal(looks.useTier("minimal", "desktop"), false, "nothing was drawn and the size is the same");
     const standard = looks.of(3, 1, 0x336699);
-    assert.equal(looks.useTier("low"), false, "low draws the same size as minimal");
+    assert.equal(looks.useTier("low", "desktop"), false, "low draws the same size as minimal");
     assert.equal(looks.of(3, 1, 0x336699), standard, "so the bitmap stays");
-    assert.equal(looks.useTier("high"), true, "High changes the size with a bitmap worn");
+    assert.equal(looks.useTier("high", "desktop"), true, "High changes the size with a bitmap worn");
     const fine = looks.of(3, 1, 0x336699);
     assert.notEqual(fine, standard, "a new bitmap");
     assert.equal(fine.layout.w, CAR_SPRAY.w * 2, "of the finer size");
-    assert.equal(looks.useTier("ultra"), true, "Ultra changes it again");
+    assert.equal(looks.useTier("ultra", "desktop"), true, "Ultra changes it again");
     looks.dispose();
-    assert.equal(looks.useTier("off"), false, "with nothing drawn there is nothing to dress again");
+    assert.equal(looks.useTier("off", "desktop"), false, "with nothing drawn there is nothing to dress again");
   });
 
   it("when one look is drawn at every size, then each face is painted to the same share and the finer bitmap is a bigger picture of the same paint", () => {
@@ -203,7 +217,7 @@ describe("given the rivals' bitmaps follow the FX tier", () => {
       const shares: number[][] = [];
       for (const tier of ["low", "high", "ultra"] as const) {
         const looks = new RivalLooks();
-        looks.useTier(tier);
+        looks.useTier(tier, "desktop");
         shares.push(faceShares(looks.of(31, slot, body)));
         looks.dispose();
       }
