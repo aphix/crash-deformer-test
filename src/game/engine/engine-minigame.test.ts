@@ -34,6 +34,13 @@ const START_TOLERANCE = 0.05;
 /** The parked car shows within this share of the frame's half-size from its middle, and the eye stands within this many metres of it. */
 const PARKED_CAR_FRAME_LIMIT = 0.5;
 const PARKED_CAR_EYE_DISTANCE_LIMIT = 30;
+/** The eye of the parked-start shot: at least this far behind the car, at most this far off its line, looking this closely along its heading (cosine). */
+const PARKED_EYE_BEHIND_MIN = 4;
+const PARKED_EYE_ASIDE_MAX = 2;
+const PARKED_EYE_LOOKING_MIN = 0.8;
+const WHEEL_STEP = 100;
+/** Sim seconds the ride camera is given to arrive on a dummy just thrown. */
+const RIDE_SETTLE_S = 1;
 
 /** An in-memory `localStorage`, the browser's key/value store. */
 function memoryStorage(): Storage {
@@ -180,6 +187,18 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
         t.diagnostic(`${mode}: car at (${inFrame.x.toFixed(2)}, ${inFrame.y.toFixed(2)}) of the frame, ${distance.toFixed(1)} m from the eye`);
         assert.ok(inFrame.z <= 1 && Math.abs(inFrame.x) < PARKED_CAR_FRAME_LIMIT && Math.abs(inFrame.y) < PARKED_CAR_FRAME_LIMIT, `car at (${inFrame.x}, ${inFrame.y})`);
         assert.ok(distance < PARKED_CAR_EYE_DISTANCE_LIMIT, `${distance} m from the eye`);
+      });
+
+      it("when the camera has settled on the parked car, then the eye stands behind it on its line and looks down its heading", (t) => {
+        const camera = engine["camera"];
+        const forward = car().forward;
+        const behind = camera.position.clone().sub(car().group.position);
+        const metresBehind = -behind.dot(forward);
+        const metresAside = Math.abs(behind.x * forward.z - behind.z * forward.x);
+        const looking = camera.getWorldDirection(new THREE.Vector3()).dot(forward);
+        t.diagnostic(`${mode}: eye ${metresBehind.toFixed(1)} m behind, ${metresAside.toFixed(1)} m aside, looking ${looking.toFixed(2)} along the heading`);
+        assert.ok(metresBehind >= PARKED_EYE_BEHIND_MIN && metresAside <= PARKED_EYE_ASIDE_MAX, `${metresBehind} m behind, ${metresAside} m aside`);
+        assert.ok(looking >= PARKED_EYE_LOOKING_MIN, `looking ${looking} along the heading`);
       });
 
       it("when the throttle is pressed, then the seat takes the wheel, the car drives off and the attempt is running", () => {
@@ -447,6 +466,48 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
         ragdolls.launch = spy;
         assert.ok(framesSeen > 100, `${framesSeen} frames of flight`);
         assert.equal(framesOut, 0, `${framesOut} frames out of ${framesSeen}, worst ${worstOffCentre} half-heights off centre; first: ${firstOut}`);
+      });
+    }
+  });
+
+  describe("given the player framed the view by hand (the wheel) before the throw", () => {
+    const cases = [
+      { it: "when a sedan is driven to the long jump's barrier, then the ride camera takes the dummy and the eye is within 60 m of him", mode: "longJump", carId: "sedan" },
+      { it: "when a sedan is driven to the high jump's lip, then the ride camera takes the dummy and the eye is within 60 m of him", mode: "highJump", carId: "sedan" },
+      { it: "when a monster is driven to the high jump's lip, then the ride camera takes the dummy and the eye is within 60 m of him", mode: "highJump", carId: "monster" },
+      { it: "when a sedan is driven to Ring Fling's lip, then the ride camera takes the dummy and the eye is within 60 m of him", mode: "ringFling", carId: "sedan" },
+      { it: "when a monster is driven to Ring Fling's lip, then the ride camera takes the dummy and the eye is within 60 m of him", mode: "ringFling", carId: "monster" },
+    ] as const;
+    for (const testCase of cases) {
+      it(testCase.it, () => {
+        engine.setPlayerCar(testCase.carId);
+        engine.startMinigame(testCase.mode);
+        engine["view"]["onWheel"](Object.assign(new Event("wheel"), { deltaY: WHEEL_STEP, preventDefault() {} }) as WheelEvent);
+        assert.ok(engine["view"].userFramed, "the wheel framed the view");
+        const torso = new THREE.Vector3();
+        engine["keys"].add(THROTTLE_KEY);
+        for (let frame = 0; frame < THROW_TIMEOUT_S * FRAME_HZ && engine["ragdolls"].latest(torso) < 0; frame++) engine.advance(FRAME, { frameDt: FRAME });
+        run(RIDE_SETTLE_S);
+        engine["ragdolls"].latest(torso);
+        releaseThrottle();
+        assert.ok(engine["ragdolls"].rideAlong, "the ride camera follows him");
+        assert.ok(engine["camera"].position.distanceTo(torso) < 60, `the eye is ${engine["camera"].position.distanceTo(torso)} m from him`);
+      });
+    }
+  });
+
+  describe("given every driver car driven from the parked start to the lip of the high jump and of Ring Fling", () => {
+    const cases = DRIVER_CARS.flatMap((driverCar) => (["highJump", "ringFling"] as const).map((mode) => ({ it: `when a ${driverCar.id} holds the throttle on the ${mode} station, then its driver is thrown exactly once, at the lip, with the mode's boost`, carId: driverCar.id, mode })));
+    for (const testCase of cases) {
+      it(testCase.it, () => {
+        engine.setPlayerCar(testCase.carId);
+        engine.startMinigame(testCase.mode);
+        launches.length = 0;
+        const samples = throwAndRead(testCase.mode);
+        assert.equal(launches.length, 1, "exactly one throw");
+        assert.equal(launches[0]!.releaseScale, THROW_BOOST[testCase.mode], "the mode's boost");
+        assert.ok(samples.length > 0, "he flew");
+        assert.equal(minigameHud().phase, "scored", "scored");
       });
     }
   });

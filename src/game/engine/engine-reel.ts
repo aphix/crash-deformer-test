@@ -192,7 +192,7 @@ export abstract class EngineReel extends EngineInput {
     const fp = followed?.group.position;
     if (followed && fp && (followed.falling || followed.vaporized || (fp.y < -0.01 && activeGround().heightAt(fp.x, fp.z, fp.y) === NO_FLOOR))) return "fall-watch";
     if (shown && this.seat.mode === "drive") return `drive-${this.seat.view}`;
-    const spec = this.view.specView(this.race.chase);
+    const spec = this.view.specView(this.followsInChaseView);
     if (shown && spec !== "orbit") return `spectate-${spec}`;
     return this.view.userFramed ? "orbit-user" : "orbit";
   }

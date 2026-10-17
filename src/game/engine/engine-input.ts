@@ -757,7 +757,7 @@ export abstract class EngineInput extends EngineRigs {
    */
   cycleCamera(): void {
     if (this.seat.mode === "drive") this.seat.cycleView();
-    else if (this.seat.mode === "follow") this.view.cycleSpec(this.race.chase);
+    else if (this.seat.mode === "follow") this.view.cycleSpec(this.followsInChaseView);
     else if (!this.view.leaveFree()) this.view.enterFree();
     this.emitHud();
   }

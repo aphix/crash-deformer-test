@@ -837,7 +837,7 @@ export class CrashEngine extends EngineGarage {
     }
     // Following (spectating): the chosen spectator cam, on the rigs too (their default is the orbit, which falls through).
     if (this.seat.mode === "global" && !this.view.flying) this.view.spec = null;
-    const spec = this.view.specView(this.race.chase);
+    const spec = this.view.specView(this.followsInChaseView);
     if (followed && followed.group.visible && this.view.frameSpectate(followed, spec, this.specScene, wallDt, this.playing)) return;
     const look = this.view.look;
     if (followed && followed.group.visible) {

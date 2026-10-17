@@ -158,6 +158,10 @@ export abstract class EngineCore {
   protected get minigameMode(): MinigameMode | null {
     return this.showRange ? this.minigames.mode : null;
   }
+  /** The followed car is shown from the seat's chase view (a race's, a minigame's), else the orbit. */
+  protected get followsInChaseView(): boolean {
+    return this.race.chase || this.minigameMode !== null;
+  }
   get showCorkscrew(): boolean {
     return this.sceneId === "corkscrew";
   }
@@ -728,11 +732,13 @@ export abstract class EngineCore {
    * A sandbox driver left car i (`RagdollSystem` never calls this in a race or a derby): his exit plays at 1×, the
    * slow-mo `THROW_ONSET` on (`holdForThrow`, unless the hit's was held already), and the camera rides with the
    * thrown drivers from that moment (the crash cam's cuts wait), unless it follows another car or the user framed it.
+   * A minigame's throw is the score the player reads off the dummy: its camera takes him whatever the user framed.
    */
   protected onThrow(i: number): void {
     if (!this.net.client && !this.rigScene) holdForThrow(this.clock);
     const followed = this.followedCar();
-    if (this.view.userFramed || (followed && followed !== this.cars[i])) return;
+    const userHasTheCamera = this.view.userFramed && this.minigameMode === null;
+    if (userHasTheCamera || (followed && followed !== this.cars[i])) return;
     this.ragdolls.follow();
   }
 
