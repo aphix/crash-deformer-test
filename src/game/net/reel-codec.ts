@@ -205,9 +205,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * at a ramp's lip (`EjectionWatch.throwDriverNow`), which no other scene reaches: a replay of a clip of 106 or before throws a driver out of a car moving up or down (derby jumps, ramps, slopes) differently.
  * 108: a body coming down onto a solid prism's top (a derby tyre stack, K-rail or container) lands on it: its plan footprint no longer shoves it out of the overlap, its fall stops and it rises by the slice's fall plus the push-out speed (`cameThroughTop`, shared with the points'
  * top entry); it was shoved 0.4-1.3 m sideways the step its lowest point crossed the top: a replay of a clip of 107 or before moves a car or wreck landing on a prism top differently.
+ * 109: a wreck on or against a solid prism (a derby tyre stack, K-rail or wall) is no longer pushed out of its whole plan overlap in one slice: the footprint's over and sunk shoves are capped at the wreck's own arrival into the face plus the push-out speed, masses
+ * standing within a skin of the top are not held on the face, and a landing stops the wreck's masses' fall with its body's (it was shoved 0.4-1 m in a slice). A wreck lying on its roof takes no world-vertical part from the seat step (it sank into the floor at up to 0.28 m/s):
+ * a replay of a clip of 108 or before moves a wreck at a prism or on its roof differently.
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 108;
+const REPLAY_VERSION = 109;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
