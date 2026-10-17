@@ -137,8 +137,6 @@ describe("given the real engine headless", () => {
     engine = new CrashEngine(element(), new HudStore(), element());
     Object.assign(engine["renderer"], { render() {}, compile() {}, compileAsync: () => Promise.resolve() });
     await engine.ready;
-    // The rows set the tier by hand: the stubbed browser is a hardware GPU on a coarse pointer (a phone), where Auto now lifts the tier mid-run.
-    engine["autoFx"].auto = false;
     engine.fadeScenes = false;
     let tick = 0;
     Object.assign(engine.pace, { now: () => (tick += 0.001) });

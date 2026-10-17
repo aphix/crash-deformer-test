@@ -4,13 +4,16 @@ import type { CrashEngine } from "./engine.ts";
 /**
  * What the real `CrashEngine` needs to run headless in node: its canvas, WebGL context, 2d contexts, `window` and `document` are
  * inert stand-ins (every call answers, nothing draws); the sim, the scene and the loop rules are the engine's own. `getParameter`
- * answers a string that also reads as the number 16, so three's version check and its numeric limits both take it.
+ * answers a string that also reads as the number 16, so three's version check and its numeric limits both take it; the one
+ * exception is `RENDERER`, which names a software rasterizer, so every test engine is the `software` device class (`deviceClass`):
+ * Auto stays on `minimal` and never loads what a lifted tier would (the sky, in node), whatever the stand-in pointer says.
  */
 const ctx2d: object = new Proxy(function () {}, { get: () => () => ctx2d, apply: () => ctx2d });
 /** The extensions the context has: three warns when it asks for one a render target needs and finds it missing. The engine's own optional ones (timer queries, renderer info) stay absent. */
 const GL_EXTENSIONS = ["EXT_color_buffer_float"];
+const GL_CONSTANTS = new Map<string, number>();
 const GL_ANSWERS: Record<string, (...args: unknown[]) => unknown> = {
-  getParameter: () => Object.assign(new String("WebGL 2.0"), { valueOf: () => 16 }),
+  getParameter: (name) => (name === GL_CONSTANTS.get("RENDERER") ? "SwiftShader (headless test stand-in)" : Object.assign(new String("WebGL 2.0"), { valueOf: () => 16 })),
   getShaderPrecisionFormat: () => ({ rangeMin: 127, rangeMax: 127, precision: 23 }),
   getContextAttributes: () => ({ alpha: false, antialias: false }),
   getSupportedExtensions: () => GL_EXTENSIONS,
@@ -19,7 +22,6 @@ const GL_ANSWERS: Record<string, (...args: unknown[]) => unknown> = {
   getProgramInfoLog: () => "",
   getProgramParameter: () => 0,
 };
-const GL_CONSTANTS = new Map<string, number>();
 const gl: object = new Proxy(function () {}, {
   get: (_t, k) => {
     if (typeof k !== "string") return undefined;
