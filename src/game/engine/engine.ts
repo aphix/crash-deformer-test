@@ -32,7 +32,9 @@ import { throwComing } from "../present/ragdoll-trigger.ts";
 import { ChaseCamera, centroid, SHAKE_DECAY_PER_S, type SpecScene } from "../present/engine-camera.ts";
 import { blankFreeInput, sceneExtent } from "../present/free-cam.ts";
 import { MINIGAME_AIM_LEAD } from "../present/ride-cam.ts";
-import { THROW_BOOST } from "../scenes/minigame-constants.ts";
+import { MINIGAME_MODE, THROW_BOOST } from "../scenes/minigame-constants.ts";
+import type { ReleaseScale } from "../present/ragdoll-boxes.ts";
+import type { Ejection } from "../vehicle/ejection.ts";
 import { readFreeInput } from "./engine-free.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { armTops } from "../world/surfaces.ts";
@@ -634,6 +636,14 @@ export class CrashEngine extends EngineGarage {
     } else this.rigCollide(car, i, h);
   };
 
+  /** A driver thrown out: his dummy flies (`release`: a minigame's boost), the minigame knows he is out, the race recorder and the netplay peers hear of it. */
+  private throwDriver(e: Ejection, cars: readonly DeformableCar[], release?: ReleaseScale): void {
+    this.ragdolls.launch(e, cars, true, release);
+    if (this.minigameMode !== null) this.minigames.noteThrown();
+    if (this.race.active) this.race.recorder.eject(e);
+    this.net.sendEject(e);
+  }
+
   private fixedStep(dt: number): void {
     const cars = this.live();
     // Race: every car (the player too) is driven through its controller slot by the director.
@@ -690,11 +700,11 @@ export class CrashEngine extends EngineGarage {
     const ejected = this.ejection.take();
     for (let k = 0; k < ejected.length; k++) {
       const e = ejected[k]!;
-      this.ragdolls.launch(e, cars, true, this.minigameMode === null ? undefined : THROW_BOOST[this.minigameMode]);
-      if (this.minigameMode !== null) this.minigames.noteThrown();
-      if (this.race.active) this.race.recorder.eject(e);
-      this.net.sendEject(e);
+      if (this.minigameMode === MINIGAME_MODE.longJump) this.minigames.holdForBail(e, this.elapsedSim + dt);
+      else this.throwDriver(e, cars, this.minigameMode === null ? undefined : THROW_BOOST[this.minigameMode]);
     }
+    const bailed = this.minigameMode === MINIGAME_MODE.longJump ? this.minigames.bailThrowDue(this.elapsedSim + dt) : null;
+    if (bailed !== null) this.throwDriver(bailed.event, cars, bailed.release);
     if (this.race.active) this.race.step(dt, w.shape);
 
     const { impulse, contact, normal } = w.strongest;

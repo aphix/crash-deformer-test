@@ -1,4 +1,5 @@
 import { MINIGAME_MODE, THROWS_PER_SET, REST_HOLD, type MinigameMode } from "./minigame-constants.ts";
+import type { BailVerdict } from "./minigame-bail.ts";
 import { HighJumpCapture, type TorsoSample } from "./minigame-high-jump.ts";
 import { ringScore } from "./minigame-ring.ts";
 
@@ -40,7 +41,12 @@ export type MinigameHudState = {
   setComplete: boolean;
   /** The mode's bests (Ring Fling: the set totals of this set length). */
   best: MinigameBestPair;
+  /** The Long jump's bail (the engine fills it; the session knows nothing of it): null in every other mode. */
+  bail: BailHud | null;
 };
+
+/** What the card shows of the bail: it has been pressed, and the verdict once the throw has gone (null before). */
+type BailHud = { pressed: boolean; verdict: BailVerdict | null };
 
 type MinigameBeginOptions = {
   carType: string;
@@ -142,6 +148,11 @@ export class MinigameSession {
     this.refreshBest();
   }
 
+  /** Where the attempt stands (the engine reads it to know when a press is the bail). */
+  get attemptPhase(): MinigamePhase {
+    return this.phase;
+  }
+
   hud(): MinigameHudState {
     const ringFling = this.mode === MINIGAME_MODE.ringFling;
     const setTotal = this.setScores.reduce((total, score) => total + score, 0);
@@ -156,6 +167,7 @@ export class MinigameSession {
       setTotal,
       setComplete: ringFling && this.setScores.length >= this.throwsPerSetCount,
       best: { ...this.best },
+      bail: null,
     };
   }
 

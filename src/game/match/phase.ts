@@ -34,6 +34,8 @@ export const FUDGE_GAP = 0.08;
  * nobody watches him slowly pass through the bonnet. Fleet head-ons judge the throw 17–50 ms into the hit.
  */
 export const THROW_ONSET = 0.25;
+/** `PhaseClock.slomoAt` while a scene holds the slow-mo until the driver is thrown: neither the pre-impact ease nor the hit drops the time scale. */
+export const SLOMO_HELD = Number.POSITIVE_INFINITY;
 
 /** The crash clock the engine and the headless harnesses step alike. */
 export type PhaseClock = {
@@ -47,7 +49,8 @@ export type PhaseClock = {
   reduceMotion: boolean;
   /**
    * Wall seconds after the hit at which the auto slow-mo starts, while a thrown driver's exit runs at 1×: set in
-   * approach when the coming hit will throw one (`THROW_ONSET`), or by `holdForThrow`. 0: none pending.
+   * approach when the coming hit will throw one (`THROW_ONSET`), or by `holdForThrow`. 0: none pending. `SLOMO_HELD`: the scene holds
+   * the clock at 1× before the hit and after it until the throw (`holdForThrow`), so a player's press is timed in real time.
    */
   slomoAt: number;
   /** Wall seconds after the hit at which the slow-mo hands back to 1×: `SLOMO_HOLD`, or what a highlight reel's clip sets. */
@@ -126,9 +129,14 @@ export function beginImpact(c: PhaseClock, autoSlomo: boolean): void {
 
 /**
  * A driver thrown out while the auto slow-mo runs (a later hit, or one nobody saw coming): back up to 1× for his exit
- * (a ramp, `RAMP_RATE`), the slow-mo back `THROW_ONSET` on.
+ * (a ramp, `RAMP_RATE`), the slow-mo back `THROW_ONSET` on. A slow-mo held for his throw (`SLOMO_HELD`: the Long jump's bail waits on
+ * the player's press) starts `THROW_ONSET` on from now.
  */
 export function holdForThrow(c: PhaseClock): void {
+  if (c.slomoAt === SLOMO_HELD) {
+    c.slomoAt = c.wallSinceImpact + THROW_ONSET;
+    return;
+  }
   if (c.phase === "approach" || c.phase === "aftermath" || c.userTimeScale != null || c.targetScale >= 1) return;
   c.slomoAt = c.wallSinceImpact + THROW_ONSET;
   c.targetScale = 1;

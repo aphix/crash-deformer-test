@@ -595,6 +595,8 @@ export class DriverSeat {
   drivable: ((index: number) => boolean) | null = null;
   /** The camera is detached (the free view): the drive keys fly it, so a pedal or wheel press never takes the wheel from follow. */
   detached = false;
+  /** The boost control means something else here (the Long jump's bail): the car never boosts and the meter never drains. */
+  boostLocked = false;
 
   focus(index: number): void {
     this.carIndex = index;
@@ -654,7 +656,7 @@ export class DriverSeat {
 
   step(dt: number): void {
     if (this.mode !== "drive") this.thrust = 0;
-    const wants = this.mode === "drive" && this.intent.boost && this.intent.gas > 0.05 && this.boost > 0;
+    const wants = this.mode === "drive" && this.intent.boost && this.intent.gas > 0.05 && this.boost > 0 && !this.boostLocked;
     this.boost = chargeBoost(this.boost, wants || this.thrust > 0, dt, this.thrust);
   }
 
@@ -680,7 +682,7 @@ export class DriverSeat {
     }
     const along = car.velocity.x * car.fwdFlat.x + car.velocity.z * car.fwdFlat.z;
     shapeDrive(this.intent, this.feel, along, dt, this.out);
-    this.out.boost = this.out.boost && this.boost > 0.02;
+    this.out.boost = this.out.boost && this.boost > 0.02 && !this.boostLocked;
     return this.out;
   }
 

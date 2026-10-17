@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { beginImpact, easeTimeScale, holdForThrow, impactScale, pairEta, phaseClock, PRE_IMPACT_LEAD, preImpact, stepPhase, type PhaseClock } from "./phase.ts";
+import { beginImpact, easeTimeScale, holdForThrow, impactScale, pairEta, phaseClock, PRE_IMPACT_LEAD, preImpact, SLOMO_HELD, stepPhase, THROW_ONSET, type PhaseClock } from "./phase.ts";
 import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
 import { FRAME_HZ } from "../kernel/constants.ts";
 
@@ -164,5 +164,60 @@ describe("given the time scale's changes (masterclass 23:34: fade, never switch)
     assert.ok(slow < 1);
     assert.ok(biggestStep(c, 60, () => preImpact(c, Infinity, 1, LEAD, STEP, () => false)) <= BOUND);
     assert.equal(c.timeScale, 1);
+  });
+});
+
+describe("given a slow-mo held until the driver is thrown (SLOMO_HELD)", () => {
+  /** Wall seconds a held clock is stepped through its approach and the hit's aftermath, far longer than the slow-mo's own 6.5 s hold. */
+  const HELD_WALL_S = 12;
+
+  it("when a predicted hit that will not throw is closing, then the pre-impact ease never drops the scale", () => {
+    const c = phaseClock();
+    c.slomoAt = SLOMO_HELD;
+    for (let f = 0; f < 120; f++) {
+      preImpact(c, 0.1, f * STEP, LEAD, STEP, () => false);
+      easeTimeScale(c, FRAME);
+    }
+    assert.equal(c.timeScale, 1, "the scale");
+    assert.equal(c.targetScale, 1, "the target");
+  });
+
+  it(`when the hit lands and ${HELD_WALL_S} s pass with no throw, then the clock is still at 1× in the impact phase`, () => {
+    const c = phaseClock();
+    c.slomoAt = SLOMO_HELD;
+    beginImpact(c, true);
+    for (let f = 0; f < HELD_WALL_S / FRAME; f++) {
+      easeTimeScale(c, FRAME);
+      stepPhase(c, FRAME);
+    }
+    assert.equal(c.timeScale, 1, "the scale");
+    assert.equal(c.phase, "impact", "no slow-mo phase while held");
+  });
+
+  it("when the driver is thrown, then the slow-mo is scheduled THROW_ONSET on, comes on after it, and holds the scale at 1× until then", () => {
+    const c = phaseClock();
+    c.slomoAt = SLOMO_HELD;
+    beginImpact(c, true);
+    for (let f = 0; f < 6; f++) stepPhase(c, FRAME);
+    holdForThrow(c);
+    assert.ok(Math.abs(c.slomoAt - (c.wallSinceImpact + THROW_ONSET)) < 1e-9, `slomoAt ${c.slomoAt}`);
+    let scaleAtOnsetHalf = NaN;
+    for (let f = 0; f < 120; f++) {
+      easeTimeScale(c, FRAME);
+      stepPhase(c, FRAME);
+      if (Number.isNaN(scaleAtOnsetHalf) && c.wallSinceImpact >= c.slomoAt - THROW_ONSET / 2) scaleAtOnsetHalf = c.timeScale;
+    }
+    assert.equal(scaleAtOnsetHalf, 1, "still 1× half THROW_ONSET after the throw");
+    assert.equal(c.timeScale, impactScale(c), "the slow-mo came on");
+  });
+
+  it("when the user fixed the time scale, then the hit takes it and a throw schedules nothing", () => {
+    const c = phaseClock();
+    c.slomoAt = SLOMO_HELD;
+    c.userTimeScale = 0.5;
+    beginImpact(c, true);
+    holdForThrow(c);
+    assert.equal(c.slomoAt, 0, "nothing pending");
+    assert.equal(c.targetScale, 0.5, "the user's scale");
   });
 });

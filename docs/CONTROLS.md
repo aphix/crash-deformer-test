@@ -31,6 +31,7 @@ A tap shorter than one frame still registers (the press is latched until the nex
 | Hold the wheel where it is (both keys down; releasing both centres it) | A + D | | |
 | Drift start (keyboard steering): tap the brake under 0.25 s with the wheel past 0.6 at speed; the handbrake pulses 0.1 s | S (tap) while steering | | |
 | Boost (drains under gas, recharges, fills on a derby takedown and on a clean drift) | Shift | A / Cross | Boost (hold) |
+| Long jump's timed bail (Range → Mini games → Long jump; the boost control above, and in that mode nothing else: the car's own boost is off). Press once as the car meets the barrier: perfect is the best launch, each farther press loses metres smoothly, no press lands mid-field. The card names the control of the device in use ("Press Shift as you hit the barrier", then "Perfect" / "Early 0.12 s" / "Late 0.08 s"). See [`MINIGAMES.md`](MINIGAMES.md) | Shift | A (Xbox, generic pad) / Cross (PlayStation) | Boost |
 | Camera: chase → far chase → hood cam | V / C / T | Y / Triangle | View |
 | Look back from the car while held; release returns at once | ` (Backquote) | R3 (click the right stick) | Rear (hold) |
 | Look round the car (eases back 0.8 s after release) | mouse drag | right stick | one-finger drag on the view |

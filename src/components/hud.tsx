@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import type { CrashEngine } from "@/game/engine/engine";
 import { SCENE_KEY_BINDINGS } from "@/game/engine/engine-keys";
 import { audioLevels } from "@/game/hud/audio-levels";
+import { driveKeys } from "@/game/hud/drive-keys";
 import { freeHelp } from "@/game/hud/free-help";
 import { resetGlow, resetInput } from "@/game/hud/reset-prompt";
 import { PAD_BUTTON } from "@/game/vehicle/gamepad";
@@ -125,12 +126,7 @@ function seatHint(state: CrashHudState, touch: boolean): { title: string; keys: 
     };
   }
   if (state.seat === "drive") {
-    return {
-      title: `Driving · ${CAM_LABEL[state.view]}`,
-      keys: state.pad
-        ? "RT gas · LT brake, then reverse · left stick steer · A handbrake · X boost · Y view · R3 look back · right stick look · LB/RB car · D-pad ↓ recover · Back watch"
-        : "W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · drag look · V view · ` look back · R recover · Esc watch",
-    };
+    return { title: `Driving · ${CAM_LABEL[state.view]}`, keys: driveKeys(state.pad !== null, state.minigame?.bail == null) };
   }
   if (state.cam === "free") return { title: `${state.seat === "global" ? "Whole field" : "Watching"} · ${CAM_LABEL.free}`, keys: freeHelp(state.pad !== null, touch) };
   if (state.seat === "follow") {
@@ -221,6 +217,8 @@ export function Hud(props: HudProps) {
         {state.minigame ? (
           <MinigamePanel
             state={state.minigame}
+            padFamily={state.padFamily}
+            touch={touch}
             onRetry={() => engine.current?.retryMinigame()}
             onResetRun={() => engine.current?.resetMinigameRun()}
             onPickMode={(mode) => engine.current?.startMinigame(mode)}

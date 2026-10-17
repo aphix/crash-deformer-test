@@ -8,6 +8,7 @@ import { DEFAULT_REALISM } from "../vehicle/vehicle-classes.ts";
 import { NO_DRIFT, type DriftView } from "../vehicle/car-drive.ts";
 import { DRIVER_CARS, type RaceHud, type RaceView } from "../match/types.ts";
 import type { CrashPhase } from "../match/phase.ts";
+import type { PadFamily } from "../vehicle/gamepad.ts";
 import { CHASE_DEFAULTS, type ChaseKnobId } from "../present/drive-cam.ts";
 import type { SpecView } from "../present/engine-camera.ts";
 import type { CarPart, PersonPick } from "../match/look-data.ts";
@@ -172,6 +173,8 @@ export type CrashHudState = {
   cam: SpecView | null;
   /** Connected gamepad label ("Xbox controller", …), null when none. */
   pad: string | null;
+  /** The connected gamepad's family (what its face buttons are called), null when none. */
+  padFamily: PadFamily | null;
   /** Arcade (0) ↔ realistic (1) handling and damage. */
   realism: number;
   /** Gamepad rumble on hits, hard landings and slides (a setting; on by default). */
@@ -290,6 +293,7 @@ export const INITIAL_HUD: CrashHudState = {
   view: "third",
   cam: null,
   pad: null,
+  padFamily: null,
   realism: DEFAULT_REALISM,
   rumble: true,
   playerCar: DRIVER_CARS[0]!.id,

@@ -7,7 +7,7 @@ import type { MinigameHudState } from "../scenes/minigame-session.ts";
 import { HudStore } from "../hud/hud-store.ts";
 import { FRAME_HZ } from "../kernel/constants.ts";
 import { MINIGAME_AIM_LEAD } from "../present/ride-cam.ts";
-import { BOX_POSE_FLOATS } from "../present/ragdoll-boxes.ts";
+import { BOX_POSE_FLOATS, type ReleaseScale } from "../present/ragdoll-boxes.ts";
 import { DISC_RADIUS, activeGround, setGround, type Ground } from "../world/ground.ts";
 import { MINIGAME_MODES, REST_HOLD, STATION_ANCHORS, THROW_BOOST, type MinigameMode } from "../scenes/minigame-constants.ts";
 import { BOX_COUNT, HighJumpCapture, type TorsoSample } from "../scenes/minigame-high-jump.ts";
@@ -15,6 +15,7 @@ import { DRIVER_CARS } from "../match/types.ts";
 import { lipHeight } from "../scenes/minigame-profile.ts";
 import { ringScore } from "../scenes/minigame-ring.ts";
 import { MinigameSession } from "../scenes/minigame-session.ts";
+import { BAIL_WINDOW_SECONDS, bailRelease, type BailVerdict } from "../scenes/minigame-bail.ts";
 import { CrashEngine } from "./engine.ts";
 import { element, stubBrowser } from "./engine-headless.test-util.ts";
 import { minigameStore } from "./minigame-store.ts";
@@ -34,6 +35,9 @@ const START_TOLERANCE = 0.05;
 /** The parked car shows within this share of the frame's half-size from its middle, and the eye stands within this many metres of it. */
 const PARKED_CAR_FRAME_LIMIT = 0.5;
 const PARKED_CAR_EYE_DISTANCE_LIMIT = 30;
+/** A full-throttle long jump with no bail rests between these (m): mid-field, half a perfect bail's range; the landing is about 47-57 m and a 30 degree throw rests within a few metres of it. */
+const LONG_JUMP_NO_BAIL_MINIMUM = 40;
+const LONG_JUMP_NO_BAIL_MAXIMUM = 70;
 /** The eye of the parked-start shot: at least this far behind the car, at most this far off its line, looking this closely along its heading (cosine). */
 const PARKED_EYE_BEHIND_MIN = 4;
 const PARKED_EYE_ASIDE_MAX = 2;
@@ -57,7 +61,7 @@ function memoryStorage(): Storage {
   };
 }
 
-type Launch = { releaseScale: unknown };
+type Launch = { releaseScale: ReleaseScale | undefined };
 
 describe("given the real engine on the Range, with a spy on every dummy launch", () => {
   // One engine for the file: a second `CrashEngine` in the same process never resolves `ready`.
@@ -225,7 +229,11 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
         launches.length = 0;
         samples = throwAndRead(mode);
         assert.equal(launches.length, 1, "exactly one throw");
-        assert.equal(launches[0]!.releaseScale, THROW_BOOST[mode], "the mode's boost");
+        const boost = launches[0]!.releaseScale!;
+        const expectedBoost = mode === "longJump" ? bailRelease(THROW_BOOST.longJump, 0) : THROW_BOOST[mode];
+        assert.equal(boost.forward, expectedBoost.forward, "the mode's forward");
+        assert.equal(boost.upward, expectedBoost.upward, "the mode's upward");
+        assert.equal(boost.elevation, expectedBoost.elevation, "the mode's elevation");
         scoredHud = minigameHud();
         assert.equal(scoredHud.phase, "scored", "scored");
         assert.equal(scoredHud.lastScore, expectedScore(mode, samples), "the score");
@@ -410,9 +418,9 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
     });
   });
 
-  describe("given the long jump driven from the parked start at full throttle by each driver car", () => {
+  describe("given the long jump driven from the parked start at full throttle by each driver car, with no bail", () => {
     for (const driverCar of DRIVER_CARS) {
-      it(`when a ${driverCar.id} holds the throttle to the barrier, then its driver is thrown exactly once and the throw scores the dummy's rest distance`, () => {
+      it(`when a ${driverCar.id} holds the throttle to the barrier and presses no bail, then its driver is thrown exactly once and the throw scores the dummy's rest distance, mid-field`, (t) => {
         engine.setPlayerCar(driverCar.id);
         engine.startMinigame("longJump");
         assert.equal(minigameHud().phase, "ready", "ready");
@@ -420,8 +428,10 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
         const samples = throwAndRead("longJump");
         assert.equal(launches.length, 1, "exactly one throw");
         assert.equal(minigameHud().phase, "scored", "scored");
+        t.diagnostic(`${driverCar.id}: scored ${minigameHud().lastScore!.toFixed(1)} m`);
         assert.equal(minigameHud().lastScore, expectedScore("longJump", samples), "the score is the torso's x at rest");
-        assert.ok(minigameHud().lastScore! > 0, "he landed past the lip");
+        assert.ok(minigameHud().lastScore! > LONG_JUMP_NO_BAIL_MINIMUM, `he rested at ${minigameHud().lastScore} m, not past ${LONG_JUMP_NO_BAIL_MINIMUM} m`);
+        assert.ok(minigameHud().lastScore! < LONG_JUMP_NO_BAIL_MAXIMUM, `he rested at ${minigameHud().lastScore} m, past ${LONG_JUMP_NO_BAIL_MAXIMUM} m`);
       });
     }
   });
@@ -436,7 +446,7 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
       it(testCase.it, () => {
         const ragdolls = engine["ragdolls"];
         const spy = ragdolls.launch;
-        ragdolls.launch = (e, cars, rides) => spy(e, cars, rides, { forward: 1, upward: testCase.upward });
+        ragdolls.launch = (e, cars, rides) => spy(e, cars, rides, { forward: 1, upward: testCase.upward, elevation: null });
         const camera = engine["camera"];
         camera.clearViewOffset();
         camera.aspect = 4 / 3;
@@ -539,6 +549,188 @@ describe("given the real engine on the Range, with a spy on every dummy launch",
         assert.ok(ragdolls.latest(new THREE.Vector3()) >= 0, "a dummy is out");
         assert.ok(seen.length > 0, "the camera framed him");
         for (const lead of seen) assert.equal(lead, testCase.expectedLead, "the lead passed");
+      });
+    }
+  });
+
+  describe("given the long jump's bail pressed through the real boost key", () => {
+    const BOOST_KEY = "ShiftLeft";
+    /** How far (s) the stamped press may be from the asked offset: a frame of sim time, slowed by the approach's slow-mo. */
+    const PRESS_TOLERANCE_S = 0.04;
+    /** A perfect bail rests at least this much (m) past the same run with no press. */
+    const PERFECT_OVER_NONE_M = 30;
+    /** An early or late 0.1 s press rests this much (m) short of a perfect one and past a no-press one. */
+    const FADE_MARGIN_M = 5;
+    const WASTED_EARLY_S = -0.6;
+    const AFTER_THE_THROW_S = 0.5;
+    /** A wasted bail, whose throw goes at the hit with the no-press release, rests this near (m) a no-press run's (the car has moved on a quarter second by the no-press throw). */
+    const WASTED_SCATTER_M = 6;
+    const BOOST_HOLD_S = 1;
+    const FADE_CLASS_IDS = ["sedan", "monster"] as const;
+    type BailRun = { verdict: BailVerdict; score: number; hitRelative: number };
+
+    /** A long jump at full throttle with the boost key tapped one frame when the sim has run `pressRelative` s since the throttle went down (null: never). */
+    const bailRun = (carId: string, pressRelative: number | null): BailRun => {
+      engine.setPlayerCar(carId);
+      engine.startMinigame("longJump");
+      const origin = engine["elapsedSim"];
+      engine["keys"].add(THROTTLE_KEY);
+      let pressed = false;
+      for (let frame = 0; frame < THROW_TIMEOUT_S * FRAME_HZ && minigameHud().phase !== "scored"; frame++) {
+        if (pressRelative !== null && !pressed && engine["elapsedSim"] - origin >= pressRelative) {
+          engine["keys"].add(BOOST_KEY);
+          pressed = true;
+        }
+        engine.advance(FRAME, { frameDt: FRAME });
+        engine["keys"].delete(BOOST_KEY);
+      }
+      releaseThrottle();
+      return { verdict: minigameHud().bail!.verdict!, score: minigameHud().lastScore!, hitRelative: engine["minigames"]["bail"]["hitAt"]! - origin };
+    };
+
+    /** The no-press run every other run of `carId` is read against. A car type's first run after the engine rebuilds it is not the same sim as its later runs (the first is thrown 0.06 s sooner), so the run that counts is the second: after it, every run reaches the barrier at the same moment. */
+    const baseline = (carId: string): BailRun => {
+      bailRun(carId, null);
+      return bailRun(carId, null);
+    };
+
+    for (const driverCar of DRIVER_CARS) {
+      it(`when a ${driverCar.id} taps the boost key on the hit, then the bail is perfect and he rests at least ${PERFECT_OVER_NONE_M} m past the same run with no press`, () => {
+        const none = baseline(driverCar.id);
+        const perfect = bailRun(driverCar.id, none.hitRelative);
+        assert.equal(none.verdict.kind, "none", "no press is no bail");
+        assert.equal(perfect.verdict.kind, "perfect", `${driverCar.id}'s press at ${perfect.verdict.offsetSeconds} s from the hit`);
+        assert.ok(Math.abs(perfect.hitRelative - none.hitRelative) < PRESS_TOLERANCE_S, `the barrier was reached ${perfect.hitRelative - none.hitRelative} s apart`);
+        assert.ok(perfect.score - none.score >= PERFECT_OVER_NONE_M, `${driverCar.id}: perfect ${perfect.score.toFixed(1)} m against none ${none.score.toFixed(1)} m`);
+      });
+    }
+
+    for (const carId of FADE_CLASS_IDS) {
+      const offsets = [
+        { it: "an early", offset: -0.1, expectedKind: "early" },
+        { it: "a late", offset: 0.1, expectedKind: "late" },
+      ] as const;
+      for (const testCase of offsets) {
+        it(`when a ${carId} taps the boost key ${Math.abs(testCase.offset)} s from the hit (${testCase.it} press), then the bail is ${testCase.expectedKind} by that much and he rests between the no-press and the perfect run`, () => {
+          const none = baseline(carId);
+          const perfect = bailRun(carId, none.hitRelative);
+          const run = bailRun(carId, none.hitRelative + testCase.offset);
+          assert.equal(run.verdict.kind, testCase.expectedKind, `kind at ${run.verdict.offsetSeconds} s`);
+          assert.ok(Math.abs(run.verdict.offsetSeconds! - testCase.offset) < PRESS_TOLERANCE_S, `offset ${run.verdict.offsetSeconds} against ${testCase.offset}`);
+          assert.ok(run.score > none.score + FADE_MARGIN_M, `${run.score.toFixed(1)} m is not past no press ${none.score.toFixed(1)} m`);
+          assert.ok(run.score < perfect.score - FADE_MARGIN_M, `${run.score.toFixed(1)} m is not short of perfect ${perfect.score.toFixed(1)} m`);
+        });
+      }
+    }
+
+    it("when a sedan taps the boost key far too early, then the bail is wasted: too early, and he rests where a no-press run does", () => {
+      const none = baseline("sedan");
+      const wasted = bailRun("sedan", none.hitRelative + WASTED_EARLY_S);
+      assert.equal(wasted.verdict.kind, "tooEarly", "kind");
+      assert.ok(Math.abs(wasted.score - none.score) < WASTED_SCATTER_M, `wasted ${wasted.score.toFixed(1)} m against none ${none.score.toFixed(1)} m`);
+    });
+
+    it("when a sedan taps the boost key after the throw has gone, then the bail is too late and the throw was the no-press one", () => {
+      const none = baseline("sedan");
+      const late = bailRun("sedan", none.hitRelative + AFTER_THE_THROW_S);
+      assert.equal(late.verdict.kind, "tooLate", "kind");
+      assert.ok(Math.abs(late.score - none.score) < 1, `late ${late.score.toFixed(1)} m against none ${none.score.toFixed(1)} m`);
+    });
+
+    it("when the boost key is held on the parked car before the throttle, then it is no press and the bail is still open", () => {
+      engine.setPlayerCar("sedan");
+      engine.startMinigame("longJump");
+      engine["keys"].add(BOOST_KEY);
+      run(0.5);
+      engine["keys"].delete(BOOST_KEY);
+      assert.equal(minigameHud().phase, "ready", "still ready");
+      assert.equal(minigameHud().bail!.pressed, false, "not pressed");
+    });
+
+    it(`when the boost key and the throttle are held for ${BOOST_HOLD_S} s, then the long jump's car never boosts and the meter is not drained, and the high jump's car does`, () => {
+      const holdBoost = (mode: MinigameMode) => {
+        engine.setPlayerCar("sedan");
+        engine.startMinigame(mode);
+        engine["keys"].add(THROTTLE_KEY);
+        engine["keys"].add(BOOST_KEY);
+        run(BOOST_HOLD_S);
+        const boosting = engine["carA"].drive.boostK;
+        const meter = engine["seat"].boost;
+        engine["keys"].delete(BOOST_KEY);
+        releaseThrottle();
+        return { boosting, meter };
+      };
+      const longJump = holdBoost("longJump");
+      const highJump = holdBoost("highJump");
+      assert.equal(longJump.boosting, 0, "the long jump car's boost thrust");
+      assert.equal(longJump.meter, 1, "the long jump's meter is full");
+      assert.equal(highJump.boosting, 1, "the high jump car's boost thrust");
+      assert.ok(highJump.meter < 1, `the high jump's meter drained to ${highJump.meter}`);
+    });
+
+    /** What one long jump did to the crash clock: every frame's time scale from the hit to the throw's release, the frames that took, the lowest scale before the hit and after the release, and the bail's verdict. */
+    type ClockRun = { scalesHitToRelease: number[]; framesHitToRelease: number; lowestScaleBeforeHit: number; lowestScaleAfterRelease: number; verdict: BailVerdict };
+
+    /** A long jump at full throttle, the throttle let go at x `liftAtX` (null: held to the barrier), the boost key tapped `tapFramesAfterHit` presented frames after the hit (null: never). */
+    const clockRun = (liftAtX: number | null, tapFramesAfterHit: number | null): ClockRun => {
+      engine.setPlayerCar("sedan");
+      engine.startMinigame("longJump");
+      engine["keys"].add(THROTTLE_KEY);
+      const run: ClockRun = { scalesHitToRelease: [], framesHitToRelease: 0, lowestScaleBeforeHit: 1, lowestScaleAfterRelease: 1, verdict: { kind: "none", offsetSeconds: null, quality: 0 } };
+      let hitFrame = -1;
+      let released = false;
+      for (let frame = 0; frame < THROW_TIMEOUT_S * FRAME_HZ && minigameHud().phase !== "scored"; frame++) {
+        if (liftAtX !== null && engine["carA"].group.position.x >= liftAtX) engine["keys"].delete(THROTTLE_KEY);
+        if (tapFramesAfterHit !== null && hitFrame >= 0 && frame - hitFrame === tapFramesAfterHit) engine["keys"].add(BOOST_KEY);
+        engine.advance(FRAME, { frameDt: FRAME });
+        engine["keys"].delete(BOOST_KEY);
+        const scale = engine["clock"].timeScale;
+        if (engine["minigames"]["bail"]["hitAt"] === null) run.lowestScaleBeforeHit = Math.min(run.lowestScaleBeforeHit, scale);
+        else if (!released) {
+          if (hitFrame < 0) hitFrame = frame;
+          run.scalesHitToRelease.push(scale);
+          if (engine["minigames"]["heldThrow"] === null) {
+            released = true;
+            run.framesHitToRelease = frame - hitFrame;
+          }
+        } else run.lowestScaleAfterRelease = Math.min(run.lowestScaleAfterRelease, scale);
+      }
+      releaseThrottle();
+      run.verdict = minigameHud().bail!.verdict!;
+      return run;
+    };
+
+    /** A lifted throttle at this x (m): the car coasts into the barrier slower, which the slow-mo's own prediction (`throwComing`) does not expect to throw him. */
+    const COASTING_LIFT_X = -10;
+    /** The clock's slow scale (`IMPACT_SCALE`): the throw's slow-mo must come, and only after the release. */
+    const SLOW_ENOUGH = 0.5;
+    /** The press and the throw's hold are in real time: presented frames from the hit, at 60 Hz. */
+    const WINDOW_FRAMES = Math.round(BAIL_WINDOW_SECONDS * FRAME_HZ);
+    const FRAME_SLACK = 2;
+    const cases = [
+      { it: "held to the barrier", liftAtX: null },
+      { it: "let go at x -10 so the car coasts into it", liftAtX: COASTING_LIFT_X },
+    ] as const;
+    for (const testCase of cases) {
+      it(`when the throttle is ${testCase.it} and no bail is pressed, then the clock runs at 1x from the start to the release, the throw goes at the window's end in presented time, and the slow-mo comes after it`, () => {
+        const run = clockRun(testCase.liftAtX, null);
+        assert.equal(run.lowestScaleBeforeHit, 1, "the approach is at 1x");
+        assert.ok(run.scalesHitToRelease.length > 0, "the barrier was hit");
+        assert.equal(Math.min(...run.scalesHitToRelease), 1, `the lowest scale between the hit and the release, over ${run.scalesHitToRelease.length} frames`);
+        assert.ok(Math.abs(run.framesHitToRelease - WINDOW_FRAMES) <= FRAME_SLACK, `${run.framesHitToRelease} presented frames from the hit to the release, not ${WINDOW_FRAMES}`);
+        assert.ok(run.lowestScaleAfterRelease < SLOW_ENOUGH, `the slow-mo after the release reached only ${run.lowestScaleAfterRelease}`);
+      });
+    }
+
+    const presses = [
+      { it: "0.1 s", framesAfterHit: Math.round(0.1 * FRAME_HZ), expectedKind: "late", expectedOffsetS: 0.1 },
+      { it: "0.5 s", framesAfterHit: Math.round(0.5 * FRAME_HZ), expectedKind: "tooLate", expectedOffsetS: 0.5 },
+    ] as const;
+    for (const press of presses) {
+      it(`when the boost key is tapped ${press.it} of presented time after the hit on a coasting run, then the bail is ${press.expectedKind} by that much and not perfect`, () => {
+        const run = clockRun(COASTING_LIFT_X, press.framesAfterHit);
+        assert.equal(run.verdict.kind, press.expectedKind, `verdict at ${run.verdict.offsetSeconds} s`);
+        assert.ok(Math.abs(run.verdict.offsetSeconds! - press.expectedOffsetS) < PRESS_TOLERANCE_S, `offset ${run.verdict.offsetSeconds} against ${press.expectedOffsetS}`);
       });
     }
   });

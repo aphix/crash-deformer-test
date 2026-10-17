@@ -1,6 +1,8 @@
 import { Button } from "@/components/ui/button";
 import type { MinigameMode } from "@/game/scenes/minigame-constants";
 import type { MinigameHudState } from "@/game/scenes/minigame-session";
+import { bailControlName } from "@/game/hud/bail-prompt";
+import type { PadFamily } from "@/game/vehicle/gamepad";
 import { minigamePanelView } from "@/components/minigame-panel-view";
 
 const RIG_BUTTON = "h-11 px-2 text-xs sm:h-7";
@@ -8,6 +10,8 @@ const RIG_BUTTON = "h-11 px-2 text-xs sm:h-7";
 /** The Range minigame card: the mode's reading, score, bests and the retry / reset / switch / exit buttons. The engine's commands arrive as props. */
 export function MinigamePanel({
   state,
+  padFamily,
+  touch,
   onRetry,
   onResetRun,
   onPickMode,
@@ -15,13 +19,16 @@ export function MinigamePanel({
   onExit,
 }: {
   state: MinigameHudState;
+  /** The connected pad's family and whether this is a touch screen: which control the bail prompt names. */
+  padFamily: PadFamily | null;
+  touch: boolean;
   onRetry: () => void;
   onResetRun: () => void;
   onPickMode: (mode: MinigameMode) => void;
   onSetThrowsPerSet: (count: number) => void;
   onExit: () => void;
 }) {
-  const view = minigamePanelView(state);
+  const view = minigamePanelView(state, bailControlName(padFamily, touch));
   const stepper = view.stepper;
   return (
     <div className="hud-panel pointer-events-auto w-48 space-y-1 p-2" role="group" aria-label={view.title}>
@@ -38,6 +45,12 @@ export function MinigamePanel({
         </p>
       )}
       {view.scoreHint === null ? null : <p className="font-display text-xs text-muted">{view.scoreHint}</p>}
+      {view.bailResult === null ? null : (
+        <p className="font-display text-xs font-semibold" role="status" aria-label="Bail timing">
+          {view.bailResult}
+        </p>
+      )}
+      {view.bailPrompt === null ? null : <p className="font-display text-xs text-accent">{view.bailPrompt}</p>}
       {view.setScores === null ? null : <p className="truncate font-display text-xs tabular-nums text-muted">{view.setScores}</p>}
       {view.total === null ? null : (
         <p className="font-display text-xs tabular-nums text-muted">

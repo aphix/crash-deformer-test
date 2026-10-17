@@ -1,11 +1,12 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import type { EjectionWatch } from "../vehicle/ejection.ts";
-import { BOX_POSE_FLOATS, type BoxPlacement } from "../present/ragdoll-boxes.ts";
+import type { Ejection, EjectionWatch } from "../vehicle/ejection.ts";
+import { BOX_POSE_FLOATS, type BoxPlacement, type ReleaseScale } from "../present/ragdoll-boxes.ts";
 import type { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { MinigameArt } from "../present/minigame-art.ts";
 import { NET_HALF_WIDTH } from "../present/high-jump-art.ts";
-import { HIGH_JUMP_MEASURED, MINIGAME_MODE, STATION_ANCHORS, THROWS_PER_SET, type MinigameMode } from "../scenes/minigame-constants.ts";
+import { HIGH_JUMP_MEASURED, MINIGAME_MODE, STATION_ANCHORS, THROW_BOOST, THROWS_PER_SET, type MinigameMode } from "../scenes/minigame-constants.ts";
+import { bailRelease, LongJumpBail } from "../scenes/minigame-bail.ts";
 import { MinigameGround, type MinigameBounds, type StationStart } from "../scenes/minigame-ground.ts";
 import { BOX_COUNT, highJumpLayout, type TorsoSample } from "../scenes/minigame-high-jump.ts";
 import { lipHeight } from "../scenes/minigame-profile.ts";
@@ -43,6 +44,10 @@ export class Minigames {
   /** The session keeps the previous frame's sample to interpolate the posts' plane: two buffers take turns. */
   private readonly torsoSamples = [blankTorsoSample(), blankTorsoSample()];
   private nextTorsoSample = 0;
+  /** The Long jump's bail: this attempt's press and hit, and the barrier's throw held for a late press. */
+  private readonly bail = new LongJumpBail();
+  private heldThrow: Ejection | null = null;
+  private boostWasDown = false;
 
   /** The mode in play, null while the Range runs its attract loop. */
   get mode(): MinigameMode | null {
@@ -64,9 +69,11 @@ export class Minigames {
     return this.groundInPlay?.minigameBounds() ?? null;
   }
 
-  /** The session's card for the HUD. */
+  /** The session's card for the HUD, the Long jump's bail on it. */
   hud(): MinigameHudState {
-    return this.session.hud();
+    const card = this.session.hud();
+    if (this.activeMode === MINIGAME_MODE.longJump) card.bail = { pressed: this.bail.pressed, verdict: this.bail.verdict };
+    return card;
   }
 
   /**
@@ -79,6 +86,8 @@ export class Minigames {
     this.activeMode = start.mode;
     this.carType = start.carType;
     this.thrown = false;
+    this.heldThrow = null;
+    this.bail.reset();
     this.beginSession(start.mode);
     return built;
   }
@@ -96,6 +105,8 @@ export class Minigames {
     if (this.activeMode === null) return;
     this.activeMode = null;
     this.thrown = false;
+    this.heldThrow = null;
+    this.bail.reset();
     ragdolls.releaseThrown();
     ragdolls.clearBoxes();
     this.art?.setMode(null);
@@ -117,12 +128,39 @@ export class Minigames {
     this.session.begin(mode, { carType: this.carType, throwsPerSet: this.throwsPerSet, highJump: { postsX: this.highJump.postsX, lipY: this.highJumpLipY } });
   }
 
-  /** A new attempt's scene (after `ragdolls.reset`, which drops both): the dummy lives until released, the boxes stand again. */
+  /** A new attempt's scene (after `ragdolls.reset`, which drops both): the dummy lives until released, the boxes stand again, no bail yet. */
   armRagdolls(ragdolls: RagdollSystem): void {
     this.thrown = false;
+    this.heldThrow = null;
+    this.bail.reset();
     ragdolls.holdThrown();
     const boxes = this.activeMode === null ? undefined : this.boxPlacements[this.activeMode];
     if (boxes) ragdolls.setBoxes(boxes);
+  }
+
+  /** The Long jump's boost control, once per frame: `down` is the control held, `tapped` a press the poll saw begin. The first press of a run is the bail, stamped at game time `now`; before the car moves it is nothing. */
+  sampleBoost(down: boolean, tapped: boolean, now: number): void {
+    const pressed = tapped || (down && !this.boostWasDown);
+    this.boostWasDown = down;
+    if (!pressed || this.activeMode !== MINIGAME_MODE.longJump) return;
+    const phase = this.session.attemptPhase;
+    if (phase === "running" || phase === "thrown") this.bail.press(now);
+  }
+
+  /** The barrier's throw at game time `now`: the dummy waits (up to the bail window) for a late press. */
+  holdForBail(event: Ejection, now: number): void {
+    this.heldThrow = event;
+    this.bail.hit(now);
+  }
+
+  /** The held throw and its release once the bail has decided it at game time `now`, else null. */
+  bailThrowDue(now: number): { event: Ejection; release: ReleaseScale } | null {
+    if (this.heldThrow === null) return null;
+    const verdict = this.bail.launchDue(now);
+    if (verdict === null) return null;
+    const event = this.heldThrow;
+    this.heldThrow = null;
+    return { event, release: bailRelease(THROW_BOOST.longJump, verdict.quality) };
   }
 
   /** Where the active station parks the player's car. */

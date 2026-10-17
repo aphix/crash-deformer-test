@@ -1,6 +1,6 @@
 import type { DriveInput } from "./car-drive.ts";
 import { SLIDE_SPEED } from "./constants.ts";
-import { PAD_BUTTON, type PadState } from "./gamepad.ts";
+import { blankPad, PAD_BUTTON, PAD_BUTTON_COUNT, type PadState } from "./gamepad.ts";
 
 /** One frame of player intent, keyboard and pad merged, in player-visible signs. */
 type DriveIntent = {
@@ -172,4 +172,20 @@ export function shapeDrive(intent: DriveIntent, feel: DriveFeel, along: number, 
   }
   out.boost = intent.boost && out.throttle > 0;
   return out;
+}
+
+/**
+ * The pad button `readIntent` reads as Boost, found by holding each in turn rather than by a second copy of the binding: whatever
+ * `readIntent` binds, a prompt that names this button names the right one. Null when no button boosts.
+ */
+export function boostPadButton(): number | null {
+  const pad = blankPad();
+  pad.connected = true;
+  const noKeys = new Set<string>();
+  const intent = blankIntent();
+  for (let button = 0; button < PAD_BUTTON_COUNT; button++) {
+    pad.held = 1 << button;
+    if (readIntent(noKeys, pad, intent).boost) return button;
+  }
+  return null;
 }

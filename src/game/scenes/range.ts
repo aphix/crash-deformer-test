@@ -12,7 +12,7 @@ export const RANGE = {
   length: 110,
   halfWidth: 10,
   signStep: 10,
-  signs: 10,
+  signs: 11,
 } as const;
 
 /** Wall seconds the landing stays on screen before a looping range runs again. */

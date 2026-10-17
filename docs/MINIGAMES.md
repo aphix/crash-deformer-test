@@ -4,11 +4,15 @@ Three throw events on the Range scene: Long jump, High jump and Ring Fling. Loca
 
 ## 1. What it is and how to play
 
-Range scene -> Mini games -> Long jump / High jump / Ring Fling. There is no auto-drive: the car is parked at the top of the station's start hill until your first pedal press. Drive down the hill and the run-up, up the climb; at the lip the driver is thrown (section 2) and the camera follows him (`ride-cam.ts` leads its aim along the throw).
+Range scene -> Mini games -> Long jump / High jump / Ring Fling. There is no auto-drive: the car is parked at the top of the station's start hill until your first pedal press, the camera behind it in the seat's chase view (`followsInChaseView`). Drive down the hill and the run-up, up the climb; at the lip the driver is thrown (section 2; the Long jump's barrier throw waits for your bail press, below) and the camera follows him (`ride-cam.ts` leads its aim along the throw) and holds on him until Retry. A minigame's throw always opens that ride, whatever you framed before it (a wheel, a drag or a pinch set `userFramed`, which only keeps the plain Range's throw from taking the camera).
 
 The score card shows the live value while he flies (metres past the lip, metres above it, or the ring zone under him), then the scored value once he is at rest. Buttons: **Retry** (Ring Fling: **Next throw**, then **New set** once the set is complete), the quick-switch buttons to the other two modes, **Reset run** and **Exit**.
 
 Ring Fling throws per set: 1-10, default 5 (`THROWS_PER_SET`); a set's score is the sum of its throws and is recorded when the set completes. Bests are kept per mode x car type and overall, in `localStorage` under `crush.minigame.best.<mode>[.<throwsPerSet>].<carType | overall>` (`engine/minigame-store.ts`; only Ring Fling keys carry the set length).
+
+**The Long jump's timed bail.** In the Long jump the **boost control** (keyboard Shift, pad A / Cross, touch Boost; the one binding `readIntent` reads, see [`CONTROLS.md`](CONTROLS.md)) is the bail and nothing else: the car's own boost is off there (`DriverSeat.boostLocked`). Press it once as the car meets the barrier. How close the press is to the hit sets the launch: perfect (within 0.03 s) is the best launch, 45 degrees; each farther press loses metres in a straight line (not a cliff) down to 0 at 0.25 s; no press (or a press more than 0.25 s early, a wasted bail, or after the throw) is the flat 30 degree throw at half the range, mid-field (about 50 m). The first press of a run counts. The throw is held up to 0.25 s after the hit for a late press, so a press that is "late" still lands before the dummy leaves. The card shows "Press Shift as you hit the barrier" (the control as the device in use names it: Shift; A on an Xbox pad, Cross on a PlayStation pad, A on a generic pad; Boost on a touch screen) until he is thrown, then the timing: "Perfect", "Early 0.12 s", "Late 0.08 s", "Too early (0.90 s): no bail", "No bail".
+
+**The bail is timed in real time.** The crash clock is held at 1x in the Long jump from the start of the attempt until the throw's release (`SLOMO_HELD`): no pre-impact slow-mo before the barrier, none after the hit. So the 0.03 s perfect band and the 0.25 s window are 0.03 s and 0.25 s of the player's own time on both sides of the hit (an earlier build let the hit's slow-mo stretch the late side: on a coasting run the throw waited 356 presented frames, about 6 s, and a press 0.5 s after the hit counted as 0.08 s late). The throw's own slow-mo starts at the release, after its usual 0.25 s at 1x for the exit. The drive hint under the card names no boost in the Long jump: the card's prompt is the control's one word.
 
 ## 2. Station anatomy
 
@@ -16,7 +20,7 @@ Each station is laid out in its own frame (`scenes/minigame-constants.ts`): +x i
 
 Start pad (6 m) -> start hill (falls 3 m over `START_HILL_LENGTH`: 11 / 24 / 24 m) -> run-up (`RUN_UP_LENGTH`: 0 / 40 / 30 m) -> climb or kicker -> lip. The parked car faces +x.
 
-- **Long jump**: lip = world origin, because the jersey barrier is origin-bound. The barrier throws the driver by a hit. Incline 7 degrees, 2 m, crest radius 100 m, flat for x in [-5, 0]. The barrier rebounds without ejecting above ~31.4 m/s arrival (lowest failing speed, phase dependent) and its minimum ejecting arrival is ~20.6 m/s (monster), so the approach is tuned: arrival at full throttle 24.4-27.0 m/s for all 7 classes (was 36-39), thrown exactly once at 20 of 20 start phases. No ejection below ~18 m/s horizontal.
+- **Long jump**: lip = world origin, because the jersey barrier is origin-bound. The barrier throws the driver by a hit. Incline 7 degrees, 2 m, crest radius 100 m, flat for x in [-5, 0]. The barrier rebounds without ejecting above ~31.4 m/s arrival (lowest failing speed, phase dependent) and its minimum ejecting arrival is ~20.6 m/s (monster), so the approach is tuned: arrival at full throttle 24.4-27.0 m/s for all 7 classes (was 36-39), thrown exactly once at 20 of 20 start phases. No ejection below ~18 m/s horizontal. The field is 110 m with a sign every 10 m to 110 (`RANGE.signs`), so the signs run past the best landing.
 - **High jump**: one R25 m arc kicker tangent to the run-up, lip pitch 60 degrees, lip 9.5 m up, run-up 40 m, hill 24 m. All 7 classes reach the lip at full throttle.
   Radius sweep at 60 degrees (lip height; sedan / muscle / truck / monster unboosted apex m; ratio): R20 7.0 m 60/142/110/219 3.64 | R22 8.0 m 127/146/123/213 1.81 | R25 9.5 m 135/158/125/200 1.67 | R28 11.0 m 125/151/127/207 1.66 | R30 12.0 m 136/154/125/218 1.75. R25 was chosen (R20 is a cliff for the sedan: lip speed 18.9 vs 27 m/s).
 - **Ring Fling**: 5 degree incline plus a 4 m ball-hop quarter wave (1.005 m, the machine's 3.35 in on 120 in), lip 1.31 m high, hill 24 m, run-up 30 m; the board starts 6 m past the lip.
@@ -43,13 +47,13 @@ Posts at `POSTS_DISTANCE` 11 m (half-span `POST_HALF_SPAN`). Distance boards eve
 
 ## 6. The dummy boost
 
-`THROW_BOOST` (`minigame-constants.ts`) holds a `{ forward, upward }` pair per minigame: multipliers on the thrown driver's horizontal and vertical launch velocity, applied only to a minigame throw and only on the ragdoll side (the ragdoll's launch). The sim's Ejection event stays physical, so replays and the fingerprint do not move.
+`THROW_BOOST` (`minigame-constants.ts`) holds a `{ forward, upward, elevation }` triple per minigame: `forward` and `upward` multiply the thrown driver's horizontal and vertical launch velocity, and a non-null `elevation` (rad) makes the scaled horizontal speed the whole release speed, aimed at that angle above the heading; applied only to a minigame throw and only on the ragdoll side (the ragdoll's launch). The sim's Ejection event stays physical, so replays and the fingerprint do not move.
 
-Why a pair: the sim keeps a car's horizontal speed on a slope and lets its vertical speed follow the ground, so a 60 degree kicker throws at vy = vh x tan(60), a near-vertical rocket. Hence forward < 1 for the High jump.
+Why a triple: the sim keeps a car's horizontal speed on a slope and lets its vertical speed follow the ground, so a 60 degree kicker throws at vy = vh x tan(60), a near-vertical rocket. Hence forward < 1 for the High jump. The barrier's throw has about the same vertical speed (3.2 m/s) at any approach speed, so a multiplier on it made the landing depend on the speed only as its square root, with a slower monster out-carrying a faster one: the Long jump builds the release from the horizontal speed alone (upward 1, elevation set by the bail), so its landing goes with the speed squared.
 
 | Mode | forward | upward | Intent |
 |---|---|---|---|
-| Long jump | 1.1 | 5 | the barrier throws a flat skim; upward 5 turns it into an arc |
+| Long jump | 1.15 | 1 | the base of a perfect bail: the whole release speed is 1.15 x the car's horizontal speed at 45 degrees; the bail (section 1) sets the angle and speed of every other press |
 | High jump | 0.108 | 1.03 | forward keeps the best run landing in the box field before the net; upward puts it over the posts |
 | Ring Fling | 0.4 | 0.7 | a ballistic landing that puts a full-throttle sedan on the 30 cup |
 
@@ -83,17 +87,19 @@ Worst of 3 repeats, from `minigame-sizing.test.ts`.
 
 Sedan speed-share sweep (share of full-throttle lip speed -> cup): 0.72-0.86 -> 10, 0.88-0.94 -> 20, 0.96-1.00 -> 30; below 0.70 no cup.
 
-**Long jump** (boost 1.1 / 5; best run: approach m/s -> release h/v -> lands / rests m, sign)
+**Long jump** (the timed bail; `THROW_BOOST.longJump` forward 1.15; best run of each class: landing / rest in m by press offset from the hit, early and late alike, worst-case seed 0 of `minigame-sizing.test.ts`)
 
-| Class | Best run | Mid run (85% of approach) |
-|---|---|---|
-| sedan, hatchback, wagon | 24.9 -> 30.6/15.9 -> 91.3 / 93.5, 90 | 26.2/17.1 -> 83.0 / 83.9, 80 |
-| muscle | 26.7 -> 32.7/15.7 -> 96.3 / 99.2, 90 | 27.9/17.3 -> 89.6 / 90.6 |
-| truck | 24.5 -> 30.2/14.5 -> 83.4 / 110.0 (skid after a short landing), 100 | 25.8/19.6 -> 92.2 / 92.8 |
-| monster | 26.7 -> 32.7/17.2 -> 105.9 / 107.2, 100 | 27.9/23.3 -> 118.2 / 140.7 |
-| police | 24.8 -> 30.5/16.3 -> 93.2 / 94.7, 90 | 26.2/17.6 -> 85.3 / 86.0 |
+| Class | Perfect | ±0.05 s | ±0.10 s | ±0.20 s | No press |
+|---|---|---|---|---|---|
+| sedan, hatchback, wagon | 93.9 / 102.5 | 87.9 / 89.3 | 78.5 / 79.2 | 59.0 / 67.5 | 49.0 / 49.8 |
+| muscle | 103.8 / 106.3 | 103.6 / 110.7 | 88.9 / 89.5 | 66.7 / 72.1 | 55.4 / 58.8 |
+| truck | 94.5 / 96.7 | 85.9 / 87.7 | 76.6 / 77.4 | 57.7 / 73.2 | 47.8 / 48.9 |
+| monster | 104.5 / 106.4 | 104.5 / 124.9 | 89.9 / 90.5 | 68.1 / 70.3 | 56.7 / 61.5 |
+| police | 96.6 / 102.5 | 87.4 / 88.8 | 77.9 / 78.8 | 58.5 / 65.8 | 48.6 / 49.6 |
 
-The barrier throws no driver below ~18 m/s horizontal, so the long jump's mid run is 85% of the approach (70% elsewhere). A slower car carries more vertical speed off the incline, so for the truck and monster the mid run can out-carry the best run; a multiplier cannot change that ratio.
+Mid run (85% of the approach, perfect bail / no press): sedan 68.2 / 36.1, muscle 76.6 / 40.8, truck 66.0 / 35.0, monster 77.4 / 41.9, police 67.7 / 36.0. A slower run lands shorter for every class at every offset. Through the real engine, keys and all, at full throttle with no press: sedan 49.9, muscle 58.2, truck 48.8, monster 63.0, police 49.7, hatchback 49.7, wagon 49.9 m.
+
+The barrier throws no driver below ~18 m/s horizontal. The sizing bars (`minigame-sizing.test.ts`): the perfect bail lands the farthest class 97-108 m (the last sign, 110 m, is the field's end) and every class past 85 m; a run with no press lands every class 42-58 m; the metres fall by at least 8 m from perfect to 0.1 s, to 0.2 s and to no press, never rise with the distance, and an early press lands within 4 m of a late one of its distance. The monster's ±0.05 s rest of 124.9 m is a skid past the field's end: the landing (104.5 m) is what is sized, the rest is a lottery of up to ~35 m.
 
 ## 8. Determinism and replay impact
 
@@ -121,5 +127,11 @@ Change a number in `scenes/minigame-constants.ts`, then run the tests that print
 | `present/ragdoll-boxes.ts`, `cardboard-art.ts` | box piles (Rapier cuboids) and their art |
 | `present/minigame-art.ts`, `high-jump-art.ts`, `ring-fling-art.ts`, `long-jump-art.ts`, `minigame-surface-art.ts` | per-station art |
 | `present/ride-cam.ts` | the minigame framing (`Framing.lead`): aim led by the shown velocity, opens on the follow shot (eased from the drive cam), eye 5 m aside, 12 m back at speed, 8 m back and 6 m up at rest, lifted clear of the ground and `sight` solids |
+| `engine/engine-core.ts` | `onThrow` (a minigame's throw always opens the ride camera) and `followsInChaseView` (the parked start's shot) |
+| `present/engine-ragdoll.ts` | `launch`: the release's `forward`, `upward` and `elevation` |
+| `scenes/minigame-bail.ts` | the Long jump's timed bail: windows, verdict, `bailRelease`, `LongJumpBail` |
+| `hud/bail-prompt.ts` | the bail's prompt and result text, the control named per device |
+| `match/phase.ts` | `SLOMO_HELD`: the crash clock's slow-mo held at 1x until the throw (`holdForThrow`); `engine-scenes.ts` `restartCrash` arms it in the Long jump |
+| `hud/drive-keys.ts` | the driven car's key line, with no boost in it in the Long jump |
 | `vehicle/ejection.ts` | `throwDriverNow`, vertical carry |
 | `components/minigame-panel*.tsx` / `.ts` | score card and buttons |

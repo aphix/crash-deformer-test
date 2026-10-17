@@ -16,7 +16,9 @@ const LONG_JUMP_READY: MinigameHudState = {
   setTotal: 0,
   setComplete: false,
   best: { thisCar: null, overall: null },
+  bail: null,
 };
+const KEYBOARD_CONTROL = "Shift";
 const RING_SET_LENGTH = 5;
 const RING_READY: MinigameHudState = { ...LONG_JUMP_READY, mode: "ringFling", throwsPerSet: RING_SET_LENGTH };
 
@@ -28,27 +30,27 @@ describe("given the minigame HUD slice", () => {
 
 describe("given a long jump in each phase", () => {
   it("when ready, then Reset run works and Retry does not", () => {
-    const view = minigamePanelView(LONG_JUMP_READY);
+    const view = minigamePanelView(LONG_JUMP_READY, KEYBOARD_CONTROL);
     assert.equal(view.resetEnabled, true);
     assert.equal(view.retryEnabled, false);
     assert.equal(view.retryLabel, "Retry");
   });
 
   it("when running, then Reset run works and the live value reads in metres", () => {
-    const view = minigamePanelView({ ...LONG_JUMP_READY, phase: "running", liveValue: 12.34 });
+    const view = minigamePanelView({ ...LONG_JUMP_READY, phase: "running", liveValue: 12.34 }, KEYBOARD_CONTROL);
     assert.equal(view.resetEnabled, true);
     assert.equal(view.retryEnabled, false);
     assert.equal(view.live, "Distance 12.3 m");
   });
 
   it("when thrown, then neither Retry nor Reset run works", () => {
-    const view = minigamePanelView({ ...LONG_JUMP_READY, phase: "thrown", liveValue: 20 });
+    const view = minigamePanelView({ ...LONG_JUMP_READY, phase: "thrown", liveValue: 20 }, KEYBOARD_CONTROL);
     assert.equal(view.resetEnabled, false);
     assert.equal(view.retryEnabled, false);
   });
 
   it("when scored, then Retry works, Reset run does not and the Score line shows", () => {
-    const view = minigamePanelView({ ...LONG_JUMP_READY, phase: "scored", lastScore: 31.25, best: { thisCar: 31.25, overall: 40 } });
+    const view = minigamePanelView({ ...LONG_JUMP_READY, phase: "scored", lastScore: 31.25, best: { thisCar: 31.25, overall: 40 } }, KEYBOARD_CONTROL);
     assert.equal(view.retryEnabled, true);
     assert.equal(view.resetEnabled, false);
     assert.equal(view.score, "31.3 m");
@@ -57,7 +59,7 @@ describe("given a long jump in each phase", () => {
   });
 
   it("when it is not a Ring Fling, then there is no throw counter, set line or stepper", () => {
-    const view = minigamePanelView(LONG_JUMP_READY);
+    const view = minigamePanelView(LONG_JUMP_READY, KEYBOARD_CONTROL);
     assert.equal(view.throwCounter, null);
     assert.equal(view.setScores, null);
     assert.equal(view.total, null);
@@ -65,14 +67,14 @@ describe("given a long jump in each phase", () => {
   });
 
   it("when no score is yet recorded, then the bests read as a dash", () => {
-    assert.equal(minigamePanelView(LONG_JUMP_READY).bestOverall, "–");
+    assert.equal(minigamePanelView(LONG_JUMP_READY, KEYBOARD_CONTROL).bestOverall, "–");
   });
 });
 
 describe("given the quick-switch list", () => {
   for (const mode of MINIGAME_MODES) {
     it(`when the mode is ${mode}, then the list holds the other modes with their labels`, () => {
-      const others = minigamePanelView({ ...LONG_JUMP_READY, mode }).otherModes;
+      const others = minigamePanelView({ ...LONG_JUMP_READY, mode }, KEYBOARD_CONTROL).otherModes;
       const expected = MINIGAME_MODES.filter((other) => other !== mode);
       assert.equal(others.length, expected.length);
       for (let index = 0; index < expected.length; index++) {
@@ -85,7 +87,7 @@ describe("given the quick-switch list", () => {
 
 describe("given a Ring Fling", () => {
   it("when between throws, then the button reads Next throw and the counter shows the place", () => {
-    const view = minigamePanelView({ ...RING_READY, phase: "scored", attempt: 2, lastScore: 30, setScores: [20, 30], setTotal: 50 });
+    const view = minigamePanelView({ ...RING_READY, phase: "scored", attempt: 2, lastScore: 30, setScores: [20, 30], setTotal: 50 }, KEYBOARD_CONTROL);
     assert.equal(view.retryLabel, "Next throw");
     assert.equal(view.throwCounter, "Throw 2 / 5");
     assert.equal(view.setScores, "Set: 20", "the scored throw is the Score line, not repeated in the set line");
@@ -95,7 +97,7 @@ describe("given a Ring Fling", () => {
   });
 
   it("when the set is complete, then the button reads New set and the total is the Best", () => {
-    const view = minigamePanelView({ ...RING_READY, phase: "scored", attempt: 5, lastScore: 10, setScores: [10, 10, 10, 10, 10], setTotal: 50, setComplete: true });
+    const view = minigamePanelView({ ...RING_READY, phase: "scored", attempt: 5, lastScore: 10, setScores: [10, 10, 10, 10, 10], setTotal: 50, setComplete: true }, KEYBOARD_CONTROL);
     assert.equal(view.retryLabel, "New set");
     assert.equal(view.totalLabel, "Best");
     assert.equal(view.total, "50 pts");
@@ -104,9 +106,9 @@ describe("given a Ring Fling", () => {
   });
 
   it("when the stepper is shown, then its bounds come from THROWS_PER_SET", () => {
-    const atMin = minigamePanelView({ ...RING_READY, throwsPerSet: THROWS_PER_SET.min }).stepper;
-    const atMax = minigamePanelView({ ...RING_READY, throwsPerSet: THROWS_PER_SET.max }).stepper;
-    const between = minigamePanelView({ ...RING_READY, throwsPerSet: THROWS_PER_SET.min + 1 }).stepper;
+    const atMin = minigamePanelView({ ...RING_READY, throwsPerSet: THROWS_PER_SET.min }, KEYBOARD_CONTROL).stepper;
+    const atMax = minigamePanelView({ ...RING_READY, throwsPerSet: THROWS_PER_SET.max }, KEYBOARD_CONTROL).stepper;
+    const between = minigamePanelView({ ...RING_READY, throwsPerSet: THROWS_PER_SET.min + 1 }, KEYBOARD_CONTROL).stepper;
     assert.equal(atMin?.value, THROWS_PER_SET.min, "value at the min");
     assert.equal(atMin?.canDecrease, false, "no decrease at the min");
     assert.equal(atMin?.canIncrease, true, "increase at the min");
@@ -119,55 +121,78 @@ describe("given a Ring Fling", () => {
   });
 
   it("when a set is under way, then the stepper is locked", () => {
-    const midSet = minigamePanelView({ ...RING_READY, phase: "scored", attempt: 2, setScores: [10], setTotal: 10 }).stepper;
-    const running = minigamePanelView({ ...RING_READY, phase: "running" }).stepper;
+    const midSet = minigamePanelView({ ...RING_READY, phase: "scored", attempt: 2, setScores: [10], setTotal: 10 }, KEYBOARD_CONTROL).stepper;
+    const running = minigamePanelView({ ...RING_READY, phase: "running" }, KEYBOARD_CONTROL).stepper;
     assert.deepEqual([midSet?.canDecrease, midSet?.canIncrease, running?.canDecrease, running?.canIncrease], [false, false, false, false]);
   });
 
   it("when the set is complete, then the stepper opens again", () => {
-    const done = minigamePanelView({ ...RING_READY, phase: "scored", setScores: [1], setTotal: 1, setComplete: true }).stepper;
+    const done = minigamePanelView({ ...RING_READY, phase: "scored", setScores: [1], setTotal: 1, setComplete: true }, KEYBOARD_CONTROL).stepper;
     assert.equal(done?.canIncrease, true);
   });
 
   it("when the first throw is scored, then there is no set line to repeat it", () => {
-    const view = minigamePanelView({ ...RING_READY, phase: "scored", lastScore: 30, setScores: [30], setTotal: 30 });
+    const view = minigamePanelView({ ...RING_READY, phase: "scored", lastScore: 30, setScores: [30], setTotal: 30 }, KEYBOARD_CONTROL);
     assert.equal(view.score, "30 pts");
     assert.equal(view.setScores, null);
   });
 
   it("when the set is complete, then the set line lists every throw", () => {
-    const view = minigamePanelView({ ...RING_READY, phase: "scored", attempt: 3, lastScore: 5, setScores: [10, 20, 5], setTotal: 35, setComplete: true });
+    const view = minigamePanelView({ ...RING_READY, phase: "scored", attempt: 3, lastScore: 5, setScores: [10, 20, 5], setTotal: 35, setComplete: true }, KEYBOARD_CONTROL);
     assert.equal(view.setScores, "Set: 10 · 20 · 5");
   });
 
   it("when the next throw is ready, then the set line lists the finished throws", () => {
-    const view = minigamePanelView({ ...RING_READY, attempt: 3, setScores: [10, 20], setTotal: 30 });
+    const view = minigamePanelView({ ...RING_READY, attempt: 3, setScores: [10, 20], setTotal: 30 }, KEYBOARD_CONTROL);
     assert.equal(view.setScores, "Set: 10 · 20");
   });
 
   it("when the dummy is out, then the live ring is captioned", () => {
-    assert.equal(minigamePanelView({ ...RING_READY, phase: "thrown", liveValue: 30 }).live, "Ring: 30");
+    assert.equal(minigamePanelView({ ...RING_READY, phase: "thrown", liveValue: 30 }, KEYBOARD_CONTROL).live, "Ring: 30");
   });
 
   it("when a throw scores nothing, then it reads 0 pts with the hint", () => {
-    const view = minigamePanelView({ ...RING_READY, phase: "scored", lastScore: 0, setScores: [0] });
+    const view = minigamePanelView({ ...RING_READY, phase: "scored", lastScore: 0, setScores: [0] }, KEYBOARD_CONTROL);
     assert.equal(view.score, "0 pts");
     assert.equal(view.scoreHint, "Short of the cups");
   });
 
   it("when a throw scores, then there is no hint", () => {
-    assert.equal(minigamePanelView({ ...RING_READY, phase: "scored", lastScore: 10, setScores: [10] }).scoreHint, null);
+    assert.equal(minigamePanelView({ ...RING_READY, phase: "scored", lastScore: 10, setScores: [10] }, KEYBOARD_CONTROL).scoreHint, null);
   });
 
   it("when a long jump scores nothing, then there is no hint", () => {
-    assert.equal(minigamePanelView({ ...LONG_JUMP_READY, phase: "scored", lastScore: 0 }).scoreHint, null);
+    assert.equal(minigamePanelView({ ...LONG_JUMP_READY, phase: "scored", lastScore: 0 }, KEYBOARD_CONTROL).scoreHint, null);
   });
 
   it("when the long jump is thrown, then the live reading is captioned Distance", () => {
-    assert.equal(minigamePanelView({ ...LONG_JUMP_READY, phase: "thrown", liveValue: 61.3 }).live, "Distance 61.3 m");
+    assert.equal(minigamePanelView({ ...LONG_JUMP_READY, phase: "thrown", liveValue: 61.3 }, KEYBOARD_CONTROL).live, "Distance 61.3 m");
   });
 
   it("when the high jump is thrown, then the live reading is captioned Height", () => {
-    assert.equal(minigamePanelView({ ...LONG_JUMP_READY, mode: "highJump", phase: "thrown", liveValue: 2.14 }).live, "Height 2.1 m");
+    assert.equal(minigamePanelView({ ...LONG_JUMP_READY, mode: "highJump", phase: "thrown", liveValue: 2.14 }, KEYBOARD_CONTROL).live, "Height 2.1 m");
   });
+});
+
+describe("given a long jump with its bail", () => {
+  const BAILING: MinigameHudState = { ...LONG_JUMP_READY, bail: { pressed: false, verdict: null } };
+  const cases = [
+    { it: "when it is ready and nothing is pressed, then the prompt names the control and the barrier", state: BAILING, control: "Shift", expectedPrompt: "Press Shift as you hit the barrier", expectedResult: null },
+    { it: "when it is running on a pad whose boost button is named Cross, then the prompt names Cross", state: { ...BAILING, phase: "running" }, control: "Cross", expectedPrompt: "Press Cross as you hit the barrier", expectedResult: null },
+    { it: "when the bail is pressed and the barrier is not hit yet, then the prompt says so", state: { ...BAILING, phase: "running", bail: { pressed: true, verdict: null } }, control: "Shift", expectedPrompt: "Bail pressed", expectedResult: null },
+    { it: "when he is thrown after a perfect bail, then the prompt is gone and the result reads Perfect", state: { ...BAILING, phase: "thrown", bail: { pressed: true, verdict: { kind: "perfect", offsetSeconds: 0.01, quality: 1 } } }, control: "Shift", expectedPrompt: null, expectedResult: "Perfect" },
+    { it: "when he is thrown after an early press, then the result reads the seconds early", state: { ...BAILING, phase: "scored", lastScore: 70, bail: { pressed: true, verdict: { kind: "early", offsetSeconds: -0.12, quality: 0.5 } } }, control: "Shift", expectedPrompt: null, expectedResult: "Early 0.12 s" },
+    { it: "when he is thrown after a late press, then the result reads the seconds late", state: { ...BAILING, phase: "scored", lastScore: 70, bail: { pressed: true, verdict: { kind: "late", offsetSeconds: 0.08, quality: 0.6 } } }, control: "Shift", expectedPrompt: null, expectedResult: "Late 0.08 s" },
+    { it: "when the only press was far too early, then the result says the bail was wasted", state: { ...BAILING, phase: "scored", lastScore: 50, bail: { pressed: true, verdict: { kind: "tooEarly", offsetSeconds: -0.9, quality: 0 } } }, control: "Shift", expectedPrompt: null, expectedResult: "Too early (0.90 s): no bail" },
+    { it: "when the press came after the throw, then the result says it was too late", state: { ...BAILING, phase: "scored", lastScore: 50, bail: { pressed: true, verdict: { kind: "tooLate", offsetSeconds: 0.6, quality: 0 } } }, control: "Shift", expectedPrompt: null, expectedResult: "Too late (0.60 s): no bail" },
+    { it: "when nothing was pressed, then the result reads No bail", state: { ...BAILING, phase: "scored", lastScore: 50, bail: { pressed: false, verdict: { kind: "none", offsetSeconds: null, quality: 0 } } }, control: "Shift", expectedPrompt: null, expectedResult: "No bail" },
+    { it: "when it is another mode with no bail, then there is neither prompt nor result", state: { ...LONG_JUMP_READY, mode: "highJump" }, control: "Shift", expectedPrompt: null, expectedResult: null },
+  ] as const;
+  for (const testCase of cases) {
+    it(testCase.it, () => {
+      const view = minigamePanelView(testCase.state, testCase.control);
+      assert.equal(view.bailPrompt, testCase.expectedPrompt, "prompt");
+      assert.equal(view.bailResult, testCase.expectedResult, "result");
+    });
+  }
 });

@@ -123,6 +123,14 @@ export const HIT_DV = 4;
 /** His torso centre this near (m) the ground: he has touched down (lying, it rests at 0.1–0.3 m; thrown, it is over 0.5 m). */
 export const GROUND_REACH = 0.45;
 
+/** `velocity`'s horizontal speed becomes its whole speed, aimed `elevation` rad above its horizontal heading (a standing-still release stays still). */
+function turnToElevation(velocity: THREE.Vector3, elevation: number): void {
+  const speed = hypot2(velocity.x, velocity.z);
+  if (speed === 0) return;
+  const flat = Math.cos(elevation);
+  velocity.set(velocity.x * flat, speed * Math.sin(elevation), velocity.z * flat);
+}
+
 /** `world.step()` timings kept (the newest): a 30 s window steps the world at most a few thousand times. */
 const STEP_LOG = 8192;
 
@@ -666,7 +674,7 @@ export class RagdollSystem {
    * dummy flies now or (Rapier still loading) once it is in. The sim's own event (`EjectionWatch`), a netplay host's
    * message or a highlight clip's record: the dummy starts from the event's numbers alone, so the same event is the
    * same throw wherever it is launched. `rides` false: the ride-along never frames him (a reel's throw from another
-   * crash than its own, `ownThrow`). `releaseScale` scales his launch velocity (the range minigames' boost: `forward` the horizontal, `upward` the vertical; unset: the event's own).
+   * crash than its own, `ownThrow`). `releaseScale` changes his launch velocity (the range minigames' boost: `forward` scales the horizontal, `upward` the vertical, `elevation` turns the whole of the scaled horizontal speed up to an angle; unset: the event's own).
    */
   launch(e: Ejection, cars: readonly DeformableCar[], rides = true, releaseScale: ReleaseScale = NO_RELEASE_SCALE): void {
     this.cars = cars;
@@ -682,6 +690,7 @@ export class RagdollSystem {
     t.w.copy(e.spin);
     ejectionVelocity(e, t.v);
     t.v.set(t.v.x * releaseScale.forward, t.v.y * releaseScale.upward, t.v.z * releaseScale.forward);
+    if (releaseScale.elevation !== null) turnToElevation(t.v, releaseScale.elevation);
     t.car = e.car;
     t.age = 0;
     t.cop = e.cop;

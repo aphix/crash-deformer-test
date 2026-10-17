@@ -34,6 +34,8 @@ import { EngineMinigames } from "./engine-minigame-commands.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
 import { aimLabShot, LAB_FOV, LAB_SHOT } from "./lab-shot.ts";
 import { detSin, detCos } from "../kernel/physics-core.js";
+import { SLOMO_HELD } from "../match/phase.ts";
+import { MINIGAME_MODE } from "../scenes/minigame-constants.ts";
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -655,7 +657,7 @@ export abstract class EngineScenes extends EngineMinigames {
       this.clock.targetScale = 1;
     }
     this.clock.wallSinceImpact = 0;
-    this.clock.slomoAt = 0;
+    this.clock.slomoAt = this.minigameMode === MINIGAME_MODE.longJump ? SLOMO_HELD : 0;
     this.clock.preImpactBy = NaN;
     this.impactKph = null;
     this.fxPoofed = false;

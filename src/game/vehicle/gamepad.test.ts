@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { blankPad, mergeTouch, PAD_BUTTON, PAD_DEAD, padLabel, readPad, stickScale, triggerValue, type PadSource } from "./gamepad.ts";
+import { blankPad, mergeTouch, PAD_BUTTON, PAD_DEAD, padButtonName, padFamily, padLabel, readPad, stickScale, triggerValue, type PadSource } from "./gamepad.ts";
 import { blankIntent, readIntent, shapeDrive } from "./drive-input.ts";
 import { idleDrive } from "./car-drive.ts";
 import { assertSameDigest } from "./test-support.ts";
@@ -73,12 +73,35 @@ describe("given a gamepad being polled", () => {
     assert.equal(s.lx, 0);
   });
 
-  it("when an Xbox pad or a PlayStation pad is named, then each gets its own label", () => {
-    assert.equal(padLabel("Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)"), "Xbox controller");
-    assert.equal(padLabel("DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)"), "PlayStation controller");
-    assert.equal(padLabel("054c-0ce6-DualSense Wireless Controller"), "PlayStation controller");
-    assert.equal(padLabel("Generic USB Joystick"), "Controller");
-  });
+  const idCases = [
+    { it: "when Chrome names an Xbox One pad, then it is Xbox", id: "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)", expectedFamily: "xbox", expectedLabel: "Xbox controller" },
+    { it: "when Chrome names an Xbox 360 pad through XInput, then it is Xbox", id: "Xbox 360 Controller (XInput STANDARD GAMEPAD)", expectedFamily: "xbox", expectedLabel: "Xbox controller" },
+    { it: "when Firefox names an Xbox pad by vendor and product, then it is Xbox", id: "045e-0b13-Xbox Wireless Controller", expectedFamily: "xbox", expectedLabel: "Xbox controller" },
+    { it: "when Chrome names a DualSense, then it is PlayStation", id: "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)", expectedFamily: "playstation", expectedLabel: "PlayStation controller" },
+    { it: "when Chrome names a DualShock 4 'Wireless Controller', then it is PlayStation", id: "Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)", expectedFamily: "playstation", expectedLabel: "PlayStation controller" },
+    { it: "when Firefox names a DualSense by vendor and product, then it is PlayStation", id: "054c-0ce6-DualSense Wireless Controller", expectedFamily: "playstation", expectedLabel: "PlayStation controller" },
+    { it: "when Firefox names a DualShock 4 by vendor and product, then it is PlayStation", id: "054c-09cc-Wireless Controller", expectedFamily: "playstation", expectedLabel: "PlayStation controller" },
+    { it: "when a bare 'Wireless Controller' names no vendor, then it is PlayStation", id: "Wireless Controller", expectedFamily: "playstation", expectedLabel: "PlayStation controller" },
+    { it: "when a generic joystick is named, then it is generic", id: "Generic USB Joystick", expectedFamily: "generic", expectedLabel: "Controller" },
+  ] as const;
+  for (const testCase of idCases) {
+    it(testCase.it, () => {
+      assert.equal(padFamily(testCase.id), testCase.expectedFamily, "family");
+      assert.equal(padLabel(testCase.id), testCase.expectedLabel, "label");
+    });
+  }
+
+  const buttonCases = [
+    { it: "when an Xbox pad's four face buttons are named, then they are A, B, X and Y", family: "xbox", expectedNames: ["A", "B", "X", "Y"] },
+    { it: "when a PlayStation pad's four face buttons are named, then they are Cross, Circle, Square and Triangle", family: "playstation", expectedNames: ["Cross", "Circle", "Square", "Triangle"] },
+    { it: "when a generic pad's four face buttons are named, then they follow the Xbox layout", family: "generic", expectedNames: ["A", "B", "X", "Y"] },
+  ] as const;
+  for (const testCase of buttonCases) {
+    it(testCase.it, () => {
+      const faceButtons = [PAD_BUTTON.south, PAD_BUTTON.east, PAD_BUTTON.west, PAD_BUTTON.north];
+      for (let at = 0; at < faceButtons.length; at++) assert.equal(padButtonName(testCase.family, faceButtons[at]!), testCase.expectedNames[at], `face button ${at}`);
+    });
+  }
 });
 
 describe("given a gamepad driving a car", () => {

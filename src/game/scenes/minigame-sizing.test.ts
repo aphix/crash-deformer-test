@@ -14,6 +14,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import { activeGround, setGround, type Ground } from "../world/ground.ts";
 import { HIGH_JUMP_MEASURED, REST_HOLD, STATION_ANCHORS, THROW_BOOST, type MinigameMode } from "./minigame-constants.ts";
+import { BAIL_ELEVATION_DEGREES, BAIL_PERFECT_SECONDS, BAIL_WINDOW_SECONDS, bailRelease, bailVerdict } from "./minigame-bail.ts";
 import { JerseyBarrier } from "./engine-props.ts";
 import { RANGE } from "./range.ts";
 import { MinigameGround } from "./minigame-ground.ts";
@@ -81,20 +82,21 @@ const STANDARD_CLASS_IDS: readonly string[] = ["sedan", "truck", "police", "hatc
 const RING_SWEEP = { first: 0.6, last: 1, step: 0.02 } as const;
 
 /**
- * The long jump's bars (m past the barrier). The range's farthest sign stands at `signStep * signs` and its field ends at `length`: the best
- * class's best run must land and rest past that sign and short of the field's end; every class's mid run rests past `LONG_JUMP_MID_REACH`.
+ * The long jump's bars (m past the barrier), on the landing (the rest is a skid lottery of up to about 35 m on top of it). The range's last sign
+ * stands at `signStep * signs` (the field's end), past every perfect landing: the signs run past the best run. A perfect bail lands the
+ * farthest class near the far end and every class well down the field; a run with no bail lands mid-field; each farther press lands shorter by
+ * a step, and an early press lands as a late one of its distance does (the ragdoll's own scatter is the slack).
  */
-const LONG_JUMP_FAR_SIGN = RANGE.signStep * RANGE.signs;
-const LONG_JUMP_MID_REACH = 50;
-/** The long jump's mutations: upward times the first must keep the best run from the far sign, times the second must carry it past the field's end. */
-const LONG_JUMP_UPWARD_CUT = 0.5;
-const LONG_JUMP_UPWARD_BOOST = 1.3;
-/**
- * The classes whose slower (mid) run lands shorter than their full-throttle run. The muscle, truck and monster are left out: a slower car
- * leaves the barrier with MORE upward speed (the monster 4.7 m/s against 3.4 m/s at full throttle, its pre.y carried off the incline), a
- * ratio no boost multiplier can change, which outweighs the 15% lower horizontal speed.
- */
-const SPEED_MONOTONE_CLASS_IDS: readonly string[] = ["sedan", "muscle", "police", "hatchback", "wagon"];
+const LONG_JUMP_LAST_SIGN = RANGE.signStep * RANGE.signs;
+const LONG_JUMP_BEST_BAND = { minimum: 97, maximum: 108 } as const;
+const LONG_JUMP_CLASS_MINIMUM = 85;
+const LONG_JUMP_NO_BAIL_BAND = { minimum: 42, maximum: 58 } as const;
+const LONG_JUMP_FADE_STEP = 8;
+const LONG_JUMP_FADE_SLACK = 1;
+const LONG_JUMP_EARLY_LATE_GAP = 4;
+/** The long jump's mutations: the perfect elevation cut to this (deg) must leave the best run short of the far end; forward times this must carry it past the band. */
+const LONG_JUMP_ELEVATION_CUT_DEGREES = 25;
+const LONG_JUMP_FORWARD_BOOST = 1.3;
 
 type RunKind = "best" | "mid";
 
@@ -283,7 +285,7 @@ const measurements = new Map<string, Measurement[]>();
 
 /** Every class's best and mid run through `mode` with `scale`, each thrown `repeats` times. */
 async function measure(mode: MinigameMode, scale: ReleaseScale, repeats: number): Promise<Measurement[]> {
-  const key = `${mode}:${scale.forward}:${scale.upward}:${repeats}`;
+  const key = `${mode}:${scale.forward}:${scale.upward}:${scale.elevation}:${repeats}`;
   let cached = measurements.get(key);
   if (cached === undefined) {
     const range = await rangeFor(mode);
@@ -313,7 +315,7 @@ function bestClassRun(rows: readonly Measurement[]): Measurement {
   return bestRunsOf(rows).reduce((best, row) => (lowest(row, crossingOf) > lowest(best, crossingOf) ? row : best));
 }
 
-const scaled = (scale: ReleaseScale, factors: Partial<ReleaseScale>): ReleaseScale => ({ forward: scale.forward * (factors.forward ?? 1), upward: scale.upward * (factors.upward ?? 1) });
+const scaled = (scale: ReleaseScale, factors: Partial<ReleaseScale>): ReleaseScale => ({ forward: scale.forward * (factors.forward ?? 1), upward: scale.upward * (factors.upward ?? 1), elevation: scale.elevation });
 const metres = (value: number): string => value.toFixed(1);
 
 /** What `highJumpLayout` is given from repeat `repeat`: the best class's best crossing, and the farthest any class's best run lands. */
@@ -382,20 +384,56 @@ function ringFlingViolations(rows: readonly Measurement[]): string[] {
   return violations;
 }
 
-/** What a long jump boost breaks, from every class's best and mid run: empty when every bar holds. The best class is the one whose best run lands farthest (a rest is a skid lottery on top of the landing). */
-function longJumpViolations(rows: readonly Measurement[]): string[] {
+/** What the perfect bail breaks, from every class's best and mid run: empty when every bar holds. The best class is the one whose best run lands farthest (a rest is a skid lottery on top of the landing). */
+function perfectBailViolations(rows: readonly Measurement[]): string[] {
   const violations: string[] = [];
   const bestClass = bestRunsOf(rows).reduce((best, row) => (lowest(row, landingOf) > lowest(best, landingOf) ? row : best));
-  if (lowest(bestClass, landingOf) < LONG_JUMP_FAR_SIGN) violations.push(`the ${bestClass.type.id}'s best run lands at ${metres(lowest(bestClass, landingOf))} m, short of the ${LONG_JUMP_FAR_SIGN} m sign`);
-  if (lowest(bestClass, restOf) < LONG_JUMP_FAR_SIGN) violations.push(`the ${bestClass.type.id}'s best run rests at ${metres(lowest(bestClass, restOf))} m, short of the ${LONG_JUMP_FAR_SIGN} m sign`);
-  if (highest(bestClass, restOf) > RANGE.length) violations.push(`the ${bestClass.type.id}'s best run rests at ${metres(highest(bestClass, restOf))} m, past the field's end at ${RANGE.length} m`);
-  for (const row of midRunsOf(rows)) {
-    if (lowest(row, restOf) < LONG_JUMP_MID_REACH) violations.push(`the ${row.type.id}'s mid run rests at ${metres(lowest(row, restOf))} m, short of ${LONG_JUMP_MID_REACH} m`);
+  if (lowest(bestClass, landingOf) < LONG_JUMP_BEST_BAND.minimum) violations.push(`the ${bestClass.type.id}'s best run lands at ${metres(lowest(bestClass, landingOf))} m, short of ${LONG_JUMP_BEST_BAND.minimum} m`);
+  if (highest(bestClass, landingOf) > LONG_JUMP_BEST_BAND.maximum) violations.push(`the ${bestClass.type.id}'s best run lands at ${metres(highest(bestClass, landingOf))} m, past ${LONG_JUMP_BEST_BAND.maximum} m`);
+  if (highest(bestClass, landingOf) >= LONG_JUMP_LAST_SIGN) violations.push(`the ${bestClass.type.id}'s best run lands at ${metres(highest(bestClass, landingOf))} m, at or past the last sign (${LONG_JUMP_LAST_SIGN} m)`);
+  for (const row of bestRunsOf(rows)) {
+    if (lowest(row, landingOf) < LONG_JUMP_CLASS_MINIMUM) violations.push(`the ${row.type.id}'s best run lands at ${metres(lowest(row, landingOf))} m, short of ${LONG_JUMP_CLASS_MINIMUM} m`);
   }
-  for (const id of SPEED_MONOTONE_CLASS_IDS) {
-    const best = bestRunsOf(rows).find((row) => row.type.id === id)!;
-    const mid = midRunsOf(rows).find((row) => row.type.id === id)!;
-    if (lowest(best, landingOf) <= highest(mid, landingOf)) violations.push(`the ${id}'s mid run lands at ${metres(highest(mid, landingOf))} m, no shorter than its best run's ${metres(lowest(best, landingOf))} m`);
+  for (const best of bestRunsOf(rows)) {
+    const mid = midRunsOf(rows).find((row) => row.type.id === best.type.id)!;
+    if (lowest(best, landingOf) <= highest(mid, landingOf)) violations.push(`the ${best.type.id}'s mid run lands at ${metres(highest(mid, landingOf))} m, no shorter than its best run's ${metres(lowest(best, landingOf))} m`);
+  }
+  return violations;
+}
+
+/** What a run with no bail breaks: every class's best run lands mid-field. */
+function noBailViolations(rows: readonly Measurement[]): string[] {
+  const violations: string[] = [];
+  for (const row of bestRunsOf(rows)) {
+    if (lowest(row, landingOf) < LONG_JUMP_NO_BAIL_BAND.minimum) violations.push(`the ${row.type.id}'s no-bail run lands at ${metres(lowest(row, landingOf))} m, short of ${LONG_JUMP_NO_BAIL_BAND.minimum} m`);
+    if (highest(row, landingOf) > LONG_JUMP_NO_BAIL_BAND.maximum) violations.push(`the ${row.type.id}'s no-bail run lands at ${metres(highest(row, landingOf))} m, past ${LONG_JUMP_NO_BAIL_BAND.maximum} m`);
+  }
+  return violations;
+}
+
+/**
+ * What the fade breaks, per class's best run: the landing never grows with the press's distance (the slack is the ragdoll's own scatter in
+ * where a touchdown is read), it falls by a step across each of the coarse stages (perfect, 0.1 s, 0.2 s, no press), and an early press lands
+ * as a late one of its distance does.
+ */
+function fadeViolations(byOffset: ReadonlyMap<number | null, readonly Measurement[]>): string[] {
+  const violations: string[] = [];
+  const landingAt = (offset: number | null, id: string): number => bestRunsOf(byOffset.get(offset)!).find((row) => row.type.id === id)!.flights[0]!.landingDistance;
+  const distances = [0, 0.05, 0.1, 0.2];
+  for (const type of DRIVER_CARS) {
+    const stages = distances.map((distance) => (landingAt(-distance, type.id) + landingAt(distance, type.id)) / 2);
+    stages.push(landingAt(null, type.id));
+    for (let at = 1; at < stages.length; at++) {
+      if (stages[at]! > stages[at - 1]! + LONG_JUMP_FADE_SLACK) violations.push(`the ${type.id}'s landing grows from fade stage ${at - 1} to ${at}: ${metres(stages[at - 1]!)} to ${metres(stages[at]!)} m`);
+    }
+    const coarse = [stages[0]!, stages[2]!, stages[3]!, stages[4]!];
+    for (let at = 1; at < coarse.length; at++) {
+      if (coarse[at - 1]! - coarse[at]! < LONG_JUMP_FADE_STEP) violations.push(`the ${type.id}'s landing falls only ${metres(coarse[at - 1]! - coarse[at]!)} m across coarse stage ${at}, under ${LONG_JUMP_FADE_STEP} m`);
+    }
+    for (const distance of distances.slice(1)) {
+      const gap = Math.abs(landingAt(-distance, type.id) - landingAt(distance, type.id));
+      if (gap > LONG_JUMP_EARLY_LATE_GAP) violations.push(`the ${type.id}'s early and late ${distance} s presses land ${metres(gap)} m apart, over ${LONG_JUMP_EARLY_LATE_GAP} m`);
+    }
   }
   return violations;
 }
@@ -490,25 +528,64 @@ describe("given Ring Fling with THROW_BOOST.ringFling on the real ground, car an
   });
 });
 
-describe("given the long jump with THROW_BOOST.longJump on the real ground, car, barrier and ragdoll", () => {
-  it("when each of the 7 classes' best and mid runs is thrown, then the best class's best run lands and rests between the 100 m sign and the field's end, every mid run rests past 50 m, and a slower run lands shorter for the classes whose carry allows", async (t) => {
-    const rows = await measure("longJump", THROW_BOOST.longJump, REPEATS);
-    t.diagnostic(`THROW_BOOST.longJump ${JSON.stringify(THROW_BOOST.longJump)}\n${TABLE_HEADER}\n${tableOf(rows, (flight) => `sign ${Math.min(LONG_JUMP_FAR_SIGN, Math.floor(flight.restDistance / RANGE.signStep) * RANGE.signStep)} m`)}`);
-    assert.deepEqual(longJumpViolations(rows), []);
+/** The bail offsets the long jump table walks, press minus hit in seconds (null: no press). Early and late of one distance earn the same launch. */
+const BAIL_OFFSETS = [0, -0.05, 0.05, -0.1, 0.1, -0.2, 0.2, null] as const;
+
+/** What the bail does at `offsetSeconds`: the long jump's release the bail module makes of that press. */
+function releaseAtOffset(offsetSeconds: number | null): ReleaseScale {
+  return bailRelease(THROW_BOOST.longJump, bailVerdict(offsetSeconds).quality);
+}
+
+const offsetName = (offset: number | null): string => (offset === null ? "no press" : offset === 0 ? "perfect" : `${offset > 0 ? "+" : ""}${offset.toFixed(2)} s`);
+
+/** Per class, the best run's landing and rest (m) at every bail offset: one line a class. */
+function bailTable(byOffset: ReadonlyMap<number | null, readonly Measurement[]>): string {
+  const header = `| class | ${BAIL_OFFSETS.map(offsetName).join(" | ")} |`;
+  const lines = DRIVER_CARS.map((type) => {
+    const cells = BAIL_OFFSETS.map((offset) => {
+      const flight = bestRunsOf(byOffset.get(offset)!).find((row) => row.type.id === type.id)!.flights[0]!;
+      return `${metres(flight.landingDistance)} / ${metres(flight.restDistance)}`;
+    });
+    return `| ${type.id} | ${cells.join(" | ")} |`;
+  });
+  return `lands / rests (m), best run\n${header}\n${lines.join("\n")}`;
+}
+
+async function bailMeasurements(): Promise<Map<number | null, Measurement[]>> {
+  const byOffset = new Map<number | null, Measurement[]>();
+  for (const offset of BAIL_OFFSETS) byOffset.set(offset, await measure("longJump", releaseAtOffset(offset), offset === 0 || offset === null ? REPEATS : 1));
+  return byOffset;
+}
+
+describe("given the long jump's timed bail with THROW_BOOST.longJump on the real ground, car, barrier and ragdoll", () => {
+  it("when every class's best and mid run is thrown at each bail offset, then the perfect bail lands the best class near the far end short of the last sign, every no-press run lands mid-field, and the metres fade smoothly and alike for an early and a late press", async (t) => {
+    const byOffset = await bailMeasurements();
+    const perfect = byOffset.get(0)!;
+    const none = byOffset.get(null)!;
+    t.diagnostic(`THROW_BOOST.longJump ${JSON.stringify(THROW_BOOST.longJump)}; bail window ${BAIL_WINDOW_SECONDS} s, perfect within ${BAIL_PERFECT_SECONDS} s\n${bailTable(byOffset)}\nperfect, all runs\n${TABLE_HEADER}\n${tableOf(perfect, (flight) => `sign ${Math.min(LONG_JUMP_LAST_SIGN, Math.floor(flight.restDistance / RANGE.signStep) * RANGE.signStep)} m`)}\nno press, all runs\n${TABLE_HEADER}\n${tableOf(none, (flight) => `sign ${Math.min(LONG_JUMP_LAST_SIGN, Math.floor(flight.restDistance / RANGE.signStep) * RANGE.signStep)} m`)}`);
+    assert.deepEqual(perfectBailViolations(perfect), [], "the perfect bail");
+    assert.deepEqual(noBailViolations(none), [], "no bail");
+    assert.deepEqual(fadeViolations(byOffset), [], "the fade");
   });
 
-  it("when the boost is the identity (the throw as the sim has it), then the best run is far short of the 100 m sign", async () => {
-    const violations = longJumpViolations(await measure("longJump", NO_RELEASE_SCALE, 1));
+  it("when the boost is the identity (the throw as the sim has it), then the perfect bar breaks: the best run is far short of the far end", async () => {
+    const violations = perfectBailViolations(await measure("longJump", NO_RELEASE_SCALE, 1));
     assert.ok(violations.some((violation) => violation.includes("best run lands") && violation.includes("short of")), violations.join("; "));
   });
 
-  it(`when upward is ${LONG_JUMP_UPWARD_CUT} times the chosen, then the best run falls short of the 100 m sign`, async () => {
-    const violations = longJumpViolations(await measure("longJump", scaled(THROW_BOOST.longJump, { upward: LONG_JUMP_UPWARD_CUT }), 1));
+  it(`when the perfect elevation is ${LONG_JUMP_ELEVATION_CUT_DEGREES} degrees instead of ${BAIL_ELEVATION_DEGREES.perfect}, then the perfect run falls short of the far end`, async () => {
+    const cut = { ...releaseAtOffset(0), elevation: LONG_JUMP_ELEVATION_CUT_DEGREES * (Math.PI / 180) };
+    const violations = perfectBailViolations(await measure("longJump", cut, 1));
     assert.ok(violations.some((violation) => violation.includes("best run lands") && violation.includes("short of")), violations.join("; "));
   });
 
-  it(`when upward is ${LONG_JUMP_UPWARD_BOOST} times the chosen, then the best run is carried past the field's end`, async () => {
-    const violations = longJumpViolations(await measure("longJump", scaled(THROW_BOOST.longJump, { upward: LONG_JUMP_UPWARD_BOOST }), 1));
-    assert.ok(violations.some((violation) => violation.includes("past the field's end")), violations.join("; "));
+  it(`when forward is ${LONG_JUMP_FORWARD_BOOST} times the chosen, then the perfect run is carried past the far end's band`, async () => {
+    const violations = perfectBailViolations(await measure("longJump", scaled(releaseAtOffset(0), { forward: LONG_JUMP_FORWARD_BOOST }), 1));
+    assert.ok(violations.some((violation) => violation.includes("best run lands") && violation.includes("past")), violations.join("; "));
+  });
+
+  it("when no bail is pressed but the elevation is the perfect one, then the no-bail bar breaks: the run lands far past mid-field", async () => {
+    const violations = noBailViolations(await measure("longJump", bailRelease(THROW_BOOST.longJump, 1), 1));
+    assert.ok(violations.some((violation) => violation.includes("past")), violations.join("; "));
   });
 });

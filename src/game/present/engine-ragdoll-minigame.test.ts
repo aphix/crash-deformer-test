@@ -19,6 +19,9 @@ const HELD_STILL_SECONDS = 30;
 /** The release scale of the scaled-launch row, and how near (m/s, an f32's resolution at 11 m/s) a scaled component must be. */
 const FORWARD_SCALE = 0.5;
 const UPWARD_SCALE = 1.2;
+/** The elevation row's scale: forward, and the angle (rad) the whole of the scaled horizontal speed is turned up to. */
+const ELEVATION_FORWARD = 0.5;
+const ELEVATION_RADIANS = Math.PI / 6;
 const SPEED_TOLERANCE = 1e-5;
 const ONE_BOX: readonly BoxPlacement[] = [{ x: 20, y: 0.5, z: 0, yaw: 0, width: 1, height: 1, depth: 1 }];
 
@@ -112,9 +115,9 @@ describe("given a dummy launched through launch() from a car", () => {
       return { velocity, position, own };
     };
     const unscaled = await launched(null);
-    const identity = await launched({ forward: 1, upward: 1 });
+    const identity = await launched({ forward: 1, upward: 1, elevation: null });
     const named = await launched(NO_RELEASE_SCALE);
-    const scaled = await launched({ forward: FORWARD_SCALE, upward: UPWARD_SCALE });
+    const scaled = await launched({ forward: FORWARD_SCALE, upward: UPWARD_SCALE, elevation: null });
     assert.equal(unscaled.velocity.x, Math.fround(unscaled.own.x), "default x");
     assert.equal(unscaled.velocity.y, Math.fround(unscaled.own.y), "default y");
     assert.equal(unscaled.velocity.z, Math.fround(unscaled.own.z), "default z");
@@ -126,11 +129,27 @@ describe("given a dummy launched through launch() from a car", () => {
     assert.equal(named.velocity.z, unscaled.velocity.z, "NO_RELEASE_SCALE z");
     assert.equal(NO_RELEASE_SCALE.forward, 1, "the named identity's forward");
     assert.equal(NO_RELEASE_SCALE.upward, 1, "the named identity's upward");
+    assert.equal(NO_RELEASE_SCALE.elevation, null, "the named identity's elevation");
     assert.ok(Math.abs(scaled.velocity.x - FORWARD_SCALE * unscaled.own.x) < SPEED_TOLERANCE, `scaled x ${scaled.velocity.x} vs ${FORWARD_SCALE * unscaled.own.x}`);
     assert.ok(Math.abs(scaled.velocity.y - UPWARD_SCALE * unscaled.own.y) < SPEED_TOLERANCE, `scaled y ${scaled.velocity.y} vs ${UPWARD_SCALE * unscaled.own.y}`);
     assert.ok(Math.abs(scaled.velocity.z - FORWARD_SCALE * unscaled.own.z) < SPEED_TOLERANCE, `scaled z ${scaled.velocity.z} vs ${FORWARD_SCALE * unscaled.own.z}`);
     assert.equal(scaled.position.x, unscaled.position.x, "the scale does not move him: same start x");
     assert.equal(scaled.position.y, unscaled.position.y, "the scale does not move him: same start y");
     assert.equal(scaled.position.z, unscaled.position.z, "the scale does not move him: same start z");
+  });
+
+  it("when launched with forward 0.5 and an elevation of 30 degrees, then his whole speed is half the ejection's horizontal speed, aimed 30 degrees up along its heading, whatever the ejection's own vertical was", async () => {
+    const sys = await system();
+    const ejection = farEjection();
+    sys.launch(ejection, [makeCar()], true, { forward: ELEVATION_FORWARD, upward: 1, elevation: ELEVATION_RADIANS });
+    const velocity = dummyOf(sys).bodies[0]!.linvel();
+    const own = ejectionVelocity(ejection, new THREE.Vector3());
+    sys.dispose();
+    const speed = ELEVATION_FORWARD * Math.hypot(own.x, own.z);
+    const horizontal = Math.hypot(velocity.x, velocity.z);
+    assert.ok(own.y !== 0, "the ejection has a vertical of its own to be dropped");
+    assert.ok(Math.abs(horizontal - speed * Math.cos(ELEVATION_RADIANS)) < SPEED_TOLERANCE, `horizontal ${horizontal} vs ${speed * Math.cos(ELEVATION_RADIANS)}`);
+    assert.ok(Math.abs(velocity.y - speed * Math.sin(ELEVATION_RADIANS)) < SPEED_TOLERANCE, `vertical ${velocity.y} vs ${speed * Math.sin(ELEVATION_RADIANS)}`);
+    assert.ok(Math.abs(velocity.x / horizontal - own.x / Math.hypot(own.x, own.z)) < SPEED_TOLERANCE, "the heading is the ejection's");
   });
 });

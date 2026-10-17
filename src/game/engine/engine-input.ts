@@ -13,7 +13,8 @@ import { FX_TIERS, type FxTier } from "../present/engine-post.ts";
 import type { SkyMode } from "../present/sky-dome.ts";
 import { CHASE_KNOBS, type ChaseKnobId } from "../present/drive-cam.ts";
 import { loadUltra as fetchUltra } from "../present/ultra/load.ts";
-import { gameKey } from "../vehicle/drive-input.ts";
+import { boostPadButton, gameKey } from "../vehicle/drive-input.ts";
+import { MINIGAME_MODE } from "../scenes/minigame-constants.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
 import { SCENE_KEY_SCENES, SEAT_KEYS } from "./engine-keys.ts";
 import { MouseLook } from "./mouse-look.ts";
@@ -24,6 +25,10 @@ import { DETAIL_LEVELS } from "../present/car-detail.ts";
 import { EngineRigs } from "./engine-rigs.ts";
 import { SETTING_KEY } from "./constants.ts";
 import { FRAME_HZ } from "../kernel/constants.ts";
+
+/** The pad bit `readIntent` reads as Boost (0 if none), for a press shorter than a frame that only `pad.pressed` keeps. */
+const BOOST_PAD_BUTTON = boostPadButton();
+const BOOST_PAD_MASK = BOOST_PAD_BUTTON === null ? 0 : 1 << BOOST_PAD_BUTTON;
 
 /** A press that misses every hull still follows the car whose centre shows this near it (share of the canvas width): the derby's far, small cars. */
 const PICK_NEAR = 0.03;
@@ -702,7 +707,9 @@ export abstract class EngineInput extends EngineRigs {
       return;
     }
     this.seat.detached = this.view.flying;
+    this.seat.boostLocked = this.minigameMode === MINIGAME_MODE.longJump;
     if (this.seat.sample(this.keys, pad)) this.emitHud();
+    this.minigames.sampleBoost(this.seat.intent.boost, (pad.pressed & BOOST_PAD_MASK) !== 0, this.elapsedSim);
     this.stepReset(this.race.active, (pad.held & (1 << PAD_BUTTON.down)) !== 0, wallDt, (pad.pressed & (1 << PAD_BUTTON.down)) !== 0);
     const hit = pad.pressed;
     if (hit === 0) return;

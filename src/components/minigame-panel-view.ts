@@ -1,5 +1,6 @@
 import { MINIGAME_MODE, MINIGAME_MODES, MODE_LABELS, THROWS_PER_SET, type MinigameMode } from "../game/scenes/minigame-constants.ts";
 import type { MinigameHudState } from "../game/scenes/minigame-session.ts";
+import { bailPromptText, bailResultText } from "../game/hud/bail-prompt.ts";
 
 const MODE_UNITS: Readonly<Record<MinigameMode, string>> = { longJump: "m", highJump: "m", ringFling: "pts" };
 
@@ -18,6 +19,10 @@ type ThrowsStepperView = { value: number; canDecrease: boolean; canIncrease: boo
 
 type MinigamePanelView = {
   title: string;
+  /** The Long jump's prompt before the throw ("Press Shift as you hit the barrier"), else null. */
+  bailPrompt: string | null;
+  /** The Long jump's timing once he is thrown ("Perfect", "Early 0.12 s"), else null. */
+  bailResult: string | null;
   /** The captioned reading while he is out (Distance 61.3 m, Height 2.1 m, Ring: 30), else null. */
   live: string | null;
   /** The big Score line once the attempt is scored (in a Ring Fling, the throw's score; after the set, the total), else null. */
@@ -42,7 +47,7 @@ type MinigamePanelView = {
 };
 
 /** What the panel shows and which buttons work, from the session's card: pure, so the labels and enabled states are testable without a DOM. */
-export function minigamePanelView(state: MinigameHudState): MinigamePanelView {
+export function minigamePanelView(state: MinigameHudState, bailControl: string): MinigamePanelView {
   const { mode, phase } = state;
   const isRing = mode === MINIGAME_MODE.ringFling;
   const throwsPerSet = state.throwsPerSet ?? THROWS_PER_SET.default;
@@ -51,8 +56,12 @@ export function minigamePanelView(state: MinigameHudState): MinigamePanelView {
   const finishedScore = state.setComplete ? state.setTotal : state.lastScore;
   const scoreShown = phase === "scored" && !state.setComplete;
   const earlierScores = (scoreShown ? state.setScores.slice(0, -1) : state.setScores).map((score) => Math.round(score));
+  const bail = state.bail;
+  const bailBeforeThrow = bail !== null && bail.verdict === null && (phase === "ready" || phase === "running");
   return {
     title: MODE_LABELS[mode],
+    bailPrompt: bail !== null && bailBeforeThrow ? bailPromptText(bailControl, bail.pressed) : null,
+    bailResult: bail === null || bail.verdict === null ? null : bailResultText(bail.verdict),
     live: state.liveValue === null ? null : `${LIVE_CAPTIONS[mode]} ${isRing ? Math.round(state.liveValue) : valueText(mode, state.liveValue)}`,
     score: phase === "scored" && finishedScore !== null ? valueText(mode, finishedScore) : null,
     scoreHint: isRing && phase === "scored" && state.lastScore === 0 ? "Short of the cups" : null,

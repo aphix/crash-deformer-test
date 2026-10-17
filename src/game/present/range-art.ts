@@ -11,6 +11,8 @@ const BOARD_W = 2.6;
 const BOARD_H = 1.3;
 const BOARD_Y = 2;
 const BOARD_OUT = 1.5;
+/** Cells per row of the distance signs' atlas. */
+const SIGN_ATLAS_COLUMNS = 6;
 
 /**
  * The ejection range's art (`RANGE`): a sand field from the wall at the origin down +x, a low kerb round it, and a
@@ -35,17 +37,18 @@ export function makeRangeArt(): THREE.Group {
   const kerb = new THREE.Mesh(mergeGeometries(kerbs)!, new THREE.MeshStandardMaterial({ color: 0xe8e4da, roughness: 0.85 }));
   kerb.receiveShadow = true;
 
-  // One atlas, 5 × 2 cells of 256 × 128 px: "10" … "100", black on scuffed yellow.
+  // One atlas of `SIGN_ATLAS_COLUMNS` columns of 256 × 128 px cells: "10" … "110", black on scuffed yellow.
+  const signRows = Math.ceil(RANGE.signs / SIGN_ATLAS_COLUMNS);
   const canvas = document.createElement("canvas");
-  canvas.width = 1280;
-  canvas.height = 256;
+  canvas.width = SIGN_ATLAS_COLUMNS * 256;
+  canvas.height = signRows * 128;
   const ctx = canvas.getContext("2d")!;
   const boards: THREE.BufferGeometry[] = [];
   const posts: THREE.BufferGeometry[] = [];
   const z = -W - BOARD_OUT;
   for (let k = 0; k < RANGE.signs; k++) {
-    const col = k % 5;
-    const row = Math.floor(k / 5);
+    const col = k % SIGN_ATLAS_COLUMNS;
+    const row = Math.floor(k / SIGN_ATLAS_COLUMNS);
     const x0 = col * 256;
     const y0 = row * 128;
     ctx.fillStyle = SIGN_BOARD_PAINT.fill;
@@ -62,7 +65,7 @@ export function makeRangeArt(): THREE.Group {
     // Facing −x (back toward the wall): a +z plane turned −90° about y.
     const board = new THREE.PlaneGeometry(BOARD_W, BOARD_H).rotateY(-Math.PI / 2).translate(d, BOARD_Y, z);
     const uv = board.getAttribute("uv");
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, (col + uv.getX(i)) / 5, 1 - (row + 1 - uv.getY(i)) / 2);
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, (col + uv.getX(i)) / SIGN_ATLAS_COLUMNS, 1 - (row + 1 - uv.getY(i)) / signRows);
     boards.push(board);
     const postH = BOARD_Y - BOARD_H / 2;
     for (const dz of [-BOARD_W * 0.35, BOARD_W * 0.35]) posts.push(new THREE.BoxGeometry(0.1, postH, 0.1).translate(d + 0.06, postH / 2, z + dz));

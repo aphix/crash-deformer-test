@@ -31,6 +31,9 @@ export const PAD_BUTTON = {
   right: 15,
 } as const;
 
+/** Buttons in the standard mapping `readPad` reads (indices 0 to 16): the bit width of `PadState.held`. */
+export const PAD_BUTTON_COUNT = 17;
+
 export const PAD_DEAD = {
   /** Radial stick deadzone; worn Xbox/DualSense sticks rest around 0.08–0.12. */
   stick: 0.15,
@@ -109,7 +112,7 @@ export function readPad(src: PadSource | null, out: PadState): void {
   out.lt = triggerValue(b[PAD_BUTTON.lt]?.value ?? 0);
   out.rt = triggerValue(b[PAD_BUTTON.rt]?.value ?? 0);
   let held = 0;
-  const n = Math.min(b.length, 17);
+  const n = Math.min(b.length, PAD_BUTTON_COUNT);
   for (let i = 0; i < n; i++) {
     const btn = b[i]!;
     if (btn.pressed || btn.value > 0.5) held |= 1 << i;
@@ -138,11 +141,37 @@ export function mergeTouch(t: TouchPad, out: PadState, prev: number): void {
   t.tapped = 0;
 }
 
-/** Short HUD label from a `Gamepad.id` (vendor 045e Microsoft, 054c Sony). */
+/** The pad families whose face buttons are named differently (the W3C standard mapping is the same for all). */
+export type PadFamily = "xbox" | "playstation" | "generic";
+
+/**
+ * The family of a `Gamepad.id`: Chrome writes "Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)", Firefox
+ * "054c-0ce6-DualSense Wireless Controller". Vendor 045e is Microsoft, 054c Sony; the DualShock 4 reports itself as a bare "Wireless
+ * Controller", which only Sony pads are called, so it is checked after Xbox's own "Xbox Wireless Controller".
+ */
+export function padFamily(id: string): PadFamily {
+  if (/xbox|xinput|045e/i.test(id)) return "xbox";
+  if (/dualsense|dualshock|playstation|wireless controller|054c/i.test(id)) return "playstation";
+  return "generic";
+}
+
+const PAD_FAMILY_LABELS: Readonly<Record<PadFamily, string>> = { xbox: "Xbox controller", playstation: "PlayStation controller", generic: "Controller" };
+
+/** Short HUD label from a `Gamepad.id`. */
 export function padLabel(id: string): string {
-  if (/xbox|xinput|045e/i.test(id)) return "Xbox controller";
-  if (/dualsense|dualshock|playstation|054c/i.test(id)) return "PlayStation controller";
-  return "Controller";
+  return PAD_FAMILY_LABELS[padFamily(id)];
+}
+
+/** The face buttons' names by family, indexed by `PAD_BUTTON.south | east | west | north` (0-3); a generic pad is named as the standard mapping's Xbox layout. */
+const FACE_BUTTON_NAMES: Readonly<Record<PadFamily, readonly string[]>> = {
+  xbox: ["A", "B", "X", "Y"],
+  playstation: ["Cross", "Circle", "Square", "Triangle"],
+  generic: ["A", "B", "X", "Y"],
+};
+
+/** What a pad of `family` calls the face button `button` (a `PAD_BUTTON` index); the standard mapping's own name for any other button. */
+export function padButtonName(family: PadFamily, button: number): string {
+  return FACE_BUTTON_NAMES[family][button] ?? `button ${button}`;
 }
 
 /** One dual-rumble effect: motor strengths 0–1 (`weak` the light high-frequency motor, `strong` the heavy low-frequency one) held for `ms`. */
@@ -187,6 +216,8 @@ export class GamepadInput {
   readonly touch: TouchPad = { x: 0, y: 0, held: 0, tapped: 0 };
   /** HUD label of the active pad, null when none is connected. */
   label: string | null = null;
+  /** The active pad's family, null when none is connected (the face buttons' names: `padButtonName`). */
+  family: PadFamily | null = null;
   private index = -1;
   /** The active pad's haptics as of the last poll; null when no pad is connected or the browser has none. */
   private actuator: HapticSource | null = null;
@@ -227,9 +258,10 @@ export class GamepadInput {
     mergeTouch(this.touch, this.state, prev);
     // A browser without haptics (Firefox) has no actuator; no pad, no actuator: `rumble` then sends nothing.
     this.actuator = pad ? (pad.vibrationActuator ?? null) : null;
-    const label = pad ? padLabel(pad.id) : null;
-    if (label !== this.label) {
-      this.label = label;
+    const family = pad ? padFamily(pad.id) : null;
+    if (family !== this.family) {
+      this.family = family;
+      this.label = pad ? padLabel(pad.id) : null;
       this.onChange();
     }
     return this.state;
