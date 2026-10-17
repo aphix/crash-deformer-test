@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import * as THREE from "three";
 import { CarDetail, DETAIL_LEVELS } from "../present/car-detail.ts";
+import { treadNormalMap } from "./car-materials.ts";
 import { DeformableCar } from "./car.ts";
 import { assertSameNumbers, paint } from "./test-support.ts";
 import { WheelBatch } from "./wheel-batch.ts";
@@ -66,6 +67,13 @@ describe("given the wheel batch and cars at two distances from the camera", () =
     const [full, far] = batch.meshes as [THREE.InstancedMesh, THREE.InstancedMesh];
     assert.ok(triangles(far) * 5 <= triangles(full), `${triangles(far)} of ${triangles(full)}`);
     assert.equal(Object.keys(far.geometry.attributes).sort().join(), Object.keys(full.geometry.attributes).sort().join());
+  });
+
+  test("when the batch is built, then the near and far wheel materials use the one shared tread normal map", () => {
+    const { batch } = stage();
+    const [full, far] = batch.meshes as [THREE.InstancedMesh, THREE.InstancedMesh];
+    assert.equal((full.material as THREE.MeshStandardMaterial).normalMap, treadNormalMap(), "near wheel");
+    assert.equal((far.material as THREE.MeshStandardMaterial).normalMap, treadNormalMap(), "far wheel");
   });
 });
 

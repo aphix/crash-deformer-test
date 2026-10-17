@@ -447,29 +447,106 @@ export function makeSirenMaterial(): THREE.MeshStandardMaterial {
 /** Lug pitches across one repeat of `treadNormalMap` (u runs around the tyre). */
 const TREAD_LUGS = 4;
 
-/** Tread normal map: `TREAD_LUGS` lug pitches across u, the tread width across v with a flat margin
- *  (v < 0.06 / > 0.94), so shoulders and rims pinned to v = 0 read flat. Built in code (no DOM). Shared. */
+/** `treadNormalMap` columns: one repeat round the tyre. */
+export const TYRE_MAP_WIDTH = 128;
+
+/** Its rows: the tread band, an outer sidewall band above it and the inner sidewall's below; a power of two for the mip chain. */
+export const TYRE_MAP_HEIGHT = 128;
+
+/** Rows of the tread band: the tread-only map's 64, so every tread texel keeps the normal it had before the sidewalls. */
+export const TREAD_BAND_ROWS = 64;
+
+/** First row of the tread band; the rows above it are the outer sidewall's. Row 0 is the flat row the rim and spokes sample (their `uv1` is (·, 0)). */
+export const TREAD_BAND_FIRST_ROW = 32;
+
+/** Share of the tread band, at each edge, that is flat shoulder rubber (the lugs fill the share between). */
+const TREAD_EDGE_SHARE = 0.06;
+const TREAD_LUG_SHARE = 0.88;
+
+/** The row where the lugs start: the tread edge, where the sidewall's last profile point sits. */
+const TREAD_EDGE_ROW = TREAD_BAND_FIRST_ROW + TREAD_BAND_ROWS * TREAD_EDGE_SHARE;
+
+/**
+ * The map row each outer-sidewall profile point samples, bead first. Spaced like the profile's arc lengths
+ * (0.058, 0.037, 0.027 m) so a row is about 3.4 mm of sidewall on every segment; the inner sidewall mirrors them about the tread band.
+ */
+const OUTER_SIDEWALL_POINT_ROWS = [0, 17, 28, TREAD_EDGE_ROW] as const;
+
+/** Sidewall relief is in map rows counted from the bead and in tread heights: 1 is flat rubber, ridges stand above it. */
+export const BEAD_RING_CENTRE_ROW = 7;
+export const BEAD_RING_HALF_ROWS = 4;
+/** Rim-protector ring: broad and rounded, the strongest relief on the sidewall. */
+const BEAD_RING_HEIGHT = 0.5;
+
+/** Fine concentric ribs: rows of their crests, each a rounded ridge as wide as the spacing so they touch without a flat between. */
+export const RIB_CREST_ROWS = [23, 26, 29] as const;
+export const RIB_HALF_ROWS = 1.5;
+const RIB_HEIGHT = 0.15;
+
+/** Moulded lettering on the outer sidewall alone: a band of raised dashes, `LETTER_SLOTS` slots round each repeat. */
+export const LETTER_FIRST_ROW = 14;
+export const LETTER_SLOTS = 12;
+/** Between the ribs' and the bead ring's relief: dash edges tilt the normal about 25 degrees (the bead ring 38, the ribs 18). */
+const LETTER_HEIGHT = 0.15;
+/** Per slot (cycling): the dash's share of the slot and its rows tall from `LETTER_FIRST_ROW`, so the band reads as text rather than a dotted line. */
+const LETTER_DASH_SHARES = [0.4, 0.7, 0.55, 0.85, 0.3] as const;
+export const LETTER_DASH_ROWS = [5, 3, 5, 4, 2] as const;
+
+/** A 0..1 rounded ridge `distanceRows` from its crest, gone `halfRows` away on either side. */
+function roundedRidge(distanceRows: number, halfRows: number): number {
+  if (Math.abs(distanceRows) >= halfRows) return 0;
+  return 0.5 * (1 + Math.cos((Math.PI * distanceRows) / halfRows));
+}
+
+/** 1 where a letter dash stands at (u, row), else 0; slot and fraction wrap at u = 1 so the seam has no step. */
+function letterDash(u: number, row: number): number {
+  const slotPosition = u * LETTER_SLOTS;
+  const slot = Math.floor(slotPosition) % LETTER_SLOTS;
+  const dashKind = slot % LETTER_DASH_SHARES.length;
+  if (row < LETTER_FIRST_ROW || row >= LETTER_FIRST_ROW + LETTER_DASH_ROWS[dashKind]!) return 0;
+  return slotPosition % 1 < LETTER_DASH_SHARES[dashKind]! ? 1 : 0;
+}
+
+/** Rubber height of the sidewall rows: a bead ring and ribs on both, lettering on the outer one (rows above the tread band) only. */
+function sidewallHeight(u: number, row: number): number {
+  const isOuter = row < TYRE_MAP_HEIGHT / 2;
+  const rowsFromBead = isOuter ? row : TYRE_MAP_HEIGHT - row;
+  let height = 1 + BEAD_RING_HEIGHT * roundedRidge(rowsFromBead - BEAD_RING_CENTRE_ROW, BEAD_RING_HALF_ROWS);
+  for (const crestRow of RIB_CREST_ROWS) height += RIB_HEIGHT * roundedRidge(rowsFromBead - crestRow, RIB_HALF_ROWS);
+  return isOuter ? height + LETTER_HEIGHT * letterDash(u, row) : height;
+}
+
+/** Rubber height in [0, 1] of the tread band at (u, v across the band): two circumferential grooves, chevron sipes on the centre rib, lug slots on the shoulders. */
+function treadHeight(u: number, v: number): number {
+  if (v < TREAD_EDGE_SHARE || v > 1 - TREAD_EDGE_SHARE) return 1;
+  const t = (v - TREAD_EDGE_SHARE) / TREAD_LUG_SHARE;
+  if (Math.abs(t - 0.33) < 0.035 || Math.abs(t - 0.67) < 0.035) return 0;
+  const lug = (u * TREAD_LUGS) % 1;
+  if (t < 0.33 || t > 0.67) return Math.abs(lug - 0.5) < 0.09 ? 0.25 : 1;
+  const chevron = (lug + Math.abs(t - 0.5) * 0.9) % 1;
+  return Math.abs(chevron - 0.5) < 0.05 ? 0.4 : 1;
+}
+
+function rubberHeight(u: number, row: number): number {
+  const rowInTread = row - TREAD_BAND_FIRST_ROW;
+  if (rowInTread < 0 || rowInTread >= TREAD_BAND_ROWS) return sidewallHeight(u, row);
+  return treadHeight(u, rowInTread / TREAD_BAND_ROWS);
+}
+
+/**
+ * Tyre normal map: the tread band in the middle rows (`TREAD_LUGS` lug pitches across u, flat shoulders), a sidewall
+ * band each side of it (bead ring, ribs, outer lettering), row 0 flat for the rim and spokes. Built in code (no DOM). Shared, never disposed.
+ */
 export const treadNormalMap = once((): THREE.DataTexture => {
-  const w = 128;
-  const h = 64;
-  /** Rubber height in [0, 1]: two circumferential grooves, chevron sipes on the centre rib, lug slots on the shoulders. */
-  const height = (u: number, v: number): number => {
-    if (v < 0.06 || v > 0.94) return 1;
-    const t = (v - 0.06) / 0.88;
-    if (Math.abs(t - 0.33) < 0.035 || Math.abs(t - 0.67) < 0.035) return 0;
-    const lug = (u * TREAD_LUGS) % 1;
-    if (t < 0.33 || t > 0.67) return Math.abs(lug - 0.5) < 0.09 ? 0.25 : 1;
-    const chevron = (lug + Math.abs(t - 0.5) * 0.9) % 1;
-    return Math.abs(chevron - 0.5) < 0.05 ? 0.4 : 1;
-  };
+  const w = TYRE_MAP_WIDTH;
+  const h = TYRE_MAP_HEIGHT;
   const data = new Uint8Array(w * h * 4);
   const n = new THREE.Vector3();
   const k = 2.2;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const v = y / h;
-      const dx = (height((x + 1) / w, v) - height((x - 1 + w) / w, v)) * k;
-      const dy = (height(x / w, Math.min(1, (y + 1) / h)) - height(x / w, Math.max(0, (y - 1) / h))) * k;
+      const dx = (rubberHeight((x + 1) / w, y) - rubberHeight((x - 1 + w) / w, y)) * k;
+      const dy = (rubberHeight(x / w, Math.min(h, y + 1)) - rubberHeight(x / w, Math.max(0, y - 1))) * k;
       n.set(-dx, -dy, 1).normalize();
       const o = (y * w + x) * 4;
       data[o] = Math.round((n.x * 0.5 + 0.5) * 255);
@@ -503,8 +580,12 @@ const TYRE_PROFILE = [
   [0.262, 0.112],
   [0.205, 0.1],
 ] as const;
-/** `treadNormalMap` v per profile point: flat (0 / 1) off the tread, 0.06 → 0.94 across it. */
-const TYRE_TREAD_V = [0, 0, 0, 0.06, 0.5, 0.94, 1, 1, 1] as const;
+/** `treadNormalMap` v per profile point (`OUTER_SIDEWALL_POINT_ROWS` / map height): the outer sidewall from the flat guard row at the bead, the tread across its band, the inner sidewall mirrored to the other bead. */
+const TYRE_TREAD_V = [
+  ...OUTER_SIDEWALL_POINT_ROWS.map((row) => row / TYRE_MAP_HEIGHT),
+  0.5,
+  ...OUTER_SIDEWALL_POINT_ROWS.map((row) => 1 - row / TYRE_MAP_HEIGHT).reverse(),
+];
 /** Normal-map repeats round the tyre (× `TREAD_LUGS` lugs each). */
 const TREAD_REPEATS = 8;
 /** Rim barrel lip to lip, axle offset descending so the faces point at the axle (seen through the spokes). */
