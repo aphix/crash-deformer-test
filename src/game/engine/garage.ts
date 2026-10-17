@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { GarageArt, GARAGE } from "../present/garage-art.ts";
-import type { SprayBitmap } from "../present/spray.ts";
+import { PUFF_STEP, type SprayBitmap } from "../present/spray.ts";
 import type { PlayerLooks, SprayTarget } from "./player-looks.ts";
 import type { SprayTool } from "../hud/hud-store.ts";
 
@@ -11,8 +11,6 @@ type PointerMove = { readonly clientX: number; readonly clientY: number; getCoal
 
 /** The can's radius range (m), and what it starts at. */
 export const SPRAY_RADIUS = { min: 0.02, max: 0.3, start: 0.06 } as const;
-/** Along a drag, a puff every this many dot radii of the stroke's travel (world), so a fast drag leaves a line, not dots. */
-const PUFF_STEP = 0.5;
 
 const _ndc = new THREE.Vector2();
 const _p = new THREE.Vector3();

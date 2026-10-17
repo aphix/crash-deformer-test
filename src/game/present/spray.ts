@@ -7,6 +7,9 @@ import { SPRAY_FACE, SPRAY_PALETTE, sprayFace, type SprayLayout } from "../match
  * (`match/look-data.ts`) in GLSL.
  */
 
+/** Along a stroke, a puff every this many dot radii of its travel (world), so a fast drag leaves a line, not dots: the garage's can and the rivals' pen (`rival-pen.ts`) both step by it. */
+export const PUFF_STEP = 0.5;
+
 const _uv = new Float64Array(2);
 
 /** One bitmap: a palette index per texel, and the premultiplied RGBA texture the shader samples (linear filtered: soft edges). */
