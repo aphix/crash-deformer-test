@@ -1,14 +1,14 @@
 import { after, afterEach, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { COUNTER_NAMES, phaseCard, readBattery, watchLongTasks, watchWork } from "./bench-measure.ts";
-import { benchRaceEngine, disposeBenchEngine, runFrames } from "./engine-bench-headless.test-util.ts";
+import { benchRaceEngine, disposeBenchEngine, FRAME_S, runFrames } from "./engine-bench-headless.test-util.ts";
 import type { CrashEngine } from "./engine.ts";
 import { PHASE_NAMES, WORK_NAMES } from "./sim-phases.ts";
 
 /** Frames the race runs unmeasured first (10 s of sim: the grid's first crashes are in), then the measured stretch (2 s). */
 const WARM_FRAMES = 2400;
 const WINDOW_FRAMES = 480;
-const FRAME_S = 1 / 240;
+
 /** The most of the window's sim ms the phases may leave unattributed: the pacer's loop and the pose blend between steps (measured 0.7 %, 10 s warm, 2 s window). */
 const MAX_UNATTRIBUTED = 0.08;
 

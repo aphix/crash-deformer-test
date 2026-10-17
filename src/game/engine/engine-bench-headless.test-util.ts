@@ -6,9 +6,10 @@ import { CrashEngine } from "./engine.ts";
 import { BENCH } from "./bench-measure.ts";
 import { BENCH_RACE } from "./engine-bench-plan.ts";
 import { element, stubBrowser } from "./engine-headless.test-util.ts";
+import { FINE_HZ } from "../kernel/constants.ts";
 
 /** One step a frame: the pacer takes the fine slice, never more than one step a frame, so no frame meets its wall deadline and the steps do not depend on how fast the machine runs. */
-const FRAME_S = 1 / 240;
+export const FRAME_S = 1 / FINE_HZ;
 
 /** The real engine on the city bench's race (`BENCH_RACE`, the bench's seed), nothing drawn, the pacer pinned to the 1/240 s floor. One per process (a second `CrashEngine` never resolves `ready`). */
 export async function benchRaceEngine(): Promise<CrashEngine> {

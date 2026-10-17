@@ -183,7 +183,7 @@ export const COUNTER_NAMES = ["steps", ...WORK_NAMES, "prismQueries", "prismsVis
 export const COUNTER_COUNT = COUNTER_NAMES.length;
 
 /** The counters as they stand now, into `out` (`COUNTER_COUNT` long). Each only counts up: a window's work is the difference of two reads. */
-export function readCounters(parts: BenchParts, pace: Pick<SimPacer, "total">, out: Float64Array): void {
+function readCounters(parts: BenchParts, pace: Pick<SimPacer, "total">, out: Float64Array): void {
   out[0] = pace.total;
   out.set(parts.world.phases.work, 1);
   let k = 1 + WORK_COUNT;
@@ -232,9 +232,11 @@ export function watchWork(parts: BenchParts, pace: Pick<SimPacer, "total">): { e
   };
 }
 
+const LONG_TASK_ENTRY = "longtask";
+
 /** Counts the long tasks (`PerformanceObserver` "longtask") from now until `stop`, which returns them; `stop` returns null where the browser has no such entries (Chrome only). */
 export function watchLongTasks(): { stop(): LongTasks | null } {
-  if (typeof PerformanceObserver === "undefined" || !PerformanceObserver.supportedEntryTypes.includes("longtask")) return { stop: () => null };
+  if (typeof PerformanceObserver === "undefined" || !PerformanceObserver.supportedEntryTypes.includes(LONG_TASK_ENTRY)) return { stop: () => null };
   const found: LongTasks = { count: 0, totalMs: 0, maxMs: 0 };
   const take = (entries: PerformanceEntryList): void => {
     for (const entry of entries) {
@@ -244,7 +246,7 @@ export function watchLongTasks(): { stop(): LongTasks | null } {
     }
   };
   const observer = new PerformanceObserver((list) => take(list.getEntries()));
-  observer.observe({ type: "longtask" });
+  observer.observe({ type: LONG_TASK_ENTRY });
   return {
     stop: () => {
       take(observer.takeRecords());

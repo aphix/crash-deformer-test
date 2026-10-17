@@ -270,7 +270,8 @@ describe("given the bench result with the sim's phase table, its work counts, lo
   test("when the card is written, then one line names every phase with its ms per sim-second, the unattributed rest (summing to the headline) and the work counts, and the device line carries the long tasks and battery", () => {
     const lines = describeBench(RESULT);
     const phaseLine = lines.find((l) => l.startsWith("  sim phases"));
-    assert.ok(phaseLine?.startsWith("  sim phases, ms per sim-second: drive 30.0, plan 5.0, integrate 25.0, wreck 80.0, pairs 20.0, structure 18.0, course 8.0, bake 1.0, rules 3.0, settle 17.0, unattributed 5.0  (sum 212.0 of 212.0);  work per sim-second: steps 240, slices 330, liveCarSlices 3000, wreckCarSlices 1900"));
+    assert.ok(phaseLine !== undefined, "no phase line");
+    assert.ok(phaseLine.startsWith("  sim phases, ms per sim-second: drive 30.0, plan 5.0, integrate 25.0, wreck 80.0, pairs 20.0, structure 18.0, course 8.0, bake 1.0, rules 3.0, settle 17.0, unattributed 5.0  (sum 212.0 of 212.0);  work per sim-second: steps 240, slices 330, liveCarSlices 3000, wreckCarSlices 1900"));
     assert.ok(phaseLine.endsWith("ragdollMessages 0, ragdollBytes 0"));
     assert.ok(lines.some((l) => l.startsWith("9 cores, 8 GB") && l.includes("long tasks in the window: 4, 312.5 ms in all, longest 120.3 ms   battery: 83 % on battery at the start, 81 % on battery at the end")));
   });
